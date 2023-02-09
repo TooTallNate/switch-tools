@@ -1,14 +1,16 @@
 <html>
-    <body>
-        <h1>NSP Forwarder</h1>
-        <form method="POST" action="/api/build">
-            <input name="title" />
-            <input name="publisher" />
-            <input name="core" />
-            <input name="rom" />
-            <input name="image" type="file" />
-            <input name="keys" type="file" />
-            <input type="submit" />
-        </form>
-    </body>
+	<body>
+		<h1>NSP Forwarder</h1>
+		<form method="POST" action="/api/build" enctype="multipart/form-data">
+			<ul>
+				<li>Title: <input name="title" /></li>
+				<li>Publisher: <input name="publisher" /></li>
+				<li>Core: <input name="core" /></li>
+				<li>Rom: <input name="rom" /></li>
+				<li>Image: <input name="image" type="file" /></li>
+				<li>Keys: <input name="keys" type="file" /></li>
+				<li><input type="submit" value="Generate NRO" /></li>
+			</ul>
+		</form>
+	</body>
 </html>
