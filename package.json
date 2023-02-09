@@ -1,0 +1,15 @@
+{
+  "name": "nsp-forwarder",
+  "private": true,
+  "description": "Nintendo Switch NSP forwarder web application",
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.1",
+    "@types/node": "^18.13.0",
+    "typescript": "^4.9.5"
+  },
+  "dependencies": {
+    "fs-extra": "^11.1.0"
+  }
+}
