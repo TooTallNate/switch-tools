@@ -4,13 +4,27 @@
   "description": "Nintendo Switch NSP forwarder web application",
   "author": "Nathan Rajlich <n@n8.io>",
   "license": "ISC",
+  "scripts": {
+    "build": "remix build",
+    "dev": "remix dev"
+  },
   "devDependencies": {
+    "@remix-run/dev": "^1.12.0",
+    "@remix-run/eslint-config": "^1.12.0",
+    "@remix-run/serve": "^1.12.0",
     "@types/fs-extra": "^11.0.1",
     "@types/node": "^18.13.0",
+    "@types/react": "^18.0.27",
+    "@types/react-dom": "^18.0.10",
+    "eslint": "^8.33.0",
     "typescript": "^4.9.5"
   },
   "dependencies": {
+    "@remix-run/react": "^1.12.0",
+    "@remix-run/server-runtime": "^1.12.0",
     "fs-extra": "^11.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "react-image-crop": "^10.0.9"
   }
 }
