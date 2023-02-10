@@ -3,14 +3,10 @@ import { once } from 'events';
 import { tmpdir } from 'os';
 import { spawn } from 'child_process';
 import { mkdtemp, copy, writeFile, remove, readFile } from 'fs-extra';
+import { redirect } from '@remix-run/server-runtime';
 
+import { commitSession, getSession } from '~/session.server';
 import { generateRandomID } from '~/lib/generate-id';
-
-class BadRequest extends Response {
-	constructor(message: string) {
-		super(message, { status: 400 });
-	}
-}
 
 export async function generateNsp(request: Request) {
 	const TEMPLATE_PATH = join(process.cwd(), 'template');
@@ -28,25 +24,25 @@ export async function generateNsp(request: Request) {
 	const cwd = await mkdtemp(join(tmpdir(), `nsp-`));
 	try {
 		if (typeof id !== 'string') {
-			throw new BadRequest('expected "id" to be a string');
+			throw new Error('expected "id" to be a string');
 		}
 		if (typeof title !== 'string') {
-			throw new BadRequest('expected "title" to be a string');
+			throw new Error('expected "title" to be a string');
 		}
 		if (typeof publisher !== 'string') {
-			throw new BadRequest('expected "publisher" to be a string');
+			throw new Error('expected "publisher" to be a string');
 		}
 		if (typeof core !== 'string') {
-			throw new BadRequest('expected "core" to be a string');
+			throw new Error('expected "core" to be a string');
 		}
 		if (typeof rom !== 'string') {
-			throw new BadRequest('expected "rom" to be a string');
+			throw new Error('expected "rom" to be a string');
 		}
 		if (!imageFile || typeof imageFile === 'string') {
-			throw new BadRequest('expected "image" to be a File');
+			throw new Error('expected "image" to be a File');
 		}
 		if (!keysFile || typeof keysFile === 'string') {
-			throw new BadRequest('expected "keys" to be a File');
+			throw new Error('expected "keys" to be a File');
 		}
 
 		await copy(TEMPLATE_PATH, cwd);
@@ -84,9 +80,7 @@ export async function generateNsp(request: Request) {
 		await once(proc, 'close');
 		console.log('Exit code:', proc.exitCode);
 		if (proc.exitCode !== 0) {
-			throw new Response(`Got exit code ${proc.exitCode}`, {
-				status: 500,
-			});
+			throw new Error(`Got exit code ${proc.exitCode}`);
 		}
 
 		const data = await readFile(join(cwd, `hacbrewpack_nsp/${id}.nsp`));
@@ -97,7 +91,14 @@ export async function generateNsp(request: Request) {
 				'Content-Disposition': `attachment; filename="${title} [${id}].nsp"`,
 			},
 		});
-	} finally {
+	} catch (err: any) {
 		await remove(cwd);
+		const session = await getSession(request.headers.get('Cookie'));
+		session.flash('error', err.message);
+		return redirect('/error', {
+			headers: {
+				'Set-Cookie': await commitSession(session),
+			},
+		});
 	}
 }
