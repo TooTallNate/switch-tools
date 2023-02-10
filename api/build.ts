@@ -1,6 +1,6 @@
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { mkdtemp, copy, writeFile, readdir, remove, readFile } from 'fs-extra';
+import { mkdtemp, copy, writeFile, remove, readFile } from 'fs-extra';
 import { spawn } from 'child_process';
 import { IncomingMessage, ServerResponse } from 'http';
 import { once } from 'events';
@@ -16,7 +16,6 @@ export default async (
 	for await (const part of _req) {
 		parts.push(part);
 	}
-	const body = Buffer.concat(parts);
 	const host = _req.headers['x-forwarded-host'] || _req.headers['host'];
 	const protocol = _req.headers['x-forwarded-proto'] || 'https';
 	const url = new URL(_req.url || '/', `${protocol}://${host}`);
@@ -25,33 +24,41 @@ export default async (
 			'content-type': _req.headers['content-type']!,
 		},
 		method: _req.method,
-		body,
+		body: Buffer.concat(parts),
 	});
 	res.setHeader('content-type', 'text/plain');
 	const formData = await req.formData();
+	const id = formData.get('id');
 	const title = formData.get('title');
 	const publisher = formData.get('publisher');
 	const core = formData.get('core');
 	const rom = formData.get('rom');
 	const imageFile = formData.get('image');
 	const keysFile = formData.get('keys');
-	//console.log({
-	//	title,
-	//	publisher,
-	//	core,
-	//	rom,
-	//	image: imageFile,
-	//	keys: keysFile,
-	//});
-	if (!imageFile || typeof imageFile === 'string') {
-		throw new Error('expected "image" to be a File');
-	}
-	if (!keysFile || typeof keysFile === 'string') {
-		throw new Error('expected "keys" to be a File');
-	}
-
 	const cwd = await mkdtemp(join(tmpdir(), `nsp-`));
 	try {
+        if (typeof id !== 'string') {
+            throw new BadRequest('expected "id" to be a string');
+        }
+        if (typeof title !== 'string') {
+            throw new BadRequest('expected "title" to be a string');
+        }
+        if (typeof publisher !== 'string') {
+            throw new BadRequest('expected "publisher" to be a string');
+        }
+        if (typeof core !== 'string') {
+            throw new BadRequest('expected "core" to be a string');
+        }
+        if (typeof rom !== 'string') {
+            throw new BadRequest('expected "rom" to be a string');
+        }
+        if (!imageFile || typeof imageFile === 'string') {
+            throw new BadRequest('expected "image" to be a File');
+        }
+        if (!keysFile || typeof keysFile === 'string') {
+            throw new BadRequest('expected "keys" to be a File');
+        }
+
 		await copy(TEMPLATE_PATH, cwd);
 
 		await Promise.all([
@@ -74,11 +81,11 @@ export default async (
 			HACBREWPACK_PATH,
 			[
 				'--titleid',
-				'05D4B8D48CB70000',
+                id,
 				'--titlename',
-				title as string,
+				title,
 				'--titlepublisher',
-				publisher as string,
+				publisher,
 			],
 			{ cwd }
 		);
@@ -87,12 +94,20 @@ export default async (
 		await once(proc, 'close');
 		res.setHeader(
 			'Content-Disposition',
-			`attachment; filename="filename.nsp"`
+			`attachment; filename="${title} [${id}].nsp"`
 		);
 		res.end(
-			await readFile(join(cwd, 'hacbrewpack_nsp/05d4b8d48cb70000.nsp'))
+			await readFile(join(cwd, `hacbrewpack_nsp/${id}.nsp`))
 		);
+	} catch(err: any) {
+        res.setHeader('Content-Type', 'application/json; charset=utf8');
+        res.statusCode = err.code || 500;
+        res.end(JSON.stringify({ error: err.message }));
 	} finally {
 		await remove(cwd);
 	}
 };
+
+class BadRequest extends Error {
+    code = 400;
+}
