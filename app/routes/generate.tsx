@@ -20,7 +20,3 @@ export function CatchBoundary() {
 		</div>
 	);
 }
-
-export default function Generate() {
-	return <div>GET</div>;
-}
