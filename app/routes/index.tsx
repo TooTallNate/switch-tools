@@ -1,10 +1,7 @@
-import { Form } from '@remix-run/react';
+import { Form, useTransition } from '@remix-run/react';
 import { LinksFunction } from '@remix-run/server-runtime';
 import ReactCrop, { Crop, PercentCrop } from 'react-image-crop';
 import { useState, ChangeEventHandler, useEffect, useRef } from 'react';
-import { InfoCircledIcon } from '@radix-ui/react-icons';
-import * as Label from '@radix-ui/react-label';
-import * as Tooltip from '@radix-ui/react-tooltip';
 
 import { Input } from '~/components/input';
 
@@ -55,6 +52,9 @@ export default function Index() {
 	const imgRef = useRef<HTMLImageElement>(null);
 	const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
+	const transition = useTransition();
+	console.log({ transition });
+
 	useEffect(() => {
 		return () => {
 			if (imgSrc) {
@@ -81,11 +81,39 @@ export default function Index() {
 
 	const handleImageChange: ChangeEventHandler<HTMLInputElement> = (e) => {
 		const file = e.currentTarget.files?.[0];
-		if (!file) return;
+		if (!file) {
+			setImgSrc(undefined);
+			setCrop(undefined);
+			setCompletedCrop(undefined);
+			return;
+		}
 		console.log(file);
 		const url = URL.createObjectURL(file);
 		console.log(url);
 		setImgSrc(url);
+	};
+
+	const handleSubmit: React.FormEventHandler<HTMLFormElement> = async (e) => {
+		e.preventDefault();
+		const form = e.currentTarget;
+
+		// Generate the current canvas cropped image to JPEG
+		const imageBlob = previewCanvasRef.current
+			? await new Promise<Parameters<BlobCallback>[0]>((resolve) => {
+					previewCanvasRef.current!.toBlob(resolve, 'image/jpeg', 1);
+			  })
+			: null;
+		if (!imageBlob) return;
+
+		const imageFile = new File([imageBlob], 'image.jpg');
+
+		// Clever :smirk: https://stackoverflow.com/a/70485949/376773
+		const container = new DataTransfer();
+		container.items.add(imageFile);
+		form.image.files = container.files;
+
+		form.submit();
+		console.log('done!');
 	};
 
 	return (
@@ -94,6 +122,7 @@ export default function Index() {
 				method="post"
 				action="/generate"
 				encType="multipart/form-data"
+				onSubmit={handleSubmit}
 				reloadDocument
 			>
 				<label
