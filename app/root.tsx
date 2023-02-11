@@ -26,7 +26,7 @@ export const links: LinksFunction = () => {
 		{ rel: 'stylesheet', href: headerStyles },
 		{ rel: 'stylesheet', href: footerStyles },
 	];
-}
+};
 
 export default function App() {
 	return (
@@ -42,9 +42,20 @@ export default function App() {
 					<Outlet />
 				</div>
 				<div className="footer">
-					<span>Created by <a href="https://twitter.com/tootallnate">@TooTallNate</a></span>
-					<span><a href="https://github.com/TooTallNate/nsp-forwarder">Source Code</a></span>
-					<span>Hosted by <a href="https://vercel.com">Vercel</a></span>
+					<span>
+						Created by{' '}
+						<a href="https://twitter.com/tootallnate">
+							@TooTallNate
+						</a>
+					</span>
+					<span>
+						<a href="https://github.com/TooTallNate/nsp-forwarder">
+							Source Code
+						</a>
+					</span>
+					<span>
+						Hosted by <a href="https://vercel.com">Vercel</a>
+					</span>
 				</div>
 				<ScrollRestoration />
 				<Scripts />

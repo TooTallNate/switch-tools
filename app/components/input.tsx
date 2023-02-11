@@ -1,26 +1,26 @@
-import { InfoCircledIcon } from '@radix-ui/react-icons'
+import { InfoCircledIcon } from '@radix-ui/react-icons';
 import * as Label from '@radix-ui/react-label';
 import * as Tooltip from '@radix-ui/react-tooltip';
 
 interface InputProps {
-    name: string;
-    label: React.ReactNode;
-    tooltip: React.ReactNode;
+	name: string;
+	label: React.ReactNode;
+	tooltip: React.ReactNode;
 }
 
 export const Input = ({ name, label, tooltip, ...props }: InputProps) => {
-    return (
+	return (
 		<div
 			style={{
-				display: "flex",
-				flexWrap: "wrap",
-				padding: "10px 0",
+				display: 'flex',
+				flexWrap: 'wrap',
+				padding: '10px 0',
 				gap: 8,
 			}}
 		>
 			<Label.Root className="LabelRoot" htmlFor={name}>
 				{label}
-				{": "}
+				{': '}
 			</Label.Root>
 			<input
 				className="Input"
@@ -49,4 +49,4 @@ export const Input = ({ name, label, tooltip, ...props }: InputProps) => {
 			</Tooltip.Provider>
 		</div>
 	);
-}
+};

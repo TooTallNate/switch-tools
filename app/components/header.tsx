@@ -8,9 +8,9 @@ export const Header = ({
 	return (
 		<As>
 			{children
-				.split("")
+				.split('')
 				.map((char, i) =>
-					char === " " ? char : <span key={i}>{char}</span>
+					char === ' ' ? char : <span key={i}>{char}</span>
 				)}
 		</As>
 	);
