@@ -2,7 +2,7 @@ import { InfoCircledIcon } from '@radix-ui/react-icons';
 import * as Label from '@radix-ui/react-label';
 import * as Tooltip from '@radix-ui/react-tooltip';
 
-interface InputProps {
+interface InputProps extends React.ComponentPropsWithoutRef<'input'> {
 	name: string;
 	label: React.ReactNode;
 	tooltip: React.ReactNode;

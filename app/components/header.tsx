@@ -1,10 +1,9 @@
-export const Header = ({
-	children,
-	as: As,
-}: {
-	as: string;
+interface HeaderProps {
+	as: React.ElementType;
 	children: string;
-}) => {
+}
+
+export const Header = ({ as: As, children }: HeaderProps) => {
 	return (
 		<As>
 			{children
