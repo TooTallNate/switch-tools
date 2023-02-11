@@ -2,6 +2,7 @@ import { Form, useTransition } from '@remix-run/react';
 import { LinksFunction } from '@remix-run/server-runtime';
 import ReactCrop, { Crop, PercentCrop } from 'react-image-crop';
 import { useState, ChangeEventHandler, useEffect, useRef } from 'react';
+import * as HoverCard from '@radix-ui/react-hover-card';
 
 import { Input } from '~/components/input';
 
@@ -49,8 +50,9 @@ export default function Index() {
 	const [imgSrc, setImgSrc] = useState<string>();
 	const [crop, setCrop] = useState<Crop>();
 	const [completedCrop, setCompletedCrop] = useState<PercentCrop>();
-	const imgRef = useRef<HTMLImageElement>(null);
-	const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+	const imgRef = useRef<HTMLImageElement | null>(null);
+	const imgInputRef = useRef<HTMLInputElement | null>(null);
+	const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
 	const transition = useTransition();
 	console.log({ transition });
@@ -81,6 +83,10 @@ export default function Index() {
 
 	const handleImageChange: ChangeEventHandler<HTMLInputElement> = (e) => {
 		const file = e.currentTarget.files?.[0];
+		handleImageFile(file);
+	};
+
+	const handleImageFile = (file?: File) => {
 		if (!file) {
 			setImgSrc(undefined);
 			setCrop(undefined);
@@ -97,6 +103,8 @@ export default function Index() {
 		e.preventDefault();
 		const form = e.currentTarget;
 
+		if (!imgInputRef.current) return;
+
 		// Generate the current canvas cropped image to JPEG
 		const imageBlob = previewCanvasRef.current
 			? await new Promise<Parameters<BlobCallback>[0]>((resolve) => {
@@ -107,10 +115,11 @@ export default function Index() {
 
 		const imageFile = new File([imageBlob], 'image.jpg');
 
-		// Clever :smirk: https://stackoverflow.com/a/70485949/376773
+		// Clever, deserves credit :smirk:
+		// https://stackoverflow.com/a/70485949/376773
 		const container = new DataTransfer();
 		container.items.add(imageFile);
-		form.image.files = container.files;
+		imgInputRef.current.files = container.files;
 
 		form.submit();
 		console.log('done!');
@@ -136,21 +145,61 @@ export default function Index() {
 						ref={previewCanvasRef}
 						style={{ padding: 0, border: 'solid 1px transparent' }}
 					/>
-					<input
-						id="image"
-						name="image"
-						type="file"
-						required
-						onChange={handleImageChange}
-						style={{
-							opacity: 0,
-							position: 'absolute',
-							top: 0,
-							left: 0,
-							width: '100%',
-							height: '100%',
-						}}
-					/>
+					<HoverCard.Root>
+						<HoverCard.Trigger asChild>
+							<input
+								key="image-input"
+								id="image"
+								name="image"
+								type="file"
+								required
+								onChange={handleImageChange}
+								ref={(ref) => {
+									if (ref && ref !== imgInputRef.current) {
+										imgInputRef.current = ref;
+										handleImageFile(ref?.files?.[0]);
+									}
+								}}
+								style={{
+									opacity: 0,
+									position: 'absolute',
+									top: 0,
+									left: 0,
+									width: '100%',
+									height: '100%',
+								}}
+							/>
+						</HoverCard.Trigger>
+						<HoverCard.Portal>
+							<HoverCard.Content
+								className="HoverCardContent"
+								sideOffset={5}
+							>
+								{imgSrc ? (
+									<ReactCrop
+										crop={crop}
+										aspect={1}
+										onChange={(_, crop) => setCrop(crop)}
+										onComplete={(_, crop) =>
+											setCompletedCrop(crop)
+										}
+									>
+										<img
+											ref={imgRef}
+											src={imgSrc}
+											style={{
+												maxWidth: '400px',
+												maxHeight: '400px',
+											}}
+										/>
+									</ReactCrop>
+								) : (
+									'No image selected…'
+								)}
+								<HoverCard.Arrow className="HoverCardArrow" />
+							</HoverCard.Content>
+						</HoverCard.Portal>
+					</HoverCard.Root>
 				</label>
 				<Input
 					name="title"
@@ -199,18 +248,8 @@ export default function Index() {
 						</>
 					}
 				/>
-				<input type="submit" value="Generate NSP" />
+				<button type="submit">Generate NSP</button>
 			</Form>
-			{imgSrc && (
-				<ReactCrop
-					crop={crop}
-					aspect={1}
-					onChange={(_, crop) => setCrop(crop)}
-					onComplete={(_, crop) => setCompletedCrop(crop)}
-				>
-					<img ref={imgRef} src={imgSrc} width={300} />
-				</ReactCrop>
-			)}
 		</>
 	);
 }
