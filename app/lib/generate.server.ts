@@ -10,8 +10,10 @@ import { generateRandomID } from '~/lib/generate-id';
 
 export async function generateNsp(request: Request) {
 	const TEMPLATE_PATH = join(process.cwd(), 'template');
-	console.log();
-	const HACBREWPACK_PATH = join(process.cwd(), 'hacbrewpack');
+	const HACBREWPACK_PATH = join(
+		process.cwd(),
+		`hacbrewpack-${process.platform}`
+	);
 
 	const formData = await request.formData();
 	const id = formData.get('id') || generateRandomID();
