@@ -44,17 +44,26 @@ export default function App() {
 				<div className="footer">
 					<span>
 						Created by{' '}
-						<a href="https://twitter.com/tootallnate">
+						<a
+							target="_blank"
+							href="https://twitter.com/tootallnate"
+						>
 							@TooTallNate
 						</a>
 					</span>
 					<span>
-						<a href="https://github.com/TooTallNate/nsp-forwarder">
+						<a
+							target="_blank"
+							href="https://github.com/TooTallNate/nsp-forwarder"
+						>
 							Source Code
 						</a>
 					</span>
 					<span>
-						Hosted by <a href="https://vercel.com">Vercel</a>
+						Hosted by{' '}
+						<a target="_blank" href="https://vercel.com">
+							Vercel
+						</a>
 					</span>
 				</div>
 				<ScrollRestoration />

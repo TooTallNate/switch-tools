@@ -12,6 +12,7 @@ export const Input = ({ name, label, tooltip, ...props }: InputProps) => {
 	return (
 		<div
 			style={{
+				width: '100%',
 				display: 'flex',
 				flexWrap: 'wrap',
 				padding: '10px 0',
