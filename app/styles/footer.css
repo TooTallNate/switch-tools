@@ -1,0 +1,8 @@
+.footer {
+    margin-top: auto;
+    width: 100%;
+    background-color: rgba(255, 255, 255, 0.1);
+    font-family: 'Pipe Dream';
+    font-size: 1.25rem;
+    display: flex;
+}

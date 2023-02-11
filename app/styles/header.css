@@ -1,0 +1,51 @@
+@font-face {
+    font-family: 'Pipe Dream';
+    src: url('/PipeDream.woff2') format('woff2'),
+        url('/PipeDream.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+h1,
+h2 {
+	font-family: 'Pipe Dream';
+	margin: 0;
+    text-shadow: rgba(255, 255, 255, 0.4) 3px 3px 0;
+}
+
+h1 {
+    font-size: 3.5rem;
+}
+
+h2 {
+    font-size: 2.4rem;
+}
+
+h2 :nth-child(4n),
+h1 :nth-child(4n+1) {
+    color: rgb(98,	182,	53	);
+}
+
+h2 :nth-child(4n+1),
+h1 :nth-child(4n) {
+	color: rgb(218, 52, 94);
+}
+
+h2 :nth-child(4n+2),
+h1 :nth-child(4n+2) {
+    color: rgb(19, 140, 224);
+}
+
+h2 :nth-child(4n+3),
+h1 :nth-child(4n+3) {
+    color: rgb(253,	212,	15	);
+}
+
+h2 {
+    margin-top: 1rem;
+}
+
+h1 {
+    margin-bottom: 1.5rem;
+}

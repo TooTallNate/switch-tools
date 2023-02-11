@@ -20,6 +20,10 @@
     "typescript": "^4.9.5"
   },
   "dependencies": {
+    "@radix-ui/colors": "^0.1.8",
+    "@radix-ui/react-icons": "^1.1.1",
+    "@radix-ui/react-label": "^2.0.0",
+    "@radix-ui/react-tooltip": "^1.0.3",
     "@remix-run/react": "^1.12.0",
     "@remix-run/server-runtime": "^1.12.0",
     "fs-extra": "^11.1.0",
