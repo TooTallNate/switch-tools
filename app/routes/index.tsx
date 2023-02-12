@@ -1,6 +1,6 @@
-import { Form, useTransition } from '@remix-run/react';
+import { Form } from '@remix-run/react';
 import { LinksFunction } from '@remix-run/server-runtime';
-import ReactCrop, { Crop, PercentCrop } from 'react-image-crop';
+import ReactCrop, { Crop, PercentCrop, PixelCrop } from 'react-image-crop';
 import { useState, ChangeEventHandler, useEffect, useRef } from 'react';
 import * as HoverCard from '@radix-ui/react-hover-card';
 
@@ -21,24 +21,18 @@ export const links: LinksFunction = () => {
 export async function canvasPreview(
 	image: HTMLImageElement,
 	canvas: HTMLCanvasElement,
-	crop: PercentCrop
+	crop: PixelCrop
 ) {
 	const ctx = canvas.getContext('2d');
-
 	if (!ctx) {
 		throw new Error('No 2d context');
 	}
-
-	const cropXS = image.naturalWidth * (crop.x / 100);
-	const cropYS = image.naturalHeight * (crop.y / 100);
-	const cropXW = image.naturalWidth * (crop.width / 100);
-	const cropYH = image.naturalHeight * (crop.height / 100);
 	ctx.drawImage(
 		image,
-		cropXS,
-		cropYS,
-		cropXW,
-		cropYH,
+		crop.x,
+		crop.y,
+		crop.width,
+		crop.height,
 		0,
 		0,
 		canvas.width,
@@ -49,13 +43,17 @@ export async function canvasPreview(
 export default function Index() {
 	const [imgSrc, setImgSrc] = useState<string>();
 	const [crop, setCrop] = useState<Crop>();
+	const [naturalCrop, setNaturalCrop] = useState<PixelCrop>({
+		x: 0,
+		y: 0,
+		width: 0,
+		height: 0,
+		unit: 'px',
+	});
 	const [completedCrop, setCompletedCrop] = useState<PercentCrop>();
 	const imgRef = useRef<HTMLImageElement | null>(null);
 	const imgInputRef = useRef<HTMLInputElement | null>(null);
 	const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
-
-	const transition = useTransition();
-	console.log({ transition });
 
 	useEffect(() => {
 		return () => {
@@ -73,11 +71,22 @@ export default function Index() {
 			imgRef.current &&
 			previewCanvasRef.current
 		) {
+			const newNaturalCrop: PixelCrop = {
+				x: imgRef.current.naturalWidth * (completedCrop.x / 100),
+				y: imgRef.current.naturalHeight * (completedCrop.y / 100),
+				width:
+					imgRef.current.naturalWidth * (completedCrop.width / 100),
+				height:
+					imgRef.current.naturalHeight * (completedCrop.height / 100),
+				unit: 'px',
+			};
+			console.log(newNaturalCrop);
 			canvasPreview(
 				imgRef.current,
 				previewCanvasRef.current,
-				completedCrop
+				newNaturalCrop
 			);
+			setNaturalCrop(newNaturalCrop);
 		}
 	}, [completedCrop]);
 
@@ -99,39 +108,12 @@ export default function Index() {
 		setImgSrc(url);
 	};
 
-	const handleSubmit: React.FormEventHandler<HTMLFormElement> = async (e) => {
-		e.preventDefault();
-		const form = e.currentTarget;
-
-		if (!imgInputRef.current) return;
-
-		// Generate the current canvas cropped image to JPEG
-		const imageBlob = previewCanvasRef.current
-			? await new Promise<Parameters<BlobCallback>[0]>((resolve) => {
-					previewCanvasRef.current!.toBlob(resolve, 'image/jpeg', 1);
-			  })
-			: null;
-		if (!imageBlob) return;
-
-		const imageFile = new File([imageBlob], 'image.jpg');
-
-		// Clever, deserves credit :smirk:
-		// https://stackoverflow.com/a/70485949/376773
-		const container = new DataTransfer();
-		container.items.add(imageFile);
-		imgInputRef.current.files = container.files;
-
-		form.submit();
-		console.log('done!');
-	};
-
 	return (
 		<>
 			<Form
 				method="post"
 				action="/generate"
 				encType="multipart/form-data"
-				onSubmit={handleSubmit}
 				reloadDocument
 			>
 				<label
@@ -142,8 +124,22 @@ export default function Index() {
 						className="Input"
 						width={256}
 						height={256}
-						ref={previewCanvasRef}
-						style={{ padding: 0, border: 'solid 1px transparent' }}
+						ref={(ref) => {
+							if (ref && previewCanvasRef.current !== ref) {
+								// Set width and height for HiDPI devices
+								ref.width =
+									ref.width * (window.devicePixelRatio || 1);
+								ref.height =
+									ref.height * (window.devicePixelRatio || 1);
+								previewCanvasRef.current = ref;
+							}
+						}}
+						style={{
+							width: '256px',
+							height: '256px',
+							padding: 0,
+							border: 'solid 1px transparent',
+						}}
 					/>
 					<HoverCard.Root>
 						<HoverCard.Trigger asChild>
@@ -247,6 +243,26 @@ export default function Index() {
 							app.
 						</>
 					}
+				/>
+				<input
+					type="hidden"
+					name="image-crop-x"
+					value={naturalCrop?.x}
+				/>
+				<input
+					type="hidden"
+					name="image-crop-y"
+					value={naturalCrop?.y}
+				/>
+				<input
+					type="hidden"
+					name="image-crop-width"
+					value={naturalCrop?.width}
+				/>
+				<input
+					type="hidden"
+					name="image-crop-height"
+					value={naturalCrop?.height}
 				/>
 				<button type="submit">Generate NSP</button>
 			</Form>

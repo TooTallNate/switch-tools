@@ -1,3 +1,4 @@
+import sharp from 'sharp';
 import { join } from 'path';
 import { once } from 'events';
 import { tmpdir } from 'os';
@@ -22,8 +23,13 @@ export async function generateNsp(request: Request) {
 	const core = formData.get('core');
 	const rom = formData.get('rom');
 	const imageFile = formData.get('image');
+	const imageCropX = formData.get('image-crop-x');
+	const imageCropY = formData.get('image-crop-y');
+	const imageCropWidth = formData.get('image-crop-width');
+	const imageCropHeight = formData.get('image-crop-height');
 	const keysFile = formData.get('keys');
 	const cwd = await mkdtemp(join(tmpdir(), `nsp-`));
+	//console.log(cwd);
 	try {
 		if (typeof id !== 'string') {
 			throw new Error('expected "id" to be a string');
@@ -40,6 +46,18 @@ export async function generateNsp(request: Request) {
 		if (typeof rom !== 'string') {
 			throw new Error('expected "rom" to be a string');
 		}
+		if (typeof imageCropX !== 'string') {
+			throw new Error('expected "imageCropX" to be a string');
+		}
+		if (typeof imageCropY !== 'string') {
+			throw new Error('expected "imageCropY" to be a string');
+		}
+		if (typeof imageCropWidth !== 'string') {
+			throw new Error('expected "imageCropWidth" to be a string');
+		}
+		if (typeof imageCropHeight !== 'string') {
+			throw new Error('expected "imageCropHeight" to be a string');
+		}
 		if (!imageFile || typeof imageFile === 'string') {
 			throw new Error('expected "image" to be a File');
 		}
@@ -47,7 +65,10 @@ export async function generateNsp(request: Request) {
 			throw new Error('expected "keys" to be a File');
 		}
 
-		await copy(TEMPLATE_PATH, cwd);
+		const [imageBuffer] = await Promise.all([
+			Buffer.from(await imageFile.arrayBuffer()),
+			copy(TEMPLATE_PATH, cwd),
+		]);
 
 		await Promise.all([
 			writeFile(
@@ -59,10 +80,16 @@ export async function generateNsp(request: Request) {
 				join(cwd, 'romfs/nextArgv'),
 				`sdmc:${core} "sdmc:${rom}"`
 			),
-			writeFile(
-				join(cwd, 'control/icon_AmericanEnglish.dat'),
-				Buffer.from(await imageFile.arrayBuffer())
-			),
+			sharp(imageBuffer)
+				.jpeg({ quality: 100, chromaSubsampling: '4:2:0' })
+				.extract({
+					left: parseInt(imageCropX, 10),
+					top: parseInt(imageCropY, 10),
+					width: parseInt(imageCropWidth, 10),
+					height: parseInt(imageCropHeight, 10),
+				})
+				.resize(256, 256)
+				.toFile(join(cwd, 'control/icon_AmericanEnglish.dat')),
 		]);
 
 		const proc = spawn(
