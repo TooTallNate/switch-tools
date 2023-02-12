@@ -56,9 +56,26 @@ export default function Index() {
 	const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
 	useEffect(() => {
+		if (imgSrc) {
+			// When a new image is selected, load it and set the initial crop
+			const img = new Image();
+			img.onload = () => {
+				imgRef.current = img;
+				const min = Math.min(img.naturalWidth, img.naturalHeight);
+				const initialCrop: PercentCrop = {
+					unit: '%',
+					x: 0,
+					y: 0,
+					width: (min / img.naturalWidth) * 100,
+					height: (min / img.naturalHeight) * 100,
+				};
+				setCrop(initialCrop);
+				setCompletedCrop(initialCrop);
+			};
+			img.src = imgSrc;
+		}
 		return () => {
 			if (imgSrc) {
-				console.log('revoking', imgSrc);
 				URL.revokeObjectURL(imgSrc);
 			}
 		};
@@ -80,7 +97,6 @@ export default function Index() {
 					imgRef.current.naturalHeight * (completedCrop.height / 100),
 				unit: 'px',
 			};
-			console.log(newNaturalCrop);
 			canvasPreview(
 				imgRef.current,
 				previewCanvasRef.current,
@@ -102,9 +118,7 @@ export default function Index() {
 			setCompletedCrop(undefined);
 			return;
 		}
-		console.log(file);
 		const url = URL.createObjectURL(file);
-		console.log(url);
 		setImgSrc(url);
 	};
 
