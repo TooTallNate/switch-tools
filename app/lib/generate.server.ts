@@ -66,7 +66,7 @@ export async function generateNsp(request: Request) {
 		}
 
 		const [imageBuffer] = await Promise.all([
-			Buffer.from(await imageFile.arrayBuffer()),
+			imageFile.arrayBuffer(),
 			copy(TEMPLATE_PATH, cwd),
 		]);
 
@@ -80,7 +80,7 @@ export async function generateNsp(request: Request) {
 				join(cwd, 'romfs/nextArgv'),
 				`sdmc:${core} "sdmc:${rom}"`
 			),
-			sharp(imageBuffer)
+			sharp(Buffer.from(imageBuffer))
 				.jpeg({ quality: 100, chromaSubsampling: '4:2:0' })
 				.extract({
 					left: parseInt(imageCropX, 10),
