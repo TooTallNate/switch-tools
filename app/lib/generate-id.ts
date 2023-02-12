@@ -1,5 +1,5 @@
 export function generateRandomID() {
-	let titleId = '05';
+	let titleId = '01';
 	for (let i = 0; i < 10; i++) {
 		let hex = Math.floor(Math.random() * Math.floor(15));
 		switch (hex) {

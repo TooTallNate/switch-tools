@@ -129,10 +129,15 @@ export default function Index() {
 				action="/generate"
 				encType="multipart/form-data"
 				reloadDocument
+				style={{ width: '100%' }}
 			>
 				<label
 					htmlFor="image"
-					style={{ position: 'relative', lineHeight: 0 }}
+					style={{
+						position: 'relative',
+						lineHeight: 0,
+						marginBottom: '1.4rem',
+					}}
 				>
 					<canvas
 						className="Input"
@@ -177,6 +182,7 @@ export default function Index() {
 									left: 0,
 									width: '100%',
 									height: '100%',
+									cursor: 'pointer',
 								}}
 							/>
 						</HoverCard.Trigger>
