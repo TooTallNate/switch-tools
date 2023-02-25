@@ -221,14 +221,14 @@ export default function Index() {
 					name="title"
 					required
 					label="Title"
-					tooltip="Name that will be shown on the Nintendo Switch home screen."
+					tooltip="Name displyed on the Nintendo Switch home screen."
 					placeholder="Super Mario World"
 				/>
 				<Input
 					name="publisher"
 					required
 					label="Publisher"
-					tooltip="Name of the publisher will be shown on the game's details page."
+					tooltip="Name of the publisher displayed on the game's details."
 					placeholder="Nintendo"
 				/>
 				<Input

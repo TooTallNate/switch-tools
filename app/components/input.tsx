@@ -39,7 +39,7 @@ export const Input = ({ name, label, type, tooltip, ...props }: InputProps) => {
 							}
 						}}
 						onChange={(e) => {
-							setFileName(e.currentTarget?.files?.[0]?.name);
+							setFileName(e.currentTarget.files?.[0]?.name);
 						}}
 					/>
 				</label>
