@@ -10,6 +10,8 @@ import cropStyles from 'react-image-crop/dist/ReactCrop.css';
 import radixStyles from '@radix-ui/colors/whiteA.css';
 import fontStyles from '~/styles/index.css';
 
+export const config = { runtime: 'edge' };
+
 export const links: LinksFunction = () => {
 	return [
 		{ rel: 'stylesheet', href: cropStyles },
