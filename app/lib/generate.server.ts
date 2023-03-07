@@ -6,8 +6,9 @@ import { spawn } from 'child_process';
 import { mkdtemp, copy, writeFile, remove, readFile } from 'fs-extra';
 import { redirect } from '@remix-run/server-runtime';
 
-import { commitSession, getSession } from '~/session.server';
+import { NACP } from '~/lib/nacp';
 import { generateRandomID } from '~/lib/generate-id';
+import { commitSession, getSession } from '~/session.server';
 
 export async function generateNsp(request: Request) {
 	const TEMPLATE_PATH = join(process.cwd(), 'template');
@@ -65,6 +66,14 @@ export async function generateNsp(request: Request) {
 			throw new Error('expected "keys" to be a File');
 		}
 
+		const nacp = new NACP();
+		nacp.id = id;
+		nacp.title = title;
+		nacp.author = publisher;
+		nacp.version = '1.2.3';
+		nacp.startupUserAccount = 0;
+		nacp.logoHandling = 0;
+
 		const [imageBuffer] = await Promise.all([
 			imageFile.arrayBuffer(),
 			copy(TEMPLATE_PATH, cwd),
@@ -74,6 +83,10 @@ export async function generateNsp(request: Request) {
 			writeFile(
 				join(cwd, 'keys.dat'),
 				Buffer.from(await keysFile.arrayBuffer())
+			),
+			writeFile(
+				join(cwd, 'control/control.nacp'),
+				Buffer.from(nacp.buffer)
 			),
 			writeFile(join(cwd, 'romfs/nextNroPath'), `sdmc:${core}`),
 			writeFile(
@@ -94,14 +107,7 @@ export async function generateNsp(request: Request) {
 
 		const proc = spawn(
 			HACBREWPACK_PATH,
-			[
-				'--titleid',
-				id,
-				'--titlename',
-				title,
-				'--titlepublisher',
-				publisher,
-			],
+			['--nopatchnacplogo', '--titleid', id],
 			{ cwd }
 		);
 		proc.stderr.pipe(process.stdout, { end: false });
