@@ -1,7 +1,9 @@
 import { useLoaderData } from '@remix-run/react';
-import { json, LoaderArgs } from '@remix-run/server-runtime';
+import { json, LoaderArgs } from '@vercel/remix';
 
 import { getSession, commitSession } from '~/session.server';
+
+export const config = { runtime: 'edge' };
 
 export async function loader({ request }: LoaderArgs) {
 	const session = await getSession(request.headers.get('Cookie'));

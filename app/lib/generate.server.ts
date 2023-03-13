@@ -4,7 +4,7 @@ import { once } from 'events';
 import { tmpdir } from 'os';
 import { spawn } from 'child_process';
 import { mkdtemp, copy, writeFile, remove, readFile } from 'fs-extra';
-import { redirect } from '@remix-run/server-runtime';
+import { redirect } from '@vercel/remix';
 
 import { NACP } from '~/lib/nacp';
 import { generateRandomID } from '~/lib/generate-id';
