@@ -8,6 +8,7 @@ specifiers:
   '@radix-ui/react-tooltip': ^1.0.3
   '@remix-run/dev': 1.10.0
   '@remix-run/eslint-config': 1.10.0
+  '@remix-run/node': 1.10.0
   '@remix-run/react': 1.10.0
   '@remix-run/serve': 1.10.0
   '@types/fs-extra': ^11.0.1
@@ -31,6 +32,7 @@ dependencies:
   '@radix-ui/react-icons': 1.1.1_react@18.2.0
   '@radix-ui/react-label': 2.0.0_biqbaboplfbrettd7655fr4n2y
   '@radix-ui/react-tooltip': 1.0.3_5ndqzdd6t4rivxsukjv3i3ak2q
+  '@remix-run/node': 1.10.0_biqbaboplfbrettd7655fr4n2y
   '@remix-run/react': 1.10.0_biqbaboplfbrettd7655fr4n2y
   '@vercel/analytics': 0.1.10_react@18.2.0
   '@vercel/remix': 1.10.0_biqbaboplfbrettd7655fr4n2y
