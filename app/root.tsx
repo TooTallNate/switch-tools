@@ -1,4 +1,4 @@
-import type { LinksFunction, MetaFunction } from '@remix-run/server-runtime';
+import type { LinksFunction, MetaFunction } from '@vercel/remix';
 import {
 	Links,
 	LiveReload,

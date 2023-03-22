@@ -1,5 +1,5 @@
 import { Form } from '@remix-run/react';
-import { LinksFunction } from '@remix-run/server-runtime';
+import { LinksFunction } from '@vercel/remix';
 import ReactCrop, { Crop, PercentCrop, PixelCrop } from 'react-image-crop';
 import { useState, ChangeEventHandler, useEffect, useRef } from 'react';
 import * as HoverCard from '@radix-ui/react-hover-card';
