@@ -14,6 +14,8 @@ import { Header } from '~/components/header';
 import rootStyles from '~/styles/root.css';
 import headerStyles from '~/styles/header.css';
 import footerStyles from '~/styles/footer.css';
+import { Vercel } from '~/components/vercel';
+import { GitHubLogoIcon } from '@radix-ui/react-icons';
 
 export const meta: MetaFunction = () => ({
 	charset: 'utf-8',
@@ -43,27 +45,18 @@ export default function App() {
 					<Outlet />
 				</div>
 				<div className="footer">
-					<span>
-						Created by{' '}
-						<a
-							target="_blank"
-							href="https://twitter.com/tootallnate"
-						>
-							@TooTallNate
-						</a>
-					</span>
-					<span>
+					<span className="source">
 						<a
 							target="_blank"
 							href="https://github.com/TooTallNate/nsp-forwarder"
 						>
 							Source Code
+							<GitHubLogoIcon />
 						</a>
 					</span>
 					<span>
-						Hosted by{' '}
 						<a target="_blank" href="https://vercel.com">
-							Vercel
+							Hosted by <Vercel />
 						</a>
 					</span>
 				</div>

@@ -1,4 +1,4 @@
-import { Form } from '@remix-run/react';
+import { Form, Link } from '@remix-run/react';
 import { LinksFunction } from '@vercel/remix';
 import ReactCrop, { Crop, PercentCrop, PixelCrop } from 'react-image-crop';
 import { useState, ChangeEventHandler, useEffect, useRef } from 'react';
@@ -223,28 +223,28 @@ export default function Index() {
 					name="title"
 					required
 					label="Title"
-					tooltip="Name displyed on the Nintendo Switch home screen."
+					tooltip="Name displyed on the Nintendo Switch home screen"
 					placeholder="Super Mario World"
 				/>
 				<Input
 					name="publisher"
 					required
 					label="Publisher"
-					tooltip="Name of the publisher displayed on the game's details."
+					tooltip="Name of the publisher displayed on the game's details"
 					placeholder="Nintendo"
 				/>
 				<Input
 					name="core"
 					required
 					label="Core"
-					tooltip="File path to the RetroArch core on the Nintendo Switch SD card."
+					tooltip="File path to the RetroArch core on the Nintendo Switch SD card"
 					placeholder="/retroarch/cores/snes9x_libretro_libnx.nro"
 				/>
 				<Input
 					name="rom"
 					required
 					label="ROM"
-					tooltip="File path to the game ROM file on the Nintendo Switch SD card."
+					tooltip="File path to the game ROM file on the Nintendo Switch SD card"
 					placeholder="/ROMs/SNES/Super Mario World.smc"
 				/>
 				<Input
@@ -256,13 +256,13 @@ export default function Index() {
 						<>
 							The <code>'prod.keys'</code> file generated on your
 							Nintendo Switch by the{' '}
-							<a
+							<Link
 								target="blank"
-								href="https://github.com/shchmue/Lockpick_RCM"
+								to="https://github.com/shchmue/Lockpick_RCM"
 							>
 								Lockpick_RCM
-							</a>{' '}
-							app.
+							</Link>{' '}
+							app
 						</>
 					}
 				/>
