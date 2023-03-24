@@ -1,5 +1,6 @@
 import type { LinksFunction, MetaFunction } from '@vercel/remix';
 import {
+	Link,
 	Links,
 	LiveReload,
 	Meta,
@@ -40,8 +41,10 @@ export default function App() {
 			</head>
 			<body>
 				<div className="content">
-					<Header as="h2">NSP Forwarder</Header>
-					<Header as="h1">Generator</Header>
+					<Link to="/" className="header">
+						<Header as="h2">NSP Forwarder</Header>
+						<Header as="h1">Generator</Header>
+					</Link>
 					<Outlet />
 				</div>
 				<div className="footer">

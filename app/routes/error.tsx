@@ -1,5 +1,6 @@
 import { useLoaderData } from '@remix-run/react';
-import { json, LoaderArgs } from '@vercel/remix';
+import { json, redirect, type LoaderArgs } from '@vercel/remix';
+import type { ErrorData } from '~/lib/generate.server';
 
 import { getSession, commitSession } from '~/session.server';
 
@@ -7,23 +8,39 @@ export const config = { runtime: 'edge' };
 
 export async function loader({ request }: LoaderArgs) {
 	const session = await getSession(request.headers.get('Cookie'));
-	const error = session.get('error');
-	return json(
-		{ error },
-		{
-			headers: {
-				'Set-Cookie': await commitSession(session),
-			},
-		}
-	);
+	const error: ErrorData = session.get('error');
+	const headers = {
+		'Set-Cookie': await commitSession(session),
+	};
+	if (error) {
+		return json(error, { headers });
+	}
+	return redirect('/', { headers });
 }
 
 export default function ErrorPage() {
-	const data = useLoaderData();
+	const error = useLoaderData<typeof loader>();
 	return (
-		<pre>
-			Error while generating
-			<code>{JSON.stringify(data, null, 2)}</code>
-		</pre>
+		<div className="error">
+			<p
+				style={{
+					textAlign: 'center',
+					fontWeight: 'bold',
+					color: '#fdd40f',
+					fontSize: '1.2em',
+				}}
+			>
+				⚠️ There was a problem generating your NSP forwarder ⚠️
+			</p>
+			<pre>
+				<code>
+					{error.logs.map(({ type, data }, i) => (
+						<span key={i} className={type}>
+							{data}
+						</span>
+					))}
+				</code>
+			</pre>
+		</div>
 	);
 }

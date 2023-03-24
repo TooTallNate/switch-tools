@@ -20,10 +20,30 @@ body {
 	min-height: 100vh;
 }
 
+form {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+}
+
+/* reset */
+input,
+a {
+	all: unset;
+}
+
 .content {
 	width: 600px;
 	margin: 0 auto;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
+}
+
+.header:hover {
+	cursor: pointer;
+}
+
+.error .stderr {
+	color: #da345e;
 }

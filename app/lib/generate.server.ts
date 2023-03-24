@@ -10,6 +10,16 @@ import { NACP } from '~/lib/nacp';
 import { generateRandomID } from '~/lib/generate-id';
 import { commitSession, getSession } from '~/session.server';
 
+export interface LogChunk {
+	type: 'stdout' | 'stderr';
+	data: string;
+}
+
+export interface ErrorData {
+	logs: LogChunk[];
+	exitCode: number;
+}
+
 export async function generateNsp(request: Request) {
 	const TEMPLATE_PATH = join(process.cwd(), 'template');
 	const HACBREWPACK_PATH = join(
@@ -30,6 +40,7 @@ export async function generateNsp(request: Request) {
 	const imageCropHeight = formData.get('image-crop-height');
 	const keysFile = formData.get('keys');
 	const cwd = await mkdtemp(join(tmpdir(), `nsp-`));
+	const logs: LogChunk[] = [];
 	//console.log(cwd);
 	try {
 		if (typeof id !== 'string') {
@@ -70,7 +81,7 @@ export async function generateNsp(request: Request) {
 		nacp.id = id;
 		nacp.title = title;
 		nacp.author = publisher;
-		nacp.version = '1.2.3';
+		nacp.version = '1.0';
 		nacp.startupUserAccount = 0;
 		nacp.logoHandling = 0;
 
@@ -108,14 +119,19 @@ export async function generateNsp(request: Request) {
 		const proc = spawn(
 			HACBREWPACK_PATH,
 			['--nopatchnacplogo', '--titleid', id],
-			{ cwd }
+			{ cwd, stdio: ['ignore', 'pipe', 'pipe'] }
 		);
-		proc.stderr.pipe(process.stdout, { end: false });
-		proc.stdout.pipe(process.stdout, { end: false });
+		proc.stdout.setEncoding('utf8');
+		proc.stderr.setEncoding('utf8');
+		proc.stdout.on('data', (data) => {
+			logs.push({ type: 'stdout', data });
+		});
+		proc.stderr.on('data', (data) => {
+			logs.push({ type: 'stderr', data });
+		});
 		await once(proc, 'close');
-		console.log('Exit code:', proc.exitCode);
-		if (proc.exitCode !== 0) {
-			throw new Error(`Got exit code ${proc.exitCode}`);
+		if (typeof proc.exitCode === 'number' && proc.exitCode !== 0) {
+			throw new SpawnError(proc.exitCode);
 		}
 
 		const data = await readFile(join(cwd, `hacbrewpack_nsp/${id}.nsp`));
@@ -127,13 +143,29 @@ export async function generateNsp(request: Request) {
 			},
 		});
 	} catch (err: any) {
+		console.log(err);
+		console.log(logs);
 		await remove(cwd);
 		const session = await getSession(request.headers.get('Cookie'));
-		session.flash('error', err.message);
+		const exitCode = err instanceof SpawnError ? err.exitCode : -1;
+		const data: ErrorData = {
+			logs,
+			exitCode,
+		};
+		session.flash('error', data);
 		return redirect('/error', {
 			headers: {
 				'Set-Cookie': await commitSession(session),
 			},
 		});
+	}
+}
+
+class SpawnError extends Error {
+	exitCode: number;
+
+	constructor(exitCode: number) {
+		super('Command failed');
+		this.exitCode = exitCode;
 	}
 }
