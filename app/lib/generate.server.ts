@@ -90,6 +90,11 @@ export async function generateNsp(request: Request) {
 			copy(TEMPLATE_PATH, cwd),
 		]);
 
+		let argv = `sdmc:${core}`;
+		if (rom) {
+			argv += ` "sdmc:${rom}"`;
+		}
+
 		await Promise.all([
 			writeFile(
 				join(cwd, 'keys.dat'),
@@ -100,10 +105,7 @@ export async function generateNsp(request: Request) {
 				Buffer.from(nacp.buffer)
 			),
 			writeFile(join(cwd, 'romfs/nextNroPath'), `sdmc:${core}`),
-			writeFile(
-				join(cwd, 'romfs/nextArgv'),
-				`sdmc:${core} "sdmc:${rom}"`
-			),
+			writeFile(join(cwd, 'romfs/nextArgv'), argv),
 			sharp(Buffer.from(imageBuffer))
 				.jpeg({ quality: 100, chromaSubsampling: '4:2:0' })
 				.extract({

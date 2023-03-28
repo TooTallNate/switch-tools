@@ -263,7 +263,6 @@ export default function Index() {
 				/>
 				<Input
 					name="rom"
-					required
 					label="ROM"
 					tooltip="File path to the game ROM file on the Nintendo Switch SD card"
 					placeholder="/ROMs/SNES/Super Mario World.smc"
