@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import { InfoCircledIcon } from '@radix-ui/react-icons';
 import * as Label from '@radix-ui/react-label';
 import * as Tooltip from '@radix-ui/react-tooltip';
@@ -17,10 +18,10 @@ export const Input = ({ name, label, type, tooltip, ...props }: InputProps) => {
 			<>
 				<label
 					htmlFor={name}
-					className="Input"
+					className={clsx('Input', fileName && 'selected')}
 					style={{ padding: 0, position: 'relative' }}
 				>
-					{fileName ?? 'Select file…'}
+					<div>{fileName ?? 'Select file…'}</div>
 					<input
 						type="file"
 						name={name}

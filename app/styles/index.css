@@ -21,6 +21,21 @@
 	box-shadow: 0 0 3px 1px white;
 }
 
+.Input > div {
+	display: flex;
+	align-items: center;
+	padding: 0 10px;
+}
+
+input.Input::placeholder,
+label.Input > div {
+	opacity: 0.6;
+}
+
+.Input.selected > div {
+	opacity: 1;
+}
+
 .TooltipContent {
 	border-radius: 4px;
 	padding: 10px 15px;
