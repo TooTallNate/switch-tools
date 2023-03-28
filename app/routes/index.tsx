@@ -6,6 +6,7 @@ import { useState, ChangeEventHandler, useEffect, useRef } from 'react';
 import * as HoverCard from '@radix-ui/react-hover-card';
 
 import { Input } from '~/components/input';
+import { FileInput } from '~/components/file-input';
 
 import cropStyles from 'react-image-crop/dist/ReactCrop.css';
 import radixStyles from '@radix-ui/colors/whiteA.css';
@@ -135,111 +136,104 @@ export default function Index() {
 				reloadDocument
 				style={{ width: '100%' }}
 			>
-				<label
-					htmlFor="image"
-					style={{
-						position: 'relative',
-						lineHeight: 0,
-						margin: '1.4rem 0',
-					}}
-				>
-					{!imgSrc ? (
-						<div
+				<HoverCard.Root>
+					<HoverCard.Trigger asChild>
+						<FileInput
+							key="image-input"
+							name="image"
+							accept="image/*"
+							required
+							onChange={handleImageChange}
+							onFocus={() => setImgInputFocused(true)}
+							onBlur={() => setImgInputFocused(false)}
+							ref={(ref) => {
+								if (ref && ref !== imgInputRef.current) {
+									imgInputRef.current = ref;
+									handleImageFile(ref.files?.[0]);
+								}
+							}}
 							style={{
-								display: 'flex',
-								justifyContent: 'center',
-								alignItems: 'center',
-								position: 'absolute',
-								opacity: 0.5,
-								top: 0,
-								left: 0,
-								width: '100%',
-								height: '100%',
+								position: 'relative',
+								lineHeight: 0,
+								margin: '1.4rem 0',
 							}}
 						>
-							Click to select image…
-						</div>
-					) : null}
-					<canvas
-						className={clsx('Input', imgInputFocused && 'focused')}
-						width={256}
-						height={256}
-						ref={(ref) => {
-							if (ref && previewCanvasRef.current !== ref) {
-								// Set width and height for HiDPI devices
-								ref.width =
-									ref.width * (window.devicePixelRatio || 1);
-								ref.height =
-									ref.height * (window.devicePixelRatio || 1);
-								previewCanvasRef.current = ref;
-							}
-						}}
-						style={{
-							width: '256px',
-							height: '256px',
-							padding: 0,
-							border: 'solid 1px transparent',
-						}}
-					/>
-					<HoverCard.Root>
-						<HoverCard.Trigger asChild>
-							<input
-								key="image-input"
-								id="image"
-								name="image"
-								type="file"
-								required
-								onChange={handleImageChange}
-								ref={(ref) => {
-									if (ref && ref !== imgInputRef.current) {
-										imgInputRef.current = ref;
-										handleImageFile(ref?.files?.[0]);
-									}
-								}}
+							<div
 								style={{
-									opacity: 0,
+									display: 'flex',
+									justifyContent: 'center',
+									alignItems: 'center',
 									position: 'absolute',
+									opacity: 0.5,
 									top: 0,
 									left: 0,
 									width: '100%',
 									height: '100%',
-									cursor: 'pointer',
 								}}
-								onFocus={() => setImgInputFocused(true)}
-								onBlur={() => setImgInputFocused(false)}
-							/>
-						</HoverCard.Trigger>
-						<HoverCard.Portal>
-							<HoverCard.Content
-								className="HoverCardContent"
-								sideOffset={5}
 							>
-								{imgSrc ? (
-									<ReactCrop
-										crop={crop}
-										aspect={1}
-										onChange={(_, crop) => setCrop(crop)}
-										onComplete={(_, crop) =>
-											setCompletedCrop(crop)
-										}
-									>
-										<img
-											ref={imgRef}
-											src={imgSrc}
-											style={{
-												maxWidth: '400px',
-												maxHeight: '400px',
-											}}
-										/>
-									</ReactCrop>
-								) : (
-									'No image selected…'
+								Click to select image…
+							</div>
+							<canvas
+								className={clsx(
+									'Input',
+									imgInputFocused && 'focused'
 								)}
-								<HoverCard.Arrow className="HoverCardArrow" />
-							</HoverCard.Content>
-						</HoverCard.Portal>
-					</HoverCard.Root>
-				</label>
+								width={256}
+								height={256}
+								ref={(ref) => {
+									if (
+										ref &&
+										previewCanvasRef.current !== ref
+									) {
+										// Set width and height for HiDPI devices
+										ref.width =
+											ref.width *
+											(window.devicePixelRatio || 1);
+										ref.height =
+											ref.height *
+											(window.devicePixelRatio || 1);
+										previewCanvasRef.current = ref;
+									}
+								}}
+								style={{
+									width: '256px',
+									height: '256px',
+									padding: 0,
+									border: 'solid 1px transparent',
+								}}
+							/>
+						</FileInput>
+					</HoverCard.Trigger>
+					<HoverCard.Portal>
+						<HoverCard.Content
+							className="HoverCardContent"
+							sideOffset={5}
+						>
+							{imgSrc ? (
+								<ReactCrop
+									crop={crop}
+									aspect={1}
+									onChange={(_, crop) => setCrop(crop)}
+									onComplete={(_, crop) =>
+										setCompletedCrop(crop)
+									}
+								>
+									<img
+										ref={imgRef}
+										src={imgSrc}
+										style={{
+											maxWidth: '400px',
+											maxHeight: '400px',
+										}}
+									/>
+								</ReactCrop>
+							) : (
+								'No image selected…'
+							)}
+							<HoverCard.Arrow className="HoverCardArrow" />
+						</HoverCard.Content>
+					</HoverCard.Portal>
+				</HoverCard.Root>
 				<Input
 					name="title"
 					required
@@ -272,6 +266,7 @@ export default function Index() {
 					type="file"
 					required
 					label="Prod Keys"
+					accept="text/*"
 					tooltip={
 						<>
 							The <code>prod.keys</code> file generated on your

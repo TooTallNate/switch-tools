@@ -4,9 +4,8 @@ import * as Label from '@radix-ui/react-label';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { useRef, useState } from 'react';
 
-interface InputProps
+export interface InputProps
 	extends Omit<React.ComponentPropsWithoutRef<'input'>, 'placeholder'> {
-	name: string;
 	label: React.ReactNode;
 	tooltip: React.ReactNode;
 	placeholder: React.ReactNode;

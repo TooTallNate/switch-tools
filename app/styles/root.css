@@ -61,6 +61,10 @@ a:hover {
 	text-decoration: none;
 }
 
+.footer {
+	box-shadow: 0 0 0 1px var(--whiteA9);
+}
+
 .error .stderr {
 	color: #da345e;
 }
