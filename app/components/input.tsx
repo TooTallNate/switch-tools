@@ -4,24 +4,41 @@ import * as Label from '@radix-ui/react-label';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { useRef, useState } from 'react';
 
-interface InputProps extends React.ComponentPropsWithoutRef<'input'> {
+interface InputProps
+	extends Omit<React.ComponentPropsWithoutRef<'input'>, 'placeholder'> {
 	name: string;
 	label: React.ReactNode;
 	tooltip: React.ReactNode;
+	placeholder: React.ReactNode;
 }
 
-export const Input = ({ name, label, type, tooltip, ...props }: InputProps) => {
+export const Input = ({
+	name,
+	label,
+	type,
+	tooltip,
+	placeholder,
+	...props
+}: InputProps) => {
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const [fileName, setFileName] = useState<string | undefined>();
+	const [isFocused, setIsFocused] = useState<boolean>(false);
+
 	const input =
 		type === 'file' ? (
 			<>
 				<label
 					htmlFor={name}
-					className={clsx('Input', fileName && 'selected')}
+					className={clsx(
+						'Input',
+						fileName && 'selected',
+						isFocused && 'focused'
+					)}
 					style={{ padding: 0, position: 'relative' }}
 				>
-					<div>{fileName ?? 'Select file…'}</div>
+					<div>
+						<span>{fileName ?? placeholder}</span>
+					</div>
 					<input
 						type="file"
 						name={name}
@@ -42,6 +59,8 @@ export const Input = ({ name, label, type, tooltip, ...props }: InputProps) => {
 						onChange={(e) => {
 							setFileName(e.currentTarget.files?.[0]?.name);
 						}}
+						onFocus={() => setIsFocused(true)}
+						onBlur={() => setIsFocused(false)}
 					/>
 				</label>
 			</>
@@ -51,6 +70,9 @@ export const Input = ({ name, label, type, tooltip, ...props }: InputProps) => {
 				type="text"
 				name={name}
 				id={name}
+				placeholder={
+					typeof placeholder === 'string' ? placeholder : undefined
+				}
 				{...props}
 			/>
 		);

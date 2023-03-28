@@ -47,5 +47,9 @@ h2 {
 }
 
 h1 {
-	margin-bottom: 1.5rem;
+	margin-bottom: 0;
+}
+
+.header:hover {
+	text-decoration: none;
 }

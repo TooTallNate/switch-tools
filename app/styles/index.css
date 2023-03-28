@@ -17,7 +17,8 @@
 	box-shadow: 0 0 0 1px var(--whiteA9);
 }
 
-.Input:focus {
+.Input:focus,
+.Input.focused {
 	box-shadow: 0 0 3px 1px white;
 }
 
@@ -29,7 +30,7 @@
 
 input.Input::placeholder,
 label.Input > div {
-	opacity: 0.6;
+	opacity: 0.5;
 }
 
 .Input.selected > div {

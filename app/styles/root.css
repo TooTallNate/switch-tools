@@ -32,6 +32,15 @@ a {
 	all: unset;
 }
 
+a {
+	color: blue;
+	cursor: pointer;
+}
+
+a:hover {
+	text-decoration: underline;
+}
+
 .content {
 	width: 600px;
 	margin: 0 auto;
@@ -44,6 +53,19 @@ a {
 	cursor: pointer;
 }
 
+.footer a {
+	color: white;
+}
+
+.footer a:hover {
+	text-decoration: none;
+}
+
 .error .stderr {
 	color: #da345e;
+}
+
+code::before,
+code::after {
+	content: '`';
 }

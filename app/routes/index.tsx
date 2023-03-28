@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import { Form, Link } from '@remix-run/react';
 import { LinksFunction } from '@vercel/remix';
 import ReactCrop, { Crop, PercentCrop, PixelCrop } from 'react-image-crop';
@@ -56,6 +57,7 @@ export default function Index() {
 	const imgRef = useRef<HTMLImageElement | null>(null);
 	const imgInputRef = useRef<HTMLInputElement | null>(null);
 	const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+	const [imgInputFocused, setImgInputFocused] = useState<boolean>(false);
 
 	useEffect(() => {
 		if (imgSrc) {
@@ -138,11 +140,28 @@ export default function Index() {
 					style={{
 						position: 'relative',
 						lineHeight: 0,
-						marginBottom: '1.4rem',
+						margin: '1.4rem 0',
 					}}
 				>
+					{!imgSrc ? (
+						<div
+							style={{
+								display: 'flex',
+								justifyContent: 'center',
+								alignItems: 'center',
+								position: 'absolute',
+								opacity: 0.5,
+								top: 0,
+								left: 0,
+								width: '100%',
+								height: '100%',
+							}}
+						>
+							Click to select image…
+						</div>
+					) : null}
 					<canvas
-						className="Input"
+						className={clsx('Input', imgInputFocused && 'focused')}
 						width={256}
 						height={256}
 						ref={(ref) => {
@@ -186,6 +205,8 @@ export default function Index() {
 									height: '100%',
 									cursor: 'pointer',
 								}}
+								onFocus={() => setImgInputFocused(true)}
+								onBlur={() => setImgInputFocused(false)}
 							/>
 						</HoverCard.Trigger>
 						<HoverCard.Portal>
@@ -251,10 +272,10 @@ export default function Index() {
 					name="keys"
 					type="file"
 					required
-					label={<code>prod.keys</code>}
+					label="Prod Keys"
 					tooltip={
 						<>
-							The <code>'prod.keys'</code> file generated on your
+							The <code>prod.keys</code> file generated on your
 							Nintendo Switch by the{' '}
 							<Link
 								target="blank"
@@ -263,6 +284,11 @@ export default function Index() {
 								Lockpick_RCM
 							</Link>{' '}
 							app
+						</>
+					}
+					placeholder={
+						<>
+							Click to select your <code>prod.keys</code> file…
 						</>
 					}
 				/>
