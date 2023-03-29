@@ -25,7 +25,6 @@ export default function Index() {
 
 	const handleImageCrop: (c: HTMLCanvasElement) => void = useCallback(
 		(canvas) => {
-			console.log('crop', canvas);
 			canvas.toBlob((blob) => {
 				if (blob && imageInputRef.current) {
 					const file = new File([blob], 'image');
@@ -107,27 +106,6 @@ export default function Index() {
 						height: 0,
 					}}
 				/>
-				{/*
-				<input
-					type="hidden"
-					name="image-crop-x"
-					value={naturalCrop?.x}
-				/>
-				<input
-					type="hidden"
-					name="image-crop-y"
-					value={naturalCrop?.y}
-				/>
-				<input
-					type="hidden"
-					name="image-crop-width"
-					value={naturalCrop?.width}
-				/>
-				<input
-					type="hidden"
-					name="image-crop-height"
-					value={naturalCrop?.height}
-	/>*/}
 				<button type="submit">Generate NSP</button>
 			</Form>
 		</>

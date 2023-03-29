@@ -72,7 +72,6 @@ export function ImageInput({ onCrop, placeholder, ...props }: ImageInputProps) {
 			imgRef.current &&
 			previewCanvasRef.current
 		) {
-			console.log(completedCrop);
 			const pixelCrop: PixelCrop = {
 				x: imgRef.current.naturalWidth * (completedCrop.x / 100),
 				y: imgRef.current.naturalHeight * (completedCrop.y / 100),
