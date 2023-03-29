@@ -6,35 +6,40 @@
 }
 
 .Input {
-	display: inline-flex;
 	flex-grow: 1;
 	border-radius: 4px;
-	padding: 0 10px;
 	font-size: 15px;
 	line-height: 1;
 	color: white;
 	background-color: var(--whiteA5);
 	box-shadow: 0 0 0 1px var(--whiteA9);
-}
-
-.Input:focus,
-.Input.focused {
-	box-shadow: 0 0 3px 1px white;
-}
-
-.Input > div {
+	overflow: hidden;
 	display: flex;
 	align-items: center;
 	padding: 0 10px;
 }
 
+.image-input {
+	padding: 0;
+}
+
+.Input:focus,
+.Input.focus {
+	box-shadow: 0 0 3px 1px white;
+}
+
 input.Input::placeholder,
-label.Input > div {
+label.Input.placeholder > div,
+label.Input.placeholder > span {
 	opacity: 0.5;
 }
 
-.Input.selected > div {
-	opacity: 1;
+label.Input:not(.placeholder) .placeholder {
+	opacity: 0;
+}
+
+label.Input {
+	cursor: pointer;
 }
 
 .TooltipContent {

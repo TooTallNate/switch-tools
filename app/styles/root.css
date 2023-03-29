@@ -73,3 +73,8 @@ code::before,
 code::after {
 	content: '`';
 }
+
+.error code::before,
+.error code::after {
+	content: initial;
+}

@@ -1,16 +1,14 @@
-import clsx from 'clsx';
-import { Form, Link } from '@remix-run/react';
+import { Form } from '@remix-run/react';
 import { LinksFunction } from '@vercel/remix';
-import ReactCrop, { Crop, PercentCrop, PixelCrop } from 'react-image-crop';
-import { useState, ChangeEventHandler, useEffect, useRef } from 'react';
-import * as HoverCard from '@radix-ui/react-hover-card';
 
 import { Input } from '~/components/input';
-import { FileInput } from '~/components/file-input';
+import { KeysPlaceholder, KeysTooltip } from '~/components/keys-input';
 
 import cropStyles from 'react-image-crop/dist/ReactCrop.css';
 import radixStyles from '@radix-ui/colors/whiteA.css';
 import fontStyles from '~/styles/index.css';
+import { ImageInput } from '~/components/image-input';
+import { useCallback, useRef } from 'react';
 
 export const config = { runtime: 'edge' };
 
@@ -22,113 +20,38 @@ export const links: LinksFunction = () => {
 	];
 };
 
-export async function canvasPreview(
-	image: HTMLImageElement,
-	canvas: HTMLCanvasElement,
-	crop: PixelCrop
-) {
-	const ctx = canvas.getContext('2d');
-	if (!ctx) {
-		throw new Error('No 2d context');
-	}
-	ctx.drawImage(
-		image,
-		crop.x,
-		crop.y,
-		crop.width,
-		crop.height,
-		0,
-		0,
-		canvas.width,
-		canvas.height
-	);
-}
-
 export default function Index() {
-	const [imgSrc, setImgSrc] = useState<string>();
-	const [crop, setCrop] = useState<Crop>();
-	const [naturalCrop, setNaturalCrop] = useState<PixelCrop>({
-		x: 0,
-		y: 0,
-		width: 0,
-		height: 0,
-		unit: 'px',
-	});
-	const [completedCrop, setCompletedCrop] = useState<PercentCrop>();
-	const imgRef = useRef<HTMLImageElement | null>(null);
-	const imgInputRef = useRef<HTMLInputElement | null>(null);
-	const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
-	const [imgInputFocused, setImgInputFocused] = useState<boolean>(false);
+	const imageInputRef = useRef<HTMLInputElement | null>(null);
 
-	useEffect(() => {
-		if (imgSrc) {
-			// When a new image is selected, load it and set the initial crop
-			const img = new Image();
-			img.onload = () => {
-				imgRef.current = img;
-				const min = Math.min(img.naturalWidth, img.naturalHeight);
-				const initialCrop: PercentCrop = {
-					unit: '%',
-					x: 0,
-					y: 0,
-					width: (min / img.naturalWidth) * 100,
-					height: (min / img.naturalHeight) * 100,
-				};
-				setCrop(initialCrop);
-				setCompletedCrop(initialCrop);
-			};
-			img.src = imgSrc;
-		}
-		return () => {
-			if (imgSrc) {
-				URL.revokeObjectURL(imgSrc);
-			}
-		};
-	}, [imgSrc]);
-
-	useEffect(() => {
-		if (
-			completedCrop?.width &&
-			completedCrop?.height &&
-			imgRef.current &&
-			previewCanvasRef.current
-		) {
-			const newNaturalCrop: PixelCrop = {
-				x: imgRef.current.naturalWidth * (completedCrop.x / 100),
-				y: imgRef.current.naturalHeight * (completedCrop.y / 100),
-				width:
-					imgRef.current.naturalWidth * (completedCrop.width / 100),
-				height:
-					imgRef.current.naturalHeight * (completedCrop.height / 100),
-				unit: 'px',
-			};
-			canvasPreview(
-				imgRef.current,
-				previewCanvasRef.current,
-				newNaturalCrop
-			);
-			setNaturalCrop(newNaturalCrop);
-		}
-	}, [completedCrop]);
-
-	const handleImageChange: ChangeEventHandler<HTMLInputElement> = (e) => {
-		const file = e.currentTarget.files?.[0];
-		handleImageFile(file);
-	};
-
-	const handleImageFile = (file?: File) => {
-		if (!file) {
-			setImgSrc(undefined);
-			setCrop(undefined);
-			setCompletedCrop(undefined);
-			return;
-		}
-		const url = URL.createObjectURL(file);
-		setImgSrc(url);
-	};
+	const handleImageCrop: (c: HTMLCanvasElement) => void = useCallback(
+		(canvas) => {
+			console.log('crop', canvas);
+			canvas.toBlob((blob) => {
+				if (blob && imageInputRef.current) {
+					const file = new File([blob], 'image');
+					const container = new DataTransfer();
+					container.items.add(file);
+					imageInputRef.current.files = container.files;
+				}
+			});
+		},
+		[imageInputRef]
+	);
 
 	return (
 		<>
+			<ImageInput
+				className="Input image-input"
+				accept="image/*"
+				placeholder="Click to select image…"
+				onCrop={handleImageCrop}
+				style={{
+					lineHeight: 0,
+					margin: '1.4rem 0',
+					width: '256px',
+					height: '256px',
+				}}
+			/>
 			<Form
 				method="post"
 				action="/generate"
@@ -136,104 +59,6 @@ export default function Index() {
 				reloadDocument
 				style={{ width: '100%' }}
 			>
-				<HoverCard.Root>
-					<HoverCard.Trigger asChild>
-						<FileInput
-							key="image-input"
-							name="image"
-							accept="image/*"
-							required
-							onChange={handleImageChange}
-							onFocus={() => setImgInputFocused(true)}
-							onBlur={() => setImgInputFocused(false)}
-							ref={(ref) => {
-								if (ref && ref !== imgInputRef.current) {
-									imgInputRef.current = ref;
-									handleImageFile(ref.files?.[0]);
-								}
-							}}
-							style={{
-								position: 'relative',
-								lineHeight: 0,
-								margin: '1.4rem 0',
-							}}
-						>
-							<div
-								style={{
-									display: 'flex',
-									justifyContent: 'center',
-									alignItems: 'center',
-									position: 'absolute',
-									opacity: 0.5,
-									top: 0,
-									left: 0,
-									width: '100%',
-									height: '100%',
-								}}
-							>
-								Click to select image…
-							</div>
-							<canvas
-								className={clsx(
-									'Input',
-									imgInputFocused && 'focused'
-								)}
-								width={256}
-								height={256}
-								ref={(ref) => {
-									if (
-										ref &&
-										previewCanvasRef.current !== ref
-									) {
-										// Set width and height for HiDPI devices
-										ref.width =
-											ref.width *
-											(window.devicePixelRatio || 1);
-										ref.height =
-											ref.height *
-											(window.devicePixelRatio || 1);
-										previewCanvasRef.current = ref;
-									}
-								}}
-								style={{
-									width: '256px',
-									height: '256px',
-									padding: 0,
-									border: 'solid 1px transparent',
-								}}
-							/>
-						</FileInput>
-					</HoverCard.Trigger>
-					<HoverCard.Portal>
-						<HoverCard.Content
-							className="HoverCardContent"
-							sideOffset={5}
-						>
-							{imgSrc ? (
-								<ReactCrop
-									crop={crop}
-									aspect={1}
-									onChange={(_, crop) => setCrop(crop)}
-									onComplete={(_, crop) =>
-										setCompletedCrop(crop)
-									}
-								>
-									<img
-										ref={imgRef}
-										src={imgSrc}
-										style={{
-											maxWidth: '400px',
-											maxHeight: '400px',
-										}}
-									/>
-								</ReactCrop>
-							) : (
-								'No image selected…'
-							)}
-							<HoverCard.Arrow className="HoverCardArrow" />
-						</HoverCard.Content>
-					</HoverCard.Portal>
-				</HoverCard.Root>
 				<Input
 					name="title"
 					required
@@ -267,25 +92,22 @@ export default function Index() {
 					required
 					label="Prod Keys"
 					accept="text/*"
-					tooltip={
-						<>
-							The <code>prod.keys</code> file generated on your
-							Nintendo Switch by the{' '}
-							<Link
-								target="blank"
-								to="https://github.com/shchmue/Lockpick_RCM"
-							>
-								Lockpick_RCM
-							</Link>{' '}
-							app
-						</>
-					}
-					placeholder={
-						<>
-							Click to select your <code>prod.keys</code> file…
-						</>
-					}
+					tooltip={<KeysTooltip />}
+					placeholder={<KeysPlaceholder />}
 				/>
+				<input
+					type="file"
+					name="image"
+					ref={imageInputRef}
+					required
+					style={{
+						opacity: 0,
+						position: 'absolute',
+						width: 0,
+						height: 0,
+					}}
+				/>
+				{/*
 				<input
 					type="hidden"
 					name="image-crop-x"
@@ -305,7 +127,7 @@ export default function Index() {
 					type="hidden"
 					name="image-crop-height"
 					value={naturalCrop?.height}
-				/>
+	/>*/}
 				<button type="submit">Generate NSP</button>
 			</Form>
 		</>
