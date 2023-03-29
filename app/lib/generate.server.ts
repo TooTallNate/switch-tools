@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { zfd } from 'zod-form-data';
 import sharp from 'sharp';
 import { join } from 'path';
 import { once } from 'events';
@@ -17,8 +19,19 @@ export interface LogChunk {
 
 export interface ErrorData {
 	logs: LogChunk[];
+	message: string;
 	exitCode: number;
 }
+
+const schema = zfd.formData({
+	id: zfd.text(z.string().optional()),
+	title: zfd.text(),
+	publisher: zfd.text(),
+	core: zfd.text(),
+	rom: zfd.text(z.string().optional()),
+	image: zfd.file(),
+	keys: zfd.file(),
+});
 
 export async function generateNsp(request: Request) {
 	const TEMPLATE_PATH = join(process.cwd(), 'template');
@@ -27,40 +40,19 @@ export async function generateNsp(request: Request) {
 		`hacbrewpack-${process.platform}`
 	);
 
-	const formData = await request.formData();
-	const id = formData.get('id') || generateRandomID();
-	const title = formData.get('title');
-	const publisher = formData.get('publisher');
-	const core = formData.get('core');
-	const rom = formData.get('rom');
-	const imageFile = formData.get('image');
-	const keysFile = formData.get('keys');
 	const cwd = await mkdtemp(join(tmpdir(), `nsp-`));
 	const logs: LogChunk[] = [];
 	//console.log(cwd);
 	try {
-		if (typeof id !== 'string') {
-			throw new Error('expected "id" to be a string');
-		}
-		if (typeof title !== 'string') {
-			throw new Error('expected "title" to be a string');
-		}
-		if (typeof publisher !== 'string') {
-			throw new Error('expected "publisher" to be a string');
-		}
-		if (typeof core !== 'string') {
-			throw new Error('expected "core" to be a string');
-		}
-		if (typeof rom !== 'string') {
-			throw new Error('expected "rom" to be a string');
-		}
-		if (!imageFile || typeof imageFile === 'string') {
-			throw new Error('expected "image" to be a File');
-		}
-		if (!keysFile || typeof keysFile === 'string') {
-			throw new Error('expected "keys" to be a File');
-		}
-
+		const {
+			id = generateRandomID(),
+			title,
+			publisher,
+			core,
+			rom,
+			image,
+			keys,
+		} = schema.parse(await request.formData());
 		const nacp = new NACP();
 		nacp.id = id;
 		nacp.title = title;
@@ -70,7 +62,7 @@ export async function generateNsp(request: Request) {
 		nacp.logoHandling = 0;
 
 		const [imageBuffer] = await Promise.all([
-			imageFile.arrayBuffer(),
+			image.arrayBuffer(),
 			copy(TEMPLATE_PATH, cwd),
 		]);
 
@@ -82,7 +74,7 @@ export async function generateNsp(request: Request) {
 		await Promise.all([
 			writeFile(
 				join(cwd, 'keys.dat'),
-				Buffer.from(await keysFile.arrayBuffer())
+				Buffer.from(await keys.arrayBuffer())
 			),
 			writeFile(
 				join(cwd, 'control/control.nacp'),
@@ -131,6 +123,7 @@ export async function generateNsp(request: Request) {
 		const data: ErrorData = {
 			logs,
 			exitCode,
+			message: err.message,
 		};
 		session.flash('error', data);
 		return redirect('/error', {

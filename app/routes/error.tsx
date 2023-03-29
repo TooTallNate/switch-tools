@@ -34,6 +34,7 @@ export default function ErrorPage() {
 			</p>
 			<pre>
 				<code>
+					<span className="stderr">{error.message + '\n'}</span>
 					{error.logs.map(({ type, data }, i) => (
 						<span key={i} className={type}>
 							{data}

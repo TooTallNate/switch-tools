@@ -35,6 +35,8 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-image-crop": "^10.0.9",
-    "sharp": "^0.31.3"
+    "sharp": "^0.31.3",
+    "zod": "^3.21.4",
+    "zod-form-data": "^2.0.1"
   }
 }
