@@ -31,7 +31,8 @@
 input.Input::placeholder,
 label.Input.placeholder > div,
 label.Input.placeholder > span {
-	opacity: 0.5;
+	opacity: 0.4;
+	color: white;
 }
 
 label.Input:not(.placeholder) .placeholder {

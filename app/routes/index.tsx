@@ -90,7 +90,7 @@ export default function Index() {
 					type="file"
 					required
 					label="Prod Keys"
-					accept=".keys,.dat"
+					accept=".keys,.dat,text/*"
 					tooltip={<KeysTooltip />}
 					placeholder={<KeysPlaceholder />}
 				/>
