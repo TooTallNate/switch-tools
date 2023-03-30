@@ -188,7 +188,7 @@ label.Input {
 .DropdownMenuSubTrigger {
 	font-size: 12px;
 	line-height: 1;
-	color: var(--violet11);
+	color: var(--violet10);
 	border-radius: 3px;
 	display: flex;
 	align-items: center;
@@ -214,7 +214,7 @@ label.Input {
 .DropdownMenuRadioItem[data-highlighted],
 .DropdownMenuSubTrigger[data-highlighted] {
 	background-color: var(--violet9);
-	color: var(--violet1);
+	color: var(--whiteA12);
 }
 
 .DropdownMenuLabel {
@@ -228,8 +228,9 @@ label.Input {
 
 .DropdownMenuSeparator {
 	height: 1px;
-	background-color: var(--violet6);
+	background-color: var(--violet9);
 	margin: 5px;
+	opacity: 0.3;
 }
 
 .DropdownMenuItemIndicator {
@@ -263,4 +264,28 @@ label.Input {
 }
 .IconButton:hover {
 	background-color: var(--whiteA8);
+}
+
+.Button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 4px;
+	padding: 15px 15px;
+	margin-top: 6px;
+	font-size: 17px;
+	line-height: 1;
+	font-weight: 500;
+	cursor: pointer;
+	transition: box-shadow 0.3s, color 0.3s, background-color 0.3s;
+
+	background-color: var(--violet7);
+	color: var(--whiteA11);
+	box-shadow: 0 0 1px var(--whiteA9);
+}
+
+.Button:hover {
+	background-color: var(--violet9);
+	color: var(--whiteA12);
+	box-shadow: 0 0 4px var(--whiteA9);
 }

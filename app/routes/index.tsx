@@ -10,8 +10,8 @@ import { KeysPlaceholder, KeysTooltip } from '~/components/keys-input';
 import cropStyles from 'react-image-crop/dist/ReactCrop.css';
 import radixWhiteA from '@radix-ui/colors/whiteA.css';
 import radixBlackA from '@radix-ui/colors/blackA.css';
-import radixMauve from '@radix-ui/colors/mauve.css';
-import radixViolet from '@radix-ui/colors/violet.css';
+import radixMauve from '@radix-ui/colors/mauveDark.css';
+import radixViolet from '@radix-ui/colors/violetDark.css';
 import fontStyles from '~/styles/index.css';
 
 export const config = { runtime: 'edge' };
@@ -123,7 +123,9 @@ export default function Index() {
 						height: 0,
 					}}
 				/>
-				<button type="submit">Generate NSP</button>
+				<button type="submit" className="Button">
+					Generate NSP
+				</button>
 			</Form>
 		</>
 	);

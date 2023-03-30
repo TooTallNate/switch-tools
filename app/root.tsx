@@ -34,7 +34,7 @@ export const links: LinksFunction = () => {
 
 export default function App() {
 	return (
-		<html lang="en">
+		<html lang="en" className="dark-theme">
 			<head>
 				<Meta />
 				<Links />
