@@ -1,26 +1,34 @@
 import { Form } from '@remix-run/react';
+import { useCallback, useRef, useState } from 'react';
 import { LinksFunction } from '@vercel/remix';
 
 import { Input } from '~/components/input';
+import { ImageInput } from '~/components/image-input';
+import { PresetsDropdown } from '~/components/presets-dropdown';
 import { KeysPlaceholder, KeysTooltip } from '~/components/keys-input';
 
 import cropStyles from 'react-image-crop/dist/ReactCrop.css';
-import radixStyles from '@radix-ui/colors/whiteA.css';
+import radixWhiteA from '@radix-ui/colors/whiteA.css';
+import radixBlackA from '@radix-ui/colors/blackA.css';
+import radixMauve from '@radix-ui/colors/mauve.css';
+import radixViolet from '@radix-ui/colors/violet.css';
 import fontStyles from '~/styles/index.css';
-import { ImageInput } from '~/components/image-input';
-import { useCallback, useRef } from 'react';
 
 export const config = { runtime: 'edge' };
 
 export const links: LinksFunction = () => {
 	return [
 		{ rel: 'stylesheet', href: cropStyles },
-		{ rel: 'stylesheet', href: radixStyles },
+		{ rel: 'stylesheet', href: radixWhiteA },
+		{ rel: 'stylesheet', href: radixBlackA },
+		{ rel: 'stylesheet', href: radixMauve },
+		{ rel: 'stylesheet', href: radixViolet },
 		{ rel: 'stylesheet', href: fontStyles },
 	];
 };
 
 export default function Index() {
+	const [coreValue, setCoreValue] = useState('');
 	const imageInputRef = useRef<HTMLInputElement | null>(null);
 
 	const handleImageCrop: (c: HTMLCanvasElement) => void = useCallback(
@@ -78,7 +86,16 @@ export default function Index() {
 					label="Core"
 					tooltip="File path to the RetroArch core on the Nintendo Switch SD card"
 					placeholder="/retroarch/cores/snes9x_libretro_libnx.nro"
-				/>
+					value={coreValue}
+					onInput={(e) => {
+						setCoreValue(e.currentTarget.value);
+					}}
+				>
+					<PresetsDropdown
+						value={coreValue}
+						onSelect={(v) => setCoreValue(v)}
+					/>
+				</Input>
 				<Input
 					name="rom"
 					label="ROM"

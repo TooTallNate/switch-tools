@@ -18,6 +18,7 @@ export const Input = ({
 	type,
 	tooltip,
 	placeholder,
+	children,
 	...props
 }: InputProps) => {
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -60,6 +61,7 @@ export const Input = ({
 				flexWrap: 'wrap',
 				padding: '10px 0',
 				gap: 8,
+				position: 'relative',
 			}}
 		>
 			<Label.Root className="LabelRoot" htmlFor={name}>
@@ -85,6 +87,7 @@ export const Input = ({
 					</Tooltip.Portal>
 				</Tooltip.Root>
 			</Tooltip.Provider>
+			{children}
 		</div>
 	);
 };

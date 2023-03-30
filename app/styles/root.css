@@ -28,6 +28,7 @@ form {
 
 /* reset */
 input,
+button,
 a {
 	all: unset;
 }
