@@ -49,7 +49,6 @@ export default function Index() {
 		<>
 			<ImageInput
 				className="Input image-input"
-				accept="image/*"
 				placeholder="Click to select image…"
 				cropAspectRatio={1}
 				onCrop={handleImageCrop}

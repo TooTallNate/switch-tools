@@ -132,6 +132,7 @@ export function ImageInput({
 
 	const input = (
 		<FileInput
+			accept="image/*"
 			{...props}
 			onChange={handleImageChange}
 			ref={(ref) => {
