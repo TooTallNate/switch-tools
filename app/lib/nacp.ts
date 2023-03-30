@@ -1,5 +1,8 @@
 // Reference: https://switchbrew.org/wiki/NACP#ApplicationJitConfiguration
 // Adapted from: https://github.com/switchbrew/switch-tools/blob/master/src/nacptool.c
+// More:
+//   - https://switchbrew.github.io/libnx/nacp_8h_source.html
+//   - https://www.retroreversing.com/SwitchFileFormats
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -145,7 +148,7 @@ export class NACP {
 
 	/**
 	 * Text shown above logo during boot-up.
-	 *   - Value of 0: "Licenced by"
+	 *   - Value of 0: "Licensed by"
 	 *   - Value of 1: "Distributed by"
 	 *   - Anything else: no text shown
 	 */
