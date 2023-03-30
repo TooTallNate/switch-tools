@@ -143,6 +143,20 @@ export class NACP {
 		return this.dataView.getUint8(0x3035);
 	}
 
+	/**
+	 * Text shown above logo during boot-up.
+	 *   - Value of 0: "Licenced by"
+	 *   - Value of 1: "Distributed by"
+	 *   - Anything else: no text shown
+	 */
+	set logoType(v: number) {
+		this.dataView.setUint8(0x30f0, v);
+	}
+
+	get logoType(): number {
+		return this.dataView.getUint8(0x30f0);
+	}
+
 	set logoHandling(v: number) {
 		this.dataView.setUint8(0x30f1, v);
 	}
