@@ -30,6 +30,9 @@ const schema = zfd.formData({
 	core: zfd.text(),
 	rom: zfd.text(z.string().optional()),
 	image: zfd.file(),
+	logo: zfd.file(z.instanceof(File).optional()),
+	version: zfd.text(z.string().optional()),
+	startupUserAccount: zfd.checkbox(),
 	keys: zfd.file(),
 });
 
@@ -44,48 +47,57 @@ export async function generateNsp(request: Request) {
 	const logs: LogChunk[] = [];
 	//console.log(cwd);
 	try {
-		const {
-			id = generateRandomID(),
-			title,
-			publisher,
-			core,
-			rom,
-			image,
-			keys,
-		} = schema.parse(await request.formData());
+		const formData = await request.formData();
+		//console.log(formData);
+
+		// `zod-form-data` fails for optional "file" type since
+		// it gets submitted as an empty text string
+		if (!formData.get('logo')) {
+			formData.delete('logo');
+		}
+
+		const data = schema.parse(formData);
+		const id = data.id || generateRandomID();
 		const nacp = new NACP();
 		nacp.id = id;
-		nacp.title = title;
-		nacp.author = publisher;
-		nacp.version = '1.0';
-		nacp.startupUserAccount = 0;
+		nacp.title = data.title;
+		nacp.author = data.publisher;
+		nacp.version = data.version || '1.0.0';
+		nacp.startupUserAccount = data.startupUserAccount ? 1 : 0;
+		nacp.logoType = 0;
 		nacp.logoHandling = 0;
 
-		const [imageBuffer] = await Promise.all([
-			image.arrayBuffer(),
+		const [imageBuffer, logoBuffer] = await Promise.all([
+			data.image.arrayBuffer(),
+			data.logo?.arrayBuffer(),
 			copy(TEMPLATE_PATH, cwd),
 		]);
 
-		let argv = `sdmc:${core}`;
-		if (rom) {
-			argv += ` "sdmc:${rom}"`;
+		let argv = `sdmc:${data.core}`;
+		if (data.rom) {
+			argv += ` "sdmc:${data.rom}"`;
 		}
 
 		await Promise.all([
 			writeFile(
 				join(cwd, 'keys.dat'),
-				Buffer.from(await keys.arrayBuffer())
+				Buffer.from(await data.keys.arrayBuffer())
 			),
 			writeFile(
 				join(cwd, 'control/control.nacp'),
 				Buffer.from(nacp.buffer)
 			),
-			writeFile(join(cwd, 'romfs/nextNroPath'), `sdmc:${core}`),
+			writeFile(join(cwd, 'romfs/nextNroPath'), `sdmc:${data.core}`),
 			writeFile(join(cwd, 'romfs/nextArgv'), argv),
 			sharp(Buffer.from(imageBuffer))
 				.jpeg({ quality: 100, chromaSubsampling: '4:2:0' })
 				.resize(256, 256)
 				.toFile(join(cwd, 'control/icon_AmericanEnglish.dat')),
+			logoBuffer &&
+				sharp(Buffer.from(logoBuffer))
+					.png()
+					.resize(160, 40)
+					.toFile(join(cwd, 'logo/NintendoLogo.png')),
 		]);
 
 		const proc = spawn(
@@ -106,12 +118,12 @@ export async function generateNsp(request: Request) {
 			throw new SpawnError(proc.exitCode);
 		}
 
-		const data = await readFile(join(cwd, `hacbrewpack_nsp/${id}.nsp`));
+		const output = await readFile(join(cwd, `hacbrewpack_nsp/${id}.nsp`));
 		await remove(cwd);
 
-		return new Response(data, {
+		return new Response(output, {
 			headers: {
-				'Content-Disposition': `attachment; filename="${title} [${id}].nsp"`,
+				'Content-Disposition': `attachment; filename="${data.title} [${id}].nsp"`,
 			},
 		});
 	} catch (err: any) {
