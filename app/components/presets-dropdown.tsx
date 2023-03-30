@@ -1,4 +1,3 @@
-import { Fragment } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { DropdownMenuIcon, DotFilledIcon } from '@radix-ui/react-icons';
 
@@ -108,7 +107,7 @@ export interface PresetsDropdownProps {
 	onSelect: (v: string) => void;
 }
 
-export const PresetsDropdown = ({ value, onSelect }: PresetsDropdownProps) => {
+export function PresetsDropdown({ value, onSelect }: PresetsDropdownProps) {
 	return (
 		<DropdownMenu.Root>
 			<DropdownMenu.Trigger asChild>
@@ -127,26 +126,11 @@ export const PresetsDropdown = ({ value, onSelect }: PresetsDropdownProps) => {
 						onValueChange={onSelect}
 					>
 						{systems.map((system, i) => (
-							<Fragment key={system.name}>
-								<DropdownMenu.Label className="DropdownMenuLabel">
-									{system.name}
-								</DropdownMenu.Label>
-								{system.cores.map((core) => (
-									<DropdownMenu.RadioItem
-										className="DropdownMenuRadioItem"
-										value={core.path}
-										key={core.path}
-									>
-										<DropdownMenu.ItemIndicator className="DropdownMenuItemIndicator">
-											<DotFilledIcon />
-										</DropdownMenu.ItemIndicator>
-										{core.name}
-									</DropdownMenu.RadioItem>
-								))}
-								{i < systems.length - 1 ? (
-									<DropdownMenu.Separator className="DropdownMenuSeparator" />
-								) : null}
-							</Fragment>
+							<PresetsDropdownSystem
+								key={system.name}
+								system={system}
+								separator={i < systems.length - 1}
+							/>
 						))}
 					</DropdownMenu.RadioGroup>
 
@@ -155,4 +139,46 @@ export const PresetsDropdown = ({ value, onSelect }: PresetsDropdownProps) => {
 			</DropdownMenu.Portal>
 		</DropdownMenu.Root>
 	);
-};
+}
+
+interface PresetsDropdownSystemProps {
+	system: SystemData;
+	separator: boolean;
+}
+
+function PresetsDropdownSystem({
+	system,
+	separator,
+}: PresetsDropdownSystemProps) {
+	return (
+		<>
+			<DropdownMenu.Label className="DropdownMenuLabel">
+				{system.name}
+			</DropdownMenu.Label>
+			{system.cores.map((core) => (
+				<PresetsDropdownCore key={core.path} core={core} />
+			))}
+			{separator ? (
+				<DropdownMenu.Separator className="DropdownMenuSeparator" />
+			) : null}
+		</>
+	);
+}
+
+interface PresetsDropdownCoreProps {
+	core: CoreData;
+}
+
+function PresetsDropdownCore({ core }: PresetsDropdownCoreProps) {
+	return (
+		<DropdownMenu.RadioItem
+			className="DropdownMenuRadioItem"
+			value={core.path}
+		>
+			<DropdownMenu.ItemIndicator className="DropdownMenuItemIndicator">
+				<DotFilledIcon />
+			</DropdownMenu.ItemIndicator>
+			{core.name}
+		</DropdownMenu.RadioItem>
+	);
+}
