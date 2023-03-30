@@ -33,6 +33,7 @@ const schema = zfd.formData({
 	logo: zfd.file(z.instanceof(File).optional()),
 	version: zfd.text(z.string().optional()),
 	startupUserAccount: zfd.checkbox(),
+	logoType: zfd.numeric(z.number().min(0).max(2).optional()),
 	keys: zfd.file(),
 });
 
@@ -64,7 +65,7 @@ export async function generateNsp(request: Request) {
 		nacp.author = data.publisher;
 		nacp.version = data.version || '1.0.0';
 		nacp.startupUserAccount = data.startupUserAccount ? 1 : 0;
-		nacp.logoType = 0;
+		nacp.logoType = data.logoType ?? 2;
 		nacp.logoHandling = 0;
 
 		const [imageBuffer, logoBuffer] = await Promise.all([
