@@ -13,6 +13,7 @@ async function canvasPreview(
 	if (!ctx) {
 		throw new Error('No 2d context');
 	}
+	ctx.clearRect(0, 0, canvas.width, canvas.height);
 	ctx.drawImage(
 		image,
 		crop.x,
@@ -28,10 +29,16 @@ async function canvasPreview(
 
 export interface ImageInputProps extends FileInputProps {
 	placeholder?: React.ReactNode;
+	cropAspectRatio?: number;
 	onCrop?: (canvas: HTMLCanvasElement) => void;
 }
 
-export function ImageInput({ onCrop, placeholder, ...props }: ImageInputProps) {
+export function ImageInput({
+	onCrop,
+	cropAspectRatio,
+	placeholder,
+	...props
+}: ImageInputProps) {
 	const [imgSrc, setImgSrc] = useState<string>();
 	const [crop, setCrop] = useState<Crop>();
 	const [completedCrop, setCompletedCrop] = useState<PercentCrop>();
@@ -45,25 +52,35 @@ export function ImageInput({ onCrop, placeholder, ...props }: ImageInputProps) {
 			const img = new Image();
 			img.onload = () => {
 				imgRef.current = img;
-				const min = Math.min(img.naturalWidth, img.naturalHeight);
+				let widthRatio = 1;
+				let heightRatio = 1;
+				if (cropAspectRatio) {
+					if (cropAspectRatio > 1) {
+						heightRatio /= cropAspectRatio;
+					} else {
+						widthRatio /= cropAspectRatio;
+					}
+				}
+				const min = Math.min(
+					img.naturalWidth / widthRatio,
+					img.naturalHeight / heightRatio
+				);
 				const initialCrop: PercentCrop = {
 					unit: '%',
 					x: 0,
 					y: 0,
-					width: (min / img.naturalWidth) * 100,
-					height: (min / img.naturalHeight) * 100,
+					width: (min / img.naturalWidth) * 100 * widthRatio,
+					height: (min / img.naturalHeight) * 100 * heightRatio,
 				};
 				setCrop(initialCrop);
 				setCompletedCrop(initialCrop);
 			};
 			img.src = imgSrc;
-		}
-		return () => {
-			if (imgSrc) {
+			return () => {
 				URL.revokeObjectURL(imgSrc);
-			}
-		};
-	}, [imgSrc]);
+			};
+		}
+	}, [imgSrc, cropAspectRatio]);
 
 	useEffect(() => {
 		if (
@@ -155,7 +172,7 @@ export function ImageInput({ onCrop, placeholder, ...props }: ImageInputProps) {
 					{imgSrc ? (
 						<ReactCrop
 							crop={crop}
-							aspect={1}
+							aspect={cropAspectRatio}
 							onChange={(_, crop) => setCrop(crop)}
 							onComplete={(_, crop) => setCompletedCrop(crop)}
 						>

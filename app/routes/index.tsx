@@ -51,6 +51,7 @@ export default function Index() {
 				className="Input image-input"
 				accept="image/*"
 				placeholder="Click to select image…"
+				cropAspectRatio={1}
 				onCrop={handleImageCrop}
 				style={{
 					lineHeight: 0,
