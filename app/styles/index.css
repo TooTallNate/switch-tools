@@ -120,7 +120,7 @@ label.Input {
 
 .HoverCardContent {
 	border-radius: 6px;
-	padding: 20px;
+	padding: 0.8em;
 	background-color: white;
 	color: black;
 	box-shadow: hsl(206 22% 7% / 35%) 0px 10px 38px -10px,
@@ -128,6 +128,9 @@ label.Input {
 	animation-duration: 400ms;
 	animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 	will-change: transform, opacity;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
 }
 .HoverCardContent[data-side='top'] {
 	animation-name: slideDownAndFade;

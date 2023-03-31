@@ -30,19 +30,30 @@ export const links: LinksFunction = () => {
 export default function Index() {
 	const [coreValue, setCoreValue] = useState('');
 	const imageInputRef = useRef<HTMLInputElement | null>(null);
+	const logoInputRef = useRef<HTMLInputElement | null>(null);
 
-	const handleImageCrop: (c: HTMLCanvasElement) => void = useCallback(
-		(canvas) => {
-			canvas.toBlob((blob) => {
-				if (blob && imageInputRef.current) {
-					const file = new File([blob], 'image');
-					const container = new DataTransfer();
-					container.items.add(file);
-					imageInputRef.current.files = container.files;
-				}
-			});
+	const handleImageCropBlob = useCallback(
+		(blob: Blob) => {
+			if (imageInputRef.current) {
+				const file = new File([blob], "image");
+				const container = new DataTransfer();
+				container.items.add(file);
+				imageInputRef.current.files = container.files;
+			}
 		},
 		[imageInputRef]
+	);
+
+	const handleLogoCropBlob = useCallback(
+		(blob: Blob) => {
+			if (logoInputRef.current) {
+				const file = new File([blob], "logo");
+				const container = new DataTransfer();
+				container.items.add(file);
+				logoInputRef.current.files = container.files;
+			}
+		},
+		[logoInputRef]
 	);
 
 	return (
@@ -51,7 +62,7 @@ export default function Index() {
 				className="Input image-input"
 				placeholder="Click to select image…"
 				cropAspectRatio={1}
-				onCrop={handleImageCrop}
+				onCropBlob={handleImageCropBlob}
 				style={{
 					lineHeight: 0,
 					margin: '1.4rem 0',
@@ -123,10 +134,58 @@ export default function Index() {
 						height: 0,
 					}}
 				/>
-				<button type="submit" className="Button">
-					Generate NSP
-				</button>
+				<input
+					type="file"
+					name="logo"
+					ref={logoInputRef}
+					style={{
+						opacity: 0,
+						position: 'absolute',
+						width: 0,
+						height: 0,
+					}}
+				/>
+				<div>
+					<label>
+						<input type="checkbox" name="showAdvanced" />
+						Show Advanced
+					</label>
+					<button type="submit" className="Button">
+						Generate NSP
+					</button>
+				</div>
+				<Input
+					name="version"
+					label="Version"
+					tooltip="Version number which is displayed on the game's details"
+					placeholder="1.0.0"
+				/>
 			</Form>
+			<ImageInput
+				className="Input image-input"
+				placeholder="Select logo…"
+				cropAspectRatio={160 / 40}
+				onCropBlob={handleLogoCropBlob}
+				style={{
+					lineHeight: 0,
+					margin: '0',
+					width: '160px',
+					height: '40px',
+				}}
+			/>
+			<ImageInput
+				animated
+				className="Input image-input"
+				placeholder="Select startup animation…"
+				cropAspectRatio={256 / 80}
+				//onCrop={handleLogoCrop}
+				style={{
+					lineHeight: 0,
+					margin: '0',
+					width: '256px',
+					height: '80px',
+				}}
+			/>
 		</>
 	);
 }

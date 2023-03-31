@@ -22,6 +22,7 @@ specifiers:
   clsx: ^1.2.1
   eslint: ^8.33.0
   fs-extra: ^11.1.0
+  gifuct-js: ^2.1.2
   react: ^18.2.0
   react-dom: ^18.2.0
   react-image-crop: ^10.0.9
@@ -43,6 +44,7 @@ dependencies:
   '@vercel/remix': 1.14.3-patch.1_biqbaboplfbrettd7655fr4n2y
   clsx: 1.2.1
   fs-extra: 11.1.0
+  gifuct-js: 2.1.2
   react: 18.2.0
   react-dom: 18.2.0_react@18.2.0
   react-image-crop: 10.0.9_react@18.2.0
@@ -4866,6 +4868,12 @@ packages:
       - supports-color
     dev: true
 
+  /gifuct-js/2.1.2:
+    resolution: {integrity: sha512-rI2asw77u0mGgwhV3qA+OEgYqaDn5UNqgs+Bx0FGwSpuqfYn+Ir6RQY5ENNQ8SbIiG/m5gVa7CD5RriO4f4Lsg==}
+    dependencies:
+      js-binary-schema-parser: 2.0.3
+    dev: false
+
   /git-hooks-list/1.0.3:
     resolution: {integrity: sha512-Y7wLWcrLUXwk2noSka166byGCvhMtDRpgHdzCno1UQv/n/Hegp++a2xBWJL1lJarnKD3SWaljD+0z1ztqxuKyQ==}
     dev: true
@@ -5504,6 +5512,10 @@ packages:
   /javascript-stringify/2.1.0:
     resolution: {integrity: sha512-JVAfqNPTvNq3sB/VHQJAFxN/sPgKnsKrCwyRt15zwNCdrMMJDdcEOdubuy+DuJYYdm0ox1J4uzEuYKkN+9yhVg==}
     dev: true
+
+  /js-binary-schema-parser/2.0.3:
+    resolution: {integrity: sha512-xezGJmOb4lk/M1ZZLTR/jaBHQ4gG/lqQnJqdIv4721DMggsa1bDVlHXNeHYogaIEHD9vCRv0fcL4hMA+Coarkg==}
+    dev: false
 
   /js-sdsl/4.3.0:
     resolution: {integrity: sha512-mifzlm2+5nZ+lEcLJMoBK0/IH/bDg8XnJfd/Wq6IP+xoCjLZsTOnV2QpxlVbX9bMnkl5PdEjNtBJ9Cj1NjifhQ==}

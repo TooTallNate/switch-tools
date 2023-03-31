@@ -1,8 +1,10 @@
 import { ChangeEventHandler, useEffect, useRef, useState } from 'react';
 import ReactCrop, { Crop, PercentCrop, PixelCrop } from 'react-image-crop';
 import * as HoverCard from '@radix-ui/react-hover-card';
+import { parseGIF, decompressFrames } from 'gifuct-js';
 
 import { FileInput, FileInputProps } from '~/components/file-input';
+import { renderGIF } from '~/gif.client';
 
 async function canvasPreview(
 	image: HTMLImageElement,
@@ -28,26 +30,41 @@ async function canvasPreview(
 }
 
 export interface ImageInputProps extends FileInputProps {
+	animated?: boolean;
 	placeholder?: React.ReactNode;
 	cropAspectRatio?: number;
-	onCrop?: (canvas: HTMLCanvasElement) => void;
+	/**
+	 * Invoked after the crop has been adjusted, with a
+	 * blob containing the cropped version of the image.
+	 */
+	onCropBlob?: (blob: Blob) => void;
 }
 
 export function ImageInput({
-	onCrop,
+	animated,
 	cropAspectRatio,
 	placeholder,
+	onCropBlob,
 	...props
 }: ImageInputProps) {
 	const [imgSrc, setImgSrc] = useState<string>();
+	const [downloadHref, setDownloadHref] = useState<string>();
 	const [crop, setCrop] = useState<Crop>();
 	const [completedCrop, setCompletedCrop] = useState<PercentCrop>();
 	const imgRef = useRef<HTMLImageElement | null>(null);
 	const imgInputRef = useRef<HTMLInputElement | null>(null);
 	const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+	const fileRef = useRef<File | null>(null);
+	const completedCropRef = useRef<PixelCrop | null>(null);
 
 	useEffect(() => {
-		if (imgSrc) {
+		if (downloadHref) {
+			return () => URL.revokeObjectURL(downloadHref);
+		}
+	}, [ downloadHref ]);
+
+	useEffect(() => {
+		if (imgSrc && fileRef.current) {
 			// When a new image is selected, load it and set the initial crop
 			const img = new Image();
 			img.onload = () => {
@@ -76,11 +93,24 @@ export function ImageInput({
 				setCompletedCrop(initialCrop);
 			};
 			img.src = imgSrc;
+
+			if (animated && fileRef.current.name.endsWith('.gif')) {
+				// User selected a GIF file, attempt to read the frames
+				readGIF(fileRef.current);
+			}
+
 			return () => {
 				URL.revokeObjectURL(imgSrc);
 			};
 		}
-	}, [imgSrc, cropAspectRatio]);
+	}, [imgSrc, fileRef, cropAspectRatio, animated]);
+
+	async function readGIF(file: File) {
+		const arrayBuffer = await file.arrayBuffer();
+		const gif = parseGIF(arrayBuffer);
+		const frames = decompressFrames(gif, true);
+		renderGIF(frames, previewCanvasRef.current!, completedCropRef);
+	}
 
 	useEffect(() => {
 		if (
@@ -98,10 +128,24 @@ export function ImageInput({
 					imgRef.current.naturalHeight * (completedCrop.height / 100),
 				unit: 'px',
 			};
-			canvasPreview(imgRef.current, previewCanvasRef.current, pixelCrop);
-			onCrop?.(previewCanvasRef.current);
+			if (animated) {
+				completedCropRef.current = pixelCrop;
+			} else {
+				canvasPreview(
+					imgRef.current,
+					previewCanvasRef.current,
+					pixelCrop
+				);
+				previewCanvasRef.current.toBlob((blob) => {
+					if (blob) {
+						setDownloadHref(URL.createObjectURL(blob));
+						onCropBlob?.(blob);
+					}
+				});
+			}
+			//onCrop?.(previewCanvasRef.current);
 		}
-	}, [completedCrop]);
+	}, [completedCrop, animated]);
 
 	useEffect(() => {
 		if (imgInputRef.current && previewCanvasRef.current) {
@@ -120,6 +164,7 @@ export function ImageInput({
 	};
 
 	const handleImageFile = (file?: File) => {
+		fileRef.current = file || null;
 		if (!file) {
 			setImgSrc(undefined);
 			setCrop(undefined);
@@ -171,21 +216,25 @@ export function ImageInput({
 			<HoverCard.Portal>
 				<HoverCard.Content className="HoverCardContent" sideOffset={5}>
 					{imgSrc ? (
-						<ReactCrop
-							crop={crop}
-							aspect={cropAspectRatio}
-							onChange={(_, crop) => setCrop(crop)}
-							onComplete={(_, crop) => setCompletedCrop(crop)}
-						>
-							<img
-								ref={imgRef}
-								src={imgSrc}
-								style={{
-									maxWidth: '400px',
-									maxHeight: '400px',
-								}}
-							/>
-						</ReactCrop>
+						<>
+							<ReactCrop
+								crop={crop}
+								aspect={cropAspectRatio}
+								onChange={(_, crop) => setCrop(crop)}
+								onComplete={(_, crop) => setCompletedCrop(crop)}
+							>
+								<img
+									ref={imgRef}
+									src={imgSrc}
+									style={{
+										backgroundColor: 'black',
+										maxWidth: '400px',
+										maxHeight: '400px',
+									}}
+								/>
+							</ReactCrop>
+							<a href={downloadHref} download>Save Cropped Version</a>
+						</>
 					) : (
 						'No image selected…'
 					)}
