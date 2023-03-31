@@ -1,101 +1,70 @@
 import type { PixelCrop } from 'react-image-crop';
-import type { ParsedFrame } from 'gifuct-js';
-import type { MutableRefObject } from 'react';
+// @ts-expect-error
+import gifsicle from 'gifsicle-wasm-browser';
 
-export function renderGIF(
-	frames: ParsedFrame[],
-	canvas: HTMLCanvasElement,
-	cropRef: MutableRefObject<PixelCrop | null>
-) {
-	const ctx = canvas.getContext('2d');
+const decoder = new TextDecoder('utf-8');
 
-	// gif patch canvas
-	const tempCanvas = document.createElement('canvas');
-	const tempCtx = tempCanvas.getContext('2d')!;
+export interface GifsicleOptions {
+	optimization?: number;
+	lossy?: number;
+	colors?: number;
+	crop?: PixelCrop;
+	resize?: { width: number; height: number };
+	trim?: { start: number; end: number };
+}
 
-	// full gif canvas
-	const gifCanvas = document.createElement('canvas');
-	const gifCtx = gifCanvas.getContext('2d')!;
-
-	let playing = true;
-	let frameIndex = 0;
-	let needsDisposal = false;
-
-	gifCanvas.width = frames[0].dims.width;
-	gifCanvas.height = frames[0].dims.height;
-
-	function renderFrame() {
-		// get the frame
-		var frame = frames[frameIndex];
-
-		var start = new Date().getTime();
-
-		if (needsDisposal) {
-			gifCtx.clearRect(0, 0, gifCanvas.width, gifCanvas.height);
-			needsDisposal = false;
-		}
-
-		// draw the patch
-		drawPatch(frame);
-
-		// update the frame index
-		frameIndex++;
-		if (frameIndex >= frames.length) {
-			frameIndex = 0;
-		}
-
-		if (frame.disposalType === 2) {
-			needsDisposal = true;
-		}
-
-		var end = new Date().getTime();
-		var diff = end - start;
-
-		if (playing) {
-			// delay the next gif frame
-			setTimeout(() => {
-				requestAnimationFrame(renderFrame);
-			}, Math.max(0, Math.floor(frame.delay - diff)));
-		}
+export async function cropAndScaleGIF(
+	file: File,
+	opts: GifsicleOptions = {}
+): Promise<File> {
+	const command: string[] = [];
+	if (typeof opts.optimization === 'number') {
+		command.push(`-O${opts.optimization}`);
 	}
-
-	let frameImageData: ImageData | undefined;
-
-	function drawPatch({ dims, patch }: ParsedFrame) {
-		if (
-			!frameImageData ||
-			dims.width != frameImageData.width ||
-			dims.height != frameImageData.height
-		) {
-			tempCanvas.width = dims.width;
-			tempCanvas.height = dims.height;
-			frameImageData = tempCtx.createImageData(dims.width, dims.height);
-		}
-
-		// set the patch data as an override
-		frameImageData.data.set(patch);
-
-		// draw the patch back over the canvas
-		tempCtx.putImageData(frameImageData, 0, 0);
-
-		gifCtx.drawImage(tempCanvas, dims.left, dims.top);
-
-		const { current: crop } = cropRef;
-		if (crop && ctx) {
-			ctx.clearRect(0, 0, canvas.width, canvas.height);
-			ctx.drawImage(
-				gifCanvas,
-				crop.x,
-				crop.y,
-				crop.width,
-				crop.height,
-				0,
-				0,
-				canvas.width,
-				canvas.height
-			);
-		}
+	if (typeof opts.lossy === 'number') {
+		command.push(`--lossy=${opts.lossy}`);
 	}
+	if (typeof opts.colors === 'number') {
+		command.push(`--colors ${opts.colors}`);
+	}
+	if (opts.crop) {
+		const cropX = Math.round(opts.crop.x);
+		const cropY = Math.round(opts.crop.y);
+		const cropWidth = Math.round(opts.crop.width);
+		const cropHeight = Math.round(opts.crop.height);
+		command.push(`--crop`, `${cropX},${cropY}+${cropWidth}x${cropHeight}`);
+	}
+	if (opts.resize) {
+		command.push('--resize', `${opts.resize.width}x${opts.resize.height}`);
+	}
+	command.push('input.gif');
+	if (opts.trim) {
+		command.push(`#${opts.trim.start - 1}-${opts.trim.end - 1}`);
+	}
+	command.push('-o', '/out/out.gif');
+	const out = await gifsicle.run({
+		input: [
+			{
+				file,
+				name: 'input.gif',
+			},
+		],
+		command: [command.join(' ')],
+	});
+	return out[0];
+}
 
-	renderFrame();
+export async function getInfo(file: File): Promise<string> {
+	const arr = await gifsicle.run({
+		input: [
+			{
+				file,
+				name: '1.gif',
+			},
+		],
+		command: ['--info 1.gif -o /out/out.txt'],
+	});
+	const out: File = arr[0];
+	const data = decoder.decode(await out.arrayBuffer());
+	return data;
 }

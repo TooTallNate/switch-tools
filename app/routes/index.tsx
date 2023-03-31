@@ -31,11 +31,12 @@ export default function Index() {
 	const [coreValue, setCoreValue] = useState('');
 	const imageInputRef = useRef<HTMLInputElement | null>(null);
 	const logoInputRef = useRef<HTMLInputElement | null>(null);
+	const startupMovieInputRef = useRef<HTMLInputElement | null>(null);
 
 	const handleImageCropBlob = useCallback(
 		(blob: Blob) => {
 			if (imageInputRef.current) {
-				const file = new File([blob], "image");
+				const file = new File([blob], 'image');
 				const container = new DataTransfer();
 				container.items.add(file);
 				imageInputRef.current.files = container.files;
@@ -47,10 +48,22 @@ export default function Index() {
 	const handleLogoCropBlob = useCallback(
 		(blob: Blob) => {
 			if (logoInputRef.current) {
-				const file = new File([blob], "logo");
+				const file = new File([blob], 'logo');
 				const container = new DataTransfer();
 				container.items.add(file);
 				logoInputRef.current.files = container.files;
+			}
+		},
+		[logoInputRef]
+	);
+
+	const handleStartupMovieCropBlob = useCallback(
+		(blob: Blob) => {
+			if (startupMovieInputRef.current) {
+				const file = new File([blob], 'startupMovie');
+				const container = new DataTransfer();
+				container.items.add(file);
+				startupMovieInputRef.current.files = container.files;
 			}
 		},
 		[logoInputRef]
@@ -114,6 +127,7 @@ export default function Index() {
 					placeholder="/ROMs/SNES/Super Mario World.smc"
 				/>
 				<Input
+					id="keys"
 					name="keys"
 					type="file"
 					required
@@ -145,10 +159,21 @@ export default function Index() {
 						height: 0,
 					}}
 				/>
+				<input
+					type="file"
+					name="startupMovie"
+					ref={startupMovieInputRef}
+					style={{
+						opacity: 0,
+						position: 'absolute',
+						width: 0,
+						height: 0,
+					}}
+				/>
 				<div>
 					<label>
 						<input type="checkbox" name="showAdvanced" />
-						Show Advanced
+						Advanced Mode
 					</label>
 					<button type="submit" className="Button">
 						Generate NSP
@@ -161,31 +186,47 @@ export default function Index() {
 					placeholder="1.0.0"
 				/>
 			</Form>
-			<ImageInput
-				className="Input image-input"
-				placeholder="Select logo…"
-				cropAspectRatio={160 / 40}
-				onCropBlob={handleLogoCropBlob}
-				style={{
-					lineHeight: 0,
-					margin: '0',
-					width: '160px',
-					height: '40px',
-				}}
-			/>
-			<ImageInput
-				animated
-				className="Input image-input"
-				placeholder="Select startup animation…"
-				cropAspectRatio={256 / 80}
-				//onCrop={handleLogoCrop}
-				style={{
-					lineHeight: 0,
-					margin: '0',
-					width: '256px',
-					height: '80px',
-				}}
-			/>
+			<div className="boot-up">
+				<div className="logo-controls">
+					<ImageInput
+						className="Input image-input"
+						placeholder="Select logo…"
+						cropAspectRatio={160 / 40}
+						onCropBlob={handleLogoCropBlob}
+						style={{
+							lineHeight: 0,
+							margin: '0',
+							width: '160px',
+							height: '40px',
+						}}
+					/>
+					<label>
+						<input type="radio" name="logo-text" />
+						No text…
+					</label>
+					<label>
+						<input type="radio" name="logo-text" />
+						Show "Licensed by"
+					</label>
+					<label>
+						<input type="radio" name="logo-text" />
+						Show "Distributed by"
+					</label>
+				</div>
+				<ImageInput
+					animated
+					className="Input image-input"
+					placeholder="Select startup animation…"
+					cropAspectRatio={256 / 80}
+					onCropBlob={handleStartupMovieCropBlob}
+					style={{
+						lineHeight: 0,
+						margin: '0',
+						width: '256px',
+						height: '80px',
+					}}
+				/>
+			</div>
 		</>
 	);
 }

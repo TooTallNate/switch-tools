@@ -1,10 +1,11 @@
+import bytes from 'bytes';
 import { ChangeEventHandler, useEffect, useRef, useState } from 'react';
 import ReactCrop, { Crop, PercentCrop, PixelCrop } from 'react-image-crop';
+import * as Slider from '@radix-ui/react-slider';
 import * as HoverCard from '@radix-ui/react-hover-card';
-import { parseGIF, decompressFrames } from 'gifuct-js';
 
+import { cropAndScaleGIF, getInfo, GifsicleOptions } from '~/gif.client';
 import { FileInput, FileInputProps } from '~/components/file-input';
-import { renderGIF } from '~/gif.client';
 
 async function canvasPreview(
 	image: HTMLImageElement,
@@ -49,19 +50,25 @@ export function ImageInput({
 }: ImageInputProps) {
 	const [imgSrc, setImgSrc] = useState<string>();
 	const [downloadHref, setDownloadHref] = useState<string>();
+	const [downloadSize, setDownloadSize] = useState(0);
 	const [crop, setCrop] = useState<Crop>();
 	const [completedCrop, setCompletedCrop] = useState<PercentCrop>();
+	const [generationTime, setGenerationTime] = useState(0);
 	const imgRef = useRef<HTMLImageElement | null>(null);
 	const imgInputRef = useRef<HTMLInputElement | null>(null);
 	const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 	const fileRef = useRef<File | null>(null);
-	const completedCropRef = useRef<PixelCrop | null>(null);
+
+	const [numberOfFrames, setNumberOfFrames] = useState(0);
+	const [trim, setTrim] = useState<GifsicleOptions['trim']>();
+	const [trimStart, setTrimStart] = useState(0);
+	const [trimEnd, setTrimEnd] = useState(0);
 
 	useEffect(() => {
 		if (downloadHref) {
 			return () => URL.revokeObjectURL(downloadHref);
 		}
-	}, [ downloadHref ]);
+	}, [downloadHref]);
 
 	useEffect(() => {
 		if (imgSrc && fileRef.current) {
@@ -95,8 +102,16 @@ export function ImageInput({
 			img.src = imgSrc;
 
 			if (animated && fileRef.current.name.endsWith('.gif')) {
-				// User selected a GIF file, attempt to read the frames
-				readGIF(fileRef.current);
+				getInfo(fileRef.current).then((info) => {
+					const numFramesMatch = info.match(/(\d+) images/);
+					if (numFramesMatch) {
+						const numFrames = Number(numFramesMatch[1]);
+						setNumberOfFrames(numFrames);
+						setTrimStart(1);
+						setTrimEnd(numFrames);
+						setTrim({ start: 1, end: numFrames });
+					}
+				});
 			}
 
 			return () => {
@@ -105,20 +120,8 @@ export function ImageInput({
 		}
 	}, [imgSrc, fileRef, cropAspectRatio, animated]);
 
-	async function readGIF(file: File) {
-		const arrayBuffer = await file.arrayBuffer();
-		const gif = parseGIF(arrayBuffer);
-		const frames = decompressFrames(gif, true);
-		renderGIF(frames, previewCanvasRef.current!, completedCropRef);
-	}
-
 	useEffect(() => {
-		if (
-			completedCrop?.width &&
-			completedCrop?.height &&
-			imgRef.current &&
-			previewCanvasRef.current
-		) {
+		if (completedCrop?.width && completedCrop?.height && imgRef.current) {
 			const pixelCrop: PixelCrop = {
 				x: imgRef.current.naturalWidth * (completedCrop.x / 100),
 				y: imgRef.current.naturalHeight * (completedCrop.y / 100),
@@ -128,9 +131,23 @@ export function ImageInput({
 					imgRef.current.naturalHeight * (completedCrop.height / 100),
 				unit: 'px',
 			};
-			if (animated) {
-				completedCropRef.current = pixelCrop;
-			} else {
+			const startTime = Date.now();
+			if (animated && fileRef.current?.name.endsWith('.gif')) {
+				cropAndScaleGIF(fileRef.current, {
+					optimization: 3,
+					lossy: 180,
+					colors: 256,
+					crop: pixelCrop,
+					resize: { width: 256, height: 80 },
+					trim,
+				}).then((out) => {
+					const diff = Date.now() - startTime;
+					setDownloadHref(URL.createObjectURL(out));
+					setDownloadSize(out.size);
+					setGenerationTime(diff);
+					onCropBlob?.(out);
+				});
+			} else if (previewCanvasRef.current) {
 				canvasPreview(
 					imgRef.current,
 					previewCanvasRef.current,
@@ -138,14 +155,16 @@ export function ImageInput({
 				);
 				previewCanvasRef.current.toBlob((blob) => {
 					if (blob) {
+						const diff = Date.now() - startTime;
 						setDownloadHref(URL.createObjectURL(blob));
+						setDownloadSize(blob.size);
+						setGenerationTime(diff);
 						onCropBlob?.(blob);
 					}
 				});
 			}
-			//onCrop?.(previewCanvasRef.current);
 		}
-	}, [completedCrop, animated]);
+	}, [completedCrop, animated, trim, fileRef]);
 
 	useEffect(() => {
 		if (imgInputRef.current && previewCanvasRef.current) {
@@ -203,10 +222,18 @@ export function ImageInput({
 			>
 				{placeholder}
 			</div>
-			<canvas
-				ref={previewCanvasRef}
-				style={{ pointerEvents: 'none', width: '100%', height: '100%' }}
-			/>
+			{animated && fileRef.current?.name.endsWith('.gif') ? (
+				<img src={downloadHref} />
+			) : (
+				<canvas
+					ref={previewCanvasRef}
+					style={{
+						pointerEvents: 'none',
+						width: '100%',
+						height: '100%',
+					}}
+				/>
+			)}
 		</FileInput>
 	);
 
@@ -233,7 +260,41 @@ export function ImageInput({
 									}}
 								/>
 							</ReactCrop>
-							<a href={downloadHref} download>Save Cropped Version</a>
+							{animated &&
+							fileRef.current?.name.endsWith('.gif') ? (
+								<>
+									<div>
+										Trim: ({trimStart}-{trimEnd})
+										<Slider.Root
+											className="SliderRoot"
+											min={1}
+											max={numberOfFrames}
+											onValueChange={(v) => {
+												console.log(v);
+												setTrimStart(v[0]);
+												setTrimEnd(v[1]);
+											}}
+											onValueCommit={(v) => {
+												setTrim({
+													start: v[0],
+													end: v[1],
+												});
+											}}
+											value={[trimStart, trimEnd]}
+										>
+											<Slider.Track className="SliderTrack">
+												<Slider.Range className="SliderRange" />
+											</Slider.Track>
+											<Slider.Thumb className="SliderThumb" />
+											<Slider.Thumb className="SliderThumb" />
+										</Slider.Root>
+									</div>
+								</>
+							) : null}
+							<div>Size: {bytes(downloadSize)}</div>
+							<a href={downloadHref} download>
+								Download
+							</a>
 						</>
 					) : (
 						'No image selected…'

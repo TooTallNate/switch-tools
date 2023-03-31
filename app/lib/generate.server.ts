@@ -31,7 +31,8 @@ const schema = zfd.formData({
 	rom: zfd.text(z.string().optional()),
 	image: zfd.file(),
 	logo: zfd.file(z.instanceof(File).optional()),
-	version: zfd.text(z.string().optional()),
+	startupMovie: zfd.file(z.instanceof(File).optional()),
+	version: zfd.text(z.string().max(15).optional()),
 	startupUserAccount: zfd.checkbox(),
 	logoType: zfd.numeric(z.number().min(0).max(2).optional()),
 	keys: zfd.file(),
@@ -46,7 +47,7 @@ export async function generateNsp(request: Request) {
 
 	const cwd = await mkdtemp(join(tmpdir(), `nsp-`));
 	const logs: LogChunk[] = [];
-	//console.log(cwd);
+	console.log(cwd);
 	try {
 		const formData = await request.formData();
 		//console.log(formData);
@@ -55,6 +56,9 @@ export async function generateNsp(request: Request) {
 		// it gets submitted as an empty text string
 		if (!formData.get('logo')) {
 			formData.delete('logo');
+		}
+		if (!formData.get('startupMovie')) {
+			formData.delete('startupMovie');
 		}
 
 		const data = schema.parse(formData);
@@ -68,11 +72,14 @@ export async function generateNsp(request: Request) {
 		nacp.logoType = data.logoType ?? 2;
 		nacp.logoHandling = 0;
 
-		const [imageBuffer, logoBuffer] = await Promise.all([
-			data.image.arrayBuffer(),
-			data.logo?.arrayBuffer(),
-			copy(TEMPLATE_PATH, cwd),
-		]);
+		const [imageBuffer, logoBuffer, startupMovieBuffer] = await Promise.all(
+			[
+				data.image.arrayBuffer(),
+				data.logo?.arrayBuffer(),
+				data.startupMovie?.arrayBuffer(),
+				copy(TEMPLATE_PATH, cwd),
+			]
+		);
 
 		let argv = `sdmc:${data.core}`;
 		if (data.rom) {
@@ -99,6 +106,15 @@ export async function generateNsp(request: Request) {
 					.png()
 					.resize(160, 40)
 					.toFile(join(cwd, 'logo/NintendoLogo.png')),
+			startupMovieBuffer &&
+				writeFile(
+					join(cwd, 'logo/StartupMovie.gif'),
+					Buffer.from(startupMovieBuffer)
+				),
+			//sharp(Buffer.from(startupMovieBuffer), { animated: true})
+			//	.gif()
+			//	.resize(256, 80)
+			//	.toFile(join(cwd, 'logo/StartupMovie.gif')),
 		]);
 
 		const proc = spawn(
@@ -120,7 +136,7 @@ export async function generateNsp(request: Request) {
 		}
 
 		const output = await readFile(join(cwd, `hacbrewpack_nsp/${id}.nsp`));
-		await remove(cwd);
+		//await remove(cwd);
 
 		return new Response(output, {
 			headers: {
