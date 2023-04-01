@@ -1,12 +1,9 @@
 import { createCookieSessionStorage } from '@vercel/remix';
+import { sessionCookie } from './cookies';
 
 const { getSession, commitSession, destroySession } =
 	createCookieSessionStorage({
-		// a Cookie from `createCookie` or the CookieOptions to create one
-		cookie: {
-			name: '__session',
-			secrets: ['s3cret1-nsp'],
-		},
+		cookie: sessionCookie,
 	});
 
 export { getSession, commitSession, destroySession };

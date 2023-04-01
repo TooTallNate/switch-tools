@@ -1,6 +1,9 @@
-import { Form } from '@remix-run/react';
-import { useCallback, useRef, useState } from 'react';
-import { LinksFunction } from '@vercel/remix';
+import cookie from 'cookie';
+import { Form, useLoaderData } from '@remix-run/react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { json, LinksFunction, LoaderArgs } from '@vercel/remix';
+import * as Checkbox from '@radix-ui/react-checkbox';
+import { CheckIcon } from '@radix-ui/react-icons';
 
 import { Input } from '~/components/input';
 import { ImageInput } from '~/components/image-input';
@@ -13,6 +16,7 @@ import radixBlackA from '@radix-ui/colors/blackA.css';
 import radixMauve from '@radix-ui/colors/mauveDark.css';
 import radixViolet from '@radix-ui/colors/violetDark.css';
 import fontStyles from '~/styles/index.css';
+import { LogoTextSelect } from '~/components/logo-text-select';
 
 export const config = { runtime: 'edge' };
 
@@ -27,11 +31,26 @@ export const links: LinksFunction = () => {
 	];
 };
 
+export async function loader({ request }: LoaderArgs) {
+	const cookies = cookie.parse(request.headers.get('Cookie') ?? '');
+	return json({ initialAdvancedMode: cookies['advanced-mode'] });
+}
+
 export default function Index() {
+	const { initialAdvancedMode } = useLoaderData<typeof loader>();
 	const [coreValue, setCoreValue] = useState('');
+	const [advancedMode, setAdvancedMode] = useState(
+		initialAdvancedMode === '1'
+	);
 	const imageInputRef = useRef<HTMLInputElement | null>(null);
 	const logoInputRef = useRef<HTMLInputElement | null>(null);
 	const startupMovieInputRef = useRef<HTMLInputElement | null>(null);
+
+	useEffect(() => {
+		document.cookie = `advanced-mode=${
+			advancedMode ? 1 : 0
+		}; SameSite=Strict`;
+	}, [advancedMode]);
 
 	const handleImageCropBlob = useCallback(
 		(blob: Blob) => {
@@ -83,6 +102,42 @@ export default function Index() {
 					height: '256px',
 				}}
 			/>
+			{advancedMode ? (
+				<div className="boot-up">
+					<div className="logo-controls">
+						<ImageInput
+							className="Input image-input"
+							placeholder="Select logo…"
+							cropAspectRatio={160 / 40}
+							onCropBlob={handleLogoCropBlob}
+							style={{
+								lineHeight: 0,
+								margin: '0',
+								width: '160px',
+								height: '40px',
+								flex: '0 0 auto',
+							}}
+						/>
+						<LogoTextSelect />
+					</div>
+					<div>
+						<ImageInput
+							animated
+							className="Input image-input"
+							placeholder="Select startup animation…"
+							cropAspectRatio={256 / 80}
+							onCropBlob={handleStartupMovieCropBlob}
+							style={{
+								lineHeight: 0,
+								margin: '0',
+								width: '256px',
+								height: '80px',
+								flex: '0 0 auto',
+							}}
+						/>
+					</div>
+				</div>
+			) : null}
 			<Form
 				method="post"
 				action="/generate"
@@ -104,6 +159,16 @@ export default function Index() {
 					tooltip="Name of the publisher displayed on the game's details"
 					placeholder="Nintendo"
 				/>
+				{advancedMode ? (
+					<>
+						<Input
+							name="version"
+							label="Version"
+							tooltip="Version number which is displayed on the game's details"
+							placeholder="1.0.0"
+						/>
+					</>
+				) : null}
 				<Input
 					name="core"
 					required
@@ -170,63 +235,39 @@ export default function Index() {
 						height: 0,
 					}}
 				/>
-				<div>
-					<label>
-						<input type="checkbox" name="showAdvanced" />
-						Advanced Mode
-					</label>
+				<div
+					style={{
+						display: 'flex',
+						alignItems: 'center',
+						justifyContent: 'space-around',
+						width: '100%',
+					}}
+				>
+					<div style={{ display: 'flex', alignItems: 'center' }}>
+						<Checkbox.Root
+							id="showAdvanced"
+							name="showAdvanced"
+							className="CheckboxRoot"
+							onCheckedChange={(e) => {
+								if (typeof e === 'boolean') {
+									setAdvancedMode(e);
+								}
+							}}
+							checked={advancedMode}
+						>
+							<Checkbox.Indicator className="CheckboxIndicator">
+								<CheckIcon />
+							</Checkbox.Indicator>
+						</Checkbox.Root>
+						<label className="Label" htmlFor="showAdvanced">
+							Advanced Mode
+						</label>
+					</div>
 					<button type="submit" className="Button">
 						Generate NSP
 					</button>
 				</div>
-				<Input
-					name="version"
-					label="Version"
-					tooltip="Version number which is displayed on the game's details"
-					placeholder="1.0.0"
-				/>
 			</Form>
-			<div className="boot-up">
-				<div className="logo-controls">
-					<ImageInput
-						className="Input image-input"
-						placeholder="Select logo…"
-						cropAspectRatio={160 / 40}
-						onCropBlob={handleLogoCropBlob}
-						style={{
-							lineHeight: 0,
-							margin: '0',
-							width: '160px',
-							height: '40px',
-						}}
-					/>
-					<label>
-						<input type="radio" name="logo-text" />
-						No text…
-					</label>
-					<label>
-						<input type="radio" name="logo-text" />
-						Show "Licensed by"
-					</label>
-					<label>
-						<input type="radio" name="logo-text" />
-						Show "Distributed by"
-					</label>
-				</div>
-				<ImageInput
-					animated
-					className="Input image-input"
-					placeholder="Select startup animation…"
-					cropAspectRatio={256 / 80}
-					onCropBlob={handleStartupMovieCropBlob}
-					style={{
-						lineHeight: 0,
-						margin: '0',
-						width: '256px',
-						height: '80px',
-					}}
-				/>
-			</div>
 		</>
 	);
 }
