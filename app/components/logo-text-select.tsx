@@ -13,7 +13,7 @@ export function LogoTextSelect() {
 			<Select.Trigger
 				className="SelectTrigger"
 				aria-label="Text above logo"
-				style={{ marginTop: '8px' }}
+				style={{ marginBottom: '8px' }}
 			>
 				<Select.Value placeholder="Text above logo…" />
 				<Select.Icon className="SelectIcon">

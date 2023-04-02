@@ -472,8 +472,6 @@ label.Input {
 	position: relative;
 	display: flex;
 	justify-content: center;
-	width: 100vw;
-	z-index: 1;
 }
 
 .NavigationMenuList {

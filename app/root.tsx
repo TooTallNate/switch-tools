@@ -47,6 +47,8 @@ export default function App() {
 				<Links />
 			</head>
 			<body>
+				<div className="bg"></div>
+				<div className="bg-fade"></div>
 				<header>
 					<Link to="/" className="header">
 						<Header as="h2">NSP Forwarder</Header>

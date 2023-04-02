@@ -97,6 +97,7 @@ export default function Index() {
 		<>
 			<Nav advancedMode={advancedMode} />
 			<ImageInput
+				name="image"
 				className="Input image-input"
 				placeholder="Click to select image…"
 				cropAspectRatio={1}
@@ -110,7 +111,9 @@ export default function Index() {
 			{advancedMode ? (
 				<div className="boot-up">
 					<div className="logo-controls">
+						<LogoTextSelect />
 						<ImageInput
+							name="logo"
 							className="Input image-input"
 							placeholder="Select logo…"
 							cropAspectRatio={160 / 40}
@@ -123,11 +126,11 @@ export default function Index() {
 								flex: '0 0 auto',
 							}}
 						/>
-						<LogoTextSelect />
 					</div>
 					<div>
 						<ImageInput
 							animated
+							name="animation"
 							className="Input image-input"
 							placeholder="Select startup animation…"
 							cropAspectRatio={256 / 80}
