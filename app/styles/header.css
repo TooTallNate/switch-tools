@@ -59,7 +59,7 @@ header {
 	position: absolute;
 	width: 100%;
 	height: 200px;
-	opacity: 0.2;
+	opacity: 0.35;
 	animation-duration: 120000ms;
 	animation-name: bgPan;
 	animation-timing-function: linear;
