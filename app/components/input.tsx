@@ -59,7 +59,6 @@ export const Input = ({
 				width: '100%',
 				display: 'flex',
 				flexWrap: 'wrap',
-				padding: '10px 0',
 				gap: 8,
 				position: 'relative',
 			}}

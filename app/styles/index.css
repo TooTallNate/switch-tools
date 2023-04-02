@@ -231,7 +231,6 @@
 	justify-content: center;
 	border-radius: 4px;
 	padding: 15px 15px;
-	margin-top: 6px;
 	font-size: 17px;
 	line-height: 1;
 	font-weight: 500;
@@ -252,7 +251,6 @@
 .boot-up {
 	display: flex;
 	width: 100%;
-	padding-bottom: 12px;
 }
 
 .boot-up > * {
@@ -506,6 +504,7 @@ label.Input {
 	text-decoration: none;
 	font-size: 15px;
 	cursor: pointer;
+	transition: background-color 0.3s;
 }
 .NavigationMenuLink.active {
 	background-color: var(--violet8);
@@ -516,4 +515,7 @@ label.Input {
 
 .NavigationMenuList a:hover {
 	text-decoration: none;
+}
+.NavigationMenuLink label {
+	cursor: pointer;
 }

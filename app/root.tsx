@@ -47,13 +47,13 @@ export default function App() {
 				<Links />
 			</head>
 			<body>
+				<header>
+					<Link to="/" className="header">
+						<Header as="h2">NSP Forwarder</Header>
+						<Header as="h1">Generator</Header>
+					</Link>
+				</header>
 				<div className="content">
-					<header>
-						<Link to="/" className="header">
-							<Header as="h2">NSP Forwarder</Header>
-							<Header as="h1">Generator</Header>
-						</Link>
-					</header>
 					<Outlet />
 				</div>
 				<div className="footer">

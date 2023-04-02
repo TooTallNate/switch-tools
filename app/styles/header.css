@@ -47,5 +47,7 @@ h1 :nth-child(4n + 3) {
 }
 
 header {
-	margin: 1em 0;
+	display: flex;
+	justify-content: center;
+	margin: 18px 0;
 }

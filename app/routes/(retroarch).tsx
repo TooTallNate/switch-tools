@@ -103,7 +103,6 @@ export default function Index() {
 				onCropBlob={handleImageCropBlob}
 				style={{
 					lineHeight: 0,
-					margin: '1.4rem 0',
 					width: '256px',
 					height: '256px',
 				}}

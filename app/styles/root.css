@@ -24,7 +24,7 @@ form {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	padding-bottom: 50px;
+	padding-bottom: 18px;
 }
 
 /* reset */
@@ -50,6 +50,11 @@ a:hover {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
+}
+
+form,
+.content {
+	gap: 18px;
 }
 
 .header:hover {

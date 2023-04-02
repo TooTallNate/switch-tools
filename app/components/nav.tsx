@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from '@remix-run/react';
+import { Link, NavLink, useLocation } from '@remix-run/react';
 import { CheckIcon } from '@radix-ui/react-icons';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import * as NavigationMenu from '@radix-ui/react-navigation-menu';
@@ -45,12 +45,12 @@ export function Nav({ advancedMode }: NavProps) {
 				</NavigationMenu.Item>
 
 				<NavigationMenu.Item>
-					<NavLink
+					<Link
+						className="NavigationMenuLink"
 						to={`${pathname}${toggledAdvanceModeSearch}`}
 						preventScrollReset
 					>
 						<label
-							className="NavigationMenuLink"
 							style={{ display: 'flex', alignItems: 'center' }}
 						>
 							Advanced Mode
@@ -63,7 +63,7 @@ export function Nav({ advancedMode }: NavProps) {
 								</Checkbox.Indicator>
 							</Checkbox.Root>
 						</label>
-					</NavLink>
+					</Link>
 				</NavigationMenu.Item>
 			</NavigationMenu.List>
 		</NavigationMenu.Root>
