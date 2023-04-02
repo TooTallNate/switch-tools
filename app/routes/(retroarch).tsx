@@ -218,6 +218,7 @@ export default function Index() {
 				</Input>
 				{isRetroarch ? (
 					<Input
+						required
 						name="rom"
 						label="ROM Path"
 						tooltip="File path to the game ROM file on the Nintendo Switch SD card"
