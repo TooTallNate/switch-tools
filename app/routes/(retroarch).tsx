@@ -2,13 +2,13 @@ import cookie from 'cookie';
 import { Form, useLoaderData } from '@remix-run/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { json, LinksFunction, LoaderArgs } from '@vercel/remix';
-import * as Checkbox from '@radix-ui/react-checkbox';
-import { CheckIcon } from '@radix-ui/react-icons';
 
 import { Input } from '~/components/input';
 import { ImageInput } from '~/components/image-input';
 import { PresetsDropdown } from '~/components/presets-dropdown';
 import { KeysPlaceholder, KeysTooltip } from '~/components/keys-input';
+import { LogoTextSelect } from '~/components/logo-text-select';
+import { Nav } from '~/components/nav';
 
 import cropStyles from 'react-image-crop/dist/ReactCrop.css';
 import radixWhiteA from '@radix-ui/colors/whiteA.css';
@@ -16,7 +16,6 @@ import radixBlackA from '@radix-ui/colors/blackA.css';
 import radixMauve from '@radix-ui/colors/mauveDark.css';
 import radixViolet from '@radix-ui/colors/violetDark.css';
 import fontStyles from '~/styles/index.css';
-import { LogoTextSelect } from '~/components/logo-text-select';
 
 export const config = { runtime: 'edge' };
 
@@ -31,26 +30,32 @@ export const links: LinksFunction = () => {
 	];
 };
 
+interface FormState {
+	mode: 'normal' | 'retroarch';
+	advancedMode: boolean;
+}
+
 export async function loader({ request }: LoaderArgs) {
-	const cookies = cookie.parse(request.headers.get('Cookie') ?? '');
-	return json({ initialAdvancedMode: cookies['advanced-mode'] });
+	const url = new URL(request.url);
+	let formState: FormState = {
+		mode: url.pathname === '/retroarch' ? 'retroarch' : 'normal',
+		advancedMode: url.searchParams.has('advanced'),
+	};
+	//try {
+	//	const cookies = cookie.parse(request.headers.get('Cookie') ?? '');
+	//	cookies['nsp-form-state']
+	//} catch {
+	//}
+	return json(formState);
 }
 
 export default function Index() {
-	const { initialAdvancedMode } = useLoaderData<typeof loader>();
+	const { mode, advancedMode } = useLoaderData<typeof loader>();
+	const isRetroarch = mode === 'retroarch';
 	const [coreValue, setCoreValue] = useState('');
-	const [advancedMode, setAdvancedMode] = useState(
-		initialAdvancedMode === '1'
-	);
 	const imageInputRef = useRef<HTMLInputElement | null>(null);
 	const logoInputRef = useRef<HTMLInputElement | null>(null);
 	const startupMovieInputRef = useRef<HTMLInputElement | null>(null);
-
-	useEffect(() => {
-		document.cookie = `advanced-mode=${
-			advancedMode ? 1 : 0
-		}; SameSite=Strict`;
-	}, [advancedMode]);
 
 	const handleImageCropBlob = useCallback(
 		(blob: Blob) => {
@@ -90,6 +95,7 @@ export default function Index() {
 
 	return (
 		<>
+			<Nav advancedMode={advancedMode} />
 			<ImageInput
 				className="Input image-input"
 				placeholder="Click to select image…"
@@ -150,14 +156,16 @@ export default function Index() {
 					required
 					label="Title"
 					tooltip="Name displyed on the Nintendo Switch home screen"
-					placeholder="Super Mario World"
+					placeholder={
+						isRetroarch ? 'Super Mario World' : 'HB App Store'
+					}
 				/>
 				<Input
 					name="publisher"
 					required
 					label="Publisher"
 					tooltip="Name of the publisher displayed on the game's details"
-					placeholder="Nintendo"
+					placeholder={isRetroarch ? 'Nintendo' : '4TU Team'}
 				/>
 				{advancedMode ? (
 					<>
@@ -172,25 +180,37 @@ export default function Index() {
 				<Input
 					name="core"
 					required
-					label="Core"
-					tooltip="File path to the RetroArch core on the Nintendo Switch SD card"
-					placeholder="/retroarch/cores/snes9x_libretro_libnx.nro"
+					label={isRetroarch ? 'Core' : 'NRO Path'}
+					tooltip={`File path to the ${
+						isRetroarch
+							? 'RetroArch core'
+							: 'homebrew application NRO'
+					} file on the Nintendo Switch SD card`}
+					placeholder={
+						isRetroarch
+							? '/retroarch/cores/snes9x_libretro_libnx.nro'
+							: '/switch/appstore/appstore.nro'
+					}
 					value={coreValue}
 					onInput={(e) => {
 						setCoreValue(e.currentTarget.value);
 					}}
 				>
-					<PresetsDropdown
-						value={coreValue}
-						onSelect={(v) => setCoreValue(v)}
-					/>
+					{isRetroarch ? (
+						<PresetsDropdown
+							value={coreValue}
+							onSelect={(v) => setCoreValue(v)}
+						/>
+					) : null}
 				</Input>
-				<Input
-					name="rom"
-					label="ROM"
-					tooltip="File path to the game ROM file on the Nintendo Switch SD card"
-					placeholder="/ROMs/SNES/Super Mario World.smc"
-				/>
+				{isRetroarch ? (
+					<Input
+						name="rom"
+						label="ROM"
+						tooltip="File path to the game ROM file on the Nintendo Switch SD card"
+						placeholder="/ROMs/SNES/Super Mario World.smc"
+					/>
+				) : null}
 				<Input
 					id="keys"
 					name="keys"
@@ -243,26 +263,6 @@ export default function Index() {
 						width: '100%',
 					}}
 				>
-					<div style={{ display: 'flex', alignItems: 'center' }}>
-						<Checkbox.Root
-							id="showAdvanced"
-							name="showAdvanced"
-							className="CheckboxRoot"
-							onCheckedChange={(e) => {
-								if (typeof e === 'boolean') {
-									setAdvancedMode(e);
-								}
-							}}
-							checked={advancedMode}
-						>
-							<Checkbox.Indicator className="CheckboxIndicator">
-								<CheckIcon />
-							</Checkbox.Indicator>
-						</Checkbox.Root>
-						<label className="Label" htmlFor="showAdvanced">
-							Advanced Mode
-						</label>
-					</div>
 					<button type="submit" className="Button">
 						Generate NSP
 					</button>

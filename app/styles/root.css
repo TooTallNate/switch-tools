@@ -30,6 +30,7 @@ form {
 /* reset */
 input,
 button,
+p,
 a {
 	all: unset;
 }

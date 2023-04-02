@@ -42,14 +42,10 @@ h1 :nth-child(4n + 3) {
 	color: rgb(253, 212, 15);
 }
 
-h2 {
-	margin-top: 1rem;
-}
-
-h1 {
-	margin-bottom: 0;
-}
-
 .header:hover {
 	text-decoration: none;
+}
+
+header {
+	margin: 1em 0;
 }

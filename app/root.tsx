@@ -7,6 +7,7 @@ import {
 	Outlet,
 	Scripts,
 	ScrollRestoration,
+	useLoaderData,
 } from '@remix-run/react';
 import { Analytics } from '@vercel/analytics/react';
 
@@ -24,6 +25,11 @@ export const meta: MetaFunction = () => ({
 	viewport: 'width=device-width,initial-scale=1',
 });
 
+export function loader() {
+	const isDev = !process.env.VERCEL_ENV || process.env.VERCEL_ENV === 'dev1';
+	return { isDev };
+}
+
 export const links: LinksFunction = () => {
 	return [
 		{ rel: 'stylesheet', href: rootStyles },
@@ -33,6 +39,7 @@ export const links: LinksFunction = () => {
 };
 
 export default function App() {
+	const { isDev } = useLoaderData<typeof loader>();
 	return (
 		<html lang="en" className="dark-theme">
 			<head>
@@ -41,10 +48,12 @@ export default function App() {
 			</head>
 			<body>
 				<div className="content">
-					<Link to="/" className="header">
-						<Header as="h2">NSP Forwarder</Header>
-						<Header as="h1">Generator</Header>
-					</Link>
+					<header>
+						<Link to="/" className="header">
+							<Header as="h2">NSP Forwarder</Header>
+							<Header as="h1">Generator</Header>
+						</Link>
+					</header>
 					<Outlet />
 				</div>
 				<div className="footer">
@@ -66,7 +75,7 @@ export default function App() {
 				<ScrollRestoration />
 				<Scripts />
 				<LiveReload />
-				<Analytics />
+				{!isDev ? <Analytics /> : null}
 			</body>
 		</html>
 	);
