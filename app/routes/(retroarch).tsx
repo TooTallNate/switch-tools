@@ -1,7 +1,12 @@
 import cookie from 'cookie';
 import { Form, useLoaderData } from '@remix-run/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { json, LinksFunction, LoaderArgs } from '@vercel/remix';
+import {
+	HeadersFunction,
+	json,
+	LinksFunction,
+	LoaderArgs,
+} from '@vercel/remix';
 
 import { Input } from '~/components/input';
 import { ImageInput } from '~/components/image-input';
@@ -18,6 +23,12 @@ import radixViolet from '@radix-ui/colors/violetDark.css';
 import fontStyles from '~/styles/index.css';
 
 export const config = { runtime: 'edge' };
+
+export const headers: HeadersFunction = () => {
+	return {
+		'Cache-Control': 'max-age: 600, s-maxage=3600, stale-while-revalidate=10',
+	};
+};
 
 export const links: LinksFunction = () => {
 	return [
@@ -156,7 +167,7 @@ export default function Index() {
 				<Input
 					name="title"
 					required
-					label="Title"
+					label={`${isRetroarch ? 'Game' : 'App'} Title`}
 					tooltip="Name displyed on the Nintendo Switch home screen"
 					placeholder={
 						isRetroarch ? 'Super Mario World' : 'HB App Store'
@@ -182,7 +193,7 @@ export default function Index() {
 				<Input
 					name="core"
 					required
-					label={isRetroarch ? 'Core' : 'NRO Path'}
+					label={`${isRetroarch ? 'Core' : 'NRO'} Path`}
 					tooltip={`File path to the ${
 						isRetroarch
 							? 'RetroArch core'
@@ -208,7 +219,7 @@ export default function Index() {
 				{isRetroarch ? (
 					<Input
 						name="rom"
-						label="ROM"
+						label="ROM Path"
 						tooltip="File path to the game ROM file on the Nintendo Switch SD card"
 						placeholder="/ROMs/SNES/Super Mario World.smc"
 					/>
