@@ -1,12 +1,6 @@
-import cookie from 'cookie';
-import { Form, useLoaderData, useLocation } from '@remix-run/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-	HeadersFunction,
-	json,
-	LinksFunction,
-	LoaderArgs,
-} from '@vercel/remix';
+import { Form, useLocation } from '@remix-run/react';
+import { useCallback, useRef, useState } from 'react';
+import { HeadersFunction, LinksFunction } from '@vercel/remix';
 
 import { Input } from '~/components/input';
 import { ImageInput } from '~/components/image-input';
@@ -17,8 +11,6 @@ import { Nav } from '~/components/nav';
 
 import cropStyles from 'react-image-crop/dist/ReactCrop.css';
 import fontStyles from '~/styles/index.css';
-
-export const config = { runtime: 'edge' };
 
 export const headers: HeadersFunction = () => {
 	return {

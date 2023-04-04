@@ -4,8 +4,6 @@ import type { ErrorData } from '~/lib/generate.server';
 
 import { getSession, commitSession } from '~/session.server';
 
-export const config = { runtime: 'edge' };
-
 export async function loader({ request }: LoaderArgs) {
 	const session = await getSession(request.headers.get('Cookie'));
 	const error: ErrorData = session.get('error');

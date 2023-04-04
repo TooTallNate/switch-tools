@@ -23,6 +23,8 @@ import footerStyles from '~/styles/footer.css';
 import { Vercel } from '~/components/vercel';
 import { GitHubLogoIcon } from '@radix-ui/react-icons';
 
+export const config = { runtime: 'edge' };
+
 export const meta: MetaFunction = () => ({
 	charset: 'utf-8',
 	title: 'NSP Forwarder Generator',
