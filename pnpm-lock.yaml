@@ -27,7 +27,6 @@ specifiers:
   '@vercel/remix': 1.14.3-patch.1
   bytes: ^3.1.2
   clsx: ^1.2.1
-  cookie: ^0.5.0
   eslint: ^8.33.0
   fs-extra: ^11.1.0
   gifsicle-wasm-browser: ^1.5.16
@@ -56,7 +55,6 @@ dependencies:
   '@vercel/remix': 1.14.3-patch.1_biqbaboplfbrettd7655fr4n2y
   bytes: 3.1.2
   clsx: 1.2.1
-  cookie: 0.5.0
   fs-extra: 11.1.0
   gifsicle-wasm-browser: 1.5.16
   react: 18.2.0
@@ -3772,6 +3770,7 @@ packages:
   /cookie/0.5.0:
     resolution: {integrity: sha512-YZ3GUyn/o8gfKJlnlX7g7xq4gyO6OSuhGPKaaGssGB2qgDUS0gPgtTvoyZLTt9Ab6dC4hfc9dV5arkvc/OCmrw==}
     engines: {node: '>= 0.6'}
+    dev: true
 
   /core-js-compat/3.27.2:
     resolution: {integrity: sha512-welaYuF7ZtbYKGrIy7y3eb40d37rG1FvzEOfe7hSLd2iD6duMDqUhRfSvCGyC46HhR6Y8JXXdZ2lnRUMkPBpvg==}
