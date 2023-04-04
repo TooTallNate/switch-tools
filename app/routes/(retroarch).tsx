@@ -1,5 +1,5 @@
 import cookie from 'cookie';
-import { Form, useLoaderData } from '@remix-run/react';
+import { Form, useLoaderData, useLocation } from '@remix-run/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
 	HeadersFunction,
@@ -16,52 +16,29 @@ import { LogoTextSelect } from '~/components/logo-text-select';
 import { Nav } from '~/components/nav';
 
 import cropStyles from 'react-image-crop/dist/ReactCrop.css';
-import radixWhiteA from '@radix-ui/colors/whiteA.css';
-import radixBlackA from '@radix-ui/colors/blackA.css';
-import radixMauve from '@radix-ui/colors/mauveDark.css';
-import radixViolet from '@radix-ui/colors/violetDark.css';
 import fontStyles from '~/styles/index.css';
 
 export const config = { runtime: 'edge' };
 
 export const headers: HeadersFunction = () => {
 	return {
-		'Cache-Control': 'max-age: 600, s-maxage=3600, stale-while-revalidate=10',
+		'Cache-Control':
+			'max-age: 600, s-maxage=3600, stale-while-revalidate=10',
 	};
 };
 
 export const links: LinksFunction = () => {
 	return [
 		{ rel: 'stylesheet', href: cropStyles },
-		{ rel: 'stylesheet', href: radixWhiteA },
-		{ rel: 'stylesheet', href: radixBlackA },
-		{ rel: 'stylesheet', href: radixMauve },
-		{ rel: 'stylesheet', href: radixViolet },
 		{ rel: 'stylesheet', href: fontStyles },
 	];
 };
 
-interface FormState {
-	mode: 'normal' | 'retroarch';
-	advancedMode: boolean;
-}
-
-export async function loader({ request }: LoaderArgs) {
-	const url = new URL(request.url);
-	let formState: FormState = {
-		mode: url.pathname === '/retroarch' ? 'retroarch' : 'normal',
-		advancedMode: url.searchParams.has('advanced'),
-	};
-	//try {
-	//	const cookies = cookie.parse(request.headers.get('Cookie') ?? '');
-	//	cookies['nsp-form-state']
-	//} catch {
-	//}
-	return json(formState);
-}
-
 export default function Index() {
-	const { mode, advancedMode } = useLoaderData<typeof loader>();
+	const location = useLocation();
+	const mode = location.pathname === '/retroarch' ? 'retroarch' : 'normal';
+	const advancedMode = new URLSearchParams(location.search).has('advanced');
+
 	const isRetroarch = mode === 'retroarch';
 	const [coreValue, setCoreValue] = useState('');
 	const imageInputRef = useRef<HTMLInputElement | null>(null);

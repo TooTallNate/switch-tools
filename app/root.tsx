@@ -1,4 +1,4 @@
-import type { LinksFunction, MetaFunction } from '@vercel/remix';
+import { json, LinksFunction, MetaFunction } from '@vercel/remix';
 import {
 	Link,
 	Links,
@@ -13,6 +13,10 @@ import { Analytics } from '@vercel/analytics/react';
 
 import { Header } from '~/components/header';
 
+import radixWhiteA from '@radix-ui/colors/whiteA.css';
+import radixBlackA from '@radix-ui/colors/blackA.css';
+import radixMauve from '@radix-ui/colors/mauveDark.css';
+import radixViolet from '@radix-ui/colors/violetDark.css';
 import rootStyles from '~/styles/root.css';
 import headerStyles from '~/styles/header.css';
 import footerStyles from '~/styles/footer.css';
@@ -27,11 +31,24 @@ export const meta: MetaFunction = () => ({
 
 export function loader() {
 	const isDev = !process.env.VERCEL_ENV || process.env.VERCEL_ENV === 'dev1';
-	return { isDev };
+	return json(
+		{ isDev },
+		{
+			headers: {
+				'Cache-Control':
+					// `isDev` will never change per deployment, so cache this for a long time
+					'max-age: 31560000, s-maxage=31560000, stale-while-revalidate=10',
+			},
+		}
+	);
 }
 
 export const links: LinksFunction = () => {
 	return [
+		{ rel: 'stylesheet', href: radixWhiteA },
+		{ rel: 'stylesheet', href: radixBlackA },
+		{ rel: 'stylesheet', href: radixMauve },
+		{ rel: 'stylesheet', href: radixViolet },
 		{ rel: 'stylesheet', href: rootStyles },
 		{ rel: 'stylesheet', href: headerStyles },
 		{ rel: 'stylesheet', href: footerStyles },
