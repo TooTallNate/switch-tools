@@ -237,14 +237,13 @@
 	cursor: pointer;
 	transition: box-shadow 0.3s, color 0.3s, background-color 0.3s;
 
-	background-color: var(--violet7);
-	color: var(--whiteA11);
+	background-color: var(--violet8);
+	color: white;
 	box-shadow: 0 0 1px var(--whiteA9);
 }
 
 .Button:hover {
-	background-color: var(--violet9);
-	color: var(--whiteA12);
+	background-color: var(--violet10);
 	box-shadow: 0 0 4px var(--whiteA9);
 }
 
