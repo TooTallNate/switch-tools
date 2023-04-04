@@ -36,10 +36,8 @@ export const links: LinksFunction = () => {
 
 export default function Index() {
 	const location = useLocation();
-	const mode = location.pathname === '/retroarch' ? 'retroarch' : 'normal';
 	const advancedMode = new URLSearchParams(location.search).has('advanced');
-
-	const isRetroarch = mode === 'retroarch';
+	const isRetroarch = location.pathname === '/retroarch';
 	const [coreValue, setCoreValue] = useState('');
 	const imageInputRef = useRef<HTMLInputElement | null>(null);
 	const logoInputRef = useRef<HTMLInputElement | null>(null);
