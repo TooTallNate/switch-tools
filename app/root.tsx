@@ -1,4 +1,4 @@
-import { json, LinksFunction, MetaFunction } from '@vercel/remix';
+import { LinksFunction, MetaFunction } from '@vercel/remix';
 import {
 	Link,
 	Links,
@@ -7,7 +7,6 @@ import {
 	Outlet,
 	Scripts,
 	ScrollRestoration,
-	useLoaderData,
 } from '@remix-run/react';
 import { Analytics } from '@vercel/analytics/react';
 
@@ -31,20 +30,6 @@ export const meta: MetaFunction = () => ({
 	viewport: 'width=device-width,initial-scale=1',
 });
 
-export function loader() {
-	const isDev = !process.env.VERCEL_ENV || process.env.VERCEL_ENV === 'dev1';
-	return json(
-		{ isDev },
-		{
-			headers: {
-				'Cache-Control':
-					// `isDev` will never change per deployment, so cache this for a long time
-					'max-age: 31560000, s-maxage=31560000, stale-while-revalidate=10',
-			},
-		}
-	);
-}
-
 export const links: LinksFunction = () => {
 	return [
 		{ rel: 'stylesheet', href: radixWhiteA },
@@ -58,7 +43,6 @@ export const links: LinksFunction = () => {
 };
 
 export default function App() {
-	const { isDev } = useLoaderData<typeof loader>();
 	return (
 		<html lang="en" className="dark-theme">
 			<head>
@@ -96,7 +80,7 @@ export default function App() {
 				<ScrollRestoration />
 				<Scripts />
 				<LiveReload />
-				{!isDev ? <Analytics /> : null}
+				<Analytics />
 			</body>
 		</html>
 	);
