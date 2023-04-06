@@ -111,7 +111,12 @@ export function PresetsDropdown({ value, onSelect }: PresetsDropdownProps) {
 	return (
 		<DropdownMenu.Root>
 			<DropdownMenu.Trigger asChild>
-				<button className="IconButton" title="Presets" tabIndex={-1}>
+				<button
+					className="IconButton"
+					title="Presets"
+					tabIndex={-1}
+					style={{ paddingRight: '4px', width: '35px' }}
+				>
 					<DropdownMenuIcon />
 				</button>
 			</DropdownMenu.Trigger>

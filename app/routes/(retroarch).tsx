@@ -11,6 +11,7 @@ import { Nav } from '~/components/nav';
 
 import cropStyles from 'react-image-crop/dist/ReactCrop.css';
 import fontStyles from '~/styles/index.css';
+import { TitleIdInput } from '~/components/title-id-input';
 
 export const headers: HeadersFunction = () => {
 	return {
@@ -131,6 +132,7 @@ export default function Index() {
 				reloadDocument
 				style={{ width: '100%' }}
 			>
+				{advancedMode ? <TitleIdInput /> : null}
 				<Input
 					name="title"
 					required
