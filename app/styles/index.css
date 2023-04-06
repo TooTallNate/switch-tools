@@ -308,6 +308,7 @@
 	background-color: white;
 	width: 15px;
 	height: 15px;
+	line-height: 0;
 	border-radius: 4px;
 	margin-right: 6px;
 	display: inline-flex;
@@ -318,6 +319,7 @@
 
 .CheckboxIndicator {
 	color: var(--blackA12);
+	line-height: 0;
 }
 
 .Label {
