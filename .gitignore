@@ -1,5 +1,6 @@
 node_modules
 .vercel
+/?.ts
 
 # Remix stuffs
 /.cache
