@@ -210,7 +210,10 @@ export default function Index() {
 				{advancedMode ? (
 					<div className="Flex Flex2Columns">
 						<div className="Flex">
-							<label className="Flex" style={{userSelect: 'none'}}>
+							<label
+								className="Flex"
+								style={{ userSelect: 'none' }}
+							>
 								<Checkbox.Root
 									className="CheckboxRoot"
 									name="screenshot"
@@ -224,7 +227,10 @@ export default function Index() {
 							</label>
 						</div>
 						<div className="Flex">
-							<label className="Flex" style={{userSelect: 'none'}}>
+							<label
+								className="Flex"
+								style={{ userSelect: 'none' }}
+							>
 								<Checkbox.Root
 									className="CheckboxRoot"
 									name="startupUserAccount"
