@@ -12,6 +12,8 @@ import { Nav } from '~/components/nav';
 import cropStyles from 'react-image-crop/dist/ReactCrop.css';
 import fontStyles from '~/styles/index.css';
 import { TitleIdInput } from '~/components/title-id-input';
+import * as Checkbox from '@radix-ui/react-checkbox';
+import { CheckIcon } from '@radix-ui/react-icons';
 
 export const headers: HeadersFunction = () => {
 	return {
@@ -32,6 +34,7 @@ export default function Index() {
 	const advancedMode = new URLSearchParams(location.search).has('advanced');
 	const isRetroarch = location.pathname === '/retroarch';
 	const [coreValue, setCoreValue] = useState('');
+	const [logoType, setLogoType] = useState('2');
 	const imageInputRef = useRef<HTMLInputElement | null>(null);
 	const logoInputRef = useRef<HTMLInputElement | null>(null);
 	const startupMovieInputRef = useRef<HTMLInputElement | null>(null);
@@ -90,7 +93,7 @@ export default function Index() {
 			{advancedMode ? (
 				<div className="boot-up">
 					<div className="logo-controls">
-						<LogoTextSelect />
+						<LogoTextSelect onValueChange={(v) => setLogoType(v)} />
 						<ImageInput
 							name="logo"
 							className="Input image-input"
@@ -132,7 +135,17 @@ export default function Index() {
 				reloadDocument
 				style={{ width: '100%' }}
 			>
-				{advancedMode ? <TitleIdInput /> : null}
+				{advancedMode ? (
+					<div className="Flex FlexThirds" style={{ gap: '20px' }}>
+						<Input
+							name="version"
+							label="Version"
+							tooltip="Version number which is displayed on the game's details"
+							placeholder="1.0.0"
+						/>
+						<TitleIdInput />
+					</div>
+				) : null}
 				<Input
 					name="title"
 					required
@@ -149,18 +162,8 @@ export default function Index() {
 					tooltip="Name of the publisher displayed on the game's details"
 					placeholder={isRetroarch ? 'Nintendo' : '4TU Team'}
 				/>
-				{advancedMode ? (
-					<>
-						<Input
-							name="version"
-							label="Version"
-							tooltip="Version number which is displayed on the game's details"
-							placeholder="1.0.0"
-						/>
-					</>
-				) : null}
 				<Input
-					name="core"
+					name="nroPath"
 					required
 					label={`${isRetroarch ? 'Core' : 'NRO'} Path`}
 					tooltip={`File path to the ${
@@ -188,7 +191,7 @@ export default function Index() {
 				{isRetroarch ? (
 					<Input
 						required
-						name="rom"
+						name="romPath"
 						label="ROM Path"
 						tooltip="File path to the game ROM file on the Nintendo Switch SD card"
 						placeholder="/ROMs/SNES/Super Mario World.smc"
@@ -204,6 +207,37 @@ export default function Index() {
 					tooltip={<KeysTooltip />}
 					placeholder={<KeysPlaceholder />}
 				/>
+				{advancedMode ? (
+					<div className="Flex Flex2Columns">
+						<div className="Flex">
+							<label className="Flex">
+								<Checkbox.Root
+									className="CheckboxRoot"
+									name="screenshot"
+									defaultChecked={true}
+								>
+									<Checkbox.Indicator className="CheckboxIndicator">
+										<CheckIcon />
+									</Checkbox.Indicator>
+								</Checkbox.Root>
+								Enable screenshots
+							</label>
+						</div>
+						<div className="Flex">
+							<label className="Flex">
+								<Checkbox.Root
+									className="CheckboxRoot"
+									name="startupUserAccount"
+								>
+									<Checkbox.Indicator className="CheckboxIndicator">
+										<CheckIcon />
+									</Checkbox.Indicator>
+								</Checkbox.Root>
+								Enable profile selector
+							</label>
+						</div>
+					</div>
+				) : null}
 				<input
 					type="file"
 					name="image"
@@ -216,34 +250,37 @@ export default function Index() {
 						height: 0,
 					}}
 				/>
-				<input
-					type="file"
-					name="logo"
-					ref={logoInputRef}
-					style={{
-						opacity: 0,
-						position: 'absolute',
-						width: 0,
-						height: 0,
-					}}
-				/>
-				<input
-					type="file"
-					name="startupMovie"
-					ref={startupMovieInputRef}
-					style={{
-						opacity: 0,
-						position: 'absolute',
-						width: 0,
-						height: 0,
-					}}
-				/>
+				{advancedMode ? (
+					<>
+						<input
+							type="file"
+							name="logo"
+							ref={logoInputRef}
+							style={{
+								opacity: 0,
+								position: 'absolute',
+								width: 0,
+								height: 0,
+							}}
+						/>
+						<input
+							type="file"
+							name="startupMovie"
+							ref={startupMovieInputRef}
+							style={{
+								opacity: 0,
+								position: 'absolute',
+								width: 0,
+								height: 0,
+							}}
+						/>
+						<input type="hidden" name="logoType" value={logoType} />
+					</>
+				) : null}
 				<div
+					className="Flex"
 					style={{
-						display: 'flex',
-						alignItems: 'center',
 						justifyContent: 'space-around',
-						width: '100%',
 					}}
 				>
 					<button type="submit" className="Button">

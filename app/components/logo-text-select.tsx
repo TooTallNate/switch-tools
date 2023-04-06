@@ -7,9 +7,9 @@ import {
 	ChevronUpIcon,
 } from '@radix-ui/react-icons';
 
-export function LogoTextSelect() {
+export function LogoTextSelect(props: Select.SelectProps) {
 	return (
-		<Select.Root>
+		<Select.Root {...props}>
 			<Select.Trigger
 				className="SelectTrigger"
 				aria-label="Text above logo"

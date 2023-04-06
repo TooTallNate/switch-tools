@@ -45,6 +45,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 					type="text"
 					name={name}
 					id={name}
+					size={1}
 					placeholder={
 						typeof placeholder === 'string'
 							? placeholder

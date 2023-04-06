@@ -24,18 +24,22 @@ export interface ErrorData {
 }
 
 const schema = zfd.formData({
-	id: zfd.text(z.string().optional()),
+	// Required
 	title: zfd.text(),
 	publisher: zfd.text(),
-	core: zfd.text(),
-	rom: zfd.text(z.string().optional()),
+	nroPath: zfd.text(),
 	image: zfd.file(),
+	keys: zfd.file(),
+
+	// Optional
+	id: zfd.text(z.string().optional()),
+	romPath: zfd.text(z.string().optional()),
 	logo: zfd.file(z.instanceof(File).optional()),
 	startupMovie: zfd.file(z.instanceof(File).optional()),
 	version: zfd.text(z.string().max(15).optional()),
 	startupUserAccount: zfd.checkbox(),
+	screenshot: zfd.checkbox(),
 	logoType: zfd.numeric(z.number().min(0).max(2).optional()),
-	keys: zfd.file(),
 });
 
 export async function generateNsp(request: Request) {
@@ -47,21 +51,14 @@ export async function generateNsp(request: Request) {
 
 	const cwd = await mkdtemp(join(tmpdir(), `nsp-`));
 	const logs: LogChunk[] = [];
-	console.log(cwd);
+	//console.log(cwd);
 	try {
 		const formData = await request.formData();
 		//console.log(formData);
 
-		// `zod-form-data` fails for optional "file" type since
-		// it gets submitted as an empty text string
-		if (!formData.get('logo')) {
-			formData.delete('logo');
-		}
-		if (!formData.get('startupMovie')) {
-			formData.delete('startupMovie');
-		}
-
 		const data = schema.parse(formData);
+		//console.log(data);
+
 		const id = data.id || generateRandomID();
 		const nacp = new NACP();
 		nacp.id = id;
@@ -69,6 +66,10 @@ export async function generateNsp(request: Request) {
 		nacp.author = data.publisher;
 		nacp.version = data.version || '1.0.0';
 		nacp.startupUserAccount = data.startupUserAccount ? 1 : 0;
+		nacp.screenshot = 1; // Enable screenshots by default
+		if (formData.has('screenshot')) {
+			nacp.screenshot = data.screenshot ? 1 : 0;
+		}
 		nacp.logoType = data.logoType ?? 2;
 		nacp.logoHandling = 0;
 
@@ -81,9 +82,9 @@ export async function generateNsp(request: Request) {
 			]
 		);
 
-		let argv = `sdmc:${data.core}`;
-		if (data.rom) {
-			argv += ` "sdmc:${data.rom}"`;
+		let argv = `sdmc:${data.nroPath}`;
+		if (data.romPath) {
+			argv += ` "sdmc:${data.romPath}"`;
 		}
 
 		await Promise.all([
@@ -95,7 +96,7 @@ export async function generateNsp(request: Request) {
 				join(cwd, 'control/control.nacp'),
 				Buffer.from(nacp.buffer)
 			),
-			writeFile(join(cwd, 'romfs/nextNroPath'), `sdmc:${data.core}`),
+			writeFile(join(cwd, 'romfs/nextNroPath'), `sdmc:${data.nroPath}`),
 			writeFile(join(cwd, 'romfs/nextArgv'), argv),
 			sharp(Buffer.from(imageBuffer))
 				.jpeg({ quality: 100, chromaSubsampling: '4:2:0' })

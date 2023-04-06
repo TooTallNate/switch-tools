@@ -309,7 +309,7 @@
 	width: 15px;
 	height: 15px;
 	border-radius: 4px;
-	margin-left: 6px;
+	margin-right: 6px;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -513,4 +513,23 @@ label.Input {
 }
 .NavigationMenuLink label {
 	cursor: pointer;
+}
+
+.Flex {
+	display: flex;
+	width: 100%;
+	align-items: center;
+	justify-content: center;
+}
+
+.Flex2Columns > * {
+	flex: 50%;
+}
+
+.FlexThirds > *:first-child {
+	flex-basis: 42%;
+}
+
+.FlexThirds > * {
+	flex-basis: 58%;
 }

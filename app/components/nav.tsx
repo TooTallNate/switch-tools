@@ -50,13 +50,15 @@ export function Nav({ advancedMode }: NavProps) {
 						to={`${pathname}${toggledAdvanceModeSearch}`}
 						preventScrollReset
 					>
-						<label
-							style={{ display: 'flex', alignItems: 'center' }}
-						>
+						<label className="Flex">
 							Advanced Mode
 							<Checkbox.Root
 								className="CheckboxRoot"
 								checked={advancedMode}
+								style={{
+									marginLeft: '6px',
+									marginRight: '0px',
+								}}
 							>
 								<Checkbox.Indicator className="CheckboxIndicator">
 									<CheckIcon />

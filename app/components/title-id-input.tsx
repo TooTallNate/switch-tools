@@ -36,6 +36,7 @@ export function TitleIdInput() {
 			value={value}
 			ref={titleIdInputRef}
 			onInput={handleInput}
+			style={{ fontFamily: 'monospace' }}
 		>
 			<button
 				className="IconButton"
