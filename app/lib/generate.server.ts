@@ -56,6 +56,15 @@ export async function generateNsp(request: Request) {
 		const formData = await request.formData();
 		//console.log(formData);
 
+		// `zod-form-data` fails for optional "file" type since
+		// it gets submitted as an empty text string
+		if (!formData.get('logo')) {
+			formData.delete('logo');
+		}
+		if (!formData.get('startupMovie')) {
+			formData.delete('startupMovie');
+		}
+
 		const data = schema.parse(formData);
 		//console.log(data);
 
