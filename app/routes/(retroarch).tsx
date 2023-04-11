@@ -67,7 +67,7 @@ export default function Index() {
 		}
 
 		let id = formData.get('id');
-		if (typeof id !== 'string') {
+		if (typeof id !== 'string' || id.length === 0) {
 			id = generateRandomID();
 		}
 
