@@ -135,6 +135,7 @@ export default function Index() {
 			<Nav advancedMode={advancedMode} />
 			<Form onSubmit={handleSubmit} style={{ width: '100%' }}>
 				<ImageInput
+					required
 					name="image"
 					className="Input image-input"
 					placeholder="Click to select image…"
