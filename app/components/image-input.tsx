@@ -340,7 +340,6 @@ export const ImageInput = forwardRef<ImageInputRef, ImageInputProps>(
 												min={1}
 												max={numberOfFrames}
 												onValueChange={(v) => {
-													console.log(v);
 													setTrimStart(v[0]);
 													setTrimEnd(v[1]);
 												}}
