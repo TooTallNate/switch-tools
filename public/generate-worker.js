@@ -1,18 +1,21 @@
 importScripts('./hacbrewpack.js');
 
+const logs = [];
+const hacbrewpackPromise = hacbrewpack({
+	noInitialRun: true,
+	print(v) {
+		console.log(v);
+		logs.push({ type: 'stdout', value: v });
+	},
+	printErr(v) {
+		console.warn(v);
+		logs.push({ type: 'stderr', value: v });
+	},
+});
+
 onmessage = (e) => {
-	const logs = [];
-	hacbrewpack({
-		noInitialRun: true,
-		print(v) {
-			console.log(v);
-			logs.push({ type: 'stdout', value: v });
-		},
-		printErr(v) {
-			console.warn(v);
-			logs.push({ type: 'stderr', value: v });
-		},
-	}).then((Module) => {
+	logs.length = 0;
+	hacbrewpackPromise.then((Module) => {
 		const { FS } = Module;
 		const {
 			argv,

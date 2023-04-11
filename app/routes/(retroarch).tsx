@@ -45,7 +45,6 @@ export default function Index() {
 		e.preventDefault();
 
 		const formData = new FormData(e.currentTarget);
-		console.log(formData);
 
 		const title = formData.get('title');
 		if (typeof title !== 'string') {
@@ -113,7 +112,6 @@ export default function Index() {
 			logo: logo || undefined,
 			startupMovie: startupMovie || undefined,
 		});
-		console.log(nsp);
 
 		const a = downloadLinkRef.current;
 		if (a) {

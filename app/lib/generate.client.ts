@@ -66,6 +66,14 @@ export async function generateNsp({
 	logo,
 	startupMovie,
 }: GenerateParams): Promise<File> {
+	const worker = new Worker('/generate-worker.js');
+	const workerResultPromise = new Promise<WorkerResult>((resolve) => {
+		worker.onmessage = (e) => {
+			resolve(e.data);
+			worker.terminate();
+		};
+	});
+
 	const nacp = new NACP();
 	nacp.id = id;
 	nacp.title = title;
@@ -114,13 +122,6 @@ export async function generateNsp({
 		nextNroPath,
 	};
 
-	const worker = new Worker('/generate-worker.js');
-	const workerResultPromise = new Promise<WorkerResult>((resolve) => {
-		worker.onmessage = (e) => {
-			resolve(e.data);
-			worker.terminate();
-		};
-	});
 	worker.postMessage(message);
 
 	const result = await workerResultPromise;
