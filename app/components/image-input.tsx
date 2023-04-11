@@ -105,7 +105,7 @@ export const ImageInput = forwardRef<ImageInputRef, ImageInputProps>(
 				canvasPreview(imgRef.current, canvas, pixelCrop);
 
 				const blob = new Promise<Blob | null>((res) =>
-					canvas.toBlob(res, `image/${format}`)
+					canvas.toBlob(res, `image/${format}`, 1)
 				);
 				return blob;
 			},
