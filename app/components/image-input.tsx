@@ -70,48 +70,47 @@ export const ImageInput = forwardRef<ImageInputRef, ImageInputProps>(
 		const [trimStart, setTrimStart] = useState(0);
 		const [trimEnd, setTrimEnd] = useState(0);
 
-		const toBlob: ImageInputRef['toBlob'] = useCallback(
-			async (width, height, format) => {
-				if (!imgRef.current || !completedCrop) return null;
+		const toBlob: ImageInputRef['toBlob'] = async (
+			width,
+			height,
+			format
+		) => {
+			if (!imgRef.current || !completedCrop) return null;
 
-				const pixelCrop: PixelCrop = {
-					x: imgRef.current.naturalWidth * (completedCrop.x / 100),
-					y: imgRef.current.naturalHeight * (completedCrop.y / 100),
-					width:
-						imgRef.current.naturalWidth *
-						(completedCrop.width / 100),
-					height:
-						imgRef.current.naturalHeight *
-						(completedCrop.height / 100),
-					unit: 'px',
-				};
+			const pixelCrop: PixelCrop = {
+				x: imgRef.current.naturalWidth * (completedCrop.x / 100),
+				y: imgRef.current.naturalHeight * (completedCrop.y / 100),
+				width:
+					imgRef.current.naturalWidth * (completedCrop.width / 100),
+				height:
+					imgRef.current.naturalHeight * (completedCrop.height / 100),
+				unit: 'px',
+			};
 
-				if (format === 'gif') {
-					if (!fileRef.current) return null;
-					const blob = await cropAndScaleGIF(fileRef.current, {
-						optimization: 3,
-						lossy: 180,
-						colors: 256,
-						crop: pixelCrop,
-						resize: { width, height },
-						trim,
-					});
-					return blob;
-				}
-
-				const canvas = document.createElement('canvas');
-				canvas.width = width;
-				canvas.height = height;
-
-				canvasPreview(imgRef.current, canvas, pixelCrop);
-
-				const blob = new Promise<Blob | null>((res) =>
-					canvas.toBlob(res, `image/${format}`, 1)
-				);
+			if (format === 'gif') {
+				if (!fileRef.current) return null;
+				const blob = await cropAndScaleGIF(fileRef.current, {
+					optimization: 3,
+					lossy: 180,
+					colors: 256,
+					crop: pixelCrop,
+					resize: { width, height },
+					trim,
+				});
 				return blob;
-			},
-			[imgRef, fileRef, completedCrop]
-		);
+			}
+
+			const canvas = document.createElement('canvas');
+			canvas.width = width;
+			canvas.height = height;
+
+			canvasPreview(imgRef.current, canvas, pixelCrop);
+
+			const blob = await new Promise<Blob | null>((res) =>
+				canvas.toBlob(res, `image/${format}`, 1)
+			);
+			return blob;
+		};
 
 		useEffect(() => {
 			if (typeof ref === 'function') {
@@ -133,6 +132,11 @@ export const ImageInput = forwardRef<ImageInputRef, ImageInputProps>(
 				const img = new Image();
 				img.onload = () => {
 					imgRef.current = img;
+					if (typeof ref === 'function') {
+						ref({ toBlob });
+					} else if (ref) {
+						ref.current = { toBlob };
+					}
 					let widthRatio = 1;
 					let heightRatio = 1;
 					if (cropAspectRatio) {
