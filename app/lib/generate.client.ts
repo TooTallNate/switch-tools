@@ -78,7 +78,8 @@ export async function generateNsp({
 	nacp.id = id;
 	nacp.title = title;
 	nacp.author = publisher;
-	nacp.version = typeof version === 'string' ? version : '1.0.0';
+	nacp.version =
+		typeof version === 'string' && version.length > 0 ? version : '1.0.0';
 	nacp.startupUserAccount = 0; // Disable profile picker by default
 	if (typeof startupUserAccount === 'boolean') {
 		nacp.startupUserAccount = startupUserAccount ? 1 : 0;
