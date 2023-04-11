@@ -23,6 +23,7 @@ async function canvasPreview(
 	if (!ctx) {
 		throw new Error('No 2d context');
 	}
+	ctx.imageSmoothingEnabled = true;
 	ctx.clearRect(0, 0, canvas.width, canvas.height);
 	ctx.drawImage(
 		image,
