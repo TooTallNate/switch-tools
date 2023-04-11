@@ -15,6 +15,7 @@ import { TitleIdInput } from '~/components/title-id-input';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import { CheckIcon } from '@radix-ui/react-icons';
 import { generateNsp } from '~/lib/generate.client';
+import { generateRandomID } from '~/lib/generate-id';
 
 export const headers: HeadersFunction = () => {
 	return {
@@ -66,7 +67,11 @@ export default function Index() {
 			throw new Error('`keys` is required');
 		}
 
-		const id = formData.get('id');
+		let id = formData.get('id');
+		if (typeof id !== 'string') {
+			id = generateRandomID();
+		}
+
 		const version = formData.get('version');
 		const startupUserAccount = formData.get('startupUserAccount');
 		const screenshot = formData.get('screenshot');
@@ -84,13 +89,13 @@ export default function Index() {
 		}
 
 		const nsp = await generateNsp({
+			id,
 			keys,
 			image,
 			title,
 			publisher,
 			nroPath,
 
-			id: typeof id === 'string' ? id : undefined,
 			version: typeof version === 'string' ? version : undefined,
 			startupUserAccount:
 				typeof startupUserAccount === 'string'
