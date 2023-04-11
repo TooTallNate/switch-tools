@@ -3,7 +3,7 @@ import { useRef, useState } from 'react';
 import { HeadersFunction, LinksFunction } from '@vercel/remix';
 
 import { Input } from '~/components/input';
-import { ImageInput, ImageInputRef } from '~/components/image-input';
+import { ImageInput } from '~/components/image-input';
 import { PresetsDropdown } from '~/components/presets-dropdown';
 import { KeysPlaceholder, KeysTooltip } from '~/components/keys-input';
 import { LogoTextSelect } from '~/components/logo-text-select';
@@ -37,9 +37,9 @@ export default function Index() {
 	const isRetroarch = location.pathname === '/retroarch';
 	const [coreValue, setCoreValue] = useState('');
 	const downloadLinkRef = useRef<HTMLAnchorElement | null>(null);
-	const imageInputRef = useRef<ImageInputRef | null>(null);
-	const logoInputRef = useRef<ImageInputRef | null>(null);
-	const startupMovieInputRef = useRef<ImageInputRef | null>(null);
+	const imageBlobRef = useRef<Blob | null>(null);
+	const logoBlobRef = useRef<Blob | null>(null);
+	const startupMovieBlobRef = useRef<Blob | null>(null);
 
 	const handleSubmit: React.FormEventHandler<HTMLFormElement> = async (e) => {
 		e.preventDefault();
@@ -77,20 +77,14 @@ export default function Index() {
 		const logoType = formData.get('logoType');
 		const romPath = formData.get('romPath');
 
-		const [image, logo, startupMovie] = await Promise.all([
-			imageInputRef.current?.toBlob(256, 256, 'jpeg'),
-			logoInputRef.current?.toBlob(160, 40, 'png'),
-			startupMovieInputRef.current?.toBlob(256, 80, 'gif'),
-		]);
-
-		if (!image) {
+		if (!imageBlobRef.current) {
 			throw new Error('`image` is required');
 		}
 
 		const nsp = await generateNsp({
 			id,
 			keys,
-			image,
+			image: imageBlobRef.current,
 			title,
 			publisher,
 			nroPath,
@@ -109,8 +103,8 @@ export default function Index() {
 					? Number(logoType)
 					: undefined,
 			romPath: typeof romPath === 'string' ? romPath : undefined,
-			logo: logo || undefined,
-			startupMovie: startupMovie || undefined,
+			logo: logoBlobRef.current || undefined,
+			startupMovie: startupMovieBlobRef.current || undefined,
 		});
 
 		const a = downloadLinkRef.current;
@@ -140,7 +134,8 @@ export default function Index() {
 					className="Input image-input"
 					placeholder="Click to select image…"
 					cropAspectRatio={1}
-					ref={imageInputRef}
+					format="jpeg"
+					onCroppedBlob={(blob) => (imageBlobRef.current = blob)}
 					style={{
 						lineHeight: 0,
 						width: '256px',
@@ -156,7 +151,10 @@ export default function Index() {
 								className="Input image-input"
 								placeholder="Select logo…"
 								cropAspectRatio={160 / 40}
-								ref={logoInputRef}
+								format="png"
+								onCroppedBlob={(blob) =>
+									(logoBlobRef.current = blob)
+								}
 								style={{
 									lineHeight: 0,
 									margin: '0',
@@ -173,7 +171,10 @@ export default function Index() {
 								className="Input image-input"
 								placeholder="Select startup animation…"
 								cropAspectRatio={256 / 80}
-								ref={startupMovieInputRef}
+								format="gif"
+								onCroppedBlob={(blob) =>
+									(startupMovieBlobRef.current = blob)
+								}
 								style={{
 									lineHeight: 0,
 									margin: '0',
