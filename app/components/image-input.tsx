@@ -2,7 +2,6 @@ import bytes from 'bytes';
 import {
 	ChangeEventHandler,
 	forwardRef,
-	useCallback,
 	useEffect,
 	useRef,
 	useState,
