@@ -64,7 +64,6 @@ export function ImageInput({
 	const [trimEnd, setTrimEnd] = useState(0);
 
 	const toBlob = async (width: number, height: number, format: string) => {
-		console.log({ ref: imgRef.current, completedCrop, format });
 		if (!imgRef.current || !completedCrop) return null;
 
 		const pixelCrop: PixelCrop = {
@@ -84,7 +83,6 @@ export function ImageInput({
 		const blob = await new Promise<Blob | null>((res) =>
 			canvas.toBlob(res, `image/${format}`, 1)
 		);
-		console.log(blob);
 		return blob;
 	};
 
