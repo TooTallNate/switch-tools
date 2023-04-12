@@ -16,6 +16,7 @@ async function canvasPreview(
 	if (!ctx) {
 		throw new Error('No 2d context');
 	}
+	ctx.imageSmoothingEnabled = true;
 	ctx.clearRect(0, 0, canvas.width, canvas.height);
 	ctx.drawImage(
 		image,
@@ -34,18 +35,16 @@ export interface ImageInputProps extends FileInputProps {
 	animated?: boolean;
 	placeholder?: React.ReactNode;
 	cropAspectRatio?: number;
-	/**
-	 * Invoked after the crop has been adjusted, with a
-	 * blob containing the cropped version of the image.
-	 */
-	onCropBlob?: (blob: Blob) => void;
+	format: 'png' | 'jpeg' | 'gif';
+	onCroppedBlob: (blob: Blob) => void;
 }
 
 export function ImageInput({
 	animated,
 	cropAspectRatio,
 	placeholder,
-	onCropBlob,
+	format,
+	onCroppedBlob,
 	...props
 }: ImageInputProps) {
 	const [imgSrc, setImgSrc] = useState<string>();
@@ -63,6 +62,29 @@ export function ImageInput({
 	const [trim, setTrim] = useState<GifsicleOptions['trim']>();
 	const [trimStart, setTrimStart] = useState(0);
 	const [trimEnd, setTrimEnd] = useState(0);
+
+	const toBlob = async (width: number, height: number, format: string) => {
+		if (!imgRef.current || !completedCrop) return null;
+
+		const pixelCrop: PixelCrop = {
+			x: imgRef.current.naturalWidth * (completedCrop.x / 100),
+			y: imgRef.current.naturalHeight * (completedCrop.y / 100),
+			width: imgRef.current.naturalWidth * (completedCrop.width / 100),
+			height: imgRef.current.naturalHeight * (completedCrop.height / 100),
+			unit: 'px',
+		};
+
+		const canvas = document.createElement('canvas');
+		canvas.width = width;
+		canvas.height = height;
+
+		canvasPreview(imgRef.current, canvas, pixelCrop);
+
+		const blob = await new Promise<Blob | null>((res) =>
+			canvas.toBlob(res, `image/${format}`, 1)
+		);
+		return blob;
+	};
 
 	useEffect(() => {
 		if (downloadHref) {
@@ -145,7 +167,7 @@ export function ImageInput({
 					setDownloadHref(URL.createObjectURL(out));
 					setDownloadSize(out.size);
 					setGenerationTime(diff);
-					onCropBlob?.(out);
+					onCroppedBlob(out);
 				});
 			} else if (previewCanvasRef.current) {
 				canvasPreview(
@@ -153,18 +175,19 @@ export function ImageInput({
 					previewCanvasRef.current,
 					pixelCrop
 				);
-				previewCanvasRef.current.toBlob((blob) => {
+				const box = previewCanvasRef.current.getBoundingClientRect();
+				toBlob(box.width, box.height, format).then((blob) => {
 					if (blob) {
 						const diff = Date.now() - startTime;
 						setDownloadHref(URL.createObjectURL(blob));
 						setDownloadSize(blob.size);
 						setGenerationTime(diff);
-						onCropBlob?.(blob);
+						onCroppedBlob(blob);
 					}
 				});
 			}
 		}
-	}, [completedCrop, animated, trim, fileRef]);
+	}, [completedCrop, animated, trim, fileRef, format]);
 
 	useEffect(() => {
 		if (imgInputRef.current && previewCanvasRef.current) {
@@ -270,7 +293,6 @@ export function ImageInput({
 											min={1}
 											max={numberOfFrames}
 											onValueChange={(v) => {
-												console.log(v);
 												setTrimStart(v[0]);
 												setTrimEnd(v[1]);
 											}}

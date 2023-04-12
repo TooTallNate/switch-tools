@@ -33,6 +33,8 @@ export function TitleIdInput() {
 			label="Title ID"
 			tooltip="The hexadecimal unique identifier for the title. This value is not shown on the Switch UI."
 			placeholder="01abcdef12300000"
+			minLength={16}
+			maxLength={16}
 			value={value}
 			ref={titleIdInputRef}
 			onInput={handleInput}
