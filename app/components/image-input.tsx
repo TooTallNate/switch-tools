@@ -81,7 +81,7 @@ export function ImageInput({
 		canvasPreview(imgRef.current, canvas, pixelCrop);
 
 		const blob = await new Promise<Blob | null>((res) =>
-			canvas.toBlob(res, `image/${format}`, 1)
+			canvas.toBlob(res, `image/${format}`, 0.95)
 		);
 		return blob;
 	};
