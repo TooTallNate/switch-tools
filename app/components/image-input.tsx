@@ -4,6 +4,7 @@ import ReactCrop, { Crop, PercentCrop, PixelCrop } from 'react-image-crop';
 import * as Slider from '@radix-ui/react-slider';
 import * as HoverCard from '@radix-ui/react-hover-card';
 
+import { extractIcon, isNRO } from '~/lib/nro';
 import { cropAndScaleGIF, getInfo, GifsicleOptions } from '~/gif.client';
 import { FileInput, FileInputProps } from '~/components/file-input';
 
@@ -36,7 +37,9 @@ export interface ImageInputProps extends FileInputProps {
 	placeholder?: React.ReactNode;
 	cropAspectRatio?: number;
 	format: 'png' | 'jpeg' | 'gif';
+	acceptNro?: boolean;
 	onCroppedBlob: (blob: Blob) => void;
+	onNRO?: (blob: Blob) => void;
 }
 
 export function ImageInput({
@@ -44,7 +47,9 @@ export function ImageInput({
 	cropAspectRatio,
 	placeholder,
 	format,
+	acceptNro,
 	onCroppedBlob,
+	onNRO,
 	...props
 }: ImageInputProps) {
 	const [imgSrc, setImgSrc] = useState<string>();
@@ -205,7 +210,7 @@ export function ImageInput({
 		handleImageFile(file);
 	};
 
-	const handleImageFile = (file?: File) => {
+	const handleImageFile = async (file?: File) => {
 		fileRef.current = file || null;
 		if (!file) {
 			setImgSrc(undefined);
@@ -213,13 +218,25 @@ export function ImageInput({
 			setCompletedCrop(undefined);
 			return;
 		}
-		const url = URL.createObjectURL(file);
+		let image: Blob = file;
+		if (await isNRO(file)) {
+			onNRO?.(file);
+			const icon = await extractIcon(file);
+			image = new Blob([icon], { type: 'image/jpeg' });
+		}
+		const url = URL.createObjectURL(image);
 		setImgSrc(url);
 	};
 
+	let accept = 'image/*';
+
+	if (acceptNro) {
+		accept += ',.nro';
+	}
+
 	const input = (
 		<FileInput
-			accept="image/*"
+			accept={accept}
 			{...props}
 			onChange={handleImageChange}
 			ref={(ref) => {
@@ -235,12 +252,14 @@ export function ImageInput({
 					display: 'flex',
 					justifyContent: 'center',
 					alignItems: 'center',
+					textAlign: 'center',
 					position: 'absolute',
 					top: 0,
 					left: 0,
 					width: '100%',
 					height: '100%',
 					pointerEvents: 'none',
+					lineHeight: 1.5,
 				}}
 			>
 				{placeholder}
