@@ -154,7 +154,7 @@ export default function Index() {
 					placeholder={
 						isRetroarch
 							? 'Click to select game cover image…'
-							: 'Click to select NRO file or image…'
+							: 'Click to select NRO or image file…'
 					}
 					cropAspectRatio={1}
 					format="jpeg"
