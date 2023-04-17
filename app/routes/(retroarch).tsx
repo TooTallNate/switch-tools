@@ -16,6 +16,8 @@ import * as Checkbox from '@radix-ui/react-checkbox';
 import { CheckIcon } from '@radix-ui/react-icons';
 import { generateNsp } from '~/lib/generate.client';
 import { generateRandomID } from '~/lib/generate-id';
+import clsx from 'clsx';
+import { extractNACP } from '~/lib/nro';
 
 export const headers: HeadersFunction = () => {
 	return {
@@ -36,6 +38,9 @@ export default function Index() {
 	const advancedMode = new URLSearchParams(location.search).has('advanced');
 	const isRetroarch = location.pathname === '/retroarch';
 	const [coreValue, setCoreValue] = useState('');
+	const titleRef = useRef<HTMLInputElement | null>(null);
+	const authorRef = useRef<HTMLInputElement | null>(null);
+	const versionRef = useRef<HTMLInputElement | null>(null);
 	const downloadLinkRef = useRef<HTMLAnchorElement | null>(null);
 	const imageBlobRef = useRef<Blob | null>(null);
 	const logoBlobRef = useRef<Blob | null>(null);
@@ -124,80 +129,104 @@ export default function Index() {
 		}
 	};
 
+	async function handleNroSelected(blob: Blob) {
+		const nacp = await extractNACP(blob);
+		if (titleRef.current) {
+			titleRef.current.value = nacp.title;
+		}
+		if (authorRef.current) {
+			authorRef.current.value = nacp.author;
+		}
+		if (versionRef.current) {
+			versionRef.current.value = nacp.version;
+		}
+	}
+
 	return (
 		<>
 			<Nav advancedMode={advancedMode} />
 			<Form onSubmit={handleSubmit} style={{ width: '100%' }}>
 				<ImageInput
 					required
+					acceptNro={!isRetroarch}
 					name="image"
 					className="Input image-input"
-					placeholder="Click to select image…"
+					placeholder={
+						isRetroarch
+							? 'Click to select game cover image…'
+							: 'Click to select NRO file or image…'
+					}
 					cropAspectRatio={1}
 					format="jpeg"
 					onCroppedBlob={(blob) => (imageBlobRef.current = blob)}
+					onNRO={handleNroSelected}
 					style={{
 						lineHeight: 0,
 						width: '256px',
 						height: '256px',
 					}}
 				/>
-				{advancedMode ? (
-					<div className="boot-up">
-						<div className="logo-controls">
-							<LogoTextSelect name="logoType" />
-							<ImageInput
-								name="logo"
-								className="Input image-input"
-								placeholder="Select logo…"
-								cropAspectRatio={160 / 40}
-								format="png"
-								onCroppedBlob={(blob) =>
-									(logoBlobRef.current = blob)
-								}
-								style={{
-									lineHeight: 0,
-									margin: '0',
-									width: '160px',
-									height: '40px',
-									flex: '0 0 auto',
-								}}
-							/>
-						</div>
-						<div>
-							<ImageInput
-								animated
-								name="animation"
-								className="Input image-input"
-								placeholder="Select startup animation…"
-								cropAspectRatio={256 / 80}
-								format="gif"
-								onCroppedBlob={(blob) =>
-									(startupMovieBlobRef.current = blob)
-								}
-								style={{
-									lineHeight: 0,
-									margin: '0',
-									width: '256px',
-									height: '80px',
-									flex: '0 0 auto',
-								}}
-							/>
-						</div>
-					</div>
-				) : null}
-				{advancedMode ? (
-					<div className="Flex FlexThirds" style={{ gap: '20px' }}>
-						<Input
-							name="version"
-							label="Version"
-							tooltip="Version number which is displayed on the game's details"
-							placeholder="1.0.0"
+				<div className={clsx('boot-up', !advancedMode && 'hidden')}>
+					<div className="logo-controls">
+						<LogoTextSelect name="logoType" />
+						<ImageInput
+							name="logo"
+							className="Input image-input"
+							placeholder="Select logo…"
+							cropAspectRatio={160 / 40}
+							format="png"
+							onCroppedBlob={(blob) =>
+								(logoBlobRef.current = blob)
+							}
+							style={{
+								lineHeight: 0,
+								margin: '0',
+								width: '160px',
+								height: '40px',
+								flex: '0 0 auto',
+							}}
 						/>
-						<TitleIdInput />
 					</div>
-				) : null}
+					<div>
+						<ImageInput
+							animated
+							name="animation"
+							className="Input image-input"
+							placeholder="Select startup animation…"
+							cropAspectRatio={256 / 80}
+							format="gif"
+							onCroppedBlob={(blob) =>
+								(startupMovieBlobRef.current = blob)
+							}
+							style={{
+								lineHeight: 0,
+								margin: '0',
+								width: '256px',
+								height: '80px',
+								flex: '0 0 auto',
+							}}
+						/>
+					</div>
+				</div>
+				<div
+					className={clsx(
+						'Flex',
+						'FlexThirds',
+						!advancedMode && 'hidden'
+					)}
+					style={{ gap: '20px' }}
+				>
+					<Input
+						ref={versionRef}
+						name="version"
+						label="Version"
+						tooltip="Version number which is displayed on the game's details"
+						placeholder="1.0.0"
+					/>
+					<TitleIdInput />
+				</div>
 				<Input
+					ref={titleRef}
 					name="title"
 					required
 					label={`${isRetroarch ? 'Game' : 'App'} Title`}
@@ -207,6 +236,7 @@ export default function Index() {
 					}
 				/>
 				<Input
+					ref={authorRef}
 					name="publisher"
 					required
 					label="Publisher"
@@ -256,43 +286,41 @@ export default function Index() {
 					tooltip={<KeysTooltip />}
 					placeholder={<KeysPlaceholder />}
 				/>
-				{advancedMode ? (
-					<div className="Flex Flex2Columns">
-						<div className="Flex">
-							<label
-								className="Flex"
-								style={{ userSelect: 'none' }}
+				<div
+					className={clsx(
+						'Flex',
+						'Flex2Columns',
+						!advancedMode && 'hidden'
+					)}
+				>
+					<div className="Flex">
+						<label className="Flex" style={{ userSelect: 'none' }}>
+							<Checkbox.Root
+								className="CheckboxRoot"
+								name="screenshot"
+								defaultChecked={true}
 							>
-								<Checkbox.Root
-									className="CheckboxRoot"
-									name="screenshot"
-									defaultChecked={true}
-								>
-									<Checkbox.Indicator className="CheckboxIndicator">
-										<CheckIcon />
-									</Checkbox.Indicator>
-								</Checkbox.Root>
-								Enable screenshots
-							</label>
-						</div>
-						<div className="Flex">
-							<label
-								className="Flex"
-								style={{ userSelect: 'none' }}
-							>
-								<Checkbox.Root
-									className="CheckboxRoot"
-									name="startupUserAccount"
-								>
-									<Checkbox.Indicator className="CheckboxIndicator">
-										<CheckIcon />
-									</Checkbox.Indicator>
-								</Checkbox.Root>
-								Enable profile selector
-							</label>
-						</div>
+								<Checkbox.Indicator className="CheckboxIndicator">
+									<CheckIcon />
+								</Checkbox.Indicator>
+							</Checkbox.Root>
+							Enable screenshots
+						</label>
 					</div>
-				) : null}
+					<div className="Flex">
+						<label className="Flex" style={{ userSelect: 'none' }}>
+							<Checkbox.Root
+								className="CheckboxRoot"
+								name="startupUserAccount"
+							>
+								<Checkbox.Indicator className="CheckboxIndicator">
+									<CheckIcon />
+								</Checkbox.Indicator>
+							</Checkbox.Root>
+							Enable profile selector
+						</label>
+					</div>
+				</div>
 				<div className="Flex">
 					<button type="submit" className="Button">
 						Generate NSP

@@ -551,3 +551,7 @@ label.Input {
 .FlexThirds > * {
 	flex-basis: 58%;
 }
+
+.hidden {
+	display: none;
+}
