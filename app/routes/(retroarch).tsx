@@ -241,6 +241,7 @@ export default function Index() {
 					required
 					label={`${isRetroarch ? 'Game' : 'App'} Title`}
 					tooltip="Name displyed on the Nintendo Switch home screen"
+					maxLength={0x200}
 					placeholder={
 						isRetroarch ? 'Super Mario World' : 'HB App Store'
 					}
@@ -251,6 +252,7 @@ export default function Index() {
 					required
 					label="Publisher"
 					tooltip="Name of the publisher displayed on the game's details"
+					maxLength={0x100}
 					placeholder={isRetroarch ? 'Nintendo' : '4TU Team'}
 				/>
 				<Input
