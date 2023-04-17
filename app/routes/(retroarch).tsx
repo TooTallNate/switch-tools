@@ -152,9 +152,19 @@ export default function Index() {
 					name="image"
 					className="Input image-input"
 					placeholder={
-						isRetroarch
-							? 'Click to select game cover image…'
-							: 'Click to select NRO or image file…'
+						isRetroarch ? (
+							<>
+								Click to select game
+								<br />
+								box art image file…
+							</>
+						) : (
+							<>
+								Click to select
+								<br />
+								NRO or image file…
+							</>
+						)
 					}
 					cropAspectRatio={1}
 					format="jpeg"
