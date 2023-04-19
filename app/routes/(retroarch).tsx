@@ -38,6 +38,7 @@ export default function Index() {
 	const advancedMode = new URLSearchParams(location.search).has('advanced');
 	const isRetroarch = location.pathname === '/retroarch';
 	const [coreValue, setCoreValue] = useState('');
+	const [titleIdValue, setTitleIdValue] = useState('');
 	const titleRef = useRef<HTMLInputElement | null>(null);
 	const authorRef = useRef<HTMLInputElement | null>(null);
 	const versionRef = useRef<HTMLInputElement | null>(null);
@@ -168,7 +169,10 @@ export default function Index() {
 					}
 					cropAspectRatio={1}
 					format="jpeg"
-					onCroppedBlob={(blob) => (imageBlobRef.current = blob)}
+					onCroppedBlob={(blob) => {
+						setTitleIdValue(generateRandomID());
+						imageBlobRef.current = blob;
+					}}
 					onNRO={handleNroSelected}
 					style={{
 						lineHeight: 0,
@@ -233,7 +237,10 @@ export default function Index() {
 						tooltip="Version number which is displayed on the game's details"
 						placeholder="1.0.0"
 					/>
-					<TitleIdInput />
+					<TitleIdInput
+						value={titleIdValue}
+						onInput={setTitleIdValue}
+					/>
 				</div>
 				<Input
 					ref={titleRef}

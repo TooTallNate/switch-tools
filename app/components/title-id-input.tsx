@@ -1,15 +1,13 @@
-import {
-	FormEventHandler,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-} from 'react';
+import { FormEventHandler, useCallback, useEffect, useRef } from 'react';
 import { Input } from './input';
 import { generateRandomID } from '~/lib/generate-id';
 
-export function TitleIdInput() {
-	const [value, setValue] = useState('');
+interface TitleIdInputProps {
+	value: string;
+	onInput: (v: string) => void;
+}
+
+export function TitleIdInput({ value, onInput }: TitleIdInputProps) {
 	const titleIdInputRef = useRef<HTMLInputElement | null>(null);
 
 	useEffect(() => {
@@ -18,12 +16,12 @@ export function TitleIdInput() {
 			if (!value) {
 				value = generateRandomID();
 			}
-			setValue(value);
+			onInput(value);
 		}
 	}, [titleIdInputRef]);
 
 	const handleInput: FormEventHandler<HTMLInputElement> = useCallback((e) => {
-		setValue(e.currentTarget.value);
+		onInput(e.currentTarget.value);
 	}, []);
 
 	return (
@@ -51,7 +49,7 @@ export function TitleIdInput() {
 				}}
 				onClick={(e) => {
 					e.preventDefault();
-					setValue(generateRandomID());
+					onInput(generateRandomID());
 				}}
 			>
 				Random
