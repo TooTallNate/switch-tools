@@ -1,3 +1,4 @@
+import va from '@vercel/analytics';
 import { Form, useLocation } from '@remix-run/react';
 import { useRef, useState } from 'react';
 import { HeadersFunction, LinksFunction } from '@vercel/remix';
@@ -77,15 +78,42 @@ export default function Index() {
 			id = generateRandomID();
 		}
 
-		const version = formData.get('version');
-		const startupUserAccount = formData.get('startupUserAccount');
-		const screenshot = formData.get('screenshot');
-		const logoType = formData.get('logoType');
-		const romPath = formData.get('romPath');
+		const versionVal = formData.get('version');
+		const startupUserAccountVal = formData.get('startupUserAccount');
+		const screenshotVal = formData.get('screenshot');
+		const logoTypeVal = formData.get('logoType');
+		const romPathVal = formData.get('romPath');
 
 		if (!imageBlobRef.current) {
 			throw new Error('`image` is required');
 		}
+
+		const version = typeof versionVal === 'string' ? versionVal : undefined;
+		const romPath = typeof romPathVal === 'string' ? romPathVal : undefined;
+		const startupUserAccount =
+			typeof startupUserAccountVal === 'string'
+				? startupUserAccountVal === 'on'
+				: undefined;
+		const screenshot =
+			typeof screenshotVal === 'string'
+				? screenshotVal === 'on'
+				: undefined;
+		const logoType =
+			typeof logoTypeVal === 'string' && logoTypeVal.length > 0
+				? Number(logoTypeVal)
+				: undefined;
+
+		va.track('Generate', {
+			isRetroarch,
+			title,
+			publisher,
+			nroPath,
+			romPath: romPath ?? null,
+			version: version ?? null,
+			startupUserAccount: startupUserAccount ?? null,
+			screenshot: screenshot ?? null,
+			logoType: logoType ?? null,
+		});
 
 		const nsp = await generateNsp({
 			id,
@@ -94,21 +122,11 @@ export default function Index() {
 			title,
 			publisher,
 			nroPath,
-
-			version: typeof version === 'string' ? version : undefined,
-			startupUserAccount:
-				typeof startupUserAccount === 'string'
-					? startupUserAccount === 'on'
-					: undefined,
-			screenshot:
-				typeof screenshot === 'string'
-					? screenshot === 'on'
-					: undefined,
-			logoType:
-				typeof logoType === 'string' && logoType.length > 0
-					? Number(logoType)
-					: undefined,
-			romPath: typeof romPath === 'string' ? romPath : undefined,
+			version,
+			startupUserAccount,
+			screenshot,
+			logoType,
+			romPath,
 			logo: logoBlobRef.current || undefined,
 			startupMovie: startupMovieBlobRef.current || undefined,
 		});
