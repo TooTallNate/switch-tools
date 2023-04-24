@@ -253,6 +253,7 @@ export default function Index() {
 						name="version"
 						label="Version"
 						tooltip="Version number which is displayed on the game's details"
+						maxLength={0x10}
 						placeholder="1.0.0"
 					/>
 					<TitleIdInput
