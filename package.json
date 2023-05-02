@@ -13,12 +13,10 @@
     "@remix-run/eslint-config": "1.15.0",
     "@remix-run/serve": "1.15.0",
     "@types/bytes": "^3.1.1",
-    "@types/cookie": "^0.5.1",
     "@types/fs-extra": "^11.0.1",
     "@types/node": "^18.13.0",
     "@types/react": "^18.0.27",
     "@types/react-dom": "^18.0.10",
-    "@types/sharp": "^0.31.1",
     "eslint": "^8.33.0",
     "typescript": "^4.9.5"
   },
@@ -43,7 +41,6 @@
     "gifsicle-wasm-browser": "^1.5.16",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-image-crop": "^10.0.9",
-    "sharp": "^0.31.3"
+    "react-image-crop": "^10.0.9"
   }
 }
