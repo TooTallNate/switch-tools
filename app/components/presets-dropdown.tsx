@@ -63,6 +63,10 @@ const systems: SystemData[] = [
 				name: 'mGBA',
 				path: '/retroarch/cores/mgba_libretro_libnx.nro',
 			},
+			{
+				name: 'mGBA (Standalone)',
+				path: '/switch/mgba.nro',
+			},
 		],
 	},
 	{
