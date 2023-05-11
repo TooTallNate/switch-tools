@@ -7,6 +7,7 @@ import {
 	Outlet,
 	Scripts,
 	ScrollRestoration,
+	useLocation,
 } from '@remix-run/react';
 import { Analytics } from '@vercel/analytics/react';
 
@@ -27,7 +28,8 @@ export const config = { runtime: 'edge' };
 export const meta: MetaFunction = () => ({
 	charset: 'utf-8',
 	title: 'NSP Forwarder Generator',
-	description: 'Create "NRO to NSP forwarders" for your modded Nintendo Switch.',
+	description:
+		'Create "NRO to NSP forwarders" for your modded Nintendo Switch.',
 	viewport: 'width=device-width,initial-scale=1',
 });
 
@@ -44,10 +46,15 @@ export const links: LinksFunction = () => {
 };
 
 export default function App() {
+	const { pathname } = useLocation();
 	return (
 		<html lang="en" className="dark-theme">
 			<head>
 				<Meta />
+				<link
+					rel="canonical"
+					href={`https://nsp-forwarder.n8.io${pathname}`}
+				/>
 				<Links />
 			</head>
 			<body>
