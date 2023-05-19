@@ -20,30 +20,32 @@ async function extractAssetHeader(blob: Blob, start: number) {
 	const assetHeaderBuf = await blob.slice(start, end).arrayBuffer();
 	const magicStr = decoder.decode(assetHeaderBuf.slice(0, 0x4));
 	if (magicStr !== 'ASET') {
-		throw new Error('Failed to find asset section of NRO');
+		throw new Error('Failed to find asset header of NRO');
 	}
 	return assetHeaderBuf;
 }
 
-export async function extractIcon(blob: Blob) {
+export async function extractAsset(blob: Blob, offset: number) {
 	const nroSize = await getNroSize(blob);
 	const assetHeaderBuf = await extractAssetHeader(blob, nroSize);
 	const assetHeaderView = new DataView(assetHeaderBuf);
-	const iconOffset = assetHeaderView.getUint32(0x8, true);
-	const iconLength = assetHeaderView.getUint32(0x10, true);
-	const iconStart = nroSize + iconOffset;
-	const iconEnd = iconStart + iconLength;
-	return blob.slice(iconStart, iconEnd).arrayBuffer();
+	const assetOffset = assetHeaderView.getUint32(offset, true);
+	const length = assetHeaderView.getUint32(offset + 0x8, true);
+	const start = nroSize + assetOffset;
+	const end = start + length;
+	return blob.slice(start, end);
+}
+
+export function extractIcon(blob: Blob) {
+	return extractAsset(blob, 0x8);
 }
 
 export async function extractNACP(blob: Blob): Promise<NACP> {
-	const nroSize = await getNroSize(blob);
-	const assetHeaderBuf = await extractAssetHeader(blob, nroSize);
-	const assetHeaderView = new DataView(assetHeaderBuf);
-	const nacpOffset = assetHeaderView.getUint32(0x18, true);
-	const nacpLength = assetHeaderView.getUint32(0x20, true);
-	const nacpStart = nroSize + nacpOffset;
-	const nacpEnd = nacpStart + nacpLength;
-	const nacpBuf = await blob.slice(nacpStart, nacpEnd).arrayBuffer();
-	return new NACP(nacpBuf);
+	const nacp = await extractAsset(blob, 0x18);
+	const buf = await nacp.arrayBuffer();
+	return new NACP(buf);
+}
+
+export function extractRomFs(blob: Blob) {
+	return extractAsset(blob, 0x28);
 }
