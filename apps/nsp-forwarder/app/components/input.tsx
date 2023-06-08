@@ -3,7 +3,7 @@ import * as Label from '@radix-ui/react-label';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { forwardRef, useRef, useState } from 'react';
 
-import { FileInput } from '~/components/file-input';
+import { FileInput } from '@tootallnate/react-file-input';
 
 export interface InputProps
 	extends Omit<React.ComponentPropsWithoutRef<'input'>, 'placeholder'> {

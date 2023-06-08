@@ -4,9 +4,9 @@ import ReactCrop, { Crop, PercentCrop, PixelCrop } from 'react-image-crop';
 import * as Slider from '@radix-ui/react-slider';
 import * as HoverCard from '@radix-ui/react-hover-card';
 import { extractIcon, isNRO } from '@tootallnate/nro';
+import { FileInput, FileInputProps } from '@tootallnate/react-file-input';
 
 import { cropAndScaleGIF, getInfo, GifsicleOptions } from '~/gif.client';
-import { FileInput, FileInputProps } from '~/components/file-input';
 
 async function canvasPreview(
 	image: HTMLImageElement,

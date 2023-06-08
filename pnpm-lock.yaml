@@ -119,6 +119,9 @@ importers:
       '@tootallnate/nro':
         specifier: 0.0.0
         version: link:../../packages/nro
+      '@tootallnate/react-file-input':
+        specifier: 0.0.0
+        version: link:../../packages/react-file-input
       '@vercel/analytics':
         specifier: ^1.0.0
         version: 1.0.0(react@18.2.0)
@@ -181,6 +184,22 @@ importers:
         specifier: ^0.0.0
         version: link:../nacp
     devDependencies:
+      typescript:
+        specifier: ^4.9.5
+        version: 4.9.5
+
+  packages/react-file-input:
+    dependencies:
+      clsx:
+        specifier: ^1.2.1
+        version: 1.2.1
+    devDependencies:
+      '@types/react':
+        specifier: ^18.0.27
+        version: 18.0.27
+      react:
+        specifier: ^18.2.0
+        version: 18.2.0
       typescript:
         specifier: ^4.9.5
         version: 4.9.5
