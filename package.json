@@ -1,9 +1,14 @@
 {
-	"private": true,
-	"scripts": {
-		"build": "turbo run build"
-	},
-	"devDependencies": {
-		"turbo": "^1.10.2"
-	}
+  "private": true,
+  "scripts": {
+    "build": "turbo run build",
+    "format": "prettier --write \"**/*.{ts,js,mjs}\"",
+    "ci:version": "changeset version && pnpm install --no-frozen-lockfile",
+    "ci:publish": "pnpm publish -r && changeset tag"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.26.1",
+    "prettier": "^2.8.8",
+    "turbo": "^1.10.2"
+  }
 }
