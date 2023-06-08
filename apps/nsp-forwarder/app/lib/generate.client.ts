@@ -1,4 +1,4 @@
-import { NACP } from './nacp';
+import { NACP } from '@tootallnate/nacp';
 
 interface GenerateParams {
 	id: string;

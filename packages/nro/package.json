@@ -1,0 +1,18 @@
+{
+  "name": "@tootallnate/nro",
+  "version": "0.0.0",
+  "description": "Parser / encoder for Nintendo Switch NRO files",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "dependencies": {
+    "@tootallnate/nacp": "^0.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^4.9.5"
+  }
+}

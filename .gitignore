@@ -1,8 +1,10 @@
+.turbo
+dist
 node_modules
 .vercel
-/?.ts
+?.ts
 
 # Remix stuffs
-/.cache
-/build
-/public/build
+.cache
+build
+public/build

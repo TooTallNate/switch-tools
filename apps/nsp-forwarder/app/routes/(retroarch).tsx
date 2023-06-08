@@ -18,7 +18,7 @@ import { CheckIcon } from '@radix-ui/react-icons';
 import { generateNsp } from '~/lib/generate.client';
 import { generateRandomID } from '~/lib/generate-id';
 import clsx from 'clsx';
-import { extractNACP } from '~/lib/nro';
+import { extractNACP } from '@tootallnate/nro';
 
 export const headers: HeadersFunction = () => {
 	return {
