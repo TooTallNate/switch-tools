@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/react-file-input",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "",
   "main": "dist/file-input.js",
   "scripts": {
