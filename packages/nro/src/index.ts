@@ -1,4 +1,4 @@
-import { NACP } from './nacp';
+import { NACP } from '@tootallnate/nacp';
 
 // Reference: https://switchbrew.org/wiki/NRO
 const decoder = new TextDecoder();
