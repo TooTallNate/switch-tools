@@ -73,7 +73,7 @@ export default function App() {
 					<span className="source">
 						<a
 							target="_blank"
-							href="https://github.com/TooTallNate/nsp-forwarder"
+							href="https://github.com/TooTallNate/switch-tools/tree/main/apps/nsp-forwarder"
 						>
 							Source Code
 							<GitHubLogoIcon />
