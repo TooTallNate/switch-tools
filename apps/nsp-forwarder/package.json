@@ -1,6 +1,7 @@
 {
   "name": "nsp-forwarder",
   "private": true,
+  "version": "0.0.0",
   "description": "Nintendo Switch NSP forwarder web application",
   "author": "Nathan Rajlich <n@n8.io>",
   "license": "MIT",

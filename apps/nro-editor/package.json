@@ -1,6 +1,7 @@
 {
   "name": "nro-editor",
   "private": true,
+  "version": "0.0.0",
   "description": "Nintendo Switch NRO editor web application",
   "author": "Nathan Rajlich <n@n8.io>",
   "license": "MIT",
