@@ -35,7 +35,19 @@ header {
 
 header a,
 header a:visited {
-    font-family: UI;
     color: white;
+    font-family: UI;
     text-decoration: none;
+    margin: 1rem 0;
+    transition: text-shadow 0.2s;
+}
+
+header a:hover {
+    text-shadow: #888 0 0 10px;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 2.2rem;
+    line-height: 2.2rem;
 }
