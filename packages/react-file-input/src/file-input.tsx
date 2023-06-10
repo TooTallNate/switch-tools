@@ -89,6 +89,7 @@ export const FileInput = forwardRef<HTMLInputElement, FileInputProps>(
 						width: '100%',
 						height: '100%',
 						opacity: 0,
+						cursor: 'inherit',
 					}}
 				/>
 				{children}

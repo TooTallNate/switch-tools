@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FileInput } from '@tootallnate/react-file-input';
 import type { ChangeEventHandler } from 'react';
 import type { LinksFunction } from '@vercel/remix';
@@ -9,8 +9,12 @@ export const links: LinksFunction = () => {
 	return [{ rel: 'stylesheet', href: indexStyles }];
 };
 
+type Mode = 'initial' | 'editing';
+
 export default function Index() {
+	const [mode, setMode] = useState<Mode>('initial');
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const fileRef = useRef<File | null>(null);
 
 	useEffect(() => {
 		fileInputRef?.current?.focus();
@@ -18,7 +22,8 @@ export default function Index() {
 
 	const handleFileSelected: ChangeEventHandler<HTMLInputElement> = (e) => {
 		const [file] = e.currentTarget.files!;
-		console.log(file);
+		fileRef.current = file;
+		setMode('editing');
 	};
 
 	return (
@@ -27,19 +32,40 @@ export default function Index() {
 				Edit or view the icon, metadata, and RomFS files of a Nintendo
 				Switch homebrew <code>.nro</code> file.
 			</p>
-			<FileInput
-				onChange={handleFileSelected}
-				accept=".nro"
-				ref={fileInputRef}
-				style={{ cursor: 'pointer' }}
-			>
-				<button>
-					<div className="cursor"></div>
-					<span>
-						Select <code>nro</code> file
-					</span>
-				</button>
-			</FileInput>
+			{mode === 'initial' ? (
+				<FileInput
+					onChange={handleFileSelected}
+					accept=".nro"
+					ref={fileInputRef}
+					style={{ cursor: 'pointer' }}
+				>
+					<button>
+						<div className="cursor"></div>
+						<span>Click to select NRO file…</span>
+					</button>
+				</FileInput>
+			) : (
+				<div
+					style={{
+						display: 'flex',
+						flexDirection: 'column',
+						width: '10em',
+					}}
+				>
+					<button>
+						<div className="cursor"></div>
+						Icon
+					</button>
+					<button>
+						<div className="cursor"></div>
+						Metadata
+					</button>
+					<button>
+						<div className="cursor"></div>
+						RomFS
+					</button>
+				</div>
+			)}
 		</div>
 	);
 }
