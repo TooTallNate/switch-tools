@@ -1,0 +1,5 @@
+.vercel
+dist
+build
+.cache
+apps/nsp-forwarder/public/hacbrewpack.js
