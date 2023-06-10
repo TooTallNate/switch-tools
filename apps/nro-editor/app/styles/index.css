@@ -1,5 +1,6 @@
 .intro {
     max-width: 40ch;
+    font-family: UI;
 }
 
 .editor {
@@ -8,4 +9,5 @@
     display: flex;
     flex-direction: column;
     align-items: center;
+    gap: 1em;
 }

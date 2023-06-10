@@ -70,6 +70,12 @@ button {
     padding-right: 1em;
     display: flex;
     align-items: center;
+    font-family: UI;
+    transition: box-shadow 0.2s;
+}
+
+button:hover {
+    box-shadow: #888 0 0 10px;
 }
 
 .focus > button,

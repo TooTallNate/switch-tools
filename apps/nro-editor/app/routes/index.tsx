@@ -28,10 +28,10 @@ export default function Index() {
 
 	return (
 		<div className="editor">
-			<p className="intro">
+			<div className="intro">
 				Edit or view the icon, metadata, and RomFS files of a Nintendo
-				Switch homebrew <code>.nro</code> file.
-			</p>
+				Switch homebrew NRO file.
+			</div>
 			{mode === 'initial' ? (
 				<FileInput
 					onChange={handleFileSelected}
@@ -41,7 +41,7 @@ export default function Index() {
 				>
 					<button>
 						<div className="cursor"></div>
-						<span>Click to select NRO file…</span>
+						<span>Click to select NRO file...</span>
 					</button>
 				</FileInput>
 			) : (
