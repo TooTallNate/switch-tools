@@ -32,7 +32,7 @@ importers:
         specifier: 0.0.1
         version: link:../../packages/nro
       '@tootallnate/react-file-input':
-        specifier: workspace:0.0.1
+        specifier: 0.0.1
         version: link:../../packages/react-file-input
       '@tootallnate/romfs':
         specifier: 0.0.1
