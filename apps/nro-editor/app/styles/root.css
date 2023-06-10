@@ -7,6 +7,10 @@
     font-display: swap;
 }
 
+* {
+    box-sizing: border-box;
+}
+
 html,
 body {
 	--text-colour: white;
@@ -50,4 +54,57 @@ header h1 {
     margin: 0;
     font-size: 2.2rem;
     line-height: 2.2rem;
+}
+
+.content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+button {
+    all: unset;
+    cursor: pointer;
+    border: solid 3px rgba(177, 216, 255, 0.5);
+    padding: 0.5em;
+    padding-right: 0.9em;
+    display: flex;
+    align-items: center;
+}
+
+.focus > button,
+button:focus {
+    border: solid 3px rgb(89, 212, 232);
+    color: rgb(34, 255, 194);
+    background-color: rgba(0, 0, 0, 0.1);
+    animation-name: buttonColor;
+    animation-duration: 1000ms;
+	animation-timing-function: linear;
+    animation-iteration-count: infinite;
+}
+
+button .cursor
+ {
+    display: inline-block;
+    width: 0.2em;
+    height: 1.4em;
+    margin-right: 0.4em;
+    vertical-align: text-bottom;
+}
+
+.focus > button .cursor ,
+button:focus .cursor {
+    background-color: rgb(34, 255, 194);
+}
+
+@keyframes buttonColor {
+	0% {
+        border-color: rgb(89, 212, 232);
+	}
+	50% {
+        border-color: rgb(32, 135, 188);
+	}
+	100% {
+        border-color: rgb(89, 212, 232);
+	}
 }

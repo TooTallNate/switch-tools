@@ -20,11 +20,11 @@ import rootStyles from '~/styles/root.css';
 export const config = { runtime: 'edge' };
 
 export const meta: MetaFunction = () => ({
-	charset: "utf-8",
-	title: "NRO Editor",
+	charset: 'utf-8',
+	title: 'NRO Editor',
 	description:
-		"Edit NRO Nintendo Switch homebrew application metadata and RomFS files.",
-	viewport: "width=device-width,initial-scale=1",
+		'Edit NRO Nintendo Switch homebrew application metadata and RomFS files.',
+	viewport: 'width=device-width,initial-scale=1',
 });
 
 export const links: LinksFunction = () => {

@@ -31,6 +31,12 @@ importers:
       '@tootallnate/nro':
         specifier: 0.0.1
         version: link:../../packages/nro
+      '@tootallnate/react-file-input':
+        specifier: workspace:0.0.1
+        version: link:../../packages/react-file-input
+      '@tootallnate/romfs':
+        specifier: 0.0.1
+        version: link:../../packages/romfs
       '@vercel/analytics':
         specifier: ^1.0.0
         version: 1.0.0(react@18.2.0)
@@ -212,6 +218,9 @@ importers:
 
   packages/romfs:
     devDependencies:
+      '@types/node':
+        specifier: ^18.13.0
+        version: 18.13.0
       typescript:
         specifier: ^4.9.5
         version: 4.9.5

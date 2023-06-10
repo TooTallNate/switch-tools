@@ -1,0 +1,11 @@
+.intro {
+    max-width: 40ch;
+}
+
+.editor {
+    max-width: 60ch;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
