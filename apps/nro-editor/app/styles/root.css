@@ -79,15 +79,17 @@ button:hover {
 }
 
 .focus > button,
-button:focus,
-button.active {
+button:focus {
     border: solid 3px rgb(89, 212, 232);
-    color: rgb(34, 255, 194);
     background-color: rgba(0, 0, 0, 0.1);
     animation-name: buttonColor;
     animation-duration: 1000ms;
 	animation-timing-function: linear;
     animation-iteration-count: infinite;
+}
+
+button.active {
+    color: rgb(34, 255, 194);
 }
 
 button .cursor
@@ -99,8 +101,6 @@ button .cursor
     vertical-align: text-bottom;
 }
 
-.focus > button .cursor ,
-button:focus .cursor,
 button.active .cursor {
     background-color: rgb(34, 255, 194);
 }

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { MouseEventHandler, useEffect, useRef, useState } from 'react';
 import { FileInput } from '@tootallnate/react-file-input';
 import type { ChangeEventHandler } from 'react';
 import type { LinksFunction } from '@vercel/remix';
+import { Editor } from '~/components/editor';
 
 import indexStyles from '~/styles/index.css';
 
@@ -17,13 +18,36 @@ export default function Index() {
 	const fileRef = useRef<File | null>(null);
 
 	useEffect(() => {
-		fileInputRef?.current?.focus();
+		const fileInput = fileInputRef.current;
+		if (fileInput) {
+			const [file] = fileInput.files!;
+			if (file) {
+				setFile(file);
+			} else {
+				fileInput.focus();
+			}
+		}
 	}, []);
+
+	const setFile = (file: File) => {
+		fileRef.current = file;
+		setMode('editing');
+	};
 
 	const handleFileSelected: ChangeEventHandler<HTMLInputElement> = (e) => {
 		const [file] = e.currentTarget.files!;
-		fileRef.current = file;
-		setMode('editing');
+		if (file) {
+			setFile(file);
+		}
+	};
+
+	const handleReset: MouseEventHandler<HTMLButtonElement> = (e) => {
+		e.preventDefault();
+		fileRef.current = null;
+		if (fileInputRef.current) {
+			fileInputRef.current.value = '';
+		}
+		setMode('initial');
 	};
 
 	return (
@@ -32,39 +56,20 @@ export default function Index() {
 				Edit or view the icon, metadata, and RomFS files of a Nintendo
 				Switch homebrew NRO file.
 			</div>
-			{mode === 'initial' ? (
+			{mode === 'editing' && fileRef.current ? (
+				<Editor nro={fileRef.current} onReset={handleReset} />
+			) : (
 				<FileInput
 					onChange={handleFileSelected}
 					accept=".nro"
 					ref={fileInputRef}
 					style={{ cursor: 'pointer' }}
 				>
-					<button>
+					<button className="active">
 						<div className="cursor"></div>
 						<span>Click to select NRO file...</span>
 					</button>
 				</FileInput>
-			) : (
-				<div
-					style={{
-						display: 'flex',
-						flexDirection: 'column',
-						width: '10em',
-					}}
-				>
-					<button>
-						<div className="cursor"></div>
-						Icon
-					</button>
-					<button>
-						<div className="cursor"></div>
-						Metadata
-					</button>
-					<button>
-						<div className="cursor"></div>
-						RomFS
-					</button>
-				</div>
 			)}
 		</div>
 	);

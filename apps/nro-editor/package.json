@@ -10,6 +10,7 @@
     "dev": "remix dev"
   },
   "dependencies": {
+    "@radix-ui/react-icons": "^1.1.1",
     "@remix-run/dev": "1.16.1",
     "@remix-run/node": "1.16.1",
     "@remix-run/react": "1.16.1",

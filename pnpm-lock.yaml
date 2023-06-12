@@ -16,6 +16,9 @@ importers:
 
   apps/nro-editor:
     dependencies:
+      '@radix-ui/react-icons':
+        specifier: ^1.1.1
+        version: 1.1.1(react@18.2.0)
       '@remix-run/dev':
         specifier: 1.16.1
         version: 1.16.1(@remix-run/serve@1.16.1)(@types/node@18.13.0)

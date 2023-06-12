@@ -52,24 +52,39 @@ export async function parseHeader(blob: Blob) {
 	);
 	//console.log(fileEntries);
 
-	for (const fileEntry of fileEntries) {
-		let { parentOffset } = fileEntry;
-		const pathParts = [fileEntry.name];
-		while (parentOffset !== 0) {
-			const parent = dirEntries.find(
-				(dir) => dir.offset === parentOffset
-			);
-			if (!parent) break;
-			pathParts.unshift(parent.name);
-			parentOffset = parent.parentOffset;
-		}
-		console.log(pathParts.join('/'));
+	//for (const fileEntry of fileEntries) {
+	//	let { parentOffset } = fileEntry;
+	//	const pathParts = [fileEntry.name];
+	//	while (parentOffset !== 0) {
+	//		const parent = dirEntries.find(
+	//			(dir) => dir.offset === parentOffset
+	//		);
+	//		if (!parent) break;
+	//		pathParts.unshift(parent.name);
+	//		parentOffset = parent.parentOffset;
+	//	}
+	//	console.log(pathParts.join('/'));
 
-		//const dataStart = Number(dataOffset + fileEntry.dataOffset);
-		//const dataEnd = dataStart + Number(fileEntry.dataSize);
-		//const data = await blob.slice(dataStart, dataEnd).arrayBuffer();
-		//console.log(decoder.decode(data));
-	}
+	//	//const dataStart = Number(dataOffset + fileEntry.dataOffset);
+	//	//const dataEnd = dataStart + Number(fileEntry.dataSize);
+	//	//const data = await blob.slice(dataStart, dataEnd).arrayBuffer();
+	//	//console.log(decoder.decode(data));
+	//}
+
+	return {
+		headerSize,
+		dirHashBucketOffset,
+		dirHashBucketLength,
+		dirEntryOffset,
+		dirEntryLength,
+		fileHashBucketOffset,
+		fileHashBucketLength,
+		fileEntryOffset,
+		fileEntryLength,
+		dataOffset,
+		dirEntries,
+		fileEntries,
+	};
 }
 
 interface DirEntry {
