@@ -84,9 +84,9 @@ export async function generateNsp({
 	if (typeof startupUserAccount === 'boolean') {
 		nacp.startupUserAccount = startupUserAccount ? 1 : 0;
 	}
-	nacp.screenshot = 1; // Enable screenshots by default
+	nacp.screenshot = 0; // Enable screenshots by default
 	if (typeof screenshot === 'boolean') {
-		nacp.screenshot = screenshot ? 1 : 0;
+		nacp.screenshot = screenshot ? 0 : 1;
 	}
 	nacp.logoType = typeof logoType === 'number' ? logoType : 2; // Show no text above logo by default
 	nacp.logoHandling = 0;
