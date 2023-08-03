@@ -1,4 +1,4 @@
-// Reference: https://switchbrew.org/wiki/NACP#ApplicationJitConfiguration
+// Reference: https://switchbrew.org/wiki/NACP
 // Adapted from: https://github.com/switchbrew/switch-tools/blob/master/src/nacptool.c
 // More:
 //   - https://switchbrew.github.io/libnx/nacp_8h_source.html
