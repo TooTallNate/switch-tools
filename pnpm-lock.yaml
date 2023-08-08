@@ -32,13 +32,13 @@ importers:
         specifier: 0.0.1
         version: link:../../packages/nacp
       '@tootallnate/nro':
-        specifier: 0.0.1
+        specifier: 0.1.0
         version: link:../../packages/nro
       '@tootallnate/react-file-input':
-        specifier: 0.0.1
+        specifier: 0.0.2
         version: link:../../packages/react-file-input
       '@tootallnate/romfs':
-        specifier: 0.0.1
+        specifier: 0.1.0
         version: link:../../packages/romfs
       '@vercel/analytics':
         specifier: ^1.0.0
@@ -132,10 +132,10 @@ importers:
         specifier: 0.0.1
         version: link:../../packages/nacp
       '@tootallnate/nro':
-        specifier: 0.0.1
+        specifier: 0.1.0
         version: link:../../packages/nro
       '@tootallnate/react-file-input':
-        specifier: 0.0.1
+        specifier: 0.0.2
         version: link:../../packages/react-file-input
       '@vercel/analytics':
         specifier: ^1.0.0

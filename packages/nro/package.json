@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/nro",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Parser / encoder for Nintendo Switch NRO files",
   "main": "dist/index.js",
   "scripts": {
