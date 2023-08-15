@@ -81,6 +81,7 @@ export default function Index() {
 		const versionVal = formData.get('version');
 		const startupUserAccountVal = formData.get('startupUserAccount');
 		const screenshotVal = formData.get('screenshot');
+		const videoCaptureVal = formData.get('videoCapture');
 		const logoTypeVal = formData.get('logoType');
 		const romPathVal = formData.get('romPath');
 
@@ -98,6 +99,10 @@ export default function Index() {
 			typeof screenshotVal === 'string'
 				? screenshotVal === 'on'
 				: undefined;
+		const videoCapture =
+			typeof videoCaptureVal === 'string'
+				? videoCaptureVal === 'on'
+				: undefined;
 		const logoType =
 			typeof logoTypeVal === 'string' && logoTypeVal.length > 0
 				? Number(logoTypeVal)
@@ -112,6 +117,7 @@ export default function Index() {
 			version: version ?? null,
 			startupUserAccount: startupUserAccount ?? null,
 			screenshot: screenshot ?? null,
+			videoCapture: videoCapture ?? null,
 			logoType: logoType ?? null,
 		});
 
@@ -125,6 +131,7 @@ export default function Index() {
 			version,
 			startupUserAccount,
 			screenshot,
+			videoCapture,
 			logoType,
 			romPath,
 			logo: logoBlobRef.current || undefined,
@@ -343,6 +350,20 @@ export default function Index() {
 								</Checkbox.Indicator>
 							</Checkbox.Root>
 							Enable screenshots
+						</label>
+					</div>
+					<div className="Flex">
+						<label className="Flex" style={{ userSelect: 'none' }}>
+							<Checkbox.Root
+								className="CheckboxRoot"
+								name="videoCapture"
+								defaultChecked={false}
+							>
+								<Checkbox.Indicator className="CheckboxIndicator">
+									<CheckIcon />
+								</Checkbox.Indicator>
+							</Checkbox.Root>
+							Enable video capture
 						</label>
 					</div>
 					<div className="Flex">

@@ -1,4 +1,4 @@
-import { NACP } from '@tootallnate/nacp';
+import { NACP, VideoCapture } from '@tootallnate/nacp';
 
 interface GenerateParams {
 	id: string;
@@ -11,6 +11,7 @@ interface GenerateParams {
 	version?: string;
 	startupUserAccount?: boolean;
 	screenshot?: boolean;
+	videoCapture?: boolean;
 	logoType?: number;
 	romPath?: string;
 	logo?: Blob;
@@ -61,6 +62,7 @@ export async function generateNsp({
 	version,
 	startupUserAccount,
 	screenshot,
+	videoCapture,
 	logoType,
 	romPath,
 	logo,
@@ -87,6 +89,12 @@ export async function generateNsp({
 	nacp.screenshot = 0; // Enable screenshots by default
 	if (typeof screenshot === 'boolean') {
 		nacp.screenshot = screenshot ? 0 : 1;
+	}
+	nacp.videoCapture = VideoCapture.Disabled; // Disable video recording by default, since it allocates extra memory
+	if (typeof videoCapture === 'boolean') {
+		nacp.videoCapture = videoCapture
+			? VideoCapture.Automatic
+			: VideoCapture.Disabled;
 	}
 	nacp.logoType = typeof logoType === 'number' ? logoType : 2; // Show no text above logo by default
 	nacp.logoHandling = 0;
