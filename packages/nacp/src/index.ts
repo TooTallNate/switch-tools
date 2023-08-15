@@ -130,14 +130,24 @@ export class NACP {
 		return this.dataView.getUint8(0x3025);
 	}
 
+	/**
+	 * Whether or not pressing the screenshot button will capture a screenshot.
+	 *   - Value of 0: Enabled
+	 *   - Value of 1: Disabled
+	 */
 	set screenshot(v: number) {
 		this.dataView.setUint8(0x3034, v);
 	}
-
 	get screenshot(): number {
 		return this.dataView.getUint8(0x3034);
 	}
 
+	/**
+	 * Whether or not holding the screenshot button will capture a video.
+	 *   - Value of 0: Disabled
+	 *   - Value of 1: Only enabled if app invokes `appletInitializeGamePlayRecording()`
+	 *   - Value of 1: Always enabled
+	 */
 	set videoCapture(v: VideoCapture) {
 		this.dataView.setUint8(0x3035, v);
 	}
