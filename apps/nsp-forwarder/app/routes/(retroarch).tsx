@@ -34,11 +34,26 @@ export const links: LinksFunction = () => {
 	];
 };
 
+function normalizePath(input: string) {
+	if (!input) return input;
+	let v = input
+		// If a Windows path, remove the drive letter
+		.replace(/^[a-zA-Z]:/, '')
+		// Replace Windows backslashes with UNIX forward slashes
+		.replace(/\\/g, '/');
+	// Ensure the path starts with `/`
+	if (!v.startsWith('/')) {
+		v = `/${v}`;
+	}
+	return v;
+}
+
 export default function Index() {
 	const location = useLocation();
 	const advancedMode = new URLSearchParams(location.search).has('advanced');
 	const isRetroarch = location.pathname === '/retroarch';
 	const [coreValue, setCoreValue] = useState('');
+	const [romValue, setRomValue] = useState('');
 	const [titleIdValue, setTitleIdValue] = useState('');
 	const titleRef = useRef<HTMLInputElement | null>(null);
 	const authorRef = useRef<HTMLInputElement | null>(null);
@@ -302,7 +317,7 @@ export default function Index() {
 					}
 					value={coreValue}
 					onInput={(e) => {
-						setCoreValue(e.currentTarget.value);
+						setCoreValue(normalizePath(e.currentTarget.value));
 					}}
 				>
 					{isRetroarch ? (
@@ -319,6 +334,10 @@ export default function Index() {
 						label="ROM Path"
 						tooltip="File path to the game ROM file on the Nintendo Switch SD card"
 						placeholder="/ROMs/SNES/Super Mario World.smc"
+						value={romValue}
+						onInput={(e) => {
+							setRomValue(normalizePath(e.currentTarget.value));
+						}}
 					/>
 				) : null}
 				<Input
