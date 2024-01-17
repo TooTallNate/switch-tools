@@ -206,6 +206,7 @@ export function ImageInput({
 	}, [imgInputRef.current, previewCanvasRef.current]);
 
 	const handleImageChange: ChangeEventHandler<HTMLInputElement> = (e) => {
+		props.onChange?.(e);
 		const file = e.currentTarget.files?.[0];
 		handleImageFile(file);
 	};
@@ -218,14 +219,16 @@ export function ImageInput({
 			setCompletedCrop(undefined);
 			return;
 		}
-		let image: Blob = file;
+		let image: Blob | null = file;
 		if (await isNRO(file)) {
 			onNRO?.(file);
 			const icon = await extractIcon(file);
-			image = new Blob([icon], { type: 'image/jpeg' });
+			image = icon ? new Blob([icon], { type: 'image/jpeg' }) : null;
 		}
-		const url = URL.createObjectURL(image);
-		setImgSrc(url);
+		if (image) {
+			const url = URL.createObjectURL(image);
+			setImgSrc(url);
+		}
 	};
 
 	let accept = 'image/*';

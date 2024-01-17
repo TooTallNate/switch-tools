@@ -171,15 +171,18 @@ export default function Index() {
 	};
 
 	async function handleNroSelected(blob: Blob) {
-		const nacp = await extractNACP(blob);
+		const { id, title, author, version } = await extractNACP(blob);
+		if (id) {
+			setTitleIdValue(id.toString(16).padStart(16, '0'));
+		}
 		if (titleRef.current) {
-			titleRef.current.value = nacp.title;
+			titleRef.current.value = title;
 		}
 		if (authorRef.current) {
-			authorRef.current.value = nacp.author;
+			authorRef.current.value = author;
 		}
 		if (versionRef.current) {
-			versionRef.current.value = nacp.version;
+			versionRef.current.value = version;
 		}
 	}
 
@@ -210,8 +213,10 @@ export default function Index() {
 					cropAspectRatio={1}
 					format="jpeg"
 					onCroppedBlob={(blob) => {
-						setTitleIdValue(generateRandomID());
 						imageBlobRef.current = blob;
+					}}
+					onChange={() => {
+						setTitleIdValue(generateRandomID());
 					}}
 					onNRO={handleNroSelected}
 					style={{

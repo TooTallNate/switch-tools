@@ -5,7 +5,10 @@ export function KeysTooltip() {
 		<>
 			The <code>prod.keys</code> file generated on your Nintendo Switch by
 			the{' '}
-			<Link target="blank" to="https://vps.suchmeme.nl/git/mudkip/Lockpick_RCM/releases">
+			<Link
+				target="blank"
+				to="https://vps.suchmeme.nl/git/mudkip/Lockpick_RCM/releases"
+			>
 				Lockpick_RCM
 			</Link>{' '}
 			payload
