@@ -177,4 +177,12 @@ export class NACP {
 	get logoHandling(): number {
 		return this.dataView.getUint8(0x30f1);
 	}
+
+	get userAccountSaveDataSize() {
+		return this.dataView.getBigUint64(0x3080, true);
+	}
+
+	get userAccountSaveDataJournalSize() {
+		return this.dataView.getBigUint64(0x3088, true);
+	}
 }
