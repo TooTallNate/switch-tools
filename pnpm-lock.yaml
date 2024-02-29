@@ -152,6 +152,9 @@ importers:
       gifsicle-wasm-browser:
         specifier: ^1.5.16
         version: 1.5.16
+      isbot:
+        specifier: ^4
+        version: 4.0.0
       react:
         specifier: ^18.2.0
         version: 18.2.0
@@ -7035,6 +7038,11 @@ packages:
   /isbot@3.6.10:
     resolution: {integrity: sha512-+I+2998oyP4oW9+OTQD8TS1r9P6wv10yejukj+Ksj3+UR5pUhsZN3f8W7ysq0p1qxpOVNbl5mCuv0bCaF8y5iQ==}
     engines: {node: '>=12'}
+    dev: false
+
+  /isbot@4.0.0:
+    resolution: {integrity: sha512-OoqchG4A/FngRcbxTRgdqFbSE/FS/DMWpRP4T+8Jar/8Cwlwm91jxSE20XGxrb8AgaDnmvnO3fwhlBus3kY6hQ==}
+    engines: {node: '>=18'}
     dev: false
 
   /isexe@2.0.0:
