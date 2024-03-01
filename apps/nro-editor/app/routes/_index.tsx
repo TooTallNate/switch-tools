@@ -4,7 +4,7 @@ import type { ChangeEventHandler } from 'react';
 import type { LinksFunction } from '@vercel/remix';
 import { Editor } from '~/components/editor';
 
-import indexStyles from '~/styles/index.css';
+import indexStyles from '~/styles/index.css?url';
 
 export const links: LinksFunction = () => {
 	return [{ rel: 'stylesheet', href: indexStyles }];

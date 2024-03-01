@@ -1,6 +1,7 @@
 {
   "name": "@tootallnate/romfs",
   "version": "0.1.0",
+  "type": "module",
   "description": "Parser / encoder for Nintendo Switch RomFS section",
   "main": "dist/index.js",
   "scripts": {
