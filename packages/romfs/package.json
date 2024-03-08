@@ -1,6 +1,7 @@
 {
   "name": "@tootallnate/romfs",
   "version": "0.1.0",
+  "type": "module",
   "description": "Parser / encoder for Nintendo Switch RomFS section",
   "main": "dist/index.js",
   "scripts": {
@@ -11,6 +12,6 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^18.13.0",
-    "typescript": "^4.9.5"
+    "typescript": "^5.3.3"
   }
 }

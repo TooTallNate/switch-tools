@@ -4,7 +4,7 @@ import type { ChangeEventHandler } from 'react';
 import type { LinksFunction } from '@vercel/remix';
 import { Editor } from '~/components/editor';
 
-import indexStyles from '~/styles/index.css';
+import indexStyles from '~/styles/index.css?url';
 
 export const links: LinksFunction = () => {
 	return [{ rel: 'stylesheet', href: indexStyles }];
@@ -54,7 +54,7 @@ export default function Index() {
 		<div className="editor">
 			<div className="intro">
 				Edit or view the icon, metadata, and RomFS files of a Nintendo
-				Switch homebrew NRO file.
+				Switch homebrew application NRO file.
 			</div>
 			{mode === 'editing' && fileRef.current ? (
 				<Editor nro={fileRef.current} onReset={handleReset} />

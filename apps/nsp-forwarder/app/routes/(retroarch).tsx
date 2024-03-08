@@ -10,8 +10,8 @@ import { KeysPlaceholder, KeysTooltip } from '~/components/keys-input';
 import { LogoTextSelect } from '~/components/logo-text-select';
 import { Nav } from '~/components/nav';
 
-import cropStyles from 'react-image-crop/dist/ReactCrop.css';
-import fontStyles from '~/styles/index.css';
+import cropStyles from 'react-image-crop/dist/ReactCrop.css?url';
+import fontStyles from '~/styles/index.css?url';
 import { TitleIdInput } from '~/components/title-id-input';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import { CheckIcon } from '@radix-ui/react-icons';

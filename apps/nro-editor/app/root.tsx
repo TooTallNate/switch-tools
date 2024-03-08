@@ -2,7 +2,6 @@ import { LinksFunction, MetaFunction } from '@vercel/remix';
 import {
 	Link,
 	Links,
-	LiveReload,
 	Meta,
 	Outlet,
 	Scripts,
@@ -13,19 +12,20 @@ import { Analytics } from '@vercel/analytics/react';
 
 //import { Header } from '~/components/header';
 
-import rootStyles from '~/styles/root.css';
-//import headerStyles from '~/styles/header.css';
-//import footerStyles from '~/styles/footer.css';
+import rootStyles from '~/styles/root.css?url';
+//import headerStyles from '~/styles/header.css?url';
+//import footerStyles from '~/styles/footer.css?url';
 
 export const config = { runtime: 'edge' };
 
-export const meta: MetaFunction = () => ({
-	charset: 'utf-8',
-	title: 'NRO Editor',
-	description:
-		'Edit NRO Nintendo Switch homebrew application metadata and RomFS files.',
-	viewport: 'width=device-width,initial-scale=1',
-});
+export const meta: MetaFunction = () => [
+	{ title: 'NRO Editor' },
+	{
+		name: 'description',
+		content:
+			'Edit NRO Nintendo Switch homebrew application metadata and RomFS files.',
+	},
+];
 
 export const links: LinksFunction = () => {
 	return [
@@ -44,6 +44,11 @@ export default function App() {
 	return (
 		<html lang="en" className="dark-theme">
 			<head>
+				<meta charSet="utf-8" />
+				<meta
+					name="viewport"
+					content="width=device-width, initial-scale=1"
+				/>
 				<Meta />
 				<link
 					rel="canonical"
@@ -79,7 +84,6 @@ export default function App() {
 				</div>
 				<ScrollRestoration />
 				<Scripts />
-				<LiveReload />
 				<Analytics />
 			</body>
 		</html>

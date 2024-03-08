@@ -2,7 +2,6 @@ import { LinksFunction, MetaFunction } from '@vercel/remix';
 import {
 	Link,
 	Links,
-	LiveReload,
 	Meta,
 	Outlet,
 	Scripts,
@@ -13,25 +12,26 @@ import { Analytics } from '@vercel/analytics/react';
 
 import { Header } from '~/components/header';
 
-import radixWhiteA from '@radix-ui/colors/whiteA.css';
-import radixBlackA from '@radix-ui/colors/blackA.css';
-import radixMauve from '@radix-ui/colors/mauveDark.css';
-import radixViolet from '@radix-ui/colors/violetDark.css';
-import rootStyles from '~/styles/root.css';
-import headerStyles from '~/styles/header.css';
-import footerStyles from '~/styles/footer.css';
+import radixWhiteA from '@radix-ui/colors/whiteA.css?url';
+import radixBlackA from '@radix-ui/colors/blackA.css?url';
+import radixMauve from '@radix-ui/colors/mauveDark.css?url';
+import radixViolet from '@radix-ui/colors/violetDark.css?url';
+import rootStyles from '~/styles/root.css?url';
+import headerStyles from '~/styles/header.css?url';
+import footerStyles from '~/styles/footer.css?url';
 import { Vercel } from '~/components/vercel';
 import { GitHubLogoIcon } from '@radix-ui/react-icons';
 
 export const config = { runtime: 'edge' };
 
-export const meta: MetaFunction = () => ({
-	charset: 'utf-8',
-	title: 'NSP Forwarder Generator',
-	description:
-		'Create "NRO to NSP forwarders" for your modded Nintendo Switch.',
-	viewport: 'width=device-width,initial-scale=1',
-});
+export const meta: MetaFunction = () => [
+	{ title: 'NSP Forwarder Generator' },
+	{
+		name: 'description',
+		content:
+			'Create "NRO to NSP forwarders" for your modded Nintendo Switch.',
+	},
+];
 
 export const links: LinksFunction = () => {
 	return [
@@ -50,6 +50,11 @@ export default function App() {
 	return (
 		<html lang="en" className="dark-theme">
 			<head>
+				<meta charSet="utf-8" />
+				<meta
+					name="viewport"
+					content="width=device-width, initial-scale=1"
+				/>
 				<Meta />
 				<link
 					rel="canonical"
@@ -87,7 +92,6 @@ export default function App() {
 				</div>
 				<ScrollRestoration />
 				<Scripts />
-				<LiveReload />
 				<Analytics />
 			</body>
 		</html>

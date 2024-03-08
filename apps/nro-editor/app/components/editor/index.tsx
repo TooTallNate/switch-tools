@@ -49,7 +49,7 @@ export function Editor(props: EditorProps) {
 
 	let content: JSX.Element;
 	if (activeSection === Section.Icon) {
-		content = <>icon</>;
+		content = <IconEditor iconSrc={iconSrc} />;
 	} else if (activeSection === Section.Metadata) {
 		content = <MetadataEditor nacp={nacp!} />;
 	} else {
