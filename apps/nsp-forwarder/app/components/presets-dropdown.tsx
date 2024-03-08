@@ -48,6 +48,15 @@ const systems: SystemData[] = [
 		],
 	},
 	{
+		name: 'Nintendo 3DS',
+		cores: [
+			{
+				name: 'Citra',
+				path: '/retroarch/cores/citra_libretro_libnx.nro',
+			},
+		],
+	},
+	{
 		name: 'Game Boy (GB / GBC)',
 		cores: [
 			{
