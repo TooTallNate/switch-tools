@@ -97,6 +97,7 @@ export default function Index() {
 		const startupUserAccountVal = formData.get('startupUserAccount');
 		const screenshotVal = formData.get('screenshot');
 		const videoCaptureVal = formData.get('videoCapture');
+		const enableSvcDebugVal = formData.get('enableSvcDebug');
 		const logoTypeVal = formData.get('logoType');
 		const romPathVal = formData.get('romPath');
 
@@ -122,6 +123,10 @@ export default function Index() {
 			typeof logoTypeVal === 'string' && logoTypeVal.length > 0
 				? Number(logoTypeVal)
 				: undefined;
+		const enableSvcDebug =
+			typeof enableSvcDebugVal === 'string'
+				? enableSvcDebugVal === 'on'
+				: undefined;
 
 		va.track('Generate', {
 			isRetroarch,
@@ -134,6 +139,7 @@ export default function Index() {
 			screenshot: screenshot ?? null,
 			videoCapture: videoCapture ?? null,
 			logoType: logoType ?? null,
+			enableSvcDebug: enableSvcDebug ?? null,
 		});
 
 		const nsp = await generateNsp({
@@ -147,6 +153,7 @@ export default function Index() {
 			startupUserAccount,
 			screenshot,
 			videoCapture,
+			enableSvcDebug,
 			logoType,
 			romPath,
 			logo: logoBlobRef.current || undefined,
@@ -356,52 +363,78 @@ export default function Index() {
 					placeholder={<KeysPlaceholder />}
 				/>
 				<div
-					className={clsx(
-						'Flex',
-						'Flex2Columns',
-						!advancedMode && 'hidden'
-					)}
+					className={clsx('Flex', !advancedMode && 'hidden')}
+					style={{ flexDirection: 'column' }}
 				>
 					<div className="Flex">
-						<label className="Flex" style={{ userSelect: 'none' }}>
-							<Checkbox.Root
-								className="CheckboxRoot"
-								name="screenshot"
-								defaultChecked={true}
+						<div className="Flex">
+							<label
+								className="Flex"
+								style={{ userSelect: 'none' }}
 							>
-								<Checkbox.Indicator className="CheckboxIndicator">
-									<CheckIcon />
-								</Checkbox.Indicator>
-							</Checkbox.Root>
-							Enable screenshots
-						</label>
+								<Checkbox.Root
+									className="CheckboxRoot"
+									name="screenshot"
+									defaultChecked={true}
+								>
+									<Checkbox.Indicator className="CheckboxIndicator">
+										<CheckIcon />
+									</Checkbox.Indicator>
+								</Checkbox.Root>
+								Enable screenshots
+							</label>
+						</div>
+						<div className="Flex">
+							<label
+								className="Flex"
+								style={{ userSelect: 'none' }}
+							>
+								<Checkbox.Root
+									className="CheckboxRoot"
+									name="videoCapture"
+									defaultChecked={false}
+								>
+									<Checkbox.Indicator className="CheckboxIndicator">
+										<CheckIcon />
+									</Checkbox.Indicator>
+								</Checkbox.Root>
+								Enable video capture
+							</label>
+						</div>
 					</div>
 					<div className="Flex">
-						<label className="Flex" style={{ userSelect: 'none' }}>
-							<Checkbox.Root
-								className="CheckboxRoot"
-								name="videoCapture"
-								defaultChecked={false}
+						<div className="Flex">
+							<label
+								className="Flex"
+								style={{ userSelect: 'none' }}
 							>
-								<Checkbox.Indicator className="CheckboxIndicator">
-									<CheckIcon />
-								</Checkbox.Indicator>
-							</Checkbox.Root>
-							Enable video capture
-						</label>
-					</div>
-					<div className="Flex">
-						<label className="Flex" style={{ userSelect: 'none' }}>
-							<Checkbox.Root
-								className="CheckboxRoot"
-								name="startupUserAccount"
+								<Checkbox.Root
+									className="CheckboxRoot"
+									name="startupUserAccount"
+								>
+									<Checkbox.Indicator className="CheckboxIndicator">
+										<CheckIcon />
+									</Checkbox.Indicator>
+								</Checkbox.Root>
+								Enable profile selector
+							</label>
+						</div>
+						<div className="Flex">
+							<label
+								className="Flex"
+								style={{ userSelect: 'none' }}
 							>
-								<Checkbox.Indicator className="CheckboxIndicator">
-									<CheckIcon />
-								</Checkbox.Indicator>
-							</Checkbox.Root>
-							Enable profile selector
-						</label>
+								<Checkbox.Root
+									className="CheckboxRoot"
+									name="enableSvcDebug"
+								>
+									<Checkbox.Indicator className="CheckboxIndicator">
+										<CheckIcon />
+									</Checkbox.Indicator>
+								</Checkbox.Root>
+								Enable <code>svcDebug</code> flag
+							</label>
+						</div>
 					</div>
 				</div>
 				<div className="Flex">

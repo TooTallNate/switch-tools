@@ -12,6 +12,7 @@ interface GenerateParams {
 	startupUserAccount?: boolean;
 	screenshot?: boolean;
 	videoCapture?: boolean;
+	enableSvcDebug?: boolean;
 	logoType?: number;
 	romPath?: string;
 	logo?: Blob;
@@ -63,6 +64,7 @@ export async function generateNsp({
 	startupUserAccount,
 	screenshot,
 	videoCapture,
+	enableSvcDebug,
 	logoType,
 	romPath,
 	logo,
@@ -117,6 +119,12 @@ export async function generateNsp({
 			fetchBinary('/template/exefs/main'),
 			fetchBinary('/template/exefs/main.npdm'),
 		]);
+
+	if (enableSvcDebug) {
+		// Patch the `main.npdm` to enable svcDebug on Atmosphère 1.8.0+
+		// See: https://github.com/TooTallNate/switch-tools/pull/15
+		mainNpdm[0x332] = mainNpdm[0x3f2] = 0x08;
+	}
 
 	const message: WorkerMessage = {
 		argv: ['--nopatchnacplogo', '--titleid', id],
