@@ -1,5 +1,5 @@
 import va from '@vercel/analytics';
-import { Form, useLocation } from '@remix-run/react';
+import { Link, Form, useLocation } from '@remix-run/react';
 import { useRef, useState } from 'react';
 import { HeadersFunction, LinksFunction } from '@vercel/remix';
 
@@ -62,6 +62,19 @@ export default function Index() {
 	const imageBlobRef = useRef<Blob | null>(null);
 	const logoBlobRef = useRef<Blob | null>(null);
 	const startupMovieBlobRef = useRef<Blob | null>(null);
+	const noLogoMode = new URLSearchParams(location.search).has('nologo');
+	const { pathname, search } = useLocation();
+
+	const params = new URLSearchParams(search);
+	if (noLogoMode) {
+		params.delete('nologo');
+	} else {
+		params.set('nologo', '1');
+	}
+	const toggledNoLogoModeSearch = `?${String(params).replace(
+		'nologo=1',
+		'nologo'
+	)}`;
 
 	const handleSubmit: React.FormEventHandler<HTMLFormElement> = async (e) => {
 		e.preventDefault();
@@ -100,6 +113,7 @@ export default function Index() {
 		const enableSvcDebugVal = formData.get('enableSvcDebug');
 		const logoTypeVal = formData.get('logoType');
 		const romPathVal = formData.get('romPath');
+		const noLogoVal = formData.get('noLogo');
 
 		if (!imageBlobRef.current) {
 			throw new Error('`image` is required');
@@ -127,6 +141,10 @@ export default function Index() {
 			typeof enableSvcDebugVal === 'string'
 				? enableSvcDebugVal === 'on'
 				: undefined;
+		const noLogo =
+			typeof noLogoVal === 'string'
+				? noLogoVal === 'on'
+				: undefined;
 
 		va.track('Generate', {
 			isRetroarch,
@@ -140,6 +158,7 @@ export default function Index() {
 			videoCapture: videoCapture ?? null,
 			logoType: logoType ?? null,
 			enableSvcDebug: enableSvcDebug ?? null,
+			noLogo: noLogo ?? null,
 		});
 
 		const nsp = await generateNsp({
@@ -158,6 +177,7 @@ export default function Index() {
 			romPath,
 			logo: logoBlobRef.current || undefined,
 			startupMovie: startupMovieBlobRef.current || undefined,
+			noLogo,
 		});
 
 		const a = downloadLinkRef.current;
@@ -232,7 +252,7 @@ export default function Index() {
 						height: '256px',
 					}}
 				/>
-				<div className={clsx('boot-up', !advancedMode && 'hidden')}>
+				<div className={clsx('boot-up', (!advancedMode || noLogoMode) && 'hidden')}>
 					<div className="logo-controls">
 						<LogoTextSelect name="logoType" />
 						<ImageInput
@@ -300,7 +320,7 @@ export default function Index() {
 					name="title"
 					required
 					label={`${isRetroarch ? 'Game' : 'App'} Title`}
-					tooltip="Name displyed on the Nintendo Switch home screen"
+					tooltip="Name displayed on the Nintendo Switch home screen"
 					maxLength={0x200}
 					placeholder={
 						isRetroarch ? 'Super Mario World' : 'HB App Store'
@@ -435,6 +455,28 @@ export default function Index() {
 								Enable <code>svcDebug</code> flag
 							</label>
 						</div>
+					</div>
+					<div>
+					<div className="Flex">
+						<Link
+							className="CheckboxLink"
+							to={`${pathname}${toggledNoLogoModeSearch}`}
+							preventScrollReset
+						>
+							<label className="Flex" style={{ userSelect: 'none' }}>
+								<Checkbox.Root
+									className="CheckboxRoot"
+									name="noLogo"
+									checked={noLogoMode}
+								>
+									<Checkbox.Indicator className="CheckboxIndicator">
+										<CheckIcon />
+									</Checkbox.Indicator>
+								</Checkbox.Root>
+								Disable logo
+							</label>
+						</Link>
+					</div>
 					</div>
 				</div>
 				<div className="Flex">

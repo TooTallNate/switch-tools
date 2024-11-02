@@ -7,7 +7,6 @@ interface GenerateParams {
 	title: string;
 	publisher: string;
 	nroPath: string;
-
 	version?: string;
 	startupUserAccount?: boolean;
 	screenshot?: boolean;
@@ -17,6 +16,7 @@ interface GenerateParams {
 	romPath?: string;
 	logo?: Blob;
 	startupMovie?: Blob;
+	noLogo?: boolean;
 }
 
 interface WorkerMessage {
@@ -59,7 +59,6 @@ export async function generateNsp({
 	title,
 	publisher,
 	nroPath,
-
 	version,
 	startupUserAccount,
 	screenshot,
@@ -69,6 +68,7 @@ export async function generateNsp({
 	romPath,
 	logo,
 	startupMovie,
+	noLogo,
 }: GenerateParams): Promise<File> {
 	const worker = new Worker('/generate-worker.js');
 	const workerResultPromise = new Promise<WorkerResult>((resolve) => {
@@ -126,8 +126,13 @@ export async function generateNsp({
 		mainNpdm[0x332] = mainNpdm[0x3f2] = 0x08;
 	}
 
+	let argv = ['--nopatchnacplogo', '--titleid', id];
+	if (noLogo) {
+		argv.push('--nologo');
+	}
+
 	const message: WorkerMessage = {
-		argv: ['--nopatchnacplogo', '--titleid', id],
+		argv: argv,
 		keys: keysData,
 		controlNacp: new Uint8Array(nacp.buffer),
 		main,

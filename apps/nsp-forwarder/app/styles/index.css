@@ -431,6 +431,10 @@
 	color: white;
 }
 
+.LabelRoot:first-child {
+    width: 80px;
+}
+
 .Input {
 	flex-grow: 1;
 	border-radius: 4px;
@@ -526,6 +530,12 @@ label.Input {
 	background-color: var(--violet10);
 }
 
+.CheckboxLink {
+	font-size: 15px;
+	color: var(--whiteA12);
+	text-decoration: none;
+}
+.CheckboxLink:hover,
 .NavigationMenuList a:hover {
 	text-decoration: none;
 }
