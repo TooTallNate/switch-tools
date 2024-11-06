@@ -1,10 +1,15 @@
 {
-  "$schema": "https://turborepo.org/schema.json",
-  "extends": ["//"],
-  "pipeline": {
-    "build": {
-      "inputs": ["app/**", "remix.config.js"],
-      "outputs": [".cache/**", "build/**", "public/build/**"]
-    }
-  }
+	"$schema": "https://turborepo.org/schema.json",
+	"extends": ["//"],
+	"pipeline": {
+		"build": {
+			"inputs": ["app/**", "remix.config.js"],
+			"outputs": [
+				".cache/**",
+				"build/**",
+				"public/build/**",
+				".vercel/remix-build-result.json"
+			]
+		}
+	}
 }
