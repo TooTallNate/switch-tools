@@ -37,16 +37,16 @@ importers:
         version: 2.8.0(typescript@5.3.3)
       '@tootallnate/nacp':
         specifier: 0.1.0
-        version: 0.1.0
+        version: link:../../packages/nacp
       '@tootallnate/nro':
         specifier: 0.1.1
-        version: 0.1.1
+        version: link:../../packages/nro
       '@tootallnate/react-file-input':
         specifier: 0.0.2
-        version: 0.0.2(react@18.2.0)
+        version: link:../../packages/react-file-input
       '@tootallnate/romfs':
         specifier: 0.1.0
-        version: 0.1.0
+        version: link:../../packages/romfs
       '@vercel/analytics':
         specifier: ^1.0.0
         version: 1.0.0(react@18.2.0)
@@ -140,13 +140,13 @@ importers:
         version: 2.8.0(typescript@5.3.3)
       '@tootallnate/nacp':
         specifier: 0.1.0
-        version: 0.1.0
+        version: link:../../packages/nacp
       '@tootallnate/nro':
         specifier: 0.1.1
-        version: 0.1.1
+        version: link:../../packages/nro
       '@tootallnate/react-file-input':
         specifier: 0.0.2
-        version: 0.0.2(react@18.2.0)
+        version: link:../../packages/react-file-input
       '@vercel/analytics':
         specifier: ^1.0.0
         version: 1.0.0(react@18.2.0)
@@ -216,7 +216,7 @@ importers:
     dependencies:
       '@tootallnate/nacp':
         specifier: ^0.1.0
-        version: 0.1.0
+        version: link:../nacp
     devDependencies:
       typescript:
         specifier: ^5.3.3
@@ -1507,20 +1507,6 @@ packages:
   '@testing-library/dom@8.20.0':
     resolution: {integrity: sha512-d9ULIT+a4EXLX3UU8FBjauG9NnsZHkHztXoIcTsOKoOw030fyjheN9svkTULjJxtYag9DZz5Jz5qkWZDPxTFwA==}
     engines: {node: '>=12'}
-
-  '@tootallnate/nacp@0.1.0':
-    resolution: {integrity: sha512-rSiU1x7bDV0/fmApNfD6igmHM/Q3UdfwzxEQYcTiOY4ibpU86mJEWhkdsz4RXZMtZPRo6OlvBkBkLc2bEL8WpQ==}
-
-  '@tootallnate/nro@0.1.1':
-    resolution: {integrity: sha512-I1oQL9lK34EPectbuPFb7b7YTB8GYgFC7x9iBmRoTP5izJeJxuz8lZZZ2ssVtM3fXBNHHVhUpHLTJv7boQlq/Q==}
-
-  '@tootallnate/react-file-input@0.0.2':
-    resolution: {integrity: sha512-WgMoefYYbHdLz2Bm92UT8Cy+f/F8e96MOxNaIiWXlP2SZdVzNnLlAafPp7r6FfwXVItokEn4jP9pZs30Zmmijw==}
-    peerDependencies:
-      react: ^18.2.0
-
-  '@tootallnate/romfs@0.1.0':
-    resolution: {integrity: sha512-ZXEgARulK9g0wLgL2mrsxOyAfcI0pAVSi+0UUs1B3lfbBv7qaltMe37YTmn8Aa8BvJ/sc+XqTI5aA7U6NX/nRg==}
 
   '@ts-morph/common@0.11.1':
     resolution: {integrity: sha512-7hWZS0NRpEsNV8vWJzg7FEz6V8MaLNeJOmwmghqUXTpzk16V1LLZhdo+4QvE/+zv4cVci0OviuJFnqhEfoV3+g==}
@@ -6196,19 +6182,6 @@ snapshots:
       dom-accessibility-api: 0.5.16
       lz-string: 1.5.0
       pretty-format: 27.5.1
-
-  '@tootallnate/nacp@0.1.0': {}
-
-  '@tootallnate/nro@0.1.1':
-    dependencies:
-      '@tootallnate/nacp': 0.1.0
-
-  '@tootallnate/react-file-input@0.0.2(react@18.2.0)':
-    dependencies:
-      clsx: 1.2.1
-      react: 18.2.0
-
-  '@tootallnate/romfs@0.1.0': {}
 
   '@ts-morph/common@0.11.1':
     dependencies:
