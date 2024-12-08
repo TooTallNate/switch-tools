@@ -1,5 +1,14 @@
 # nsp-forwarder
 
+## 0.0.4
+
+### Patch Changes
+
+- Updated dependencies [bf3dce0]
+- Updated dependencies [fcbe74b]
+  - @tootallnate/nacp@0.2.0
+  - @tootallnate/nro@0.1.2
+
 ## 0.0.3
 
 ### Patch Changes
