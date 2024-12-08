@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/nacp",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser / encoder for Nintendo Switch NACP data",
   "main": "dist/index.js",

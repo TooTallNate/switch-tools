@@ -21,7 +21,7 @@ importers:
         version: 1.3.0(react@18.2.0)
       '@remix-run/dev':
         specifier: 2.8.0
-        version: 2.8.0(@remix-run/serve@2.8.0)(@types/node@18.13.0)(typescript@5.3.3)(vite@5.1.4)
+        version: 2.8.0(@types/node@18.13.0)(typescript@5.3.3)(vite@5.1.4)
       '@remix-run/node':
         specifier: 2.8.0
         version: 2.8.0(typescript@5.3.3)
@@ -32,10 +32,10 @@ importers:
         specifier: 2.8.0
         version: 2.8.0(typescript@5.3.3)
       '@tootallnate/nacp':
-        specifier: 0.0.1
+        specifier: 0.1.0
         version: link:../../packages/nacp
       '@tootallnate/nro':
-        specifier: 0.1.0
+        specifier: 0.1.1
         version: link:../../packages/nro
       '@tootallnate/react-file-input':
         specifier: 0.0.2
@@ -135,10 +135,10 @@ importers:
         specifier: 2.8.0
         version: 2.8.0(typescript@5.3.3)
       '@tootallnate/nacp':
-        specifier: 0.0.1
+        specifier: 0.1.0
         version: link:../../packages/nacp
       '@tootallnate/nro':
-        specifier: 0.1.0
+        specifier: 0.1.1
         version: link:../../packages/nro
       '@tootallnate/react-file-input':
         specifier: 0.0.2
@@ -211,7 +211,7 @@ importers:
   packages/nro:
     dependencies:
       '@tootallnate/nacp':
-        specifier: ^0.0.1
+        specifier: ^0.1.0
         version: link:../nacp
     devDependencies:
       typescript:
@@ -2335,6 +2335,94 @@ packages:
       '@remix-run/node': 2.8.0(typescript@5.3.3)
       '@remix-run/router': 1.15.2
       '@remix-run/serve': 2.8.0(typescript@5.3.3)
+      '@remix-run/server-runtime': 2.8.0(typescript@5.3.3)
+      '@types/mdx': 2.0.11
+      '@vanilla-extract/integration': 6.2.1(@types/node@18.13.0)
+      arg: 5.0.2
+      cacache: 17.1.4
+      chalk: 4.1.2
+      chokidar: 3.5.3
+      cross-spawn: 7.0.3
+      dotenv: 16.1.4
+      es-module-lexer: 1.4.1
+      esbuild: 0.17.6
+      esbuild-plugins-node-modules-polyfill: 1.6.3(esbuild@0.17.6)
+      execa: 5.1.1
+      exit-hook: 2.2.1
+      express: 4.18.2
+      fs-extra: 10.1.0
+      get-port: 5.1.1
+      gunzip-maybe: 1.4.2
+      jsesc: 3.0.2
+      json5: 2.2.3
+      lodash: 4.17.21
+      lodash.debounce: 4.0.8
+      minimatch: 9.0.1
+      ora: 5.4.1
+      picocolors: 1.0.0
+      picomatch: 2.3.1
+      pidtree: 0.6.0
+      postcss: 8.4.35
+      postcss-discard-duplicates: 5.1.0(postcss@8.4.35)
+      postcss-load-config: 4.0.1(postcss@8.4.35)
+      postcss-modules: 6.0.0(postcss@8.4.35)
+      prettier: 2.8.8
+      pretty-ms: 7.0.1
+      react-refresh: 0.14.0
+      remark-frontmatter: 4.0.1
+      remark-mdx-frontmatter: 1.1.1
+      semver: 7.6.0
+      set-cookie-parser: 2.6.0
+      tar-fs: 2.1.1
+      tsconfig-paths: 4.2.0
+      typescript: 5.3.3
+      vite: 5.1.4(@types/node@18.13.0)
+      ws: 7.5.9
+    transitivePeerDependencies:
+      - '@types/node'
+      - bluebird
+      - bufferutil
+      - less
+      - sass
+      - stylus
+      - sugarss
+      - supports-color
+      - terser
+      - ts-node
+      - utf-8-validate
+    dev: false
+
+  /@remix-run/dev@2.8.0(@types/node@18.13.0)(typescript@5.3.3)(vite@5.1.4):
+    resolution: {integrity: sha512-kZtmK/7vKk7QV8CGCyC9Or3wP7EwL4rOJS9vObmTRAPv8mLyznR8bJxeNVWA7ICnCGejF8s2X3abVJrkEMiFlg==}
+    engines: {node: '>=18.0.0'}
+    hasBin: true
+    peerDependencies:
+      '@remix-run/serve': ^2.8.0
+      typescript: ^5.1.0
+      vite: ^5.1.0
+      wrangler: ^3.28.2
+    peerDependenciesMeta:
+      '@remix-run/serve':
+        optional: true
+      typescript:
+        optional: true
+      vite:
+        optional: true
+      wrangler:
+        optional: true
+    dependencies:
+      '@babel/core': 7.22.1
+      '@babel/generator': 7.23.6
+      '@babel/parser': 7.24.0
+      '@babel/plugin-syntax-decorators': 7.24.0(@babel/core@7.22.1)
+      '@babel/plugin-syntax-jsx': 7.21.4(@babel/core@7.22.1)
+      '@babel/preset-typescript': 7.21.5(@babel/core@7.22.1)
+      '@babel/traverse': 7.24.0
+      '@babel/types': 7.24.0
+      '@mdx-js/mdx': 2.3.0
+      '@npmcli/package-json': 4.0.1
+      '@remix-run/node': 2.8.0(typescript@5.3.3)
+      '@remix-run/router': 1.15.2
       '@remix-run/server-runtime': 2.8.0(typescript@5.3.3)
       '@types/mdx': 2.0.11
       '@vanilla-extract/integration': 6.2.1(@types/node@18.13.0)
