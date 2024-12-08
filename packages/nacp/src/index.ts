@@ -7,9 +7,9 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 export enum VideoCapture {
-	Disabled,
-	Enabled,
-	Automatic,
+	Disabled = 0,
+	Enabled = 1,
+	Automatic = 2,
 }
 
 function encodeWithSize(v: string, size: number, name: string) {
@@ -22,6 +22,17 @@ function encodeWithSize(v: string, size: number, name: string) {
 	const bufWithZeros = new Uint8Array(size);
 	bufWithZeros.set(buf);
 	return bufWithZeros;
+}
+
+function parseId(v: string | bigint): bigint {
+	let id = v;
+	if (typeof id === 'string') {
+		if (id.length > 16) {
+			throw new TypeError(`"id" length must be 16, got ${id.length}`);
+		}
+		id = BigInt(`0x${v}`);
+	}
+	return id;
 }
 
 export class NACP {
@@ -89,15 +100,7 @@ export class NACP {
 	}
 
 	set id(v: string | bigint) {
-		let val = v;
-		if (typeof val === 'string') {
-			if (val.length > 16) {
-				throw new TypeError(
-					`"id" length must be 16, got ${val.length}`
-				);
-			}
-			val = BigInt(`0x${v}`);
-		}
+		const val = parseId(v);
 
 		// PresenceGroupId
 		this.dataView.setBigUint64(0x3038, val, true);
@@ -118,8 +121,8 @@ export class NACP {
 		return this.dataView.getBigUint64(0x3038, true);
 	}
 
-	set saveDataOwnerId(v: bigint) {
-		this.dataView.setBigUint64(0x3078, v, true);
+	set saveDataOwnerId(v: string | bigint) {
+		this.dataView.setBigUint64(0x3078, parseId(v), true);
 	}
 
 	get saveDataOwnerId(): bigint {
