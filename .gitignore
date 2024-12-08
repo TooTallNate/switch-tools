@@ -8,3 +8,4 @@ node_modules
 .cache
 build
 public/build
+apps/nsp-forwarder/package-lock.json
