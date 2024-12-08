@@ -118,6 +118,14 @@ export class NACP {
 		return this.dataView.getBigUint64(0x3038, true);
 	}
 
+	set saveDataOwnerId(v: bigint) {
+		this.dataView.setBigUint64(0x3078, v, true);
+	}
+
+	get saveDataOwnerId(): bigint {
+		return this.dataView.getBigUint64(0x3078, true);
+	}
+
 	/**
 	 * Whether or not to display the user account picker
 	 * when booting up the application.
