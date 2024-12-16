@@ -22,7 +22,7 @@ const SIZEOF_FILE_ENTRY = 0x18;
 
 const decoder = new TextDecoder();
 
-interface FileEntry {
+export interface FileEntry {
 	offset: bigint;
 	size: bigint;
 	stringTableOffset: number;
