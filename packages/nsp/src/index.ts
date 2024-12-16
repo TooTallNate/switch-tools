@@ -104,12 +104,25 @@ export async function parseNsp(blob: Blob) {
 	};
 }
 
+function bswap64(buffer: ArrayBuffer, offset: number) {
+	const arr = new Uint8Array(buffer, offset, 8);
+	for (let i = 0; i < 4; i++) {
+		const v = arr[i];
+		arr[i] = arr[7 - i];
+		arr[7 - i] = v;
+	}
+}
+
 export function ncmContentIdToString(contentId: ArrayBuffer) {
 	if (contentId.byteLength !== 0x10) {
 		throw new Error('Content ID must be 16 bytes');
 	}
-	const arr = new BigUint64Array(contentId);
-	return `${arr[0].toString(16).padStart(16, '0')}${arr[1].toString(16).padStart(16, '0')}`;
+	const arr = new BigUint64Array(contentId.slice(0));
+	bswap64(arr.buffer, 0);
+	bswap64(arr.buffer, 8);
+	return `${arr[0].toString(16).padStart(16, '0')}${arr[1]
+		.toString(16)
+		.padStart(16, '0')}`;
 }
 
 export function stringToNcmContentId(contentId: string): ArrayBuffer {
@@ -118,7 +131,9 @@ export function stringToNcmContentId(contentId: string): ArrayBuffer {
 	}
 	const arr = new BigUint64Array([
 		BigInt(`0x${contentId.slice(0, 16)}`),
-		BigInt(`0x${contentId.slice(16, 32)}`)
+		BigInt(`0x${contentId.slice(16, 32)}`),
 	]);
+	bswap64(arr.buffer, 0);
+	bswap64(arr.buffer, 8);
 	return arr.buffer;
 }
