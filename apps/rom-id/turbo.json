@@ -1,0 +1,13 @@
+{
+	"$schema": "https://turborepo.org/schema.json",
+	"extends": ["//"],
+	"pipeline": {
+		"build": {
+			"inputs": ["app/**", "db/*", "*.config.*"],
+			"outputs": [
+				".next/**",
+                "!.next/cache/**"
+			]
+		}
+	}
+}
