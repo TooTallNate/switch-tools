@@ -127,7 +127,7 @@ export async function generateNsp({
 	}
 
 	const message: WorkerMessage = {
-		argv: ['--nopatchnacplogo', '--titleid', id],
+		argv: ['--nopatchnacplogo', '--titleid', id, '--plaintext'],
 		keys: keysData,
 		controlNacp: new Uint8Array(nacp.buffer),
 		main,
