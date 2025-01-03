@@ -1,0 +1,22 @@
+{
+	"name": "@tootallnate/pfs0",
+	"version": "0.0.0",
+	"type": "module",
+	"description": "",
+	"main": "dist/index.js",
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"build": "tsc"
+	},
+	"keywords": [],
+	"author": "Nathan Rajlich <n@n8.io>",
+	"license": "MIT",
+	"dependencies": {
+		"@nx.js/util": "^1.0.0"
+	},
+	"devDependencies": {
+		"typescript": "^5.3.3"
+	}
+}
