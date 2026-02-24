@@ -2,6 +2,7 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
+    "test": "turbo run test",
     "format": "prettier --write \"**/*.{ts,js,tsx,mjs}\" --single-quote",
     "ci:version": "changeset version && pnpm install --no-frozen-lockfile",
     "ci:publish": "pnpm publish -r && changeset tag"
@@ -9,7 +10,8 @@
   "devDependencies": {
     "@changesets/cli": "^2.26.1",
     "prettier": "^2.8.8",
-    "turbo": "^1.10.2"
+    "turbo": "^1.10.2",
+    "vitest": "^4.0.18"
   },
   "packageManager": "pnpm@9.1.0+sha1.217063ce3fcbf44f3051666f38b810f1ddefee4a"
 }

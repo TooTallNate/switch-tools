@@ -1,0 +1,17 @@
+{
+  "name": "@tootallnate/cnmt",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "CNMT (Content Meta) builder for Nintendo Switch NCAs",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/hacbrewpack",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "TypeScript reimplementation of hacbrewpack - generates Nintendo Switch NSP files",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "dependencies": {
+    "@tootallnate/cnmt": "0.0.0",
+    "@tootallnate/nca": "0.0.0",
+    "@tootallnate/romfs": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

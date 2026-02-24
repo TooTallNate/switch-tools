@@ -1,0 +1,17 @@
+{
+  "name": "@tootallnate/ivfc",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "IVFC (Integrity Verification File Collection) hash tree builder for Nintendo Switch",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

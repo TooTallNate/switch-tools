@@ -25,6 +25,7 @@
     "@remix-run/node": "2.8.0",
     "@remix-run/react": "2.8.0",
     "@remix-run/server-runtime": "2.8.0",
+    "@tootallnate/hacbrewpack": "0.0.0",
     "@tootallnate/nacp": "0.2.0",
     "@tootallnate/nro": "0.1.2",
     "@tootallnate/react-file-input": "0.0.2",
