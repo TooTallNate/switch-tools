@@ -6,6 +6,11 @@
   "description": "Nintendo Switch NRO editor web application",
   "author": "Nathan Rajlich <n@n8.io>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "apps/nro-editor"
+  },
   "scripts": {
     "build": "remix vite:build",
     "dev": "remix vite:dev"

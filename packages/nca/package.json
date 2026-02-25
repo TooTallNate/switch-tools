@@ -11,6 +11,11 @@
   "keywords": [],
   "author": "Nathan Rajlich <n@n8.io>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/nca"
+  },
   "dependencies": {
     "@tootallnate/aes-xts": "0.0.0",
     "@tootallnate/cnmt": "0.0.0",

@@ -10,6 +10,11 @@
   "keywords": [],
   "author": "Nathan Rajlich <n@n8.io>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/romfs"
+  },
   "devDependencies": {
     "@types/node": "^18.13.0",
     "typescript": "^5.3.3"

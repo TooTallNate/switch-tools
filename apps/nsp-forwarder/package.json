@@ -6,6 +6,11 @@
   "description": "Nintendo Switch NSP forwarder web application",
   "author": "Nathan Rajlich <n@n8.io>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "apps/nsp-forwarder"
+  },
   "scripts": {
     "build": "remix vite:build",
     "dev": "remix vite:dev"

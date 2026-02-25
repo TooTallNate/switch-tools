@@ -1,17 +1,22 @@
 {
-	"name": "@tootallnate/nsp",
-	"version": "0.0.2",
-	"type": "module",
-	"description": "",
-	"main": "dist/index.js",
-	"scripts": {
-		"build": "tsc"
-	},
-	"keywords": [],
-	"author": "Nathan Rajlich <n@n8.io>",
-	"license": "MIT",
-	"devDependencies": {
-		"fetch-blob": "^4.0.0",
-		"typescript": "^5.3.3"
-	}
+  "name": "@tootallnate/nsp",
+  "version": "0.0.2",
+  "type": "module",
+  "description": "",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/nsp"
+  },
+  "devDependencies": {
+    "fetch-blob": "^4.0.0",
+    "typescript": "^5.3.3"
+  }
 }
