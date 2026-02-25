@@ -20,8 +20,6 @@ import headerStyles from '~/styles/header.css?url';
 
 import { Vercel } from '~/components/vercel';
 
-export const config = { runtime: 'edge' };
-
 export const meta: MetaFunction = () => [
 	{ title: 'NSP Forwarder Generator' },
 	{

@@ -16,8 +16,6 @@ import rootStyles from '~/styles/root.css?url';
 //import headerStyles from '~/styles/header.css?url';
 //import footerStyles from '~/styles/footer.css?url';
 
-export const config = { runtime: 'edge' };
-
 export const meta: MetaFunction = () => [
 	{ title: 'NRO Editor' },
 	{
