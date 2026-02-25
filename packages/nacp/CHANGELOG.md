@@ -1,5 +1,11 @@
 # @tootallnate/nacp
 
+## 0.2.1
+
+### Patch Changes
+
+- 1baf3af: Set up npm OIDC trusted publishing with provenance
+
 ## 0.2.0
 
 ### Minor Changes
