@@ -5,7 +5,7 @@
     "test": "turbo run test",
     "format": "prettier --write \"**/*.{ts,js,tsx,mjs}\" --single-quote",
     "ci:version": "changeset version && pnpm install --no-frozen-lockfile",
-    "ci:publish": "pnpm publish -r && changeset tag"
+    "ci:publish": "pnpm publish -r --provenance && changeset tag"
   },
   "devDependencies": {
     "@changesets/cli": "^2.26.1",
