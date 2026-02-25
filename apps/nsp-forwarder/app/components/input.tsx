@@ -77,12 +77,15 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 				/>
 			);
 		return (
-			<div className="relative flex w-full items-center gap-2">
+			<div className="flex w-full items-center gap-2">
 				<Label htmlFor={name} className="shrink-0 whitespace-nowrap">
 					{label}
 					{': '}
 				</Label>
-				{input}
+				<div className="relative min-w-0 flex-1">
+					{input}
+					{children}
+				</div>
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<button
@@ -94,7 +97,6 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 					</TooltipTrigger>
 					<TooltipContent sideOffset={5}>{tooltip}</TooltipContent>
 				</Tooltip>
-				{children}
 			</div>
 		);
 	}
