@@ -1,5 +1,14 @@
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { DropdownMenuIcon, DotFilledIcon } from '@radix-ui/react-icons';
+import { Menu } from 'lucide-react';
+import {
+	DropdownMenu,
+	DropdownMenuTrigger,
+	DropdownMenuContent,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+} from '~/components/ui/dropdown-menu';
+import { Button } from '~/components/ui/button';
 
 interface SystemData {
 	name: string;
@@ -122,40 +131,34 @@ export interface PresetsDropdownProps {
 
 export function PresetsDropdown({ value, onSelect }: PresetsDropdownProps) {
 	return (
-		<DropdownMenu.Root>
-			<DropdownMenu.Trigger asChild>
-				<button
-					className="IconButton"
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					variant="ghost"
+					size="icon"
 					title="Presets"
 					tabIndex={-1}
-					style={{ paddingRight: '4px', width: '35px' }}
+					className="absolute right-0 h-9 rounded-l-none border-l border-input"
 				>
-					<DropdownMenuIcon />
-				</button>
-			</DropdownMenu.Trigger>
+					<Menu className="size-4" />
+				</Button>
+			</DropdownMenuTrigger>
 
-			<DropdownMenu.Portal>
-				<DropdownMenu.Content
-					className="DropdownMenuContent"
-					sideOffset={5}
-				>
-					<DropdownMenu.RadioGroup
-						value={value}
-						onValueChange={onSelect}
-					>
-						{systems.map((system, i) => (
-							<PresetsDropdownSystem
-								key={system.name}
-								system={system}
-								separator={i < systems.length - 1}
-							/>
-						))}
-					</DropdownMenu.RadioGroup>
-
-					<DropdownMenu.Arrow className="DropdownMenuArrow" />
-				</DropdownMenu.Content>
-			</DropdownMenu.Portal>
-		</DropdownMenu.Root>
+			<DropdownMenuContent
+				sideOffset={5}
+				className="max-h-[400px] overflow-y-auto"
+			>
+				<DropdownMenuRadioGroup value={value} onValueChange={onSelect}>
+					{systems.map((system, i) => (
+						<PresetsDropdownSystem
+							key={system.name}
+							system={system}
+							separator={i < systems.length - 1}
+						/>
+					))}
+				</DropdownMenuRadioGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 
@@ -170,15 +173,11 @@ function PresetsDropdownSystem({
 }: PresetsDropdownSystemProps) {
 	return (
 		<>
-			<DropdownMenu.Label className="DropdownMenuLabel">
-				{system.name}
-			</DropdownMenu.Label>
+			<DropdownMenuLabel>{system.name}</DropdownMenuLabel>
 			{system.cores.map((core) => (
 				<PresetsDropdownCore key={core.path} core={core} />
 			))}
-			{separator ? (
-				<DropdownMenu.Separator className="DropdownMenuSeparator" />
-			) : null}
+			{separator ? <DropdownMenuSeparator /> : null}
 		</>
 	);
 }
@@ -189,14 +188,8 @@ interface PresetsDropdownCoreProps {
 
 function PresetsDropdownCore({ core }: PresetsDropdownCoreProps) {
 	return (
-		<DropdownMenu.RadioItem
-			className="DropdownMenuRadioItem"
-			value={core.path}
-		>
-			<DropdownMenu.ItemIndicator className="DropdownMenuItemIndicator">
-				<DotFilledIcon />
-			</DropdownMenu.ItemIndicator>
+		<DropdownMenuRadioItem value={core.path}>
 			{core.name}
-		</DropdownMenu.RadioItem>
+		</DropdownMenuRadioItem>
 	);
 }

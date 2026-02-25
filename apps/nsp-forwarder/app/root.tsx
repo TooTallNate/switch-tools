@@ -9,18 +9,16 @@ import {
 	useLocation,
 } from '@remix-run/react';
 import { Analytics } from '@vercel/analytics/react';
+import { Github } from 'lucide-react';
 
 import { Header } from '~/components/header';
+import { TooltipProvider } from '~/components/ui/tooltip';
 
-import radixWhiteA from '@radix-ui/colors/whiteA.css?url';
-import radixBlackA from '@radix-ui/colors/blackA.css?url';
-import radixMauve from '@radix-ui/colors/mauveDark.css?url';
-import radixViolet from '@radix-ui/colors/violetDark.css?url';
+import tailwindStyles from '~/tailwind.css?url';
 import rootStyles from '~/styles/root.css?url';
 import headerStyles from '~/styles/header.css?url';
-import footerStyles from '~/styles/footer.css?url';
+
 import { Vercel } from '~/components/vercel';
-import { GitHubLogoIcon } from '@radix-ui/react-icons';
 
 export const config = { runtime: 'edge' };
 
@@ -35,20 +33,16 @@ export const meta: MetaFunction = () => [
 
 export const links: LinksFunction = () => {
 	return [
-		{ rel: 'stylesheet', href: radixWhiteA },
-		{ rel: 'stylesheet', href: radixBlackA },
-		{ rel: 'stylesheet', href: radixMauve },
-		{ rel: 'stylesheet', href: radixViolet },
+		{ rel: 'stylesheet', href: tailwindStyles },
 		{ rel: 'stylesheet', href: rootStyles },
 		{ rel: 'stylesheet', href: headerStyles },
-		{ rel: 'stylesheet', href: footerStyles },
 	];
 };
 
 export default function App() {
 	const { pathname } = useLocation();
 	return (
-		<html lang="en" className="dark-theme">
+		<html lang="en" className="dark">
 			<head>
 				<meta charSet="utf-8" />
 				<meta
@@ -63,33 +57,37 @@ export default function App() {
 				<Links />
 			</head>
 			<body>
-				<div className="bg"></div>
-				<div className="bg-fade"></div>
-				<header>
-					<Link to="/" className="header">
-						<Header as="h2">NSP Forwarder</Header>
-						<Header as="h1">Generator</Header>
-					</Link>
-				</header>
-				<div className="content">
-					<Outlet />
-				</div>
-				<div className="footer">
-					<span className="source">
+				<TooltipProvider>
+					<div className="bg"></div>
+					<div className="bg-fade"></div>
+					<header>
+						<Link to="/" className="header">
+							<Header as="h2">NSP Forwarder</Header>
+							<Header as="h1">Generator</Header>
+						</Link>
+					</header>
+					<div className="content">
+						<Outlet />
+					</div>
+					<footer className="mt-auto flex w-full items-center justify-between border-t border-white/20 bg-white/10 px-3 py-2 text-sm">
 						<a
+							className="inline-flex items-center gap-1.5 text-white no-underline hover:underline"
 							target="_blank"
 							href="https://github.com/TooTallNate/switch-tools/tree/main/apps/nsp-forwarder"
 						>
 							Source Code
-							<GitHubLogoIcon />
+							<Github className="size-[1.1em]" />
 						</a>
-					</span>
-					<span>
-						<a target="_blank" href="https://vercel.com">
-							Hosted by <Vercel />
+						<a
+							className="inline-flex items-center gap-1.5 text-white no-underline hover:underline"
+							target="_blank"
+							href="https://vercel.com"
+						>
+							Hosted by
+							<Vercel className="h-[1em] w-auto" />
 						</a>
-					</span>
-				</div>
+					</footer>
+				</TooltipProvider>
 				<ScrollRestoration />
 				<Scripts />
 				<Analytics />

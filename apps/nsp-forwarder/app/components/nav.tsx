@@ -1,7 +1,6 @@
 import { Link, NavLink, useLocation } from '@remix-run/react';
-import { CheckIcon } from '@radix-ui/react-icons';
-import * as Checkbox from '@radix-ui/react-checkbox';
-import * as NavigationMenu from '@radix-ui/react-navigation-menu';
+import { Checkbox } from '~/components/ui/checkbox';
+import { cn } from '~/lib/utils';
 
 export interface NavProps {
 	advancedMode?: boolean;
@@ -21,53 +20,48 @@ export function Nav({ advancedMode }: NavProps) {
 		'advanced'
 	)}`;
 
+	const linkClasses =
+		'block cursor-pointer select-none rounded-md px-3 py-2 text-sm font-medium no-underline transition-colors hover:bg-primary/80 hover:text-primary-foreground text-foreground';
+	const activeLinkClasses = 'bg-primary text-primary-foreground';
+
 	return (
-		<NavigationMenu.Root className="NavigationMenuRoot">
-			<NavigationMenu.List className="NavigationMenuList">
-				<NavigationMenu.Item>
-					<NavLink
-						className="NavigationMenuLink"
-						to={`/${search}`}
-						preventScrollReset
-					>
-						NRO Forwarder
-					</NavLink>
-				</NavigationMenu.Item>
+		<nav className="flex items-center gap-1 rounded-md border border-border/50 bg-muted/30 p-1">
+			<NavLink
+				className={({ isActive }) =>
+					cn(
+						linkClasses,
+						isActive && pathname === '/' && activeLinkClasses
+					)
+				}
+				to={`/${search}`}
+				preventScrollReset
+			>
+				NRO Forwarder
+			</NavLink>
 
-				<NavigationMenu.Item>
-					<NavLink
-						className="NavigationMenuLink"
-						to={`/retroarch${search}`}
-						preventScrollReset
-					>
-						RetroArch Forwarder
-					</NavLink>
-				</NavigationMenu.Item>
+			<NavLink
+				className={({ isActive }) =>
+					cn(linkClasses, isActive && activeLinkClasses)
+				}
+				to={`/retroarch${search}`}
+				preventScrollReset
+			>
+				RetroArch Forwarder
+			</NavLink>
 
-				<NavigationMenu.Item>
-					<Link
-						className="NavigationMenuLink"
-						to={`${pathname}${toggledAdvanceModeSearch}`}
-						preventScrollReset
-					>
-						<label className="Flex">
-							Advanced Mode
-							<Checkbox.Root
-								className="CheckboxRoot"
-								checked={advancedMode}
-								style={{
-									marginLeft: '6px',
-									marginRight: '0px',
-								}}
-							>
-								<Checkbox.Indicator className="CheckboxIndicator">
-									<CheckIcon />
-								</Checkbox.Indicator>
-							</Checkbox.Root>
-						</label>
-					</Link>
-				</NavigationMenu.Item>
-			</NavigationMenu.List>
-		</NavigationMenu.Root>
+			<Link
+				className={cn(
+					linkClasses,
+					'hover:bg-accent hover:text-accent-foreground'
+				)}
+				to={`${pathname}${toggledAdvanceModeSearch}`}
+				preventScrollReset
+			>
+				<label className="flex cursor-pointer items-center gap-1.5 select-none">
+					Advanced Mode
+					<Checkbox checked={advancedMode} className="ml-1" />
+				</label>
+			</Link>
+		</nav>
 	);
 }

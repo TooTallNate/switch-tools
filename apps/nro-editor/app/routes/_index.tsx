@@ -1,5 +1,4 @@
 import { MouseEventHandler, useEffect, useRef, useState } from 'react';
-import { FileInput } from '@tootallnate/react-file-input';
 import type { ChangeEventHandler } from 'react';
 import type { LinksFunction } from '@vercel/remix';
 import { Editor } from '~/components/editor';
@@ -59,17 +58,27 @@ export default function Index() {
 			{mode === 'editing' && fileRef.current ? (
 				<Editor nro={fileRef.current} onReset={handleReset} />
 			) : (
-				<FileInput
-					onChange={handleFileSelected}
-					accept=".nro"
-					ref={fileInputRef}
-					style={{ cursor: 'pointer' }}
-				>
+				<label style={{ cursor: 'pointer', position: 'relative' }}>
+					<input
+						type="file"
+						accept=".nro"
+						ref={fileInputRef}
+						onChange={handleFileSelected}
+						style={{
+							position: 'absolute',
+							opacity: 0,
+							width: '100%',
+							height: '100%',
+							top: 0,
+							left: 0,
+							cursor: 'inherit',
+						}}
+					/>
 					<button className="active">
 						<div className="cursor"></div>
 						<span>Click to select NRO file...</span>
 					</button>
-				</FileInput>
+				</label>
 			)}
 		</div>
 	);

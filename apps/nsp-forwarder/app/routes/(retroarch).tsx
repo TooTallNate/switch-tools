@@ -11,13 +11,12 @@ import { LogoTextSelect } from '~/components/logo-text-select';
 import { Nav } from '~/components/nav';
 
 import cropStyles from 'react-image-crop/dist/ReactCrop.css?url';
-import fontStyles from '~/styles/index.css?url';
 import { TitleIdInput } from '~/components/title-id-input';
-import * as Checkbox from '@radix-ui/react-checkbox';
-import { CheckIcon } from '@radix-ui/react-icons';
+import { Checkbox } from '~/components/ui/checkbox';
+import { Button } from '~/components/ui/button';
 import { generateNsp } from '~/lib/generate.client';
 import { generateRandomID } from '~/lib/generate-id';
-import clsx from 'clsx';
+import { cn } from '~/lib/utils';
 import { extractNACP } from '@tootallnate/nro';
 
 export const headers: HeadersFunction = () => {
@@ -28,10 +27,7 @@ export const headers: HeadersFunction = () => {
 };
 
 export const links: LinksFunction = () => {
-	return [
-		{ rel: 'stylesheet', href: cropStyles },
-		{ rel: 'stylesheet', href: fontStyles },
-	];
+	return [{ rel: 'stylesheet', href: cropStyles }];
 };
 
 function normalizePath(input: string) {
@@ -196,12 +192,12 @@ export default function Index() {
 	return (
 		<>
 			<Nav advancedMode={advancedMode} />
-			<Form onSubmit={handleSubmit} style={{ width: '100%' }}>
+			<Form onSubmit={handleSubmit} className="w-full">
 				<ImageInput
 					required
 					acceptNro={!isRetroarch}
 					name="image"
-					className="Input image-input"
+					className="image-input"
 					placeholder={
 						isRetroarch ? (
 							<>
@@ -232,12 +228,12 @@ export default function Index() {
 						height: '256px',
 					}}
 				/>
-				<div className={clsx('boot-up', !advancedMode && 'hidden')}>
-					<div className="logo-controls">
+				<div className={cn('flex w-full', !advancedMode && 'hidden')}>
+					<div className="flex flex-1 flex-col items-center justify-center">
 						<LogoTextSelect name="logoType" />
 						<ImageInput
 							name="logo"
-							className="Input image-input"
+							className="image-input"
 							placeholder="Select logo…"
 							cropAspectRatio={160 / 40}
 							format="png"
@@ -253,11 +249,11 @@ export default function Index() {
 							}}
 						/>
 					</div>
-					<div>
+					<div className="flex flex-1 items-center justify-center">
 						<ImageInput
 							animated
 							name="animation"
-							className="Input image-input"
+							className="image-input"
 							placeholder="Select startup animation…"
 							cropAspectRatio={256 / 80}
 							format="gif"
@@ -275,25 +271,27 @@ export default function Index() {
 					</div>
 				</div>
 				<div
-					className={clsx(
-						'Flex',
-						'FlexThirds',
+					className={cn(
+						'flex w-full items-center justify-center gap-5',
 						!advancedMode && 'hidden'
 					)}
-					style={{ gap: '20px' }}
 				>
-					<Input
-						ref={versionRef}
-						name="version"
-						label="Version"
-						tooltip="Version number which is displayed on the game's details"
-						maxLength={0x10}
-						placeholder="1.0.0"
-					/>
-					<TitleIdInput
-						value={titleIdValue}
-						onInput={setTitleIdValue}
-					/>
+					<div className="basis-[42%]">
+						<Input
+							ref={versionRef}
+							name="version"
+							label="Version"
+							tooltip="Version number which is displayed on the game's details"
+							maxLength={0x10}
+							placeholder="1.0.0"
+						/>
+					</div>
+					<div className="basis-[58%]">
+						<TitleIdInput
+							value={titleIdValue}
+							onInput={setTitleIdValue}
+						/>
+					</div>
 				</div>
 				<Input
 					ref={titleRef}
@@ -363,85 +361,51 @@ export default function Index() {
 					placeholder={<KeysPlaceholder />}
 				/>
 				<div
-					className={clsx('Flex', !advancedMode && 'hidden')}
-					style={{ flexDirection: 'column' }}
+					className={cn(
+						'flex w-full flex-col items-center justify-center',
+						!advancedMode && 'hidden'
+					)}
 				>
-					<div className="Flex">
-						<div className="Flex">
-							<label
-								className="Flex"
-								style={{ userSelect: 'none' }}
-							>
-								<Checkbox.Root
-									className="CheckboxRoot"
+					<div className="flex w-full items-center justify-center">
+						<div className="flex items-center justify-center">
+							<label className="flex cursor-pointer items-center gap-2 select-none">
+								<Checkbox
 									name="screenshot"
 									defaultChecked={true}
-								>
-									<Checkbox.Indicator className="CheckboxIndicator">
-										<CheckIcon />
-									</Checkbox.Indicator>
-								</Checkbox.Root>
+								/>
 								Enable screenshots
 							</label>
 						</div>
-						<div className="Flex">
-							<label
-								className="Flex"
-								style={{ userSelect: 'none' }}
-							>
-								<Checkbox.Root
-									className="CheckboxRoot"
+						<div className="flex items-center justify-center">
+							<label className="flex cursor-pointer items-center gap-2 select-none">
+								<Checkbox
 									name="videoCapture"
 									defaultChecked={false}
-								>
-									<Checkbox.Indicator className="CheckboxIndicator">
-										<CheckIcon />
-									</Checkbox.Indicator>
-								</Checkbox.Root>
+								/>
 								Enable video capture
 							</label>
 						</div>
 					</div>
-					<div className="Flex">
-						<div className="Flex">
-							<label
-								className="Flex"
-								style={{ userSelect: 'none' }}
-							>
-								<Checkbox.Root
-									className="CheckboxRoot"
-									name="startupUserAccount"
-								>
-									<Checkbox.Indicator className="CheckboxIndicator">
-										<CheckIcon />
-									</Checkbox.Indicator>
-								</Checkbox.Root>
+					<div className="flex w-full items-center justify-center">
+						<div className="flex items-center justify-center">
+							<label className="flex cursor-pointer items-center gap-2 select-none">
+								<Checkbox name="startupUserAccount" />
 								Enable profile selector
 							</label>
 						</div>
-						<div className="Flex">
-							<label
-								className="Flex"
-								style={{ userSelect: 'none' }}
-							>
-								<Checkbox.Root
-									className="CheckboxRoot"
-									name="enableSvcDebug"
-								>
-									<Checkbox.Indicator className="CheckboxIndicator">
-										<CheckIcon />
-									</Checkbox.Indicator>
-								</Checkbox.Root>
+						<div className="flex items-center justify-center">
+							<label className="flex cursor-pointer items-center gap-2 select-none">
+								<Checkbox name="enableSvcDebug" />
 								Enable <code>svcDebug</code> flag
 							</label>
 						</div>
 					</div>
 				</div>
-				<div className="Flex">
-					<button type="submit" className="Button">
+				<div className="flex w-full items-center justify-center">
+					<Button type="submit" size="lg" className="text-base">
 						Generate NSP
-					</button>
-					<a ref={downloadLinkRef} style={{ display: 'none' }}></a>
+					</Button>
+					<a ref={downloadLinkRef} className="hidden"></a>
 				</div>
 			</Form>
 		</>

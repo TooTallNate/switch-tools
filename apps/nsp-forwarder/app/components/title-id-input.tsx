@@ -1,5 +1,6 @@
 import { FormEventHandler, useCallback, useEffect, useRef } from 'react';
 import { Input } from './input';
+import { Button } from '~/components/ui/button';
 import { generateRandomID } from '~/lib/generate-id';
 
 interface TitleIdInputProps {
@@ -38,22 +39,19 @@ export function TitleIdInput({ value, onInput }: TitleIdInputProps) {
 			onInput={handleInput}
 			style={{ fontFamily: 'monospace' }}
 		>
-			<button
-				className="IconButton"
+			<Button
+				variant="ghost"
+				size="sm"
 				title="Generate Random Title ID"
 				tabIndex={-1}
-				style={{
-					padding: '0 10px',
-					fontSize: '13px',
-					userSelect: 'none',
-				}}
+				className="absolute right-6 select-none border-l border-input rounded-l-none h-9 text-xs px-2.5"
 				onClick={(e) => {
 					e.preventDefault();
 					onInput(generateRandomID());
 				}}
 			>
 				Random
-			</button>
+			</Button>
 		</Input>
 	);
 }

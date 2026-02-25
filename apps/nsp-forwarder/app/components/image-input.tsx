@@ -1,10 +1,14 @@
 import bytes from 'bytes';
 import { ChangeEventHandler, useEffect, useRef, useState } from 'react';
 import ReactCrop, { Crop, PercentCrop, PixelCrop } from 'react-image-crop';
-import * as Slider from '@radix-ui/react-slider';
-import * as HoverCard from '@radix-ui/react-hover-card';
+import { Slider } from '~/components/ui/slider';
+import {
+	HoverCard,
+	HoverCardTrigger,
+	HoverCardContent,
+} from '~/components/ui/hover-card';
 import { extractIcon, isNRO } from '@tootallnate/nro';
-import { FileInput, FileInputProps } from '@tootallnate/react-file-input';
+import { cn } from '~/lib/utils';
 
 import { cropAndScaleGIF, getInfo, GifsicleOptions } from '~/gif.client';
 
@@ -33,7 +37,8 @@ async function canvasPreview(
 	);
 }
 
-export interface ImageInputProps extends FileInputProps {
+export interface ImageInputProps
+	extends Omit<React.ComponentPropsWithoutRef<'input'>, 'placeholder'> {
 	animated?: boolean;
 	placeholder?: React.ReactNode;
 	cropAspectRatio?: number;
@@ -51,6 +56,9 @@ export function ImageInput({
 	acceptNro,
 	onCroppedBlob,
 	onNRO,
+	className,
+	style,
+	onChange,
 	...props
 }: ImageInputProps) {
 	const [imgSrc, setImgSrc] = useState<string>();
@@ -63,6 +71,7 @@ export function ImageInput({
 	const imgInputRef = useRef<HTMLInputElement | null>(null);
 	const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 	const fileRef = useRef<File | null>(null);
+	const labelRef = useRef<HTMLLabelElement | null>(null);
 
 	const [numberOfFrames, setNumberOfFrames] = useState(0);
 	const [trim, setTrim] = useState<GifsicleOptions['trim']>();
@@ -196,18 +205,17 @@ export function ImageInput({
 	}, [completedCrop, animated, trim, fileRef, format]);
 
 	useEffect(() => {
-		if (imgInputRef.current && previewCanvasRef.current) {
-			const { width, height } =
-				imgInputRef.current.getBoundingClientRect();
+		if (labelRef.current && previewCanvasRef.current) {
+			const { width, height } = labelRef.current.getBoundingClientRect();
 			// Set width and height for HiDPI devices
 			const dpr = window.devicePixelRatio || 1;
 			previewCanvasRef.current.width = width * dpr;
 			previewCanvasRef.current.height = height * dpr;
 		}
-	}, [imgInputRef.current, previewCanvasRef.current]);
+	}, [labelRef.current, previewCanvasRef.current]);
 
 	const handleImageChange: ChangeEventHandler<HTMLInputElement> = (e) => {
-		props.onChange?.(e);
+		onChange?.(e);
 		const file = e.currentTarget.files?.[0];
 		handleImageFile(file);
 	};
@@ -239,32 +247,33 @@ export function ImageInput({
 	}
 
 	const input = (
-		<FileInput
-			accept={accept}
-			{...props}
-			onChange={handleImageChange}
-			ref={(ref) => {
-				if (ref && ref !== imgInputRef.current) {
-					imgInputRef.current = ref;
-					handleImageFile(ref.files?.[0]);
-				}
-			}}
+		<label
+			ref={labelRef}
+			className={cn(
+				'relative flex cursor-pointer items-center justify-center overflow-hidden rounded-md border border-input p-0 shadow-xs',
+				'dark:bg-input/30',
+				className
+			)}
+			style={style}
 		>
-			<div
-				className="placeholder"
-				style={{
-					display: 'flex',
-					justifyContent: 'center',
-					alignItems: 'center',
-					textAlign: 'center',
-					position: 'absolute',
-					top: 0,
-					left: 0,
-					width: '100%',
-					height: '100%',
-					pointerEvents: 'none',
-					lineHeight: 1.5,
+			<input
+				type="file"
+				className="absolute inset-0 size-full cursor-inherit opacity-0"
+				accept={accept}
+				{...props}
+				onChange={handleImageChange}
+				ref={(ref) => {
+					if (ref && ref !== imgInputRef.current) {
+						imgInputRef.current = ref;
+						handleImageFile(ref.files?.[0]);
+					}
 				}}
+			/>
+			<div
+				className={cn(
+					'pointer-events-none absolute inset-0 flex items-center justify-center text-center leading-relaxed',
+					imgSrc && 'opacity-0'
+				)}
 			>
 				{placeholder}
 			</div>
@@ -273,80 +282,71 @@ export function ImageInput({
 			) : (
 				<canvas
 					ref={previewCanvasRef}
-					style={{
-						pointerEvents: 'none',
-						width: '100%',
-						height: '100%',
-					}}
+					className="pointer-events-none size-full"
 				/>
 			)}
-		</FileInput>
+		</label>
 	);
 
 	return (
-		<HoverCard.Root>
-			<HoverCard.Trigger asChild>{input}</HoverCard.Trigger>
-			<HoverCard.Portal>
-				<HoverCard.Content className="HoverCardContent" sideOffset={5}>
-					{imgSrc ? (
-						<>
-							<ReactCrop
-								crop={crop}
-								aspect={cropAspectRatio}
-								onChange={(_, crop) => setCrop(crop)}
-								onComplete={(_, crop) => setCompletedCrop(crop)}
-							>
-								<img
-									ref={imgRef}
-									src={imgSrc}
-									style={{
-										backgroundColor: 'black',
-										maxWidth: '400px',
-										maxHeight: '400px',
-									}}
-								/>
-							</ReactCrop>
-							{animated &&
-							fileRef.current?.name.endsWith('.gif') ? (
-								<>
-									<div>
-										Trim: ({trimStart}-{trimEnd})
-										<Slider.Root
-											className="SliderRoot"
-											min={1}
-											max={numberOfFrames}
-											onValueChange={(v) => {
-												setTrimStart(v[0]);
-												setTrimEnd(v[1]);
-											}}
-											onValueCommit={(v) => {
-												setTrim({
-													start: v[0],
-													end: v[1],
-												});
-											}}
-											value={[trimStart, trimEnd]}
-										>
-											<Slider.Track className="SliderTrack">
-												<Slider.Range className="SliderRange" />
-											</Slider.Track>
-											<Slider.Thumb className="SliderThumb" />
-											<Slider.Thumb className="SliderThumb" />
-										</Slider.Root>
-									</div>
-								</>
-							) : null}
-							<div>Size: {bytes(downloadSize)}</div>
-							<a href={downloadHref} download>
-								Download
-							</a>
-						</>
-					) : (
-						'No image selected…'
-					)}
-					<HoverCard.Arrow className="HoverCardArrow" />
-				</HoverCard.Content>
-			</HoverCard.Portal>
-		</HoverCard.Root>
+		<HoverCard>
+			<HoverCardTrigger asChild>{input}</HoverCardTrigger>
+			<HoverCardContent
+				className="flex w-auto max-w-[450px] flex-col items-center gap-2"
+				sideOffset={5}
+			>
+				{imgSrc ? (
+					<>
+						<ReactCrop
+							crop={crop}
+							aspect={cropAspectRatio}
+							onChange={(_, crop) => setCrop(crop)}
+							onComplete={(_, crop) => setCompletedCrop(crop)}
+						>
+							<img
+								ref={imgRef}
+								src={imgSrc}
+								className="max-h-[400px] max-w-[400px] bg-black"
+							/>
+						</ReactCrop>
+						{animated && fileRef.current?.name.endsWith('.gif') ? (
+							<>
+								<div className="flex w-full flex-col gap-2 text-sm">
+									Trim: ({trimStart}-{trimEnd})
+									<Slider
+										min={1}
+										max={numberOfFrames}
+										onValueChange={(v) => {
+											setTrimStart(v[0]);
+											setTrimEnd(v[1]);
+										}}
+										onValueCommit={(v) => {
+											setTrim({
+												start: v[0],
+												end: v[1],
+											});
+										}}
+										value={[trimStart, trimEnd]}
+										className="w-[200px]"
+									/>
+								</div>
+							</>
+						) : null}
+						<div className="text-sm">
+							Size: {bytes(downloadSize)}
+						</div>
+						<a
+							href={downloadHref}
+							download
+							className="text-sm text-primary underline"
+						>
+							Download
+						</a>
+					</>
+				) : (
+					'No image selected…'
+				)}
+			</HoverCardContent>
+		</HoverCard>
 	);
 }

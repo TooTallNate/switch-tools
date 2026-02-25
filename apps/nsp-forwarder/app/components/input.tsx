@@ -1,9 +1,13 @@
-import { InfoCircledIcon } from '@radix-ui/react-icons';
-import * as Label from '@radix-ui/react-label';
-import * as Tooltip from '@radix-ui/react-tooltip';
+import { Info } from 'lucide-react';
+import { Label } from '~/components/ui/label';
+import { Input as ShadcnInput } from '~/components/ui/input';
+import {
+	Tooltip,
+	TooltipTrigger,
+	TooltipContent,
+} from '~/components/ui/tooltip';
 import { forwardRef, useRef, useState } from 'react';
-
-import { FileInput } from '@tootallnate/react-file-input';
+import { cn } from '~/lib/utils';
 
 export interface InputProps
 	extends Omit<React.ComponentPropsWithoutRef<'input'>, 'placeholder'> {
@@ -19,29 +23,38 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 
 		const input =
 			type === 'file' ? (
-				<FileInput
-					className="Input"
-					name={name}
-					{...props}
-					onChange={(e) => {
-						setFileName(e.currentTarget.files?.[0]?.name);
-					}}
-					ref={(ref) => {
-						if (ref && inputRef.current !== ref) {
-							setFileName(ref.files?.[0]?.name);
-							if (typeof fRef === 'function') {
-								fRef(ref);
-							} else if (fRef) {
-								fRef.current = ref;
-							}
-						}
-					}}
+				<label
+					className={cn(
+						'flex h-9 min-w-0 flex-1 cursor-pointer items-center overflow-hidden rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors',
+						'dark:bg-input/30',
+						!fileName && 'text-muted-foreground'
+					)}
 				>
+					<input
+						type="file"
+						className="hidden"
+						name={name}
+						{...props}
+						onChange={(e) => {
+							setFileName(e.currentTarget.files?.[0]?.name);
+							props.onChange?.(e);
+						}}
+						ref={(ref) => {
+							if (ref && inputRef.current !== ref) {
+								setFileName(ref.files?.[0]?.name);
+								if (typeof fRef === 'function') {
+									fRef(ref);
+								} else if (fRef) {
+									fRef.current = ref;
+								}
+							}
+						}}
+					/>
 					<span>{fileName ?? placeholder}</span>
-				</FileInput>
+				</label>
 			) : (
-				<input
-					className="Input"
+				<ShadcnInput
+					className="min-w-0 flex-1"
 					type="text"
 					name={name}
 					id={name}
@@ -64,38 +77,23 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 				/>
 			);
 		return (
-			<div
-				style={{
-					width: '100%',
-					display: 'flex',
-					flexWrap: 'wrap',
-					gap: 8,
-					position: 'relative',
-				}}
-			>
-				<Label.Root className="LabelRoot" htmlFor={name}>
+			<div className="relative flex w-full items-center gap-2">
+				<Label htmlFor={name} className="shrink-0 whitespace-nowrap">
 					{label}
 					{': '}
-				</Label.Root>
+				</Label>
 				{input}
-				<Tooltip.Provider>
-					<Tooltip.Root>
-						<Tooltip.Trigger asChild>
-							<Label.Root className="LabelRoot" htmlFor={name}>
-								<InfoCircledIcon />
-							</Label.Root>
-						</Tooltip.Trigger>
-						<Tooltip.Portal>
-							<Tooltip.Content
-								className="TooltipContent"
-								sideOffset={5}
-							>
-								{tooltip}
-								<Tooltip.Arrow className="TooltipArrow" />
-							</Tooltip.Content>
-						</Tooltip.Portal>
-					</Tooltip.Root>
-				</Tooltip.Provider>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<button
+							type="button"
+							className="shrink-0 text-muted-foreground hover:text-foreground"
+						>
+							<Info className="size-4" />
+						</button>
+					</TooltipTrigger>
+					<TooltipContent sideOffset={5}>{tooltip}</TooltipContent>
+				</Tooltip>
 				{children}
 			</div>
 		);

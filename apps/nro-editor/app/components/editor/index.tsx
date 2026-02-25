@@ -4,7 +4,7 @@ import { extractIcon, extractNACP } from '@tootallnate/nro';
 import { IconEditor } from './icon';
 import type { NACP } from '@tootallnate/nacp';
 import { MetadataEditor } from './metadata';
-import { DownloadIcon } from '@radix-ui/react-icons';
+import { Download } from 'lucide-react';
 
 export interface EditorProps {
 	nro: File;
@@ -85,7 +85,7 @@ export function Editor(props: EditorProps) {
 				<button>
 					<div className="cursor" />
 					Save Modified NRO&nbsp;
-					<DownloadIcon width="1em" height="1em" />
+					<Download className="inline-block w-[1em] h-[1em]" />
 				</button>
 			</div>
 		</div>
