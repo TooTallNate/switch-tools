@@ -57,16 +57,16 @@ importers:
         specifier: 2.8.0
         version: 2.8.0(typescript@5.9.3)
       '@tootallnate/nacp':
-        specifier: 0.2.0
+        specifier: 0.2.1
         version: link:../../packages/nacp
       '@tootallnate/nro':
-        specifier: 0.1.2
+        specifier: 0.1.3
         version: link:../../packages/nro
       '@tootallnate/react-file-input':
-        specifier: 0.0.2
+        specifier: 0.0.3
         version: link:../../packages/react-file-input
       '@tootallnate/romfs':
-        specifier: 0.1.0
+        specifier: 0.1.1
         version: link:../../packages/romfs
       '@vercel/analytics':
         specifier: ^1.0.0
@@ -160,16 +160,16 @@ importers:
         specifier: 2.8.0
         version: 2.8.0(typescript@5.9.3)
       '@tootallnate/hacbrewpack':
-        specifier: 0.0.0
+        specifier: 0.0.1
         version: link:../../packages/hacbrewpack
       '@tootallnate/nacp':
-        specifier: 0.2.0
+        specifier: 0.2.1
         version: link:../../packages/nacp
       '@tootallnate/nro':
-        specifier: 0.1.2
+        specifier: 0.1.3
         version: link:../../packages/nro
       '@tootallnate/react-file-input':
-        specifier: 0.0.2
+        specifier: 0.0.3
         version: link:../../packages/react-file-input
       '@vercel/analytics':
         specifier: ^1.0.0
@@ -282,13 +282,13 @@ importers:
   packages/hacbrewpack:
     dependencies:
       '@tootallnate/cnmt':
-        specifier: 0.0.0
+        specifier: 0.0.1
         version: link:../cnmt
       '@tootallnate/nca':
-        specifier: 0.0.0
+        specifier: 0.0.1
         version: link:../nca
       '@tootallnate/romfs':
-        specifier: 0.1.0
+        specifier: 0.1.1
         version: link:../romfs
     devDependencies:
       typescript:
@@ -310,13 +310,13 @@ importers:
   packages/nca:
     dependencies:
       '@tootallnate/aes-xts':
-        specifier: 0.0.0
+        specifier: 0.0.1
         version: link:../aes-xts
       '@tootallnate/cnmt':
-        specifier: 0.0.0
+        specifier: 0.0.1
         version: link:../cnmt
       '@tootallnate/ivfc':
-        specifier: 0.0.0
+        specifier: 0.0.1
         version: link:../ivfc
     devDependencies:
       typescript:
@@ -326,7 +326,7 @@ importers:
   packages/nro:
     dependencies:
       '@tootallnate/nacp':
-        specifier: ^0.2.0
+        specifier: ^0.2.1
         version: link:../nacp
     devDependencies:
       typescript:

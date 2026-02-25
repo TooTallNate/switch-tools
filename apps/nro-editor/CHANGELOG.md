@@ -1,5 +1,15 @@
 # nro-editor
 
+## 0.0.5
+
+### Patch Changes
+
+- Updated dependencies [1baf3af]
+  - @tootallnate/nacp@0.2.1
+  - @tootallnate/nro@0.1.3
+  - @tootallnate/react-file-input@0.0.3
+  - @tootallnate/romfs@0.1.1
+
 ## 0.0.4
 
 ### Patch Changes

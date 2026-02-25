@@ -1,5 +1,13 @@
 # @tootallnate/nro
 
+## 0.1.3
+
+### Patch Changes
+
+- 1baf3af: Set up npm OIDC trusted publishing with provenance
+- Updated dependencies [1baf3af]
+  - @tootallnate/nacp@0.2.1
+
 ## 0.1.2
 
 ### Patch Changes
