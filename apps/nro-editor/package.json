@@ -25,16 +25,16 @@
     "bytes": "^3.1.2",
     "clsx": "^1.2.1",
     "isbot": "^4",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
     "react-image-crop": "^10.0.9"
   },
   "devDependencies": {
     "@types/bytes": "^3.1.1",
     "@types/node": "^18.13.0",
-    "@types/react": "^18.0.27",
-    "@types/react-dom": "^18.0.10",
-    "typescript": "^5.3.3",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "typescript": "catalog:",
     "vite": "^5.1.4",
     "vite-tsconfig-paths": "^4.3.1"
   }

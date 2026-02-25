@@ -11,14 +11,14 @@
   "author": "Nathan Rajlich <n@n8.io>",
   "license": "MIT",
   "devDependencies": {
-    "@types/react": "^18.0.27",
-    "react": "^18.2.0",
-    "typescript": "^5.3.3"
+    "@types/react": "catalog:",
+    "react": "catalog:",
+    "typescript": "catalog:"
   },
   "dependencies": {
     "clsx": "^1.2.1"
   },
   "peerDependencies": {
-    "react": "^18.2.0"
+    "react": "^18.2.0 || ^19.0.0"
   }
 }
