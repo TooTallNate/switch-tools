@@ -56,12 +56,10 @@ export async function aesEcbDecryptBlock(
 	block: Uint8Array,
 	crypto: Crypto = globalThis.crypto
 ): Promise<Uint8Array> {
-	const padding = new Uint8Array(BLOCK_SIZE);
-	padding.fill(0x10);
-
+	// XOR PKCS7 padding (0x10 for a full block) with the ciphertext block
 	const paddingXorBlock = new Uint8Array(BLOCK_SIZE);
 	for (let i = 0; i < BLOCK_SIZE; i++) {
-		paddingXorBlock[i] = padding[i] ^ block[i];
+		paddingXorBlock[i] = 0x10 ^ block[i];
 	}
 
 	const c1 = await aesEcbEncryptBlock(key, paddingXorBlock, crypto);

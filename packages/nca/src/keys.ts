@@ -7,7 +7,7 @@
  * Reference: hacbrewpack/extkeys.c, hacbrewpack/pki.c
  */
 
-import { aesEcbEncrypt, aesEcbDecrypt } from './crypto.js';
+import { aesEcbEncrypt, aesEcbDecrypt, aesCtrEncrypt } from './crypto.js';
 
 const MAX_KEYGENS = 0x20;
 
@@ -221,10 +221,16 @@ async function generateKek(
 
 /**
  * Derive keys from a full keyset (replicates pki_derive_keys).
+ *
+ * @param ks - Full keyset to derive into
+ * @param crypto - Crypto implementation
+ * @param neededKeyGen - If set, only derive keys for this generation (0-indexed).
+ *   When undefined, derives all key generations (original behavior).
  */
 async function deriveKeys(
 	ks: FullKeySet,
-	crypto: Crypto = globalThis.crypto
+	crypto: Crypto = globalThis.crypto,
+	neededKeyGen?: number
 ): Promise<void> {
 	// Derive keyblob keys (for firmware < 6.2.0)
 	for (let i = 0; i < 6; i++) {
@@ -257,7 +263,6 @@ async function deriveKeys(
 		// (hacbrewpack verifies but continues on failure)
 
 		// AES-CTR decrypt the keyblob
-		const { aesCtrEncrypt } = await import('./crypto.js');
 		const iv = ks.encryptedKeyblobs[i].slice(0x10, 0x20);
 		const decrypted = await aesCtrEncrypt(
 			ks.keyblobKeys[i],
@@ -316,60 +321,73 @@ async function deriveKeys(
 		ks.masterKeys[i].set(masterKey);
 	}
 
-	// Derive key area keys, titlekeks, header key from master keys
+	// Derive key area keys, titlekeks, header key from master keys.
+	// When neededKeyGen is set, we only need:
+	//   - generation 0 (for the header key, which always comes from master key 0)
+	//   - the specific requested generation (for key area keys)
 	for (let i = 0; i < MAX_KEYGENS; i++) {
+		// Skip generations we don't need (if a specific generation was requested)
+		if (neededKeyGen !== undefined && i !== 0 && i !== neededKeyGen)
+			continue;
+
 		if (isZero(ks.masterKeys[i])) continue;
 
-		// Key Area Encryption Keys
-		if (!isZero(ks.keyAreaKeyApplicationSource)) {
-			const kak = await generateKek(
-				ks.keyAreaKeyApplicationSource,
-				ks.masterKeys[i],
-				ks.aesKekGenerationSource,
-				ks.aesKeyGenerationSource,
-				crypto
-			);
-			ks.keyAreaKeys[i][0].set(kak);
-		}
-		if (!isZero(ks.keyAreaKeyOceanSource)) {
-			const kak = await generateKek(
-				ks.keyAreaKeyOceanSource,
-				ks.masterKeys[i],
-				ks.aesKekGenerationSource,
-				ks.aesKeyGenerationSource,
-				crypto
-			);
-			ks.keyAreaKeys[i][1].set(kak);
-		}
-		if (!isZero(ks.keyAreaKeySystemSource)) {
-			const kak = await generateKek(
-				ks.keyAreaKeySystemSource,
-				ks.masterKeys[i],
-				ks.aesKekGenerationSource,
-				ks.aesKeyGenerationSource,
-				crypto
-			);
-			ks.keyAreaKeys[i][2].set(kak);
-		}
-
-		// Titlekek
-		if (!isZero(ks.titlekekSource)) {
-			const tk = await aesEcbDecrypt(
-				ks.masterKeys[i],
-				ks.titlekekSource,
-				crypto
-			);
-			ks.titlekeks[i].set(tk);
+		// Key Area Encryption Keys — only derive for the needed generation (or all)
+		if (neededKeyGen === undefined || i === neededKeyGen) {
+			if (!isZero(ks.keyAreaKeyApplicationSource)) {
+				const kak = await generateKek(
+					ks.keyAreaKeyApplicationSource,
+					ks.masterKeys[i],
+					ks.aesKekGenerationSource,
+					ks.aesKeyGenerationSource,
+					crypto
+				);
+				ks.keyAreaKeys[i][0].set(kak);
+			}
+			if (!isZero(ks.keyAreaKeyOceanSource)) {
+				const kak = await generateKek(
+					ks.keyAreaKeyOceanSource,
+					ks.masterKeys[i],
+					ks.aesKekGenerationSource,
+					ks.aesKeyGenerationSource,
+					crypto
+				);
+				ks.keyAreaKeys[i][1].set(kak);
+			}
+			if (!isZero(ks.keyAreaKeySystemSource)) {
+				const kak = await generateKek(
+					ks.keyAreaKeySystemSource,
+					ks.masterKeys[i],
+					ks.aesKekGenerationSource,
+					ks.aesKeyGenerationSource,
+					crypto
+				);
+				ks.keyAreaKeys[i][2].set(kak);
+			}
 		}
 
-		// Package2 key
-		if (!isZero(ks.package2KeySource)) {
-			const pk2 = await aesEcbDecrypt(
-				ks.masterKeys[i],
-				ks.package2KeySource,
-				crypto
-			);
-			ks.package2Keys[i].set(pk2);
+		// Titlekek — skip if we only need a specific generation and this isn't it
+		if (neededKeyGen === undefined || i === neededKeyGen) {
+			if (!isZero(ks.titlekekSource)) {
+				const tk = await aesEcbDecrypt(
+					ks.masterKeys[i],
+					ks.titlekekSource,
+					crypto
+				);
+				ks.titlekeks[i].set(tk);
+			}
+		}
+
+		// Package2 key — skip when not needed
+		if (neededKeyGen === undefined) {
+			if (!isZero(ks.package2KeySource)) {
+				const pk2 = await aesEcbDecrypt(
+					ks.masterKeys[i],
+					ks.package2KeySource,
+					crypto
+				);
+				ks.package2Keys[i].set(pk2);
+			}
 		}
 
 		// Header key (only from master key 0)
@@ -400,17 +418,24 @@ async function deriveKeys(
  *
  * @param keyFileContent - Contents of a prod.keys file
  * @param crypto - Optional Crypto implementation
+ * @param keyGeneration - If provided, only derive keys needed for this
+ *   generation (1-indexed, matching the NCA keyGeneration field).
+ *   This significantly reduces the number of crypto operations.
  * @returns KeySet with header_key and key_area_keys derived
  */
 export async function initializeKeySet(
 	keyFileContent: string,
-	crypto: Crypto = globalThis.crypto
+	crypto: Crypto = globalThis.crypto,
+	keyGeneration?: number
 ): Promise<KeySet> {
 	const keyMap = parseKeyFile(keyFileContent);
 	const fullKs = loadKeySet(keyMap);
 
-	// Derive all keys
-	await deriveKeys(fullKs, crypto);
+	// Derive keys (optionally only for the needed generation)
+	// keyGeneration is 1-indexed externally, 0-indexed internally
+	const neededKeyGen =
+		keyGeneration !== undefined ? keyGeneration - 1 : undefined;
+	await deriveKeys(fullKs, crypto, neededKeyGen);
 
 	return {
 		headerKey: fullKs.headerKey,

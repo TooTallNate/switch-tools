@@ -136,18 +136,29 @@ export async function createPfs0HashTable(
 			HASH_TABLE_PADDING);
 	const hashTable = new Uint8Array(paddedSize);
 
-	// Hash each block
-	const block = new Uint8Array(blockSize);
+	// Hash all blocks in parallel to reduce per-block async overhead
+	const hashPromises: Promise<Uint8Array>[] = [];
 	for (let i = 0; i < numBlocks; i++) {
 		const offset = i * blockSize;
 		const remaining = pfs0Data.length - offset;
 		const readSize = Math.min(remaining, blockSize);
 
-		block.fill(0);
-		block.set(pfs0Data.subarray(offset, offset + readSize));
+		if (readSize === blockSize) {
+			// Full block — hash the subarray directly (no copy needed)
+			hashPromises.push(
+				sha256(pfs0Data.subarray(offset, offset + blockSize), crypto)
+			);
+		} else {
+			// Partial (last) block — zero-pad a copy
+			const block = new Uint8Array(blockSize);
+			block.set(pfs0Data.subarray(offset, offset + readSize));
+			hashPromises.push(sha256(block.subarray(0, readSize), crypto));
+		}
+	}
 
-		const hash = await sha256(block.subarray(0, readSize), crypto);
-		hashTable.set(hash, i * 0x20);
+	const hashResults = await Promise.all(hashPromises);
+	for (let i = 0; i < numBlocks; i++) {
+		hashTable.set(hashResults[i], i * 0x20);
 	}
 
 	return {

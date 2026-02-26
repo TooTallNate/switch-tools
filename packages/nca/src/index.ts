@@ -25,7 +25,7 @@ export {
 	type Pfs0File,
 } from './pfs0.js';
 
-import { encrypt as aesXtsEncrypt } from '@tootallnate/aes-xts';
+import { encrypt as aesXtsEncryptDefault } from '@tootallnate/aes-xts';
 import { build as ivfcBuild, IVFC_HEADER_SIZE } from '@tootallnate/ivfc';
 
 import {
@@ -43,6 +43,31 @@ import {
 	calculatePfs0MasterHash,
 	type Pfs0File,
 } from './pfs0.js';
+
+/**
+ * Function that encrypts data using AES-128-XTS.
+ * The key is already bound — the caller only provides the data and
+ * sector parameters. This allows the key to be imported once
+ * (via `crypto.subtle.importKey`) and reused across multiple NCA builds.
+ *
+ * On nx.js, you can create one using the native AES-XTS support:
+ * ```ts
+ * const cryptoKey = await crypto.subtle.importKey(
+ *   'raw', headerKey, 'AES-XTS', false, ['encrypt']
+ * );
+ * const aesXtsEncrypt: AesXtsEncryptFn = (data, sectorSize, startSector) =>
+ *   crypto.subtle.encrypt(
+ *     { name: 'AES-XTS', sectorSize, startSector, nintendoTweak: true },
+ *     cryptoKey,
+ *     data
+ *   );
+ * ```
+ */
+export type AesXtsEncryptFn = (
+	data: ArrayBuffer | Uint8Array,
+	sectorSize: number,
+	startSector: number
+) => Promise<ArrayBuffer>;
 
 /** NCA header total size: 0xC00 bytes */
 const NCA_HEADER_SIZE = 0xc00;
@@ -114,6 +139,8 @@ interface NcaBuildOptions {
 	/** Sign the NCA header with RSA-PSS (only for Program NCA) */
 	sign?: boolean;
 	crypto?: Crypto;
+	/** Optional AES-XTS encrypt implementation (defaults to software fallback) */
+	aesXtsEncrypt?: AesXtsEncryptFn;
 }
 
 /**
@@ -245,6 +272,18 @@ async function assembleNca(
 		sign = false,
 		crypto = globalThis.crypto,
 	} = options;
+
+	// Build the AES-XTS encrypt function — either caller-provided or default
+	const aesXtsEncrypt: AesXtsEncryptFn =
+		options.aesXtsEncrypt ??
+		((data, sectorSize, startSector) =>
+			aesXtsEncryptDefault(
+				keys.headerKey,
+				data,
+				sectorSize,
+				startSector,
+				crypto
+			));
 
 	// Calculate total NCA size
 	let totalBodySize = 0;
@@ -398,11 +437,9 @@ async function assembleNca(
 
 	// Encrypt header with AES-128-XTS
 	const encryptedHeader = await aesXtsEncrypt(
-		keys.headerKey,
 		nca.subarray(0, NCA_HEADER_SIZE),
 		0x200, // sector size
-		0, // start sector
-		crypto
+		0 // start sector
 	);
 	nca.set(new Uint8Array(encryptedHeader), 0);
 
@@ -436,6 +473,8 @@ export interface CreateProgramNcaOptions {
 	keys: KeySet;
 	sign?: boolean;
 	crypto?: Crypto;
+	/** Optional AES-XTS encrypt implementation (defaults to software fallback) */
+	aesXtsEncrypt?: AesXtsEncryptFn;
 }
 
 /**
@@ -460,6 +499,7 @@ export async function createProgramNca(
 		keys,
 		sign = true,
 		crypto = globalThis.crypto,
+		aesXtsEncrypt,
 	} = options;
 
 	const sections: Array<{
@@ -513,6 +553,7 @@ export async function createProgramNca(
 		keys,
 		sign,
 		crypto,
+		aesXtsEncrypt,
 	});
 }
 
@@ -526,6 +567,8 @@ export interface CreateControlNcaOptions {
 	plaintext?: boolean;
 	keys: KeySet;
 	crypto?: Crypto;
+	/** Optional AES-XTS encrypt implementation (defaults to software fallback) */
+	aesXtsEncrypt?: AesXtsEncryptFn;
 }
 
 /**
@@ -544,6 +587,7 @@ export async function createControlNca(
 		plaintext = false,
 		keys,
 		crypto = globalThis.crypto,
+		aesXtsEncrypt,
 	} = options;
 
 	const romfsSection = await buildRomfsSection(romfsData, crypto);
@@ -565,6 +609,7 @@ export async function createControlNca(
 			keys,
 			sign: false,
 			crypto,
+			aesXtsEncrypt,
 		}
 	);
 }
@@ -581,6 +626,8 @@ export interface CreateMetaNcaOptions {
 	plaintext?: boolean;
 	keys: KeySet;
 	crypto?: Crypto;
+	/** Optional AES-XTS encrypt implementation (defaults to software fallback) */
+	aesXtsEncrypt?: AesXtsEncryptFn;
 }
 
 /**
@@ -600,6 +647,7 @@ export async function createMetaNca(
 		plaintext = false,
 		keys,
 		crypto = globalThis.crypto,
+		aesXtsEncrypt,
 	} = options;
 
 	const metaPfs0 = buildPfs0([{ name: cnmtFilename, data: cnmtData }]);
@@ -626,6 +674,7 @@ export async function createMetaNca(
 			keys,
 			sign: false,
 			crypto,
+			aesXtsEncrypt,
 		}
 	);
 }
@@ -640,6 +689,8 @@ export interface CreateManualNcaOptions {
 	plaintext?: boolean;
 	keys: KeySet;
 	crypto?: Crypto;
+	/** Optional AES-XTS encrypt implementation (defaults to software fallback) */
+	aesXtsEncrypt?: AesXtsEncryptFn;
 }
 
 /**
@@ -659,6 +710,7 @@ export async function createManualNca(
 		plaintext = false,
 		keys,
 		crypto = globalThis.crypto,
+		aesXtsEncrypt,
 	} = options;
 
 	const romfsSection = await buildRomfsSection(romfsData, crypto);
@@ -680,6 +732,7 @@ export async function createManualNca(
 			keys,
 			sign: false,
 			crypto,
+			aesXtsEncrypt,
 		}
 	);
 }

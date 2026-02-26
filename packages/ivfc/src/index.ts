@@ -56,6 +56,9 @@ async function sha256(
 /**
  * Create an IVFC level: hash each block of the source data with SHA-256.
  * Returns the hash data padded to the IVFC block size boundary.
+ *
+ * Optimized: hashes all blocks in parallel via Promise.all to reduce
+ * per-block async overhead, and avoids redundant zero-fill for full blocks.
  */
 async function createLevel(
 	sourceData: Uint8Array,
@@ -72,19 +75,29 @@ async function createLevel(
 	const paddedSize = align(hashDataSize, blockSize);
 	const hashes = new Uint8Array(paddedSize);
 
-	// Hash each block
-	const block = new Uint8Array(blockSize);
+	// Hash all blocks in parallel
+	const hashPromises: Promise<Uint8Array>[] = [];
 	for (let i = 0; i < numBlocks; i++) {
 		const offset = i * blockSize;
 		const remaining = sourceSize - offset;
 		const readSize = Math.min(remaining, blockSize);
 
-		// Zero-fill the block buffer (important for the last partial block)
-		block.fill(0);
-		block.set(sourceData.subarray(offset, offset + readSize));
+		if (readSize === blockSize) {
+			// Full block — hash the subarray directly (no copy needed)
+			hashPromises.push(
+				sha256(sourceData.subarray(offset, offset + blockSize), crypto)
+			);
+		} else {
+			// Partial (last) block — zero-pad a copy
+			const block = new Uint8Array(blockSize);
+			block.set(sourceData.subarray(offset, offset + readSize));
+			hashPromises.push(sha256(block.subarray(0, readSize), crypto));
+		}
+	}
 
-		const hash = await sha256(block.subarray(0, readSize), crypto);
-		hashes.set(hash, i * HASH_SIZE);
+	const hashResults = await Promise.all(hashPromises);
+	for (let i = 0; i < numBlocks; i++) {
+		hashes.set(hashResults[i], i * HASH_SIZE);
 	}
 
 	return { hashes, hashDataSize };

@@ -28,9 +28,10 @@ import {
 	type KeySet,
 	type Pfs0File,
 	type NcaResult,
+	type AesXtsEncryptFn,
 } from '@tootallnate/nca';
 
-export { type KeySet } from '@tootallnate/nca';
+export { type KeySet, type AesXtsEncryptFn } from '@tootallnate/nca';
 export { type RomFsEntry } from '@tootallnate/romfs';
 
 export interface HacbrewpackOptions {
@@ -111,6 +112,13 @@ export interface HacbrewpackOptions {
 
 	/** Optional Crypto implementation */
 	crypto?: Crypto;
+
+	/**
+	 * Optional AES-XTS encrypt implementation.
+	 * On nx.js, you can pass a function that uses the native
+	 * crypto.subtle.encrypt('AES-XTS') for significantly better performance.
+	 */
+	aesXtsEncrypt?: AesXtsEncryptFn;
 }
 
 export interface HacbrewpackResult {
@@ -122,6 +130,32 @@ export interface HacbrewpackResult {
 	ncaIds: string[];
 	/** NSP filename (titleid.nsp) */
 	filename: string;
+}
+
+/** IVFC block size for padding RomFS data */
+const IVFC_BLOCK_SIZE = 0x4000;
+
+/**
+ * Convert a RomFS Blob (or Promise<Blob>) to a Uint8Array padded to the
+ * IVFC block boundary. Avoids an extra copy compared to the naive approach
+ * of `new Uint8Array(await blob.arrayBuffer())` followed by `set()`.
+ */
+async function blobToIvfcPadded(
+	blobOrPromise: Blob | Promise<Blob>
+): Promise<Uint8Array> {
+	const blob = await blobOrPromise;
+	const buffer = await blob.arrayBuffer();
+	const paddedSize =
+		buffer.byteLength +
+		((IVFC_BLOCK_SIZE - (buffer.byteLength % IVFC_BLOCK_SIZE)) %
+			IVFC_BLOCK_SIZE);
+	if (paddedSize === buffer.byteLength) {
+		// Already aligned — no padding needed, use the buffer directly
+		return new Uint8Array(buffer);
+	}
+	const padded = new Uint8Array(paddedSize);
+	padded.set(new Uint8Array(buffer));
+	return padded;
 }
 
 /**
@@ -170,12 +204,13 @@ export async function buildNsp(
 		titleName,
 		titlePublisher,
 		crypto = globalThis.crypto,
+		aesXtsEncrypt,
 	} = options;
 
-	// 1. Load/derive keys
+	// 1. Load/derive keys (pass keyGeneration to skip unnecessary derivation)
 	let keys: KeySet;
 	if (typeof options.keys === 'string') {
-		keys = await initializeKeySet(options.keys, crypto);
+		keys = await initializeKeySet(options.keys, crypto, keyGeneration);
 	} else {
 		keys = options.keys;
 	}
@@ -260,14 +295,7 @@ export async function buildNsp(
 	// Build RomFS data if provided
 	let romfsData: Uint8Array | undefined;
 	if (options.romfs) {
-		const romfsBlob = await encodeRomfs(options.romfs);
-		const romfsBuffer = await romfsBlob.arrayBuffer();
-		// Pad RomFS to IVFC block size (0x4000)
-		const paddedSize =
-			romfsBuffer.byteLength +
-			((0x4000 - (romfsBuffer.byteLength % 0x4000)) % 0x4000);
-		romfsData = new Uint8Array(paddedSize);
-		romfsData.set(new Uint8Array(romfsBuffer));
+		romfsData = await blobToIvfcPadded(encodeRomfs(options.romfs));
 	}
 
 	// Build Logo PFS0 files if provided
@@ -288,6 +316,7 @@ export async function buildNsp(
 		plaintext,
 		keys,
 		crypto,
+		aesXtsEncrypt,
 	};
 
 	const programNca = await createProgramNca({
@@ -304,14 +333,9 @@ export async function buildNsp(
 	for (const [name, data] of controlMap) {
 		controlRomfsEntry[name] = new Blob([data]);
 	}
-	const controlRomfsBlob = await encodeRomfs(controlRomfsEntry);
-	const controlRomfsBuffer = await controlRomfsBlob.arrayBuffer();
-	// Pad to IVFC block size
-	const controlRomfsPaddedSize =
-		controlRomfsBuffer.byteLength +
-		((0x4000 - (controlRomfsBuffer.byteLength % 0x4000)) % 0x4000);
-	const controlRomfsData = new Uint8Array(controlRomfsPaddedSize);
-	controlRomfsData.set(new Uint8Array(controlRomfsBuffer));
+	const controlRomfsData = await blobToIvfcPadded(
+		encodeRomfs(controlRomfsEntry)
+	);
 
 	const controlNca = await createControlNca({
 		...commonOpts,
@@ -324,34 +348,18 @@ export async function buildNsp(
 
 	let htmldocNca: NcaResult | undefined;
 	if (options.htmldoc) {
-		const htmldocRomfsBlob = await encodeRomfs(options.htmldoc);
-		const htmldocRomfsBuffer = await htmldocRomfsBlob.arrayBuffer();
-		const paddedSize =
-			htmldocRomfsBuffer.byteLength +
-			((0x4000 - (htmldocRomfsBuffer.byteLength % 0x4000)) % 0x4000);
-		const htmldocRomfsData = new Uint8Array(paddedSize);
-		htmldocRomfsData.set(new Uint8Array(htmldocRomfsBuffer));
-
 		htmldocNca = await createManualNca({
 			...commonOpts,
-			romfsData: htmldocRomfsData,
+			romfsData: await blobToIvfcPadded(encodeRomfs(options.htmldoc)),
 		});
 		ncaIds.push(htmldocNca.ncaId);
 	}
 
 	let legalinfoNca: NcaResult | undefined;
 	if (options.legalinfo) {
-		const legalinfoRomfsBlob = await encodeRomfs(options.legalinfo);
-		const legalinfoRomfsBuffer = await legalinfoRomfsBlob.arrayBuffer();
-		const paddedSize =
-			legalinfoRomfsBuffer.byteLength +
-			((0x4000 - (legalinfoRomfsBuffer.byteLength % 0x4000)) % 0x4000);
-		const legalinfoRomfsData = new Uint8Array(paddedSize);
-		legalinfoRomfsData.set(new Uint8Array(legalinfoRomfsBuffer));
-
 		legalinfoNca = await createManualNca({
 			...commonOpts,
-			romfsData: legalinfoRomfsData,
+			romfsData: await blobToIvfcPadded(encodeRomfs(options.legalinfo)),
 		});
 		ncaIds.push(legalinfoNca.ncaId);
 	}
