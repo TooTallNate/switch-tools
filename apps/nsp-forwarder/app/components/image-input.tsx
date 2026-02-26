@@ -43,6 +43,9 @@ export interface ImageInputProps
 	placeholder?: React.ReactNode;
 	cropAspectRatio?: number;
 	format: 'png' | 'jpeg' | 'gif';
+	/** Maximum output blob size in bytes. If the initial output exceeds this,
+	 *  the JPEG quality will be iteratively reduced until it fits. */
+	maxSize?: number;
 	acceptNro?: boolean;
 	onCroppedBlob: (blob: Blob) => void;
 	onNRO?: (blob: Blob) => void;
@@ -53,6 +56,7 @@ export function ImageInput({
 	cropAspectRatio,
 	placeholder,
 	format,
+	maxSize,
 	acceptNro,
 	onCroppedBlob,
 	onNRO,
@@ -95,9 +99,43 @@ export function ImageInput({
 
 		canvasPreview(imgRef.current, canvas, pixelCrop);
 
-		const blob = await new Promise<Blob | null>((res) =>
-			canvas.toBlob(res, `image/${format}`, 0.95)
+		// If a maxSize is set, iteratively reduce JPEG quality until the
+		// output fits. This is necessary because Atmosphère shows a "?"
+		// icon on the home screen when the icon exceeds 0x20000 bytes.
+		console.log(
+			`Generating ${format} image: ${width}x${height}, maxSize=${
+				maxSize ?? 'none'
+			}`
 		);
+		let quality = 1.0;
+		while (quality > 0) {
+			const blob = await new Promise<Blob | null>((res) =>
+				canvas.toBlob(res, `image/${format}`, quality)
+			);
+			if (!blob) return null;
+			console.log(
+				`image/${format} quality=${Math.round(quality * 100)}%: ${
+					blob.size
+				} bytes`
+			);
+			if (!maxSize || blob.size <= maxSize) {
+				return blob;
+			}
+			console.log(
+				`Image exceeds maxSize (${blob.size} > ${maxSize}), reducing quality...`
+			);
+			quality -= 0.02;
+		}
+		// Quality exhausted — return whatever we get at minimum quality
+		console.warn(
+			'Image quality exhausted — returning minimum quality image'
+		);
+		const blob = await new Promise<Blob | null>((res) =>
+			canvas.toBlob(res, `image/${format}`, 0.01)
+		);
+		if (blob) {
+			console.log(`Final image/${format} size: ${blob.size} bytes`);
+		}
 		return blob;
 	};
 

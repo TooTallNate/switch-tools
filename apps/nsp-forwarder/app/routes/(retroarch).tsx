@@ -215,6 +215,7 @@ export default function Index() {
 					}
 					cropAspectRatio={1}
 					format="jpeg"
+					maxSize={0x20000}
 					onCroppedBlob={(blob) => {
 						imageBlobRef.current = blob;
 					}}
