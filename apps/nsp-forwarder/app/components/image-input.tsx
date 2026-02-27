@@ -43,6 +43,13 @@ export interface ImageInputProps
 	placeholder?: React.ReactNode;
 	cropAspectRatio?: number;
 	format: 'png' | 'jpeg' | 'gif';
+	/** Explicit output image width in pixels. When set, this is used instead
+	 *  of deriving the width from the CSS layout (which can be affected by
+	 *  borders, padding, etc.). */
+	outputWidth?: number;
+	/** Explicit output image height in pixels. When set, this is used instead
+	 *  of deriving the height from the CSS layout. */
+	outputHeight?: number;
 	/** Maximum output blob size in bytes. If the initial output exceeds this,
 	 *  the JPEG quality will be iteratively reduced until it fits. */
 	maxSize?: number;
@@ -56,6 +63,8 @@ export function ImageInput({
 	cropAspectRatio,
 	placeholder,
 	format,
+	outputWidth,
+	outputHeight,
 	maxSize,
 	acceptNro,
 	onCroppedBlob,
@@ -229,7 +238,9 @@ export function ImageInput({
 					pixelCrop
 				);
 				const box = previewCanvasRef.current.getBoundingClientRect();
-				toBlob(box.width, box.height, format).then((blob) => {
+				const blobWidth = outputWidth ?? box.width;
+				const blobHeight = outputHeight ?? box.height;
+				toBlob(blobWidth, blobHeight, format).then((blob) => {
 					if (blob) {
 						const diff = Date.now() - startTime;
 						setDownloadHref(URL.createObjectURL(blob));

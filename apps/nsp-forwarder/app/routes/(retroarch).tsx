@@ -215,6 +215,8 @@ export default function Index() {
 					}
 					cropAspectRatio={1}
 					format="jpeg"
+					outputWidth={256}
+					outputHeight={256}
 					maxSize={0x20000}
 					onCroppedBlob={(blob) => {
 						imageBlobRef.current = blob;
@@ -238,6 +240,8 @@ export default function Index() {
 							placeholder="Select logo…"
 							cropAspectRatio={160 / 40}
 							format="png"
+							outputWidth={160}
+							outputHeight={40}
 							onCroppedBlob={(blob) =>
 								(logoBlobRef.current = blob)
 							}
