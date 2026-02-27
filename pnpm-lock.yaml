@@ -127,7 +127,7 @@ importers:
         specifier: 2.8.0
         version: 2.8.0(typescript@5.9.3)
       '@tootallnate/hacbrewpack':
-        specifier: 0.0.1
+        specifier: 0.0.2
         version: link:../../packages/hacbrewpack
       '@tootallnate/nacp':
         specifier: 0.2.1
@@ -195,7 +195,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       autoprefixer:
         specifier: ^10.4.24
-        version: 10.4.24(postcss@8.5.6)
+        version: 10.4.24(postcss@8.4.49)
       tailwindcss:
         specifier: ^3.4.16
         version: 3.4.16
@@ -264,7 +264,7 @@ importers:
         specifier: 0.0.1
         version: link:../cnmt
       '@tootallnate/nca':
-        specifier: 0.0.1
+        specifier: 0.0.2
         version: link:../nca
       '@tootallnate/romfs':
         specifier: 0.1.1
@@ -289,13 +289,13 @@ importers:
   packages/nca:
     dependencies:
       '@tootallnate/aes-xts':
-        specifier: 0.0.1
+        specifier: 0.0.2
         version: link:../aes-xts
       '@tootallnate/cnmt':
         specifier: 0.0.1
         version: link:../cnmt
       '@tootallnate/ivfc':
-        specifier: 0.0.1
+        specifier: 0.0.2
         version: link:../ivfc
     devDependencies:
       typescript:
@@ -7671,13 +7671,13 @@ snapshots:
 
   astring@1.8.6: {}
 
-  autoprefixer@10.4.24(postcss@8.5.6):
+  autoprefixer@10.4.24(postcss@8.4.49):
     dependencies:
       browserslist: 4.28.1
       caniuse-lite: 1.0.30001774
       fraction.js: 5.3.4
       picocolors: 1.1.1
-      postcss: 8.5.6
+      postcss: 8.4.49
       postcss-value-parser: 4.2.0
 
   available-typed-arrays@1.0.5: {}

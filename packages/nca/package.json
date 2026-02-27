@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/nca",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "NCA (Nintendo Content Archive) builder for Nintendo Switch",
   "main": "dist/index.js",
@@ -17,9 +17,9 @@
     "directory": "packages/nca"
   },
   "dependencies": {
-    "@tootallnate/aes-xts": "0.0.1",
+    "@tootallnate/aes-xts": "0.0.2",
     "@tootallnate/cnmt": "0.0.1",
-    "@tootallnate/ivfc": "0.0.1"
+    "@tootallnate/ivfc": "0.0.2"
   },
   "devDependencies": {
     "typescript": "^5.3.3"
