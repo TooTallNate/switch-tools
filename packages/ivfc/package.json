@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/ivfc",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "IVFC (Integrity Verification File Collection) hash tree builder for Nintendo Switch",
   "main": "dist/index.js",

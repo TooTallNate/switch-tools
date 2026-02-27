@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/aes-xts",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "AES-128-XTS encryption/decryption using Web Crypto, with support for Nintendo's big-endian tweak",
   "main": "dist/index.js",
