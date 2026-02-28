@@ -54,7 +54,7 @@ export interface NczBlockInfo {
 }
 
 export interface NczResult {
-	/** The actual NCA size (from the uncompressed NCA header at offset 0x8). */
+	/** The actual NCA size derived from the NCZ metadata. */
 	ncaSize: bigint;
 	/** A `ReadableStream` of the decompressed and re-encrypted NCA data. */
 	stream: ReadableStream<Uint8Array>;
@@ -65,46 +65,93 @@ export interface NczResult {
 }
 
 /**
+ * A function that decompresses a zstd-compressed `Blob` into a `Uint8Array`.
+ *
+ * This is used for block-mode NCZ, where each block is independently compressed.
+ */
+export type ZstdDecompressBlob = (blob: Blob) => Promise<Uint8Array>;
+
+/**
+ * A function that creates a `ReadableStream<Uint8Array>` of decompressed data
+ * from a zstd-compressed input `ReadableStream<Uint8Array>`.
+ *
+ * This is used for stream-mode NCZ, where the entire body is one zstd stream.
+ */
+export type ZstdDecompressStream = (
+	input: ReadableStream<Uint8Array>,
+) => ReadableStream<Uint8Array>;
+
+export interface NczOptions {
+	/**
+	 * The `Crypto` implementation to use for AES-CTR re-encryption.
+	 * Defaults to `globalThis.crypto`.
+	 */
+	crypto?: Crypto;
+
+	/**
+	 * Decompresses a zstd-compressed `Blob` into a `Uint8Array`.
+	 * Required for block-mode NCZ files.
+	 *
+	 * If not provided and a block-mode NCZ is encountered, an error is thrown.
+	 */
+	decompressBlob?: ZstdDecompressBlob;
+
+	/**
+	 * Creates a decompressed `ReadableStream` from a zstd-compressed input stream.
+	 * Required for stream-mode NCZ files.
+	 *
+	 * If not provided and a stream-mode NCZ is encountered, an error is thrown.
+	 */
+	decompressStream?: ZstdDecompressStream;
+}
+
+/**
  * Decompresses an NCZ (compressed NCA) `Blob`, returning the actual NCA size
  * and a `ReadableStream` that produces the decompressed + re-encrypted NCA data.
  *
  * The stream output is a valid encrypted NCA that can be written directly to
  * Nintendo Switch content storage (NCM placeholder).
  *
+ * Since zstd decompression is not universally available via the same API across
+ * runtimes, the caller must provide the decompression functions via `options`.
+ *
+ * @example
+ * ```ts
+ * // nx.js runtime (has DecompressionStream('zstd'))
+ * const result = await decompressNcz(blob, {
+ *   decompressStream: (input) =>
+ *     input.pipeThrough(new DecompressionStream('zstd')),
+ *   decompressBlob: async (blob) => {
+ *     const ds = new DecompressionStream('zstd');
+ *     const reader = blob.stream().pipeThrough(ds).getReader();
+ *     const chunks = [];
+ *     let total = 0;
+ *     for (;;) {
+ *       const { done, value } = await reader.read();
+ *       if (done) break;
+ *       chunks.push(value);
+ *       total += value.length;
+ *     }
+ *     const out = new Uint8Array(total);
+ *     let off = 0;
+ *     for (const c of chunks) { out.set(c, off); off += c.length; }
+ *     return out;
+ *   },
+ * });
+ * ```
+ *
  * @param blob The NCZ file data.
- * @param cryptoProvider The `Crypto` implementation to use (defaults to globalThis.crypto).
+ * @param options Configuration including zstd decompressor functions and optional `Crypto` override.
  */
 export async function decompressNcz(
 	blob: Blob,
-	cryptoProvider: Crypto = globalThis.crypto,
+	options: NczOptions,
 ): Promise<NczResult> {
+	const cryptoProvider = options.crypto ?? globalThis.crypto;
+
 	// 1. Read the NCA header (first 0x4000 bytes, passed through as-is)
 	const ncaHeaderBlob = blob.slice(0, NCZ_HEADER_SIZE);
 	const ncaHeaderBuf = await ncaHeaderBlob.arrayBuffer();
-
-	// Read actual NCA size from the NCA header.
-	// NCA header layout: offset 0x200 is the start of the decrypted header,
-	// but the `size` field is at offset 0x8 in the NCA3 header which starts
-	// at 0x200. However, the header at 0x0-0x200 is the RSA signatures,
-	// then at 0x200: magic(4) + distribution_type(1) + content_type(1) +
-	// old_key_gen(1) + kaek_index(1) + size(8).
-	// So the NCA size is at absolute offset 0x208 in the raw header bytes.
-	//
-	// BUT: the NCA header is AES-128-XTS encrypted. The first 0x4000 bytes
-	// of the NCZ are the raw NCA header bytes *as they are on disk* (encrypted).
-	// We cannot read the size field directly without decrypting first.
-	//
-	// Instead, the NCZ block header has the decompressed_size field which gives
-	// us the total decompressed body size. Combined with the 0x4000 header,
-	// that's the NCA size.
-	//
-	// For stream-mode NCZ (no blocks), the total NCA size must be computed from
-	// the section headers: max(section.offset + section.size) + 0x4000 header.
-	//
-	// Actually, looking more carefully at sphaira: it reads the NCA size from
-	// the *decrypted* NCA header (after AES-XTS decryption) at header.size.
-	// But that requires the header key. For our purposes, we can derive the
-	// total size from the NCZ metadata without needing the header key.
 
 	// 2. Parse the NCZ section header
 	const sectionHeaderOffset = NCZ_HEADER_SIZE;
@@ -276,7 +323,7 @@ export async function decompressNcz(
 				data: Uint8Array,
 				bodyOffset: bigint,
 			): Promise<Uint8Array> {
-				let result = new Uint8Array(data.length);
+				const result = new Uint8Array(data.length);
 				let dataOff = 0;
 
 				while (dataOff < data.length) {
@@ -322,6 +369,12 @@ export async function decompressNcz(
 			try {
 				if (blocks.length > 0 && blockHeader) {
 					// Block mode: decompress each block individually
+					if (!options.decompressBlob) {
+						throw new Error(
+							'NCZ block mode requires a `decompressBlob` function in options',
+						);
+					}
+
 					const decompressedBlockSize = 1 << blockHeader.blockSizeExponent;
 
 					for (let i = 0; i < blocks.length; i++) {
@@ -349,12 +402,7 @@ export async function decompressNcz(
 
 						let decompressed: Uint8Array;
 						if (isCompressed) {
-							// Decompress via zstd DecompressionStream
-							const ds = new DecompressionStream('deflate-raw'); // placeholder, see below
-							// Actually, we need zstd. DecompressionStream('zstd') is not
-							// universally available, but it is in nx.js and Node 21+.
-							// We'll use the streaming API properly.
-							decompressed = await decompressZstdBlob(blockBlob);
+							decompressed = await options.decompressBlob(blockBlob);
 						} else {
 							// Block is stored uncompressed
 							decompressed = new Uint8Array(await blockBlob.arrayBuffer());
@@ -367,15 +415,21 @@ export async function decompressNcz(
 					}
 				} else {
 					// Stream mode: entire compressed body is one zstd stream
+					if (!options.decompressStream) {
+						throw new Error(
+							'NCZ stream mode requires a `decompressStream` function in options',
+						);
+					}
+
 					const compressedBlob = blob.slice(compressedDataOffset);
-					const decompressedStream = compressedBlob
-						.stream()
-						.pipeThrough(new DecompressionStream('zstd' as CompressionFormat));
+					const decompressedStream = options.decompressStream(
+						compressedBlob.stream(),
+					);
 
 					const reader = decompressedStream.getReader();
 					// Accumulate into chunks and re-encrypt
 					const FLUSH_SIZE = 4 * 1024 * 1024; // 4MB
-					let accumulator = new Uint8Array(FLUSH_SIZE);
+					const accumulator = new Uint8Array(FLUSH_SIZE);
 					let accOffset = 0;
 
 					for (;;) {
@@ -426,31 +480,6 @@ export async function decompressNcz(
 	});
 
 	return { ncaSize, stream, sections, blockHeader };
-}
-
-/**
- * Decompress a zstd-compressed Blob into a Uint8Array.
- * Uses the WHATWG DecompressionStream API with 'zstd' format.
- */
-async function decompressZstdBlob(blob: Blob): Promise<Uint8Array> {
-	const ds = new DecompressionStream('zstd' as CompressionFormat);
-	const decompressedStream = blob.stream().pipeThrough(ds);
-	const reader = decompressedStream.getReader();
-	const chunks: Uint8Array[] = [];
-	let totalLength = 0;
-	for (;;) {
-		const { done, value } = await reader.read();
-		if (done) break;
-		chunks.push(value);
-		totalLength += value.length;
-	}
-	const result = new Uint8Array(totalLength);
-	let offset = 0;
-	for (const chunk of chunks) {
-		result.set(chunk, offset);
-		offset += chunk.length;
-	}
-	return result;
 }
 
 /**
