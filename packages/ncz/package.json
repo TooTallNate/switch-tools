@@ -1,0 +1,21 @@
+{
+  "name": "@tootallnate/ncz",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Decompressor for NCZ (compressed NCA) files used in NSZ/XCZ Nintendo Switch packages",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/ncz"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

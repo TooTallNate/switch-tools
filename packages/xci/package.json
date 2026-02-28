@@ -1,0 +1,24 @@
+{
+  "name": "@tootallnate/xci",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Parser for the XCI (Nintendo Switch GameCard Image) container format",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/xci"
+  },
+  "dependencies": {
+    "@tootallnate/hfs0": "workspace:^"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
