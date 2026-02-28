@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/ncz",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "description": "Decompressor for NCZ (compressed NCA) files used in NSZ/XCZ Nintendo Switch packages",
   "main": "dist/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/xci",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "description": "Parser for the XCI (Nintendo Switch GameCard Image) container format",
   "main": "dist/index.js",
