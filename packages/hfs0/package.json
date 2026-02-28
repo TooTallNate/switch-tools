@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/hfs0",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "type": "module",
   "description": "Parser for the HFS0 (Hashed FileSystem) container format used in Nintendo Switch XCI files",
   "main": "dist/index.js",
