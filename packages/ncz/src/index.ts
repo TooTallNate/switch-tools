@@ -397,49 +397,89 @@ export async function decompressNcz(
 			written += BigInt(decompressed.length);
 		}
 	} else {
-		// Stream mode: entire compressed body is one zstd stream
+		// Stream mode: the compressed body may contain multiple zstd frames.
+		// DecompressionStream typically handles a single frame, so we loop:
+		// decompress one frame, then find the next frame in the remaining
+		// compressed data and decompress that, until all data is consumed.
 		if (!options.decompressStream) {
 			throw new Error(
 				'NCZ stream mode requires a `decompressStream` function in options',
 			);
 		}
 
-		const compressedBlob = blob.slice(compressedDataOffset);
-		const decompressedStream = options.decompressStream(
-			compressedBlob.stream(),
-		);
-
-		const reader = decompressedStream.getReader();
-		// Accumulate decompressed data into fixed-size chunks,
-		// re-encrypt in-place, and write with backpressure.
 		const FLUSH_SIZE = 512 * 1024; // 512KB
 		const accumulator = new Uint8Array(FLUSH_SIZE);
 		let accOffset = 0;
+		let compressedPos = compressedDataOffset;
+		const compressedEnd = Number(blob.size);
 
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
+		while (compressedPos < compressedEnd && written < ncaSize) {
+			const compressedBlob = blob.slice(compressedPos, compressedEnd);
+			const decompressedStream = options.decompressStream(
+				compressedBlob.stream(),
+			);
 
-			let srcOff = 0;
-			while (srcOff < value.length) {
-				const copyLen = Math.min(value.length - srcOff, FLUSH_SIZE - accOffset);
-				accumulator.set(value.subarray(srcOff, srcOff + copyLen), accOffset);
-				accOffset += copyLen;
-				srcOff += copyLen;
+			const reader = decompressedStream.getReader();
+			let frameDecompressedBytes = 0;
 
-				if (accOffset >= FLUSH_SIZE) {
-					// Re-encrypt the accumulator in-place, then write
-					// a copy (accumulator is reused for the next chunk).
-					const chunk = accumulator.slice(0, accOffset);
-					await reencrypt(chunk, written);
-					await writer.write(chunk);
-					written += BigInt(accOffset);
-					accOffset = 0;
+			for (;;) {
+				const { done, value } = await reader.read();
+				if (done) break;
+
+				let srcOff = 0;
+				while (srcOff < value.length) {
+					const copyLen = Math.min(
+						value.length - srcOff,
+						FLUSH_SIZE - accOffset,
+					);
+					accumulator.set(value.subarray(srcOff, srcOff + copyLen), accOffset);
+					accOffset += copyLen;
+					srcOff += copyLen;
+
+					if (accOffset >= FLUSH_SIZE) {
+						const chunk = accumulator.slice(0, accOffset);
+						await reencrypt(chunk, written);
+						await writer.write(chunk);
+						written += BigInt(accOffset);
+						accOffset = 0;
+					}
 				}
+				frameDecompressedBytes += value.length;
 			}
+
+			if (frameDecompressedBytes === 0) break;
+
+			// Find the next zstd frame magic (0xFD2FB528) in the
+			// remaining compressed data to continue decompression.
+			// Read a small window to scan for the magic.
+			const ZSTD_MAGIC = 0xfd2fb528;
+			let nextFrameFound = false;
+			// Start scanning after at least 4 bytes past current position
+			let scanPos = compressedPos + 4;
+			const SCAN_CHUNK = 64 * 1024;
+
+			while (scanPos < compressedEnd - 3) {
+				const scanEnd = Math.min(scanPos + SCAN_CHUNK, compressedEnd);
+				const scanBuf = await blob.slice(scanPos, scanEnd).arrayBuffer();
+				const scanView = new DataView(scanBuf);
+
+				for (let i = 0; i <= scanBuf.byteLength - 4; i++) {
+					if (scanView.getUint32(i, true) === ZSTD_MAGIC) {
+						compressedPos = scanPos + i;
+						nextFrameFound = true;
+						break;
+					}
+				}
+
+				if (nextFrameFound) break;
+				// Overlap by 3 bytes in case magic straddles chunks
+				scanPos = scanEnd - 3;
+			}
+
+			if (!nextFrameFound) break;
 		}
 
-		// Flush remaining
+		// Flush remaining accumulated data
 		if (accOffset > 0) {
 			const chunk = accumulator.slice(0, accOffset);
 			await reencrypt(chunk, written);
