@@ -23,7 +23,7 @@ const NCZ_BLOCK_VERSION = 2;
 const NCZ_BLOCK_TYPE = 1;
 
 const SIZEOF_NCZ_HEADER = 16; // magic(8) + section_count(8)
-const SIZEOF_NCZ_SECTION = 0x30; // offset(8) + size(8) + crypto_type(8) + padding(8) + key(16) + counter(16)
+const SIZEOF_NCZ_SECTION = 0x40; // offset(8) + size(8) + crypto_type(8) + padding(8) + key(16) + counter(16)
 const SIZEOF_NCZ_BLOCK_HEADER = 24; // magic(8) + version(1) + type(1) + padding(1) + block_size_exp(1) + block_count(4) + decompressed_size(8)
 const SIZEOF_NCZ_BLOCK_ENTRY = 4; // compressed size (u32)
 
