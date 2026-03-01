@@ -56,8 +56,6 @@ export interface NczBlockInfo {
 export interface NczResult {
 	/** The actual NCA size derived from the NCZ metadata. */
 	ncaSize: bigint;
-	/** A `ReadableStream` of the decompressed and re-encrypted NCA data. */
-	stream: ReadableStream<Uint8Array>;
 	/** Parsed NCZ section headers. */
 	sections: NczSection[];
 	/** Parsed NCZ block header (if block mode). */
@@ -106,45 +104,29 @@ export interface NczOptions {
 }
 
 /**
- * Decompresses an NCZ (compressed NCA) `Blob`, returning the actual NCA size
- * and a `ReadableStream` that produces the decompressed + re-encrypted NCA data.
+ * Decompresses an NCZ (compressed NCA) `Blob` and writes the decompressed +
+ * re-encrypted NCA data to the provided `WritableStream`.
  *
- * The stream output is a valid encrypted NCA that can be written directly to
+ * The output is a valid encrypted NCA that can be written directly to
  * Nintendo Switch content storage (NCM placeholder).
+ *
+ * Writing directly to a `WritableStream` provides natural backpressure,
+ * which is critical on memory-constrained devices like the Nintendo Switch.
+ *
+ * The `createSink` callback receives the actual NCA size (derived from NCZ
+ * metadata) and must return a `WritableStream` to receive the data. This
+ * allows the caller to create a correctly-sized placeholder before writing.
  *
  * Since zstd decompression is not universally available via the same API across
  * runtimes, the caller must provide the decompression functions via `options`.
  *
- * @example
- * ```ts
- * // nx.js runtime (has DecompressionStream('zstd'))
- * const result = await decompressNcz(blob, {
- *   decompressStream: (input) =>
- *     input.pipeThrough(new DecompressionStream('zstd')),
- *   decompressBlob: async (blob) => {
- *     const ds = new DecompressionStream('zstd');
- *     const reader = blob.stream().pipeThrough(ds).getReader();
- *     const chunks = [];
- *     let total = 0;
- *     for (;;) {
- *       const { done, value } = await reader.read();
- *       if (done) break;
- *       chunks.push(value);
- *       total += value.length;
- *     }
- *     const out = new Uint8Array(total);
- *     let off = 0;
- *     for (const c of chunks) { out.set(c, off); off += c.length; }
- *     return out;
- *   },
- * });
- * ```
- *
  * @param blob The NCZ file data.
+ * @param createSink Called with the decompressed NCA size; must return a `WritableStream`.
  * @param options Configuration including zstd decompressor functions and optional `Crypto` override.
  */
 export async function decompressNcz(
 	blob: Blob,
+	createSink: (ncaSize: bigint) => WritableStream<Uint8Array>,
 	options: NczOptions,
 ): Promise<NczResult> {
 	const cryptoProvider = options.crypto ?? globalThis.crypto;
@@ -275,218 +257,200 @@ export async function decompressNcz(
 
 	// 6. Build the output ReadableStream
 	const subtle = cryptoProvider.subtle;
-	const stream = new ReadableStream<Uint8Array>({
-		async start(controller) {
-			// Emit the NCA header as-is (encrypted)
-			controller.enqueue(new Uint8Array(ncaHeaderBuf));
+	// Create the sink now that we know the NCA size, and get a writer
+	const writer = createSink(ncaSize).getWriter();
 
-			// Track position in the NCA (absolute offset).
-			// Starts after the header since we already emitted it.
-			let written = BigInt(NCZ_HEADER_SIZE);
+	// Write the NCA header as-is (encrypted)
+	await writer.write(new Uint8Array(ncaHeaderBuf));
 
-			// Import all section AES keys upfront
-			const sectionKeys: (CryptoKey | null)[] = [];
-			for (const section of sections) {
-				if (section.cryptoType >= BigInt(ENCRYPTION_TYPE_AES_CTR)) {
-					const key = await subtle.importKey(
-						'raw',
-						section.key.buffer as ArrayBuffer,
-						{ name: 'AES-CTR' },
-						false,
-						['encrypt'],
-					);
-					sectionKeys.push(key);
-				} else {
-					sectionKeys.push(null);
-				}
-			}
+	// Track position in the NCA (absolute offset).
+	// Starts after the header since we already emitted it.
+	let written = BigInt(NCZ_HEADER_SIZE);
 
-			/**
-			 * Find the section covering the given NCA body offset and
-			 * return a CryptoKey + counter for AES-CTR re-encryption.
-			 */
-			function findSection(offset: bigint) {
-				for (let i = 0; i < sections.length; i++) {
-					const s = sections[i];
-					if (offset >= s.offset && offset < s.offset + s.size) {
-						return { section: s, key: sectionKeys[i], index: i };
-					}
-				}
-				throw new Error(`NCZ: no section found for offset ${offset}`);
-			}
-
-			// Reusable counter buffer for AES-CTR
-			const counterBuf = new Uint8Array(16);
-			const counterView = new DataView(
-				counterBuf.buffer,
-				counterBuf.byteOffset,
-				counterBuf.byteLength,
+	// Import all section AES keys upfront
+	const sectionKeys: (CryptoKey | null)[] = [];
+	for (const section of sections) {
+		if (section.cryptoType >= BigInt(ENCRYPTION_TYPE_AES_CTR)) {
+			const key = await subtle.importKey(
+				'raw',
+				section.key.buffer as ArrayBuffer,
+				{ name: 'AES-CTR' },
+				false,
+				['encrypt'],
 			);
+			sectionKeys.push(key);
+		} else {
+			sectionKeys.push(null);
+		}
+	}
 
-			/**
-			 * Re-encrypt a chunk of decompressed NCA body data in-place
-			 * at the given NCA offset using the appropriate section's
-			 * AES-CTR key. Modifies `data` directly to avoid extra
-			 * allocations on memory-constrained devices.
-			 */
-			async function reencrypt(
-				data: Uint8Array,
-				ncaOffset: bigint,
-			): Promise<void> {
-				let dataOff = 0;
+	/**
+	 * Find the section covering the given NCA body offset and
+	 * return a CryptoKey + counter for AES-CTR re-encryption.
+	 */
+	function findSection(offset: bigint) {
+		for (let i = 0; i < sections.length; i++) {
+			const s = sections[i];
+			if (offset >= s.offset && offset < s.offset + s.size) {
+				return { section: s, key: sectionKeys[i], index: i };
+			}
+		}
+		throw new Error(`NCZ: no section found for offset ${offset}`);
+	}
 
-				while (dataOff < data.length) {
-					const currentOffset = ncaOffset + BigInt(dataOff);
-					const { section, key } = findSection(currentOffset);
+	// Reusable counter buffer for AES-CTR
+	const counterBuf = new Uint8Array(16);
+	const counterView = new DataView(
+		counterBuf.buffer,
+		counterBuf.byteOffset,
+		counterBuf.byteLength,
+	);
 
-					// How much of this chunk falls within the current section
-					const sectionEnd = section.offset + section.size;
-					const remaining = Number(sectionEnd - currentOffset);
-					const chunkLen = Math.min(remaining, data.length - dataOff);
+	/**
+	 * Re-encrypt a chunk of decompressed NCA body data in-place
+	 * at the given NCA offset using the appropriate section's
+	 * AES-CTR key. Modifies `data` directly to avoid extra
+	 * allocations on memory-constrained devices.
+	 */
+	async function reencrypt(data: Uint8Array, ncaOffset: bigint): Promise<void> {
+		let dataOff = 0;
 
-					if (key && section.cryptoType >= BigInt(ENCRYPTION_TYPE_AES_CTR)) {
-						// Build the AES-CTR counter for this offset.
-						// First 8 bytes: from section counter.
-						// Last 8 bytes: big-endian AES block number (offset >> 4).
-						counterBuf.set(section.counter.subarray(0, 8), 0);
-						const blockNum = currentOffset >> 4n;
-						counterView.setBigUint64(8, blockNum, false);
+		while (dataOff < data.length) {
+			const currentOffset = ncaOffset + BigInt(dataOff);
+			const { section, key } = findSection(currentOffset);
 
-						const encrypted = await subtle.encrypt(
-							{
-								name: 'AES-CTR',
-								counter: counterBuf,
-								length: 128,
-							},
-							key,
-							data.buffer.slice(
-								data.byteOffset + dataOff,
-								data.byteOffset + dataOff + chunkLen,
-							) as ArrayBuffer,
-						);
-						// Copy encrypted result back into data in-place
-						data.set(new Uint8Array(encrypted), dataOff);
-					}
-					// else: no encryption needed, data stays as-is
+			// How much of this chunk falls within the current section
+			const sectionEnd = section.offset + section.size;
+			const remaining = Number(sectionEnd - currentOffset);
+			const chunkLen = Math.min(remaining, data.length - dataOff);
 
-					dataOff += chunkLen;
+			if (key && section.cryptoType >= BigInt(ENCRYPTION_TYPE_AES_CTR)) {
+				// Build the AES-CTR counter for this offset.
+				// First 8 bytes: from section counter.
+				// Last 8 bytes: big-endian AES block number (offset >> 4).
+				counterBuf.set(section.counter.subarray(0, 8), 0);
+				const blockNum = currentOffset >> 4n;
+				counterView.setBigUint64(8, blockNum, false);
+
+				const encrypted = await subtle.encrypt(
+					{
+						name: 'AES-CTR',
+						counter: counterBuf,
+						length: 128,
+					},
+					key,
+					data.buffer.slice(
+						data.byteOffset + dataOff,
+						data.byteOffset + dataOff + chunkLen,
+					) as ArrayBuffer,
+				);
+				// Copy encrypted result back into data in-place
+				data.set(new Uint8Array(encrypted), dataOff);
+			}
+			// else: no encryption needed, data stays as-is
+
+			dataOff += chunkLen;
+		}
+	}
+
+	if (blocks.length > 0 && blockHeader) {
+		// Block mode: decompress each block individually
+		if (!options.decompressBlob) {
+			throw new Error(
+				'NCZ block mode requires a `decompressBlob` function in options',
+			);
+		}
+
+		const decompressedBlockSize = 1 << blockHeader.blockSizeExponent;
+
+		for (let i = 0; i < blocks.length; i++) {
+			const block = blocks[i];
+
+			// Determine expected decompressed size for this block
+			let expectedSize = decompressedBlockSize;
+			if (i === blocks.length - 1) {
+				// Last block may be smaller
+				const remainder = Number(
+					blockHeader.decompressedSize % BigInt(decompressedBlockSize),
+				);
+				if (remainder !== 0) {
+					expectedSize = remainder;
 				}
 			}
 
-			try {
-				if (blocks.length > 0 && blockHeader) {
-					// Block mode: decompress each block individually
-					if (!options.decompressBlob) {
-						throw new Error(
-							'NCZ block mode requires a `decompressBlob` function in options',
-						);
-					}
+			// Is this block actually compressed?
+			const isCompressed = block.size < expectedSize;
 
-					const decompressedBlockSize = 1 << blockHeader.blockSizeExponent;
+			const blockBlob = blob.slice(block.offset, block.offset + block.size);
 
-					for (let i = 0; i < blocks.length; i++) {
-						const block = blocks[i];
-
-						// Determine expected decompressed size for this block
-						let expectedSize = decompressedBlockSize;
-						if (i === blocks.length - 1) {
-							// Last block may be smaller
-							const remainder = Number(
-								blockHeader.decompressedSize % BigInt(decompressedBlockSize),
-							);
-							if (remainder !== 0) {
-								expectedSize = remainder;
-							}
-						}
-
-						// Is this block actually compressed?
-						const isCompressed = block.size < expectedSize;
-
-						const blockBlob = blob.slice(
-							block.offset,
-							block.offset + block.size,
-						);
-
-						let decompressed: Uint8Array;
-						if (isCompressed) {
-							decompressed = await options.decompressBlob(blockBlob);
-						} else {
-							// Block is stored uncompressed
-							decompressed = new Uint8Array(await blockBlob.arrayBuffer());
-						}
-
-						// Re-encrypt in-place and emit
-						await reencrypt(decompressed, written);
-						controller.enqueue(decompressed);
-						written += BigInt(decompressed.length);
-					}
-				} else {
-					// Stream mode: entire compressed body is one zstd stream
-					if (!options.decompressStream) {
-						throw new Error(
-							'NCZ stream mode requires a `decompressStream` function in options',
-						);
-					}
-
-					const compressedBlob = blob.slice(compressedDataOffset);
-					const decompressedStream = options.decompressStream(
-						compressedBlob.stream(),
-					);
-
-					const reader = decompressedStream.getReader();
-					// Accumulate decompressed data into fixed-size chunks,
-					// re-encrypt in-place, and emit. Use a modest buffer
-					// size to limit peak memory on constrained devices.
-					const FLUSH_SIZE = 512 * 1024; // 512KB
-					let accumulator = new Uint8Array(FLUSH_SIZE);
-					let accOffset = 0;
-
-					for (;;) {
-						const { done, value } = await reader.read();
-						if (done) break;
-
-						let srcOff = 0;
-						while (srcOff < value.length) {
-							const copyLen = Math.min(
-								value.length - srcOff,
-								FLUSH_SIZE - accOffset,
-							);
-							accumulator.set(
-								value.subarray(srcOff, srcOff + copyLen),
-								accOffset,
-							);
-							accOffset += copyLen;
-							srcOff += copyLen;
-
-							if (accOffset >= FLUSH_SIZE) {
-								// Re-encrypt in-place then enqueue a copy
-								// (the accumulator is reused for the next chunk)
-								const chunk = accumulator.slice(0, accOffset);
-								await reencrypt(chunk, written);
-								controller.enqueue(chunk);
-								written += BigInt(accOffset);
-								accOffset = 0;
-							}
-						}
-					}
-
-					// Flush remaining
-					if (accOffset > 0) {
-						const chunk = accumulator.slice(0, accOffset);
-						await reencrypt(chunk, written);
-						controller.enqueue(chunk);
-						written += BigInt(accOffset);
-					}
-				}
-
-				controller.close();
-			} catch (err) {
-				controller.error(err);
+			let decompressed: Uint8Array;
+			if (isCompressed) {
+				decompressed = await options.decompressBlob(blockBlob);
+			} else {
+				// Block is stored uncompressed
+				decompressed = new Uint8Array(await blockBlob.arrayBuffer());
 			}
-		},
-	});
 
-	return { ncaSize, stream, sections, blockHeader };
+			// Re-encrypt in-place and write with backpressure
+			await reencrypt(decompressed, written);
+			await writer.write(decompressed);
+			written += BigInt(decompressed.length);
+		}
+	} else {
+		// Stream mode: entire compressed body is one zstd stream
+		if (!options.decompressStream) {
+			throw new Error(
+				'NCZ stream mode requires a `decompressStream` function in options',
+			);
+		}
+
+		const compressedBlob = blob.slice(compressedDataOffset);
+		const decompressedStream = options.decompressStream(
+			compressedBlob.stream(),
+		);
+
+		const reader = decompressedStream.getReader();
+		// Accumulate decompressed data into fixed-size chunks,
+		// re-encrypt in-place, and write with backpressure.
+		const FLUSH_SIZE = 512 * 1024; // 512KB
+		const accumulator = new Uint8Array(FLUSH_SIZE);
+		let accOffset = 0;
+
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+
+			let srcOff = 0;
+			while (srcOff < value.length) {
+				const copyLen = Math.min(value.length - srcOff, FLUSH_SIZE - accOffset);
+				accumulator.set(value.subarray(srcOff, srcOff + copyLen), accOffset);
+				accOffset += copyLen;
+				srcOff += copyLen;
+
+				if (accOffset >= FLUSH_SIZE) {
+					// Re-encrypt the accumulator in-place, then write
+					// a copy (accumulator is reused for the next chunk).
+					const chunk = accumulator.slice(0, accOffset);
+					await reencrypt(chunk, written);
+					await writer.write(chunk);
+					written += BigInt(accOffset);
+					accOffset = 0;
+				}
+			}
+		}
+
+		// Flush remaining
+		if (accOffset > 0) {
+			const chunk = accumulator.slice(0, accOffset);
+			await reencrypt(chunk, written);
+			await writer.write(chunk);
+			written += BigInt(accOffset);
+		}
+	}
+
+	await writer.close();
+
+	return { ncaSize, sections, blockHeader };
 }
 
 /**
