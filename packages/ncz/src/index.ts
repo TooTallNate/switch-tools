@@ -280,9 +280,9 @@ export async function decompressNcz(
 			// Emit the NCA header as-is (encrypted)
 			controller.enqueue(new Uint8Array(ncaHeaderBuf));
 
-			// Track how many decompressed body bytes we've written
-			// (relative to the NCA body, i.e. after the 0x4000 header)
-			let written = 0n;
+			// Track position in the NCA (absolute offset).
+			// Starts after the header since we already emitted it.
+			let written = BigInt(NCZ_HEADER_SIZE);
 
 			// Import all section AES keys upfront
 			const sectionKeys: (CryptoKey | null)[] = [];
