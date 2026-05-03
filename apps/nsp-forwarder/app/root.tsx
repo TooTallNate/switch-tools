@@ -31,6 +31,7 @@ export const meta: MetaFunction = () => [
 
 export const links: LinksFunction = () => {
 	return [
+		{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
 		{ rel: 'stylesheet', href: tailwindStyles },
 		{ rel: 'stylesheet', href: rootStyles },
 		{ rel: 'stylesheet', href: headerStyles },
