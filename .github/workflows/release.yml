@@ -31,12 +31,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.x
+          # Node 24 ships an npm version that supports trusted publishing.
+          # Don't bump back to 22.x without restoring the `npm install -g
+          # npm@latest` step (which has its own breakage on the hosted
+          # tool-cache image — missing promise-retry after self-update).
+          node-version: 24.x
           cache: "pnpm"
           registry-url: "https://registry.npmjs.org"
-
-      - name: Update npm to latest
-        run: npm install -g npm@latest
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
