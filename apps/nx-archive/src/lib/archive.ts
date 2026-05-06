@@ -310,12 +310,12 @@ export async function buildRootNode(
 		case 'RomFS':
 			return makeRomfsNode(id, displayName, blob);
 		case 'ZIP':
-			return makeZipNode(id, displayName, blob);
+			return makeZipNode(id, displayName, blob, ctx);
 		case 'SARC':
-			return makeSarcNode(id, displayName, blob);
+			return makeSarcNode(id, displayName, blob, ctx);
 		case 'SZS':
 		case 'YAZ0':
-			return makeSzsNode(id, displayName, blob);
+			return makeSzsNode(id, displayName, blob, ctx);
 		case 'LZ4':
 			return makeLz4Node(id, displayName, blob, ctx);
 		default:
@@ -970,7 +970,12 @@ function romfsEntriesToNodes(parentId: string, dir: RomFsEntry): Node[] {
 
 // ----- ZIP -----
 
-function makeZipNode(id: string, name: string, blob: Blob): Node {
+function makeZipNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
 	return {
 		id,
 		name,
@@ -981,7 +986,24 @@ function makeZipNode(id: string, name: string, blob: Blob): Node {
 		blob: async () => blob,
 		getChildren: async () => {
 			const zip = await parseZip(blob);
-			return zipEntriesToNodes(id, zip.entries);
+			// Build a tikMap from any `.tik` entries anywhere in the
+			// archive, so an NCA buried inside the ZIP can still
+			// decrypt with its matching titlekey if a sibling
+			// ticket is present (mirrors the NSP / HFS0 / folder
+			// behaviour elsewhere). ZIP entry data is async, so we
+			// resolve the .tik blobs eagerly here — there are
+			// usually only one or two and they're tiny.
+			const tikInputs = await Promise.all(
+				zip.entries
+					.filter(
+						(e) =>
+							!e.isDirectory &&
+							e.name.toLowerCase().endsWith('.tik'),
+					)
+					.map(async (e) => [e.name, { data: await e.data() }] as const),
+			);
+			const tikMap = await buildTikMap(tikInputs);
+			return zipEntriesToNodes(id, zip.entries, ctx, tikMap);
 		},
 	};
 }
@@ -996,7 +1018,12 @@ function makeZipNode(id: string, name: string, blob: Blob): Node {
  * Mirrors the RomFS sort order: directories first, then files,
  * alphabetised within each group.
  */
-function zipEntriesToNodes(parentId: string, entries: ZipEntry[]): Node[] {
+async function zipEntriesToNodes(
+	parentId: string,
+	entries: ZipEntry[],
+	ctx: ArchiveContext,
+	tikMap: TikMap,
+): Promise<Node[]> {
 	type Tree = Map<string, { dir?: Tree; file?: ZipEntry }>;
 	const root: Tree = new Map();
 	for (const entry of entries) {
@@ -1020,49 +1047,160 @@ function zipEntriesToNodes(parentId: string, entries: ZipEntry[]): Node[] {
 		}
 	}
 
-	const treeToNodes = (treeId: string, t: Tree): Node[] => {
-		const out: Node[] = [];
+	const treeToNodes = async (
+		treeId: string,
+		t: Tree,
+	): Promise<Node[]> => {
 		const names = [...t.keys()].sort((a, b) => {
 			const aIsDir = !!t.get(a)!.dir;
 			const bIsDir = !!t.get(b)!.dir;
 			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
 			return a.localeCompare(b);
 		});
-		for (const name of names) {
-			const child = t.get(name)!;
-			const childId = `${treeId}/${name}`;
-			if (child.dir) {
-				const subNodes = treeToNodes(childId, child.dir);
-				out.push({
-					id: childId,
+		// `childNodeFor` is sync object construction for typical
+		// leaves; the actual blob read only happens when the user
+		// expands or opens the inner node. So we can resolve the
+		// whole tree level synchronously by wrapping each entry's
+		// data in a lazy `Blob` facade — no inflation occurs until
+		// something actually reads the bytes.
+		return Promise.all(
+			names.map(async (name): Promise<Node> => {
+				const child = t.get(name)!;
+				const childId = `${treeId}/${name}`;
+				if (child.dir) {
+					const subNodes = await treeToNodes(childId, child.dir);
+					return {
+						id: childId,
+						name,
+						kind: 'directory',
+						isContainer: true,
+						format: 'directory',
+						getChildren: async () => subNodes,
+					};
+				}
+				const file = child.file!;
+				// Route through childNodeFor so nested formats
+				// (NRO/NSP/NCA/SARC/LZ4/etc.) become traversable
+				// inside the ZIP, exactly as they would be inside a
+				// folder, NSP, or HFS0.
+				return childNodeFor(
+					childId,
 					name,
-					kind: 'directory',
-					isContainer: true,
-					format: 'directory',
-					getChildren: async () => subNodes,
-				});
-			} else if (child.file) {
-				const file = child.file;
-				out.push({
-					id: childId,
-					name,
-					kind: 'file',
-					isContainer: false,
-					size: file.size,
-					format: detectFormat(name) || 'BIN',
-					blob: file.data,
-				});
-			}
-		}
-		return out;
+					lazyBlobFromZip(file),
+					ctx,
+					tikMap,
+				);
+			}),
+		);
 	};
 
 	return treeToNodes(parentId, root);
 }
 
+/**
+ * Wrap a `ZipEntry` in a lazy `Blob` facade — synchronous `.size`,
+ * lazy + memoised `.arrayBuffer()` / `.slice()`. The underlying
+ * `entry.data()` only fires on first byte-level access, and the
+ * inflated result is cached so repeated reads (e.g. from `.size`
+ * of a slice + a separate `.arrayBuffer()`) don't re-inflate.
+ *
+ * For STORED entries the ZIP parser's `data()` already returns a
+ * direct slice of the source blob — zero copy. For DEFLATE entries
+ * this triggers a one-shot in-memory inflate.
+ */
+function lazyBlobFromZip(entry: ZipEntry): Blob {
+	let cached: Promise<Blob> | null = null;
+	const resolve = () => {
+		if (!cached) cached = entry.data();
+		return cached;
+	};
+	return makeLazyBlob(entry.size, resolve);
+}
+
+/**
+ * Build a synchronous `Blob`-shaped facade backed by an async
+ * resolver. The returned object reports `size` immediately and
+ * forwards every other operation (`arrayBuffer`, `text`, `slice`,
+ * `stream`) to the resolved real `Blob`.
+ *
+ * We use this whenever we want a `Blob`-typed value before we
+ * actually have one — most prominently for ZIP entries (where
+ * inflation is async) but also for any other deferred-data source.
+ *
+ * Note: `slice()` returns another lazy facade, so chained slices
+ * still don't trigger resolution until something reads bytes.
+ */
+function makeLazyBlob(size: number, resolve: () => Promise<Blob>): Blob {
+	const facade = {
+		size,
+		type: '',
+		async arrayBuffer() {
+			return (await resolve()).arrayBuffer();
+		},
+		async bytes() {
+			const blob = await resolve();
+			// Some browsers expose `Blob.prototype.bytes()`. Fall
+			// back to arrayBuffer for the rest.
+			return typeof (blob as Blob & { bytes?: () => Promise<Uint8Array> })
+				.bytes === 'function'
+				? (blob as Blob & { bytes: () => Promise<Uint8Array> }).bytes()
+				: new Uint8Array(await blob.arrayBuffer());
+		},
+		async text() {
+			return (await resolve()).text();
+		},
+		stream() {
+			// Stream from the resolved blob. `ReadableStream` allows
+			// async start, so this is just a thin pump.
+			return new ReadableStream<Uint8Array>({
+				async start(controller) {
+					try {
+						const blob = await resolve();
+						const r = blob.stream().getReader();
+						for (;;) {
+							const { value, done } = await r.read();
+							if (done) break;
+							controller.enqueue(value);
+						}
+						controller.close();
+					} catch (e) {
+						controller.error(e);
+					}
+				},
+			});
+		},
+		slice(start?: number, end?: number, contentType?: string) {
+			// Chain lazily: the slice resolver awaits ours, then
+			// slices the real blob. Slices remember their declared
+			// size up-front so callers (e.g. NCA header readers)
+			// can introspect it without forcing a read.
+			const s = clampInt(start ?? 0);
+			const e = clampInt(end ?? size);
+			const lo = Math.min(Math.max(s < 0 ? size + s : s, 0), size);
+			const hi = Math.min(Math.max(e < 0 ? size + e : e, lo), size);
+			return makeLazyBlob(hi - lo, async () => {
+				const blob = await resolve();
+				return blob.slice(lo, hi, contentType);
+			});
+		},
+	};
+	// Pretend it's a Blob so consumers using `: Blob` types accept it.
+	return facade as unknown as Blob;
+}
+
+function clampInt(n: number): number {
+	if (!Number.isFinite(n)) return 0;
+	return n | 0;
+}
+
 // ----- SARC -----
 
-function makeSarcNode(id: string, name: string, blob: Blob): Node {
+function makeSarcNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
 	return {
 		id,
 		name,
@@ -1073,7 +1211,7 @@ function makeSarcNode(id: string, name: string, blob: Blob): Node {
 		blob: async () => blob,
 		getChildren: async () => {
 			const parsed = await parseSarc(blob);
-			return sarcEntriesToNodes(id, parsed.entries);
+			return sarcEntriesToNodes(id, parsed.entries, ctx);
 		},
 	};
 }
@@ -1084,7 +1222,11 @@ function makeSarcNode(id: string, name: string, blob: Blob): Node {
  * SARC names are also full paths, just without explicit directory
  * markers.
  */
-function sarcEntriesToNodes(parentId: string, entries: SarcEntry[]): Node[] {
+async function sarcEntriesToNodes(
+	parentId: string,
+	entries: SarcEntry[],
+	ctx: ArchiveContext,
+): Promise<Node[]> {
 	type Tree = Map<string, { dir?: Tree; file?: SarcEntry }>;
 	const root: Tree = new Map();
 	for (const entry of entries) {
@@ -1108,42 +1250,39 @@ function sarcEntriesToNodes(parentId: string, entries: SarcEntry[]): Node[] {
 		}
 	}
 
-	const treeToNodes = (treeId: string, t: Tree): Node[] => {
-		const out: Node[] = [];
+	const treeToNodes = async (
+		treeId: string,
+		t: Tree,
+	): Promise<Node[]> => {
 		const names = [...t.keys()].sort((a, b) => {
 			const aIsDir = !!t.get(a)!.dir;
 			const bIsDir = !!t.get(b)!.dir;
 			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
 			return a.localeCompare(b);
 		});
-		for (const name of names) {
-			const child = t.get(name)!;
-			const childId = `${treeId}/${name}`;
-			if (child.dir) {
-				const subNodes = treeToNodes(childId, child.dir);
-				out.push({
-					id: childId,
-					name,
-					kind: 'directory',
-					isContainer: true,
-					format: 'directory',
-					getChildren: async () => subNodes,
-				});
-			} else if (child.file) {
-				const file = child.file;
-				const innerData = file.data;
-				out.push({
-					id: childId,
-					name,
-					kind: 'file',
-					isContainer: false,
-					size: file.size,
-					format: detectFormat(name) || 'BIN',
-					blob: async () => innerData,
-				});
-			}
-		}
-		return out;
+		return Promise.all(
+			names.map(async (name): Promise<Node> => {
+				const child = t.get(name)!;
+				const childId = `${treeId}/${name}`;
+				if (child.dir) {
+					const subNodes = await treeToNodes(childId, child.dir);
+					return {
+						id: childId,
+						name,
+						kind: 'directory',
+						isContainer: true,
+						format: 'directory',
+						getChildren: async () => subNodes,
+					};
+				}
+				const file = child.file!;
+				// Route through childNodeFor so nested NRO / SARC /
+				// LZ4 / etc. become traversable inside the SARC.
+				// SARC entries already are real Blob slices so the
+				// data is genuinely lazy without any facade.
+				return childNodeFor(childId, name, file.data, ctx);
+			}),
+		);
 	};
 
 	return treeToNodes(parentId, root);
@@ -1160,7 +1299,12 @@ function sarcEntriesToNodes(parentId: string, entries: SarcEntry[]): Node[] {
  * case `parseSarc` will throw and we fall back to a single-file
  * representation of the decompressed payload.
  */
-function makeSzsNode(id: string, name: string, blob: Blob): Node {
+function makeSzsNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
 	let cached: Promise<Blob> | null = null;
 	const decompressOnce = () => {
 		if (!cached) cached = decompressYaz0(blob);
@@ -1181,21 +1325,21 @@ function makeSzsNode(id: string, name: string, blob: Blob): Node {
 			const inner = await decompressOnce();
 			try {
 				const parsed = await parseSarc(inner);
-				return sarcEntriesToNodes(id, parsed.entries);
+				return sarcEntriesToNodes(id, parsed.entries, ctx);
 			} catch {
-				// Standalone Yaz0 (no SARC inside) — show the
-				// decompressed file as a single child so the user can
-				// still preview / download it.
+				// Standalone Yaz0 (no SARC inside) — route the
+				// decompressed payload through `childNodeFor` so the
+				// inner format (NRO / NSP / etc.) becomes traversable
+				// even when wrapped in a bare Yaz0 stream.
+				const innerName =
+					name.replace(/\.szs$/i, '') || 'decompressed';
 				return [
-					{
-						id: `${id}/decompressed`,
-						name: name.replace(/\.szs$/i, '') || 'decompressed',
-						kind: 'file',
-						isContainer: false,
-						size: inner.size,
-						format: detectFormat(name.replace(/\.szs$/i, '')) || 'BIN',
-						blob: async () => inner,
-					},
+					await childNodeFor(
+						`${id}/${innerName}`,
+						innerName,
+						inner,
+						ctx,
+					),
 				];
 			}
 		},
@@ -1270,9 +1414,9 @@ async function childNodeFor(
 	if (ext === 'pfs0') return makePfs0Node(id, name, blob, ctx, 'PFS0');
 	if (ext === 'hfs0') return makeHfs0Node(id, name, blob, ctx);
 	if (ext === 'xci') return makeXciNode(id, name, blob, ctx);
-	if (ext === 'zip') return makeZipNode(id, name, blob);
-	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob);
-	if (ext === 'szs') return makeSzsNode(id, name, blob);
+	if (ext === 'zip') return makeZipNode(id, name, blob, ctx);
+	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob, ctx);
+	if (ext === 'szs') return makeSzsNode(id, name, blob, ctx);
 	if (ext === 'lz4') return makeLz4Node(id, name, blob, ctx);
 	// Some 1st-party games hide Yaz0+SARC behind Nintendo-internal
 	// extensions like `.sbeventpack`, `.sbactorpack`, `.sbgdata`, etc.
@@ -1281,7 +1425,7 @@ async function childNodeFor(
 	// sniff, but that would require an async read for every leaf
 	// file, which is too expensive — exts cover ~99% of real cases.
 	if (ext.length > 1 && ext.startsWith('s') && SARC_LIKE_SUFFIXES.has(ext.slice(1))) {
-		return makeSzsNode(id, name, blob);
+		return makeSzsNode(id, name, blob, ctx);
 	}
 
 	// Generic file
