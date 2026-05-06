@@ -50,13 +50,13 @@ import {
   buildHexDump,
   detectPreviewKind,
   extOf,
-  parseBfttfForView,
+  parseFontForView,
   parseCnmtForView,
   parseNacpForView,
   parseNpdmForView,
   parseNroForView,
   parseNsoForView,
-  type BfttfView,
+  type FontView,
   type CnmtView,
   type NacpView,
   type NpdmView,
@@ -786,7 +786,8 @@ function FilePreview({ node, kind }: { node: Node; kind: PreviewKind }) {
     case "npdm-info":
       return <NpdmPreview node={node} />
     case "bfttf-info":
-      return <BfttfPreview node={node} />
+    case "font-info":
+      return <FontPreview node={node} />
     case "hex":
     default:
       return <HexPreview node={node} />
@@ -1533,8 +1534,16 @@ function NpdmKernelDescriptorRow({
 }
 
 // =============================================================================
-// BFTTF (Switch system font) preview
+// Font preview (TTF / OTF / BFTTF / BFOTF)
 // =============================================================================
+//
+// Single component handles plain `.ttf` / `.otf` / `.ttc` and Switch's
+// obfuscated `.bfttf` / `.bfotf` wrappers. The shared logic — read the
+// sfnt name table, register the bytes with the browser via the CSS Font
+// Loading API, render sample text in the actual font — is identical;
+// only the section header label, the optional "deobfuscated" container
+// block, and the "Download as .ttf" export button differ between the
+// two paths.
 
 const FONT_SAMPLE_LATIN =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789  !@#$%&*()_+-=[]{};':\",./<>?"
@@ -1542,14 +1551,15 @@ const FONT_SAMPLE_PANGRAM = "The quick brown fox jumps over the lazy dog."
 const FONT_SAMPLE_CJK = "永远的世界 — 永遠の世界 — 영원한 세계"
 const FONT_SAMPLE_PUNCTUATION = "→ ← ↑ ↓  ✓ ✗ ⓘ ★ ☆  ¡ ¿ § ¶ † ‡  “ ” ‘ ’ « »"
 
-function BfttfPreview({ node }: { node: Node }) {
+function FontPreview({ node }: { node: Node }) {
   const { loading, data, error } = useAsync(async () => {
-    return parseBfttfForView(await node.blob!())
+    return parseFontForView(await node.blob!())
   }, [node.id])
 
-  // Once we have the deobfuscated font bytes, register them with the
-  // browser via the CSS Font Loading API under a unique family name and
-  // render the sample text below using that family.
+  // Once we have the font bytes, register them with the browser via
+  // the CSS Font Loading API under a unique family name and render
+  // sample text below using that family. Each loaded font gets its
+  // own family so multiple previews can coexist.
   const [fontFamily, setFontFamily] = useState<string | null>(null)
   const [fontError, setFontError] = useState<string | null>(null)
   useEffect(() => {
@@ -1560,12 +1570,10 @@ function BfttfPreview({ node }: { node: Node }) {
     }
     let cancelled = false
     let registered: FontFace | null = null
-    // Each loaded font gets a unique family name so multiple BFTTF
-    // previews don't stomp on each other.
     const family = `nx-archive-font-${Math.random().toString(36).slice(2, 10)}`
     ;(async () => {
       try {
-        const buf = await data.parsed.font.arrayBuffer()
+        const buf = await data.font.arrayBuffer()
         const face = new FontFace(family, buf)
         await face.load()
         if (cancelled) return
@@ -1588,9 +1596,9 @@ function BfttfPreview({ node }: { node: Node }) {
   if (error) return <ErrorFiller error={error} />
   const v = data!
   const formatLabel =
-    v.parsed.format === "ttf"
+    v.format === "ttf"
       ? "TrueType"
-      : v.parsed.format === "otf"
+      : v.format === "otf"
         ? "OpenType (CFF)"
         : "Unknown sfnt"
 
@@ -1603,10 +1611,14 @@ function BfttfPreview({ node }: { node: Node }) {
       .join(" ") ||
     node.name
 
+  const sectionTitle = v.wasObfuscated
+    ? "BFTTF — Switch system font"
+    : `${formatLabel} font`
+
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-5 p-5">
-        <SectionHeader title="BFTTF — Switch system font" />
+        <SectionHeader title={sectionTitle} />
 
         <KvBlock title="Font">
           <KvRow k="Display name" v={displayName} />
@@ -1628,13 +1640,18 @@ function BfttfPreview({ node }: { node: Node }) {
           )}
         </KvBlock>
 
-        <KvBlock title="Container">
+        <KvBlock title={v.wasObfuscated ? "Container" : "File"}>
           <KvRow k="Format" v={formatLabel} />
-          <KvRow k="Original size" v={formatBytes(v.parsed.size)} />
           <KvRow
-            k="Header size check"
-            v={v.parsed.headerSizeOk ? "ok" : "mismatch (still extracted)"}
+            k={v.wasObfuscated ? "Original size" : "Size"}
+            v={formatBytes(v.size)}
           />
+          {v.wasObfuscated && (
+            <KvRow
+              k="Header size check"
+              v={v.headerSizeOk ? "ok" : "mismatch (still extracted)"}
+            />
+          )}
         </KvBlock>
 
         {/* Live sample with the loaded font */}
@@ -1702,30 +1719,35 @@ function BfttfPreview({ node }: { node: Node }) {
           )}
         </section>
 
-        {/* Two-button download row */}
-        <section className="flex flex-col gap-2">
-          <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-            Export
-          </h3>
-          <div className="flex flex-wrap gap-2">
-            <BfttfDownloadAsTtfButton node={node} parsed={v.parsed} />
-          </div>
-        </section>
+        {/* For BFTTF inputs, offer an explicit deobfuscated-export
+            button. Plain TTF / OTF inputs already have the standard
+            "Download" button in the header — no separate export
+            section needed since the bytes are identical. */}
+        {v.wasObfuscated && (
+          <section className="flex flex-col gap-2">
+            <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+              Export
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              <FontDownloadAsTtfButton node={node} view={v} />
+            </div>
+          </section>
+        )}
       </div>
     </ScrollArea>
   )
 }
 
-function BfttfDownloadAsTtfButton({
+function FontDownloadAsTtfButton({
   node,
-  parsed,
+  view,
 }: {
   node: Node
-  parsed: BfttfView["parsed"]
+  view: FontView
 }) {
   const [busy, setBusy] = useState(false)
   // Strip the .bfttf / .bfotf extension and replace with .ttf / .otf.
-  const ext = parsed.format === "otf" ? "otf" : "ttf"
+  const ext = view.format === "otf" ? "otf" : "ttf"
   const stripped = node.name.replace(/\.(bfttf|bfotf)$/i, "")
   const fileName = `${stripped}.${ext}`
 
@@ -1734,7 +1756,7 @@ function BfttfDownloadAsTtfButton({
     setBusy(true)
     const id = toast.loading(`Preparing ${fileName}…`)
     try {
-      const url = URL.createObjectURL(parsed.font)
+      const url = URL.createObjectURL(view.font)
       const a = document.createElement("a")
       a.href = url
       a.download = fileName

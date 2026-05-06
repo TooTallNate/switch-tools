@@ -29,6 +29,7 @@ export type PreviewKind =
 	| 'nso-info'
 	| 'npdm-info'
 	| 'bfttf-info'
+	| 'font-info'
 	| 'hex';
 
 export const TEXT_EXTS = new Set([
@@ -143,6 +144,8 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.npdm') || lower === 'main.npdm') return 'npdm-info';
 	if (lower.endsWith('.nso') || NSO_BARE_NAMES.has(lower)) return 'nso-info';
 	if (lower.endsWith('.bfttf') || lower.endsWith('.bfotf')) return 'bfttf-info';
+	if (lower.endsWith('.ttf') || lower.endsWith('.otf') || lower.endsWith('.ttc') || lower.endsWith('.otc'))
+		return 'font-info';
 	// Switch app icons (in Control NCA RomFS) are JPEGs with a `.dat` ext.
 	if (/^icon_.*\.dat$/.test(lower)) return 'image';
 	const ext = extOf(name);
@@ -441,8 +444,41 @@ export async function parseNpdmForView(blob: Blob): Promise<NpdmView> {
 	};
 }
 
-// ----- BFTTF / BFOTF (Switch system fonts) view -----
+// ----- Font preview (TTF / OTF / BFTTF / BFOTF) -----
 
+/**
+ * A unified preview model for any sfnt-format font, regardless of
+ * whether it came in as a plain `.ttf` / `.otf` or as Nintendo's
+ * obfuscated `.bfttf` / `.bfotf` wrapper.
+ *
+ * `font` is always a real `Blob` whose bytes are a valid TTF or OTF
+ * — for BFTTF inputs, that's the deobfuscated payload. The
+ * preview component registers it with the browser via `FontFace`
+ * and renders sample text in the actual font.
+ */
+export interface FontView {
+	/** Decoded font bytes ready for `FontFace` and download. */
+	font: Blob;
+	/** Sniffed sfnt format. */
+	format: 'ttf' | 'otf' | 'unknown';
+	/** Size of the decoded font in bytes. */
+	size: number;
+	/** Names extracted from the font's sfnt `name` table. */
+	names: TtfNameTable;
+	/**
+	 * Whether the source was an obfuscated Switch system font that we
+	 * deobfuscated. Affects the preview's section header label.
+	 */
+	wasObfuscated: boolean;
+	/**
+	 * For BFTTF inputs: whether the size declared in the obfuscation
+	 * header matched the actual payload length. Always `true` for
+	 * plain TTF / OTF inputs.
+	 */
+	headerSizeOk: boolean;
+}
+
+/** @deprecated retained for backwards compatibility — use {@link FontView}. */
 export interface BfttfView {
 	parsed: ParsedBfttf;
 	/** Names extracted from the deobfuscated font's `name` table. */
@@ -480,6 +516,74 @@ export async function parseBfttfForView(blob: Blob): Promise<BfttfView> {
 	const fontBytes = new Uint8Array(await parsed.font.arrayBuffer());
 	const names = readTtfNameTable(fontBytes);
 	return { parsed, names };
+}
+
+/**
+ * Build a unified `FontView` from any sfnt blob — plain TTF / OTF
+ * or Nintendo's obfuscated BFTTF / BFOTF wrapper. The returned
+ * `font` Blob is always a *real* TTF / OTF ready for `FontFace`
+ * registration.
+ *
+ * Auto-detects the input format by checking for the BFTTF magic
+ * (8-byte read), falling back to "treat as plain sfnt" otherwise.
+ * That way callers can hand us anything that looks like a font
+ * file — `.ttf`, `.otf`, `.ttc` (collections, treated as opaque),
+ * `.bfttf`, `.bfotf` — and get a uniform view.
+ */
+export async function parseFontForView(blob: Blob): Promise<FontView> {
+	if (await isBfttf(blob)) {
+		const parsed = await parseBfttf(blob);
+		const fontBytes = new Uint8Array(await parsed.font.arrayBuffer());
+		return {
+			font: parsed.font,
+			format: parsed.format,
+			size: parsed.size,
+			names: readTtfNameTable(fontBytes),
+			wasObfuscated: true,
+			headerSizeOk: parsed.headerSizeOk,
+		};
+	}
+	// Plain sfnt path: sniff the format from the first 4 bytes,
+	// pick a sensible MIME type, and read the name table directly.
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	const format = sniffSfntFormat(bytes);
+	const mime =
+		format === 'otf'
+			? 'font/otf'
+			: format === 'ttf'
+				? 'font/ttf'
+				: 'application/octet-stream';
+	// Re-Blob the bytes with the correct MIME so `URL.createObjectURL`
+	// produces a font-typed URL (handy for download).
+	const font = new Blob([bytes as BlobPart], { type: mime });
+	return {
+		font,
+		format,
+		size: bytes.length,
+		names: readTtfNameTable(bytes),
+		wasObfuscated: false,
+		headerSizeOk: true,
+	};
+}
+
+/**
+ * Sniff `'ttf' | 'otf' | 'unknown'` from the first 4 bytes of an
+ * sfnt-format font payload (TTF: 0x00010000 or "true" / "typ1";
+ * OTF: "OTTO"; "ttcf" / "OTTO" wrapped in a TTC). TTC collections
+ * have magic `ttcf` and contain multiple sub-fonts; we report them
+ * as `'ttf'` since the contained sub-fonts are TTF-flavoured —
+ * `FontFace` will pick the first one.
+ */
+function sniffSfntFormat(bytes: Uint8Array): 'ttf' | 'otf' | 'unknown' {
+	if (bytes.length < 4) return 'unknown';
+	const tag =
+		(bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
+	if (tag === 0x00010000) return 'ttf';
+	if (tag === 0x4f54544f /* "OTTO" */) return 'otf';
+	if (tag === 0x74727565 /* "true" */) return 'ttf';
+	if (tag === 0x74797031 /* "typ1" */) return 'ttf';
+	if (tag === 0x74746366 /* "ttcf" */) return 'ttf';
+	return 'unknown';
 }
 
 /**

@@ -188,6 +188,10 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	npdm: 'NPDM',
 	bfttf: 'BFTTF',
 	bfotf: 'BFOTF',
+	ttf: 'TTF',
+	otf: 'OTF',
+	ttc: 'TTC',
+	otc: 'OTC',
 	zip: 'ZIP',
 	sarc: 'SARC',
 	pack: 'SARC', // BotW / Splatoon style — `.pack` is plain SARC

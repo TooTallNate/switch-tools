@@ -10,6 +10,7 @@ import {
   ImageIcon,
   LockIcon,
   PackageIcon,
+  TypeIcon,
 } from "lucide-react"
 import { Badge } from "~/components/ui/badge"
 import { Skeleton } from "~/components/ui/skeleton"
@@ -344,6 +345,9 @@ function NodeIcon({ node, expanded }: { node: Node; expanded: boolean }) {
     /\.(png|jpe?g|gif|webp|bmp|avif|svg|ico)$/.test(lower)
   ) {
     return <ImageIcon className={cls} />
+  }
+  if (/\.(ttf|otf|ttc|otc|bfttf|bfotf|woff2?)$/.test(lower)) {
+    return <TypeIcon className={cls} />
   }
   if (/\.(json|xml|txt|md|cfg|ini|toml|yml|yaml|csv|log)$/.test(lower)) {
     return <FileCode2Icon className={cls} />
