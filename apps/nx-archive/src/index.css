@@ -1,0 +1,155 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-destructive-foreground: var(--destructive-foreground);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-ring: var(--sidebar-ring);
+	/* Switch-brand accents — extra tokens to use in JSX as `bg-joycon-blue`, `text-joycon-red`, `text-switch-yellow` */
+	--color-joycon-blue: var(--joycon-blue);
+	--color-joycon-red: var(--joycon-red);
+	--color-switch-yellow: var(--switch-yellow);
+	--font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+	--font-heading: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+	--radius-sm: calc(var(--radius) - 4px);
+	--radius-md: calc(var(--radius) - 2px);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) + 4px);
+}
+
+/*
+ * Light theme — modeled after the Nintendo Switch settings dashboard.
+ * Primary uses the iconic Switch cyan; surfaces are clean off-whites.
+ */
+:root {
+	--background: oklch(0.985 0.002 250);
+	--foreground: oklch(0.18 0.01 250);
+	--card: oklch(1 0 0);
+	--card-foreground: oklch(0.18 0.01 250);
+	--popover: oklch(1 0 0);
+	--popover-foreground: oklch(0.18 0.01 250);
+	--primary: oklch(0.62 0.16 230);
+	--primary-foreground: oklch(0.99 0 0);
+	--secondary: oklch(0.95 0.005 250);
+	--secondary-foreground: oklch(0.22 0.01 250);
+	--muted: oklch(0.95 0.005 250);
+	--muted-foreground: oklch(0.45 0.01 250);
+	--accent: oklch(0.62 0.16 230);
+	--accent-foreground: oklch(0.99 0 0);
+	--destructive: oklch(0.6 0.21 25);
+	--destructive-foreground: oklch(0.99 0 0);
+	--border: oklch(0.9 0.005 250);
+	--input: oklch(0.9 0.005 250);
+	--ring: oklch(0.62 0.16 230);
+	--radius: 0.5rem;
+	--sidebar: oklch(0.97 0.003 250);
+	--sidebar-foreground: oklch(0.18 0.01 250);
+	--sidebar-primary: oklch(0.62 0.16 230);
+	--sidebar-primary-foreground: oklch(0.99 0 0);
+	--sidebar-accent: oklch(0.95 0.005 250);
+	--sidebar-accent-foreground: oklch(0.22 0.01 250);
+	--sidebar-border: oklch(0.9 0.005 250);
+	--sidebar-ring: oklch(0.62 0.16 230);
+	/* Joy-Con accents */
+	--joycon-blue: oklch(0.62 0.16 230);
+	--joycon-red: oklch(0.62 0.22 22);
+	--switch-yellow: oklch(0.83 0.16 90);
+}
+
+/*
+ * Dark theme — Switch settings deep navy/charcoal with bright cyan accent.
+ * Distinct hue from neutral grey to evoke the Switch home screen.
+ */
+.dark {
+	--background: oklch(0.18 0.022 250);
+	--foreground: oklch(0.97 0.005 250);
+	--card: oklch(0.22 0.025 250);
+	--card-foreground: oklch(0.97 0.005 250);
+	--popover: oklch(0.24 0.025 250);
+	--popover-foreground: oklch(0.97 0.005 250);
+	--primary: oklch(0.78 0.17 220);
+	--primary-foreground: oklch(0.18 0.022 250);
+	--secondary: oklch(0.27 0.025 250);
+	--secondary-foreground: oklch(0.97 0.005 250);
+	--muted: oklch(0.27 0.025 250);
+	--muted-foreground: oklch(0.68 0.012 250);
+	--accent: oklch(0.78 0.17 220);
+	--accent-foreground: oklch(0.18 0.022 250);
+	--destructive: oklch(0.66 0.21 22);
+	--destructive-foreground: oklch(0.99 0 0);
+	--border: oklch(1 0 0 / 12%);
+	--input: oklch(1 0 0 / 15%);
+	--ring: oklch(0.78 0.17 220);
+	--sidebar: oklch(0.2 0.022 250);
+	--sidebar-foreground: oklch(0.97 0.005 250);
+	--sidebar-primary: oklch(0.78 0.17 220);
+	--sidebar-primary-foreground: oklch(0.18 0.022 250);
+	--sidebar-accent: oklch(0.27 0.025 250);
+	--sidebar-accent-foreground: oklch(0.97 0.005 250);
+	--sidebar-border: oklch(1 0 0 / 12%);
+	--sidebar-ring: oklch(0.78 0.17 220);
+	/* Joy-Con accents — slightly brighter for dark mode */
+	--joycon-blue: oklch(0.78 0.17 220);
+	--joycon-red: oklch(0.7 0.22 22);
+	--switch-yellow: oklch(0.86 0.16 90);
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+	html {
+		@apply font-sans h-full;
+	}
+	body,
+	#root {
+		@apply h-full overflow-hidden bg-background text-foreground;
+		-webkit-font-smoothing: antialiased;
+	}
+}
+
+/*
+ * Subtle Switch home-screen ambient gradient backdrop. Used on the
+ * outermost layout container.
+ */
+@utility switch-backdrop {
+	background-image:
+		radial-gradient(
+			1200px circle at 0% 0%,
+			color-mix(in oklch, var(--joycon-blue) 8%, transparent),
+			transparent 50%
+		),
+		radial-gradient(
+			1000px circle at 100% 100%,
+			color-mix(in oklch, var(--joycon-red) 6%, transparent),
+			transparent 50%
+		);
+}

@@ -24,6 +24,21 @@ export {
 	calculatePfs0MasterHash,
 	type Pfs0File,
 } from './pfs0.js';
+export {
+	parseNca,
+	type ParsedNca,
+	type NcaSection,
+	type ParseNcaOptions,
+	NCA_CRYPT_NONE,
+	NCA_CRYPT_XTS,
+	NCA_CRYPT_CTR,
+	NCA_CRYPT_BKTR,
+	NCA_FS_TYPE_ROMFS,
+	NCA_FS_TYPE_PFS0,
+	NCA_HASH_TYPE_NONE,
+	NCA_HASH_TYPE_PFS0,
+	NCA_HASH_TYPE_ROMFS,
+} from './parser.js';
 
 import { encrypt as aesXtsEncryptDefault } from '@tootallnate/aes-xts';
 import { build as ivfcBuild, IVFC_HEADER_SIZE } from '@tootallnate/ivfc';
@@ -101,6 +116,10 @@ export enum NcaContentType {
 	Meta = 1,
 	Control = 2,
 	Manual = 3,
+	/** SystemData / non-applet data (fonts, IDBE database, …). */
+	Data = 4,
+	/** Public-facing data (rare). */
+	PublicData = 5,
 }
 
 function align(value: number, alignment: number): number {

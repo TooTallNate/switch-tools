@@ -3,6 +3,7 @@ dist
 node_modules
 .vercel
 ?.ts
+*.tsbuildinfo
 
 # Remix stuffs
 .cache

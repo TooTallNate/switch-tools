@@ -1,0 +1,616 @@
+/**
+ * File preview type detection + content loaders.
+ *
+ * For "kitchen sink" support:
+ *   - text/JSON/XML/code: load as text
+ *   - image: load as object URL (PNG, JPEG, GIF, WebP, SVG, BMP)
+ *   - audio/video: load as object URL with appropriate MIME
+ *   - NACP: parse with @tootallnate/nacp into a friendly form
+ *   - CNMT: parse the binary into a friendly form
+ *   - NRO: read the executable header
+ *   - NSO: parse the NSO0 header
+ *   - default: hex view of first N bytes
+ */
+
+import { NACP } from '@tootallnate/nacp';
+import { parseHeader as parseNsoHeader, hex as nsoHex, type ParsedNsoHeader } from '@tootallnate/nso';
+import { parseNpdm, hex as npdmHex, type ParsedNpdm } from '@tootallnate/npdm';
+import { isBfttf, parseBfttf, type ParsedBfttf } from '@tootallnate/bfttf';
+
+export type PreviewKind =
+	| 'text'
+	| 'json'
+	| 'image'
+	| 'audio'
+	| 'video'
+	| 'nacp'
+	| 'cnmt'
+	| 'nro-info'
+	| 'nso-info'
+	| 'npdm-info'
+	| 'bfttf-info'
+	| 'hex';
+
+export const TEXT_EXTS = new Set([
+	'txt',
+	'md',
+	'log',
+	'cfg',
+	'ini',
+	'toml',
+	'yml',
+	'yaml',
+	'csv',
+	'tsv',
+	'srt',
+	'asm',
+	's',
+	'c',
+	'h',
+	'cpp',
+	'hpp',
+	'rs',
+	'go',
+	'js',
+	'mjs',
+	'ts',
+	'tsx',
+	'jsx',
+	'lua',
+	'sh',
+	'bash',
+	'py',
+	'sql',
+	'css',
+	'html',
+	'htm',
+]);
+
+export const JSON_EXTS = new Set(['json', 'webmanifest']);
+export const XML_EXTS = new Set(['xml', 'svg', 'plist']);
+export const IMAGE_EXTS = new Set([
+	'png',
+	'jpg',
+	'jpeg',
+	'gif',
+	'webp',
+	'bmp',
+	'avif',
+	'ico',
+]);
+export const AUDIO_EXTS = new Set(['wav', 'mp3', 'ogg', 'flac', 'm4a']);
+export const VIDEO_EXTS = new Set(['mp4', 'webm', 'mov', 'mkv']);
+
+export const IMAGE_MIME: Record<string, string> = {
+	png: 'image/png',
+	jpg: 'image/jpeg',
+	jpeg: 'image/jpeg',
+	gif: 'image/gif',
+	webp: 'image/webp',
+	bmp: 'image/bmp',
+	avif: 'image/avif',
+	ico: 'image/x-icon',
+	svg: 'image/svg+xml',
+};
+
+export const AUDIO_MIME: Record<string, string> = {
+	wav: 'audio/wav',
+	mp3: 'audio/mpeg',
+	ogg: 'audio/ogg',
+	flac: 'audio/flac',
+	m4a: 'audio/mp4',
+};
+
+export const VIDEO_MIME: Record<string, string> = {
+	mp4: 'video/mp4',
+	webm: 'video/webm',
+	mov: 'video/quicktime',
+	mkv: 'video/x-matroska',
+};
+
+export function extOf(name: string): string {
+	const i = name.lastIndexOf('.');
+	if (i < 0) return '';
+	return name.slice(i + 1).toLowerCase();
+}
+
+/**
+ * Bare filenames (no extension) used for NSO0 executable modules
+ * inside an ExeFS PFS0. Files with these names get the structured NSO
+ * preview by default; any file ending with `.nso` matches too.
+ */
+const NSO_BARE_NAMES = new Set([
+	'main',
+	'rtld',
+	'sdk',
+	'subsdk0',
+	'subsdk1',
+	'subsdk2',
+	'subsdk3',
+	'subsdk4',
+	'subsdk5',
+	'subsdk6',
+	'subsdk7',
+	'subsdk8',
+	'subsdk9',
+]);
+
+export function detectPreviewKind(name: string): PreviewKind {
+	const lower = name.toLowerCase();
+	if (lower.endsWith('.nacp') || lower === 'control.nacp') return 'nacp';
+	if (lower.endsWith('.cnmt')) return 'cnmt';
+	if (lower.endsWith('.nro') || lower === 'main.nro') return 'nro-info';
+	if (lower.endsWith('.npdm') || lower === 'main.npdm') return 'npdm-info';
+	if (lower.endsWith('.nso') || NSO_BARE_NAMES.has(lower)) return 'nso-info';
+	if (lower.endsWith('.bfttf') || lower.endsWith('.bfotf')) return 'bfttf-info';
+	// Switch app icons (in Control NCA RomFS) are JPEGs with a `.dat` ext.
+	if (/^icon_.*\.dat$/.test(lower)) return 'image';
+	const ext = extOf(name);
+	if (IMAGE_EXTS.has(ext)) return 'image';
+	if (AUDIO_EXTS.has(ext)) return 'audio';
+	if (VIDEO_EXTS.has(ext)) return 'video';
+	if (JSON_EXTS.has(ext)) return 'json';
+	if (XML_EXTS.has(ext) || TEXT_EXTS.has(ext)) return 'text';
+	return 'hex';
+}
+
+// Special case for NRO files where the asset section may have been embedded —
+// for those we want to show NRO info, not raw hex. But if the user explicitly
+// chose a `.nro` we still show NRO info via the dedicated case above.
+
+// ----- NACP parsing (uses @tootallnate/nacp) -----
+
+export interface NacpView {
+	title: string;
+	author: string;
+	version: string;
+	id: string;
+	addOnContentBaseId: string;
+	saveDataOwnerId: string;
+	presenceGroupId: string;
+	hdcp: number;
+	screenshot: number;
+	videoCapture: number;
+	logoType: number;
+	logoHandling: number;
+	startupUserAccount: number;
+	supportedLanguageFlag: number;
+	parentalControlFlag: number;
+	attributeFlag: number;
+}
+
+export async function parseNacpForView(blob: Blob): Promise<NacpView> {
+	// NACP is exactly 0x4000 bytes
+	const buf = await blob.arrayBuffer();
+	const sized =
+		buf.byteLength >= 0x4000 ? buf.slice(0, 0x4000) : padTo(buf, 0x4000);
+	const nacp = new NACP(sized);
+	return {
+		title: nacp.title,
+		author: nacp.author,
+		version: nacp.version,
+		id: '0x' + nacp.id.toString(16).padStart(16, '0'),
+		addOnContentBaseId:
+			'0x' + nacp.addOnContentBaseId.toString(16).padStart(16, '0'),
+		saveDataOwnerId:
+			'0x' + nacp.saveDataOwnerId.toString(16).padStart(16, '0'),
+		presenceGroupId:
+			'0x' + nacp.presenceGroupId.toString(16).padStart(16, '0'),
+		hdcp: nacp.hdcp,
+		screenshot: nacp.screenshot,
+		videoCapture: nacp.videoCapture,
+		logoType: nacp.logoType,
+		logoHandling: nacp.logoHandling,
+		startupUserAccount: nacp.startupUserAccount,
+		supportedLanguageFlag: nacp.supportedLanguageFlag,
+		parentalControlFlag: nacp.parentalControlFlag,
+		attributeFlag: nacp.attributeFlag,
+	};
+}
+
+function padTo(buf: ArrayBuffer, size: number): ArrayBuffer {
+	const out = new ArrayBuffer(size);
+	new Uint8Array(out).set(new Uint8Array(buf));
+	return out;
+}
+
+// ----- CNMT parsing -----
+// Layout: switchbrew.org/wiki/CNMT
+//   0x00 u64 title_id
+//   0x08 u32 title_version
+//   0x0C u8  title_type
+//   0x0D u8  reserved
+//   0x0E u16 extended_header_size
+//   0x10 u16 content_count
+//   0x12 u16 content_meta_count
+//   0x14 u8  attribute
+//   ...
+//   0x20 u8 required_system_version
+//   then extended header bytes,
+//   then content_count × ContentRecord (0x38 bytes each)
+//
+// ContentRecord (0x38):
+//   hash[0x20], nca_id[0x10], size[6 little-endian], type(u8), id_offset(u8)
+
+export interface CnmtView {
+	titleId: string;
+	titleVersion: number;
+	titleType: number;
+	titleTypeName: string;
+	contentCount: number;
+	contentMetaCount: number;
+	requiredSystemVersion: number;
+	contents: Array<{
+		ncaId: string;
+		hash: string;
+		size: number;
+		type: number;
+		typeName: string;
+		idOffset: number;
+	}>;
+}
+
+const META_TYPE_NAMES: Record<number, string> = {
+	0x01: 'SystemProgram',
+	0x02: 'SystemData',
+	0x03: 'SystemUpdate',
+	0x04: 'BootImagePackage',
+	0x05: 'BootImagePackageSafe',
+	0x80: 'Application',
+	0x81: 'Patch',
+	0x82: 'AddOnContent',
+	0x83: 'Delta',
+};
+
+const CONTENT_TYPE_NAMES: Record<number, string> = {
+	0: 'Meta',
+	1: 'Program',
+	2: 'Data',
+	3: 'Control',
+	4: 'HtmlDocument',
+	5: 'LegalInformation',
+	6: 'DeltaFragment',
+};
+
+export async function parseCnmtForView(blob: Blob): Promise<CnmtView> {
+	const buf = await blob.arrayBuffer();
+	const view = new DataView(buf);
+	if (buf.byteLength < 0x20) {
+		throw new Error('CNMT too small');
+	}
+	const titleId = view.getBigUint64(0x00, true);
+	const titleVersion = view.getUint32(0x08, true);
+	const titleType = view.getUint8(0x0c);
+	const extendedHeaderSize = view.getUint16(0x0e, true);
+	const contentCount = view.getUint16(0x10, true);
+	const contentMetaCount = view.getUint16(0x12, true);
+	const requiredSystemVersion = view.getUint32(0x28, true);
+
+	const contentsOffset = 0x20 + extendedHeaderSize;
+	const contents: CnmtView['contents'] = [];
+	for (let i = 0; i < contentCount; i++) {
+		const off = contentsOffset + i * 0x38;
+		if (off + 0x38 > buf.byteLength) break;
+		const hashBytes = new Uint8Array(buf, off, 0x20);
+		const ncaIdBytes = new Uint8Array(buf, off + 0x20, 0x10);
+		// size is 6 bytes little-endian (max 0xFFFF_FFFF_FFFF = ~280 TB, well within Number safety)
+		const sizeBytes = new Uint8Array(buf, off + 0x30, 6);
+		let size = 0;
+		for (let k = 5; k >= 0; k--) size = size * 256 + sizeBytes[k];
+		const type = view.getUint8(off + 0x36);
+		const idOffset = view.getUint8(off + 0x37);
+		contents.push({
+			hash: hex(hashBytes),
+			ncaId: hex(ncaIdBytes),
+			size,
+			type,
+			typeName: CONTENT_TYPE_NAMES[type] ?? `Unknown(${type})`,
+			idOffset,
+		});
+	}
+
+	return {
+		titleId: '0x' + titleId.toString(16).padStart(16, '0'),
+		titleVersion,
+		titleType,
+		titleTypeName: META_TYPE_NAMES[titleType] ?? `Unknown(0x${titleType.toString(16)})`,
+		contentCount,
+		contentMetaCount,
+		requiredSystemVersion,
+		contents,
+	};
+}
+
+// ----- NRO parsing -----
+
+export interface NroView {
+	magic: string;
+	formatVersion: number;
+	nroSize: number;
+	flags: number;
+	hasAssets: boolean;
+}
+
+export async function parseNroForView(blob: Blob): Promise<NroView> {
+	const head = new Uint8Array(await blob.slice(0, 0x40).arrayBuffer());
+	const view = new DataView(head.buffer, head.byteOffset, head.byteLength);
+	const magic = new TextDecoder().decode(head.subarray(0x10, 0x14));
+	if (magic !== 'NRO0') throw new Error('Not an NRO');
+	const formatVersion = view.getUint32(0x14, true);
+	const nroSize = view.getUint32(0x18, true);
+	const flags = view.getUint32(0x1c, true);
+
+	let hasAssets = false;
+	if (blob.size >= nroSize + 4) {
+		const aset = new Uint8Array(
+			await blob.slice(nroSize, nroSize + 4).arrayBuffer(),
+		);
+		hasAssets = new TextDecoder().decode(aset) === 'ASET';
+	}
+	return { magic, formatVersion, nroSize, flags, hasAssets };
+}
+
+// ----- NSO header view -----
+
+export interface NsoSegmentView {
+	name: '.text' | '.rodata' | '.data';
+	memoryOffset: string;
+	size: number;
+	fileSize: number;
+	compressed: boolean;
+	hashed: boolean;
+	hash: string;
+}
+
+export interface NsoView {
+	magic: string;
+	version: number;
+	flags: string;
+	usesZstd: boolean;
+	executeOnlyMemory: boolean;
+	moduleName: string;
+	moduleId: string;
+	bssSize: number;
+	embeddedOffset: number;
+	embeddedSize: number;
+	dynStrOffset: number;
+	dynStrSize: number;
+	dynSymOffset: number;
+	dynSymSize: number;
+	segments: NsoSegmentView[];
+}
+
+export async function parseNsoForView(blob: Blob): Promise<NsoView> {
+	const h: ParsedNsoHeader = await parseNsoHeader(blob);
+	const seg = (
+		name: NsoSegmentView['name'],
+		s: ParsedNsoHeader['textSegment'],
+	): NsoSegmentView => ({
+		name,
+		memoryOffset: '0x' + s.memoryOffset.toString(16).padStart(8, '0'),
+		size: s.size,
+		fileSize: s.fileSize,
+		compressed: s.compressed,
+		hashed: s.hashed,
+		hash: nsoHex(s.hash),
+	});
+	// Trim trailing zeros from moduleId; NSOs commonly use a 20-byte build-id
+	// padded to 32 bytes, and showing 12 trailing zeros is just noise.
+	const id = h.moduleId;
+	let lastNonZero = id.length - 1;
+	while (lastNonZero >= 0 && id[lastNonZero] === 0) lastNonZero--;
+	const trimmed = id.subarray(0, Math.max(lastNonZero + 1, 1));
+	return {
+		magic: h.magic,
+		version: h.version,
+		flags: '0x' + h.flags.toString(16).padStart(2, '0'),
+		usesZstd: h.usesZstd,
+		executeOnlyMemory: h.executeOnlyMemory,
+		moduleName: h.moduleName,
+		moduleId: nsoHex(trimmed),
+		bssSize: h.bssSize,
+		embeddedOffset: h.embeddedOffset,
+		embeddedSize: h.embeddedSize,
+		dynStrOffset: h.dynStrOffset,
+		dynStrSize: h.dynStrSize,
+		dynSymOffset: h.dynSymOffset,
+		dynSymSize: h.dynSymSize,
+		segments: [
+			seg('.text', h.textSegment),
+			seg('.rodata', h.rodataSegment),
+			seg('.data', h.dataSegment),
+		],
+	};
+}
+
+// ----- NPDM header view -----
+
+export interface NpdmView {
+	parsed: ParsedNpdm;
+	moduleIdHex?: string;
+	signatureHex: string;
+	publicKeyHex: string;
+}
+
+export async function parseNpdmForView(blob: Blob): Promise<NpdmView> {
+	const parsed = await parseNpdm(blob);
+	return {
+		parsed,
+		signatureHex: npdmHex(parsed.acid.signature),
+		publicKeyHex: npdmHex(parsed.acid.publicKey),
+	};
+}
+
+// ----- BFTTF / BFOTF (Switch system fonts) view -----
+
+export interface BfttfView {
+	parsed: ParsedBfttf;
+	/** Names extracted from the deobfuscated font's `name` table. */
+	names: TtfNameTable;
+}
+
+/**
+ * A trimmed view of the TTF/OTF "name" table — the strings that
+ * Font Book / browsers use to label a font. Each field is the
+ * Unicode-platform English entry when available.
+ */
+export interface TtfNameTable {
+	/** Name ID 1: Font Family (e.g. "Helvetica"). */
+	family?: string;
+	/** Name ID 2: Subfamily / style (e.g. "Bold Italic"). */
+	subfamily?: string;
+	/** Name ID 4: Full font name. */
+	full?: string;
+	/** Name ID 6: PostScript name. */
+	postscript?: string;
+	/** Name ID 0: Copyright. */
+	copyright?: string;
+	/** Name ID 5: Version. */
+	version?: string;
+	/** Name ID 16: Typographic family (preferred-family fallback). */
+	typographicFamily?: string;
+}
+
+export async function isBfttfBlob(blob: Blob): Promise<boolean> {
+	return isBfttf(blob);
+}
+
+export async function parseBfttfForView(blob: Blob): Promise<BfttfView> {
+	const parsed = await parseBfttf(blob);
+	const fontBytes = new Uint8Array(await parsed.font.arrayBuffer());
+	const names = readTtfNameTable(fontBytes);
+	return { parsed, names };
+}
+
+/**
+ * Read the `name` table out of an sfnt-format font (TTF or OTF) and
+ * return the most-relevant strings. Only Unicode-platform English
+ * (or whatever is available) entries are considered.
+ *
+ * Returns an empty object for malformed or missing tables — callers
+ * should treat every field as optional.
+ */
+export function readTtfNameTable(bytes: Uint8Array): TtfNameTable {
+	if (bytes.length < 12) return {};
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const numTables = view.getUint16(4, false);
+	if (numTables === 0) return {};
+	// Find the name table.
+	let nameOff = 0;
+	let nameLen = 0;
+	for (let i = 0; i < numTables; i++) {
+		const recOff = 12 + i * 16;
+		if (recOff + 16 > bytes.length) break;
+		const tag = String.fromCharCode(
+			bytes[recOff],
+			bytes[recOff + 1],
+			bytes[recOff + 2],
+			bytes[recOff + 3],
+		);
+		if (tag === 'name') {
+			nameOff = view.getUint32(recOff + 8, false);
+			nameLen = view.getUint32(recOff + 12, false);
+			break;
+		}
+	}
+	if (!nameOff || nameOff + 6 > bytes.length) return {};
+
+	const count = view.getUint16(nameOff + 2, false);
+	const stringOffset = view.getUint16(nameOff + 4, false);
+	const stringStart = nameOff + stringOffset;
+	if (stringStart > bytes.length) return {};
+
+	const out: TtfNameTable = {};
+	// Iterate the name records. Score each candidate so we prefer the
+	// Unicode platform (0) or the Microsoft-Unicode platform (3, encoding 1)
+	// over the Macintosh platform (1, encoding 0).
+	const scored = new Map<number, { score: number; value: string }>();
+	for (let i = 0; i < count; i++) {
+		const recOff = nameOff + 6 + i * 12;
+		if (recOff + 12 > nameOff + nameLen) break;
+		const platformId = view.getUint16(recOff + 0, false);
+		const encodingId = view.getUint16(recOff + 2, false);
+		// const languageId = view.getUint16(recOff + 4, false);
+		const nameId = view.getUint16(recOff + 6, false);
+		const length = view.getUint16(recOff + 8, false);
+		const offset = view.getUint16(recOff + 10, false);
+		const dataOff = stringStart + offset;
+		if (dataOff + length > bytes.length) continue;
+		const data = bytes.subarray(dataOff, dataOff + length);
+		// Decode based on platform/encoding
+		let value: string;
+		let score: number;
+		if (platformId === 3 && encodingId === 1) {
+			// Microsoft-Unicode (BMP) — UTF-16 BE
+			value = utf16beDecode(data);
+			score = 100;
+		} else if (platformId === 0) {
+			value = utf16beDecode(data);
+			score = 90;
+		} else if (platformId === 1 && encodingId === 0) {
+			// Macintosh-Roman — close enough to ASCII for our needs
+			value = new TextDecoder('latin1').decode(data);
+			score = 50;
+		} else {
+			// Fallback: treat as latin1 so we at least get something
+			value = new TextDecoder('latin1').decode(data);
+			score = 10;
+		}
+		const existing = scored.get(nameId);
+		if (!existing || existing.score < score) {
+			scored.set(nameId, { score, value });
+		}
+	}
+
+	const get = (id: number) => scored.get(id)?.value;
+	out.copyright = get(0);
+	out.family = get(1);
+	out.subfamily = get(2);
+	out.full = get(4);
+	out.version = get(5);
+	out.postscript = get(6);
+	out.typographicFamily = get(16);
+	return out;
+}
+
+function utf16beDecode(bytes: Uint8Array): string {
+	let s = '';
+	const end = bytes.length & ~1;
+	for (let i = 0; i < end; i += 2) {
+		s += String.fromCharCode((bytes[i] << 8) | bytes[i + 1]);
+	}
+	return s;
+}
+
+// ----- Hex view helpers -----
+
+export function hex(bytes: Uint8Array): string {
+	let s = '';
+	for (let i = 0; i < bytes.length; i++) {
+		s += bytes[i].toString(16).padStart(2, '0');
+	}
+	return s;
+}
+
+export function buildHexDump(
+	bytes: Uint8Array,
+	startOffset = 0,
+	bytesPerRow = 16,
+): string {
+	const lines: string[] = [];
+	for (let i = 0; i < bytes.length; i += bytesPerRow) {
+		const off = (startOffset + i).toString(16).padStart(8, '0');
+		const row = bytes.subarray(i, Math.min(i + bytesPerRow, bytes.length));
+		const hexParts: string[] = [];
+		for (let j = 0; j < bytesPerRow; j++) {
+			if (j < row.length) hexParts.push(row[j].toString(16).padStart(2, '0'));
+			else hexParts.push('  ');
+			if (j === bytesPerRow / 2 - 1) hexParts.push(' ');
+		}
+		const ascii = Array.from(row)
+			.map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '.'))
+			.join('');
+		lines.push(`${off}  ${hexParts.join(' ')}  ${ascii}`);
+	}
+	return lines.join('\n');
+}

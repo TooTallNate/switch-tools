@@ -19,6 +19,12 @@ export interface KeySet {
 	headerKey: Uint8Array;
 	/** Key area encryption keys [keygeneration][type: 0=application, 1=ocean, 2=system] */
 	keyAreaKeys: Uint8Array[][];
+	/**
+	 * Titlekey encryption keys per key generation (16 bytes each).
+	 * Used to decrypt the titlekey from a `.tik` file before applying it
+	 * as the AES-CTR section key for NCAs that have a non-zero RightsId.
+	 */
+	titlekeks: Uint8Array[];
 }
 
 /**
@@ -440,5 +446,6 @@ export async function initializeKeySet(
 	return {
 		headerKey: fullKs.headerKey,
 		keyAreaKeys: fullKs.keyAreaKeys,
+		titlekeks: fullKs.titlekeks,
 	};
 }

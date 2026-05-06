@@ -5,13 +5,35 @@ import { parseHfs0 } from '@tootallnate/hfs0';
 
 export type { FileEntry };
 
-// XCI magic is "HEAD" at offset 0x100
+// XCI CardHeader magic is the four bytes "HEAD" (0x48 0x45 0x41 0x44).
+// Reading those four bytes as a big-endian u32 gives 0x48454144.
 const XCI_MAGIC = 0x48454144;
-const XCI_MAGIC_OFFSET = 0x100;
 
-// Root HFS0 partition is at offset 0xF000, or 0x10000 if a key area is prepended
-const HFS0_ROOT_OFFSET = 0xf000;
-const HFS0_ROOT_OFFSET_WITH_KEY_AREA = 0x10000;
+/**
+ * The XCI CardHeader can live at two offsets depending on whether the
+ * 0x1000-byte CardKeyArea is present:
+ *
+ * - "Trimmed" XCI (most distributed dumps have the key area stripped):
+ *     CardHeader at offset 0x000  →  magic at 0x100
+ *     Root HFS0 partition at      0x0F000
+ *
+ * - "Full" XCI (raw cartridge dump including CardKeyArea):
+ *     CardHeader at offset 0x1000 →  magic at 0x1100
+ *     Root HFS0 partition at      0x10000
+ *
+ * The two layouts are 0x1000 bytes apart. We detect by probing for the
+ * "HEAD" magic at the trimmed location first (most common) and fall back
+ * to the full-image location.
+ */
+interface XciLayout {
+	headerOffset: number;
+	hfs0RootOffset: number;
+}
+
+const XCI_LAYOUTS: XciLayout[] = [
+	{ headerOffset: 0x100, hfs0RootOffset: 0x0f000 },
+	{ headerOffset: 0x1100, hfs0RootOffset: 0x10000 },
+];
 
 export interface Partition {
 	name: string;
@@ -33,27 +55,32 @@ export interface XciContents {
  * @param blob The XCI file as a `Blob`.
  */
 export async function parseXci(blob: Blob): Promise<XciContents> {
-	// Validate XCI magic at offset 0x100
-	const magicBuf = await blob
-		.slice(XCI_MAGIC_OFFSET, XCI_MAGIC_OFFSET + 4)
-		.arrayBuffer();
-	const magic = new DataView(magicBuf).getUint32(0, true);
-	if (magic !== XCI_MAGIC) {
+	// Probe for the CardHeader magic ("HEAD") at each of the known offsets.
+	let layout: XciLayout | null = null;
+	let firstSeenMagic = 0;
+	for (const candidate of XCI_LAYOUTS) {
+		if (blob.size < candidate.headerOffset + 4) continue;
+		const magicBuf = await blob
+			.slice(candidate.headerOffset, candidate.headerOffset + 4)
+			.arrayBuffer();
+		// Read as big-endian: the on-disk bytes are "H" "E" "A" "D" in order,
+		// which is the natural BE encoding of 0x48454144.
+		const magic = new DataView(magicBuf).getUint32(0, false);
+		if (candidate.headerOffset === 0x100) firstSeenMagic = magic;
+		if (magic === XCI_MAGIC) {
+			layout = candidate;
+			break;
+		}
+	}
+
+	if (!layout) {
 		throw new Error(
-			`Not an XCI file (expected magic 0x${XCI_MAGIC.toString(16)}, got 0x${magic.toString(16)})`,
+			`Not an XCI file (expected magic 0x${XCI_MAGIC.toString(16)} ("HEAD") at offset 0x100 or 0x1100, got 0x${firstSeenMagic.toString(16)})`,
 		);
 	}
 
-	// Try to find the root HFS0 partition.
-	// First at the standard offset, then at the offset with key area prepended.
-	let rootOffset = HFS0_ROOT_OFFSET;
-	let root: Awaited<ReturnType<typeof parseHfs0>>;
-	try {
-		root = await parseHfs0(blob.slice(rootOffset));
-	} catch {
-		rootOffset = HFS0_ROOT_OFFSET_WITH_KEY_AREA;
-		root = await parseHfs0(blob.slice(rootOffset));
-	}
+	// Parse the root HFS0 partition that points to the sub-partitions.
+	const root = await parseHfs0(blob.slice(layout.hfs0RootOffset));
 
 	// Each file in the root HFS0 is a sub-partition (update, normal, secure, logo).
 	// Parse each sub-partition as its own HFS0.
