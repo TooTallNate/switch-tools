@@ -18,6 +18,7 @@ import { decode as romfsDecode, type RomFsEntry } from '@tootallnate/romfs';
 import { decompressNcz, isNcz } from '@tootallnate/ncz';
 import { parseSarc, type SarcEntry } from '@tootallnate/sarc';
 import { decompressYaz0 } from '@tootallnate/yaz0';
+import { decompressLz4, type Lz4Variant } from '@tootallnate/lz4';
 import { parseZip, type ZipEntry } from './zip';
 import {
 	parseNca,
@@ -46,6 +47,7 @@ export type NodeKind =
 	| 'xci-partition'
 	| 'zip'
 	| 'sarc'
+	| 'lz4'
 	/**
 	 * A user-selected folder from the local filesystem. Functions like
 	 * an "ad-hoc PFS0" — its children are the files inside, with `.tik`
@@ -191,6 +193,7 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	pack: 'SARC', // BotW / Splatoon style — `.pack` is plain SARC
 	szs: 'SZS', // Yaz0-compressed SARC, ubiquitous across 1st-party games
 	yaz0: 'YAZ0',
+	lz4: 'LZ4',
 };
 
 /**
@@ -245,6 +248,14 @@ async function sniffMagic(blob: Blob): Promise<string | null> {
 	// the trailing two bytes aren't printable.
 	if (head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04) {
 		return 'zip';
+	}
+	// Standard LZ4 frame magic: 0x184D2204 (little-endian on disk).
+	if (head[0] === 0x04 && head[1] === 0x22 && head[2] === 0x4d && head[3] === 0x18) {
+		return 'lz4';
+	}
+	// Legacy LZ4 frame magic: 0x184C2102.
+	if (head[0] === 0x02 && head[1] === 0x21 && head[2] === 0x4c && head[3] === 0x18) {
+		return 'lz4';
 	}
 	// NRO has its magic at offset 0x10 ("NRO0")
 	if (blob.size >= 0x14) {
@@ -305,6 +316,8 @@ export async function buildRootNode(
 		case 'SZS':
 		case 'YAZ0':
 			return makeSzsNode(id, displayName, blob);
+		case 'LZ4':
+			return makeLz4Node(id, displayName, blob, ctx);
 		default:
 			// Unknown — present it as a single file the user can download
 			return {
@@ -1189,6 +1202,57 @@ function makeSzsNode(id: string, name: string, blob: Blob): Node {
 	};
 }
 
+// ----- LZ4 -----
+
+/**
+ * `.lz4`-wrapped files appear in the tree as a single-child container
+ * whose child is the inner (decompressed) file. We re-route the
+ * decompressed blob through `childNodeFor`, so wrapping is fully
+ * transparent: a `cairo_wkc.nro.lz4` shows up as an expandable NRO
+ * node with `main.nro` / `icon.jpg` / `control.nacp` / `romfs/`
+ * children, exactly as if you'd downloaded the inner NRO directly.
+ *
+ * Decompression is lazy + memoised — we only invoke the LZ4 decoder
+ * when the user expands or downloads the node, and we only do it
+ * once per session.
+ *
+ * Auto-detects all three LZ4 variants (standard frame, legacy frame,
+ * Switch firmware wrapper) since the file extension alone doesn't
+ * tell us which Nintendo team built the file.
+ */
+function makeLz4Node(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	let cached: Promise<{ data: Blob; variant: Lz4Variant }> | null = null;
+	const decompressOnce = () => {
+		if (!cached) cached = decompressLz4(blob);
+		return cached;
+	};
+	// Strip the `.lz4` suffix so the inner node gets a sensible name
+	// for format-detection purposes (`cairo_wkc.nro.lz4` → `cairo_wkc.nro`).
+	const innerName = name.replace(/\.lz4$/i, '') || 'decompressed';
+	return {
+		id,
+		name,
+		kind: 'lz4',
+		isContainer: true,
+		size: blob.size,
+		format: 'LZ4',
+		// Downloading the LZ4 node yields the *decompressed* payload,
+		// matching the SZS convention.
+		blob: async () => (await decompressOnce()).data,
+		getChildren: async () => {
+			const { data } = await decompressOnce();
+			return [
+				await childNodeFor(`${id}/${innerName}`, innerName, data, ctx),
+			];
+		},
+	};
+}
+
 // ----- Generic dispatcher for nested children whose container type is determined by name/sniff -----
 
 async function childNodeFor(
@@ -1209,6 +1273,7 @@ async function childNodeFor(
 	if (ext === 'zip') return makeZipNode(id, name, blob);
 	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob);
 	if (ext === 'szs') return makeSzsNode(id, name, blob);
+	if (ext === 'lz4') return makeLz4Node(id, name, blob, ctx);
 	// Some 1st-party games hide Yaz0+SARC behind Nintendo-internal
 	// extensions like `.sbeventpack`, `.sbactorpack`, `.sbgdata`, etc.
 	// Anything starting with `s` followed by one of those well-known

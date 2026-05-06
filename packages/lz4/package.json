@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/lz4",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Decoder for the LZ4 frame and block formats (used in Nintendo Switch firmware and many other places)",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/lz4"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
