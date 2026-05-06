@@ -86,6 +86,38 @@ export function mimeTypeFor(path: string): string {
 }
 
 /**
+ * A region table parsed from a `regions.js` file in the bundle.
+ *
+ * Switch offline manuals localise themselves with this exact pattern:
+ *
+ * ```js
+ * var regions = {
+ *   "All": "index_All.html",
+ *   "0": "index_JP.html",
+ *   "1": "index_US.html",
+ *   …
+ * };
+ * ```
+ *
+ * The hardware applet opens the manual with `?r=N` in the query
+ * string; an inline script in `index.html` reads the param, looks
+ * up the corresponding HTML, and redirects via `location.href = …`.
+ * Without `?r`, the page just sits there blank.
+ *
+ * We parse the table at bundle-build time so the preview UI can
+ * surface a region dropdown and inject the chosen `?r` value into
+ * the iframe's `location.search`.
+ */
+export interface RegionsTable {
+	/** Path to the `regions.js` file inside the bundle (lookup key for urlFor). */
+	scriptPath: string;
+	/** The `regions` object as parsed: key → relative HTML path. */
+	regions: Record<string, string>;
+	/** Preferred default key — `'All'`, then `'1'` (US), else first defined. */
+	defaultKey: string;
+}
+
+/**
  * A `{ path → object-URL }` index plus the original Blob for each file.
  * Object URLs are typed (we set the right MIME) so the iframe loads
  * scripts/CSS/etc. correctly.
@@ -104,19 +136,37 @@ export function mimeTypeFor(path: string): string {
 export class HtdocsBundle {
 	readonly urls: Map<string, string>;
 	readonly files: Map<string, Blob>;
+	/**
+	 * Map of directory path → parsed `regions.js` table found inside it.
+	 * The directory key is the empty string for a `regions.js` at the
+	 * bundle root.
+	 *
+	 * This is populated at build time by scanning every `regions.js`
+	 * file found in the bundle. The preview UI uses it to surface a
+	 * region picker when an HTML file in the same directory is loaded.
+	 */
+	readonly regionsByDir: Map<string, RegionsTable>;
 
-	private constructor(files: Map<string, Blob>, urls: Map<string, string>) {
+	private constructor(
+		files: Map<string, Blob>,
+		urls: Map<string, string>,
+		regionsByDir: Map<string, RegionsTable>,
+	) {
 		this.files = files;
 		this.urls = urls;
+		this.regionsByDir = regionsByDir;
 	}
 
 	/**
 	 * Materialize every file in the htdocs tree into a real `Blob` (with
-	 * the correct MIME) and produce a stable object URL for each.
+	 * the correct MIME) and produce a stable object URL for each. Also
+	 * scans for `regions.js` files and parses each into a {@link RegionsTable}.
 	 */
 	static async build(files: HtdocsFiles): Promise<HtdocsBundle> {
 		const realFiles = new Map<string, Blob>();
 		const urls = new Map<string, string>();
+		const regionsByDir = new Map<string, RegionsTable>();
+		const regionsTexts = new Map<string, string>();
 		for (const [path, blob] of files) {
 			// Read the bytes through the public `Blob` API. For real
 			// `Blob`s this is a cheap reference; for lazy facades this is
@@ -125,8 +175,24 @@ export class HtdocsBundle {
 			const real = new Blob([bytes], { type: mimeTypeFor(path) });
 			realFiles.set(path, real);
 			urls.set(path, URL.createObjectURL(real));
+			// Stash the text of every `regions.js` for parsing below.
+			if (/(?:^|\/)regions\.js$/i.test(path)) {
+				regionsTexts.set(path, new TextDecoder('utf-8').decode(bytes));
+			}
 		}
-		return new HtdocsBundle(realFiles, urls);
+		for (const [path, text] of regionsTexts) {
+			const parsed = parseRegionsJs(text);
+			if (!parsed) continue;
+			const dir = path.includes('/')
+				? path.slice(0, path.lastIndexOf('/'))
+				: '';
+			regionsByDir.set(dir, {
+				scriptPath: path,
+				regions: parsed,
+				defaultKey: pickDefaultRegionKey(parsed),
+			});
+		}
+		return new HtdocsBundle(realFiles, urls, regionsByDir);
 	}
 
 	urlFor(path: string): string | undefined {
@@ -135,6 +201,25 @@ export class HtdocsBundle {
 
 	hasFile(path: string): boolean {
 		return this.urls.has(this.normalizePath(path));
+	}
+
+	/**
+	 * Look up the {@link RegionsTable} whose `regions.js` lives in the
+	 * same directory as `documentPath` (or any ancestor). Returns
+	 * `undefined` if no matching table is registered — i.e. this
+	 * document is not part of a region-routed manual.
+	 */
+	regionsForDocument(documentPath: string): RegionsTable | undefined {
+		const norm = this.normalizePath(documentPath);
+		const segments = norm.split('/');
+		// Walk from the document's directory upward until we find a
+		// matching regions.js.
+		for (let i = segments.length - 1; i >= 0; i--) {
+			const dir = segments.slice(0, i).join('/');
+			const table = this.regionsByDir.get(dir);
+			if (table) return table;
+		}
+		return undefined;
 	}
 
 	/** Find a likely entry-point HTML inside the bundle. */
@@ -202,6 +287,92 @@ export class HtdocsBundle {
 }
 
 // ---------------------------------------------------------------------------
+// `regions.js` parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse the `regions = { ... }` object literal out of a
+ * `regions.js` source file. Returns `null` if the file doesn't
+ * match the well-known Switch manual pattern.
+ *
+ * We deliberately avoid `eval` / `new Function` here — `regions.js`
+ * is one trusted file in a known shape, but parsing it directly
+ * means we don't introduce a code-execution surface in the host
+ * app. The format is rigid:
+ *
+ *   var regions = {
+ *     "All": "index_All.html",
+ *     "0":   "index_JP.html",
+ *     …
+ *   };
+ *
+ * Strings can be single- or double-quoted; whitespace + line breaks
+ * are tolerated. Keys are usually decimal digits or `"All"`. Values
+ * are HTML filenames relative to the directory containing
+ * `regions.js`. Any line we can't parse is silently skipped — the
+ * worst case is a missing region key, not a broken bundle.
+ */
+export function parseRegionsJs(source: string): Record<string, string> | null {
+	// Find the `{ ... }` body of the assignment. We look for any of
+	// `var regions = {`, `let regions = {`, `regions = {`, etc.
+	const bodyMatch = source.match(
+		/(?:var|let|const)?\s*regions\s*=\s*(\{[\s\S]*?\})\s*;?/,
+	);
+	if (!bodyMatch) return null;
+	const body = bodyMatch[1];
+	// Strip line + block comments — Switch manuals never have these but
+	// we defend in depth.
+	const stripped = body
+		.replace(/\/\*[\s\S]*?\*\//g, '')
+		.replace(/^\s*\/\/.*$/gm, '');
+	// Match each `"key": "value"` pair. Allow either quoting style on
+	// either side; trailing comma on the last entry is fine.
+	const pairRe =
+		/(?:"([^"\\]*)"|'([^'\\]*)')\s*:\s*(?:"([^"\\]*)"|'([^'\\]*)')/g;
+	const out: Record<string, string> = {};
+	let m: RegExpExecArray | null;
+	while ((m = pairRe.exec(stripped))) {
+		const key = m[1] ?? m[2] ?? '';
+		const value = m[3] ?? m[4] ?? '';
+		if (key && value) out[key] = value;
+	}
+	return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
+ * Pick a sensible default region key from a parsed table. Order:
+ *
+ *   1. `"All"` — the language-neutral fallback page that most games
+ *      ship; renders fine for any user.
+ *   2. `"1"` — Nintendo's region id for the Americas (US English).
+ *   3. The first defined key, lexicographically.
+ */
+export function pickDefaultRegionKey(regions: Record<string, string>): string {
+	if ('All' in regions) return 'All';
+	if ('1' in regions) return '1';
+	return Object.keys(regions).sort()[0];
+}
+
+/**
+ * Friendly display name for a region key. Switch's region ids are:
+ *
+ *   0 = JP, 1 = US (Americas), 2 = EU, 3 = AU, 4 = HongKongTaiwanKorea, 5 = China
+ *
+ * `"All"` (and any other non-numeric key) is passed through verbatim.
+ */
+export function regionDisplayName(key: string): string {
+	const map: Record<string, string> = {
+		'0': 'Japan',
+		'1': 'Americas',
+		'2': 'Europe',
+		'3': 'Australia',
+		'4': 'Hong Kong / Taiwan / Korea',
+		'5': 'China',
+	};
+	return map[key] ?? key;
+}
+
+// ---------------------------------------------------------------------------
 // HTML rewriting
 // ---------------------------------------------------------------------------
 
@@ -239,12 +410,18 @@ export type NavigateHandler = (path: string) => void;
  * `window.nx` shim plus a click-interceptor that lets us route in-bundle
  * navigations back to the parent app instead of the iframe trying to
  * load a (now-broken) relative URL.
+ *
+ * `forcedSearch` (e.g. `"?r=1"`) overrides the iframe's
+ * `location.search` getter before any page script runs. Used for
+ * Switch offline manuals that gate their region routing on
+ * `window.location.search` — without this they'd render blank in
+ * the preview because our `srcdoc` iframes have no real URL.
  */
 export function rewriteHtml(
 	html: string,
 	documentPath: string,
 	bundle: HtdocsBundle,
-	options: { nxShim: string; bridgeName: string },
+	options: { nxShim: string; bridgeName: string; forcedSearch?: string },
 ): string {
 	const parser = new DOMParser();
 	const doc = parser.parseFromString(html, 'text/html');
@@ -280,9 +457,13 @@ export function rewriteHtml(
 	}
 
 	// Inject the nx shim + a navigation bridge BEFORE any page scripts run.
+	// We also (optionally) override `location.search` before anything
+	// else runs so region-routed Switch manuals see the simulated `?r=N`
+	// query string we picked from their `regions.js` table.
 	const bootstrap = doc.createElement('script');
 	bootstrap.textContent = `(function(){
 	const bridge = '${options.bridgeName}';
+	${options.forcedSearch ? buildLocationSearchOverride(options.forcedSearch) : ''}
 	${options.nxShim}
 	// Intercept anchor clicks so the parent can route to in-bundle docs
 	// instead of having the iframe try (and fail) to do a real navigation.
@@ -389,6 +570,46 @@ export function rewriteCss(
 			if (/url\(/i.test(match)) return `@import url("${replaced}")`;
 			return `@import "${replaced}"`;
 		});
+}
+
+/**
+ * Build the snippet that overrides `location.search` for a srcdoc
+ * iframe. Unlike a real navigation, srcdoc iframes have no URL of
+ * their own — `location.search` returns `''`. Switch offline manuals
+ * gate their per-region routing on this value (`if (location.search)
+ * { … set href … }`), so without an override they sit blank waiting
+ * for a query string that will never arrive.
+ *
+ * We can't just *set* `location.search` (it's a setter that triggers
+ * navigation, and we'd lose our srcdoc context). Instead we install
+ * a getter on `Location.prototype` that returns the chosen value.
+ * This must run BEFORE any `<script>` tag in the page evaluates, so
+ * we put it at the top of the bootstrap (which the rewriter inserts
+ * as the first child of `<head>`).
+ */
+function buildLocationSearchOverride(forcedSearch: string): string {
+	// JSON.stringify gives us a safely-escaped JS string literal.
+	const lit = JSON.stringify(forcedSearch);
+	// `bridge` is a local var inside the surrounding bootstrap IIFE
+	// (declared on the very first line: `const bridge = '...';`), so
+	// we can reference it directly from inside this snippet.
+	return `
+		try {
+			var __locProto = Object.getPrototypeOf(location) || Location.prototype;
+			Object.defineProperty(__locProto, 'search', {
+				configurable: true,
+				get: function() { return ${lit}; },
+				set: function(v) {
+					try {
+						window.parent.postMessage(
+							{ kind: bridge, type: 'navigate', href: location.pathname + String(v) },
+							'*'
+						);
+					} catch (e) {}
+				},
+			});
+		} catch (e) {}
+	`;
 }
 
 // ---------------------------------------------------------------------------

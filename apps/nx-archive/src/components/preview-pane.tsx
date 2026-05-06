@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  ChevronDownIcon,
   ChevronLeftIcon,
   CircleAlertIcon,
   DownloadIcon,
   FileSearchIcon,
+  GlobeIcon,
   HomeIcon,
   PackageOpenIcon,
   TerminalIcon,
@@ -13,6 +15,14 @@ import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert"
 import { Badge } from "~/components/ui/badge"
 import { Button } from "~/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu"
 import {
   Empty,
   EmptyDescription,
@@ -40,6 +50,7 @@ import {
   HtdocsBundle,
   buildNxShim,
   flattenHtdocs,
+  regionDisplayName,
   rewriteHtml,
 } from "~/lib/htdocs"
 import type { RomFsEntry } from "@tootallnate/romfs"
@@ -224,6 +235,35 @@ function HtdocsPreview({ node }: { node: Node }) {
   const [showLog, setShowLog] = useState(false)
   const [log, setLog] = useState<NxLogEntry[]>([])
   const logIdRef = useRef(0)
+  // For Switch offline manuals that route by `?r=N` query param: the
+  // currently-chosen region key. Defaults to the table's preferred
+  // default key (`'All'`, then `'1'`, then first defined). Persists
+  // across in-bundle navigations so picking Japan once keeps you on
+  // Japanese pages until you change it.
+  const [regionKey, setRegionKey] = useState<string | null>(null)
+
+  // Look up the regions table (if any) that applies to the current
+  // document. Updated on every navigation; if the user navigates into
+  // a sub-tree with its own regions.js, we'd pick that one up too.
+  //
+  // We also compute whether the *current* document is itself a region
+  // *router* — i.e. NOT one of the regional pages listed as a value in
+  // the table. Without this distinction we'd inject `?r=N` into the
+  // resolved regional page too, and any second redirect attempt
+  // there would loop. The router pages (typically `index.html`) don't
+  // appear in the table's values; the regional pages (`index_US.html`)
+  // do.
+  const regionsTable = useMemo(() => {
+    if (!bundle || !currentPath) return null
+    return bundle.regionsForDocument(currentPath) ?? null
+  }, [bundle, currentPath])
+  const isRouterPage = useMemo(() => {
+    if (!regionsTable || !currentPath) return false
+    // Strip the directory part to compare against table values
+    // (which are file names relative to the regions.js dir).
+    const fileName = currentPath.split('/').pop() ?? currentPath
+    return !Object.values(regionsTable.regions).includes(fileName)
+  }, [regionsTable, currentPath])
 
   // Reset to the entry point whenever a fresh bundle becomes available.
   useEffect(() => {
@@ -231,7 +271,14 @@ function HtdocsPreview({ node }: { node: Node }) {
     setHistory([])
     setLog([])
     logIdRef.current = 0
-  }, [entryPoint])
+    // Pick a default region if the bundle has any regions.js.
+    if (entryPoint && bundle) {
+      const t = bundle.regionsForDocument(entryPoint)
+      setRegionKey(t ? t.defaultKey : null)
+    } else {
+      setRegionKey(null)
+    }
+  }, [entryPoint, bundle])
 
   const appendLog = useCallback((text: string, detail?: string) => {
     setLog((prev) => {
@@ -316,8 +363,10 @@ function HtdocsPreview({ node }: { node: Node }) {
   }, [appendLog, bundle, currentPath, entryPoint])
 
   // Compute the iframe document. We re-rewrite the HTML every time the
-  // user navigates within the bundle because each page has its own base
-  // path for resolving relative URLs.
+  // user navigates within the bundle (each page has its own base path
+  // for resolving relative URLs) AND every time the chosen region
+  // changes (the rewriter injects a `location.search = '?r=N'`
+  // override that gets baked into the bootstrap script).
   const [iframeSrcDoc, setIframeSrcDoc] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
@@ -335,13 +384,20 @@ function HtdocsPreview({ node }: { node: Node }) {
       const rewritten = rewriteHtml(html, currentPath, bundle, {
         nxShim: buildNxShim(NX_BRIDGE),
         bridgeName: NX_BRIDGE,
+        // Only inject `?r=N` on the *router* page — the one that reads
+        // `location.search` and redirects to a region-specific page.
+        // Injecting it on the regional pages too would either be a
+        // no-op (they don't read location.search) or, worse, cause an
+        // infinite redirect loop on any router-like sub-page.
+        forcedSearch:
+          isRouterPage && regionKey ? `?r=${regionKey}` : undefined,
       })
       setIframeSrcDoc(rewritten)
     })
     return () => {
       cancelled = true
     }
-  }, [bundle, currentPath])
+  }, [bundle, currentPath, regionsTable, regionKey])
 
   if (!htdocsRoot) {
     return (
@@ -438,6 +494,42 @@ function HtdocsPreview({ node }: { node: Node }) {
         <div className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
           {currentPath}
         </div>
+        {regionsTable && regionKey && (
+          <RegionPicker
+            regions={regionsTable.regions}
+            selectedKey={regionKey}
+            onChange={(newKey) => {
+              setRegionKey(newKey)
+              // If the user is currently on a regional page (not the
+              // router), navigate directly to the new region's page —
+              // the regionKey change alone won't trigger a redirect
+              // because the regional page doesn't read location.search.
+              // The router page route works fine: changing regionKey
+              // re-rewrites the iframe, the inline script reads our
+              // new ?r=N and redirects.
+              if (!isRouterPage && currentPath && bundle) {
+                const target = regionsTable.regions[newKey]
+                if (target) {
+                  // Resolve relative to the regions.js directory.
+                  const dir = regionsTable.scriptPath.includes("/")
+                    ? regionsTable.scriptPath.slice(
+                        0,
+                        regionsTable.scriptPath.lastIndexOf("/"),
+                      )
+                    : ""
+                  const resolved = bundle.resolvePath(
+                    dir ? `${dir}/x` : "x",
+                    target,
+                  )
+                  if (resolved && resolved !== currentPath) {
+                    setHistory((h) => [...h, currentPath])
+                    setCurrentPath(resolved)
+                  }
+                }
+              }
+            }}
+          />
+        )}
         <Badge variant="secondary" className="font-mono">
           {bundle.urls.size} files
         </Badge>
@@ -535,6 +627,78 @@ function HtdocsPreview({ node }: { node: Node }) {
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * Toolbar dropdown for picking a region inside a Switch offline
+ * manual that uses the `regions.js` routing pattern. Selecting a
+ * region triggers a re-render of the iframe with `?r=<key>` injected
+ * into `location.search`, which makes the manual's existing redirect
+ * script run as it would on Switch hardware.
+ *
+ * The dropdown shows friendly names (Japan / Americas / Europe / …)
+ * plus the resolved file path for each so power users can see what's
+ * about to load.
+ */
+function RegionPicker({
+  regions,
+  selectedKey,
+  onChange,
+}: {
+  regions: Record<string, string>
+  selectedKey: string
+  onChange: (key: string) => void
+}) {
+  // Sort: 'All' first if present, then numeric keys, then everything
+  // else lexicographically.
+  const keys = useMemo(() => {
+    const all = Object.keys(regions)
+    return all.sort((a, b) => {
+      if (a === "All") return -1
+      if (b === "All") return 1
+      const an = Number(a)
+      const bn = Number(b)
+      const aNum = !Number.isNaN(an)
+      const bNum = !Number.isNaN(bn)
+      if (aNum && bNum) return an - bn
+      if (aNum) return -1
+      if (bNum) return 1
+      return a.localeCompare(b)
+    })
+  }, [regions])
+
+  const selectedLabel = regionDisplayName(selectedKey)
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant="outline" title="Select manual region">
+          <GlobeIcon data-icon="inline-start" />
+          {selectedLabel}
+          <ChevronDownIcon data-icon="inline-end" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[14rem]">
+        <DropdownMenuLabel>Manual region</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {keys.map((k) => (
+          <DropdownMenuItem
+            key={k}
+            onSelect={() => onChange(k)}
+            data-selected={k === selectedKey || undefined}
+            className={cn(
+              "flex items-center justify-between gap-3",
+              k === selectedKey && "font-medium",
+            )}
+          >
+            <span>{regionDisplayName(k)}</span>
+            <span className="font-mono text-[10px] text-muted-foreground">
+              {regions[k]}
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
