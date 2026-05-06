@@ -7,7 +7,11 @@ import { useDefaultLayout } from "react-resizable-panels"
 
 import { AppHeader } from "~/components/app-header"
 import { Dropzone, GlobalDragOverlay } from "~/components/dropzone"
-import { FileTree } from "~/components/file-tree"
+import { FileTree, type SearchFilter } from "~/components/file-tree"
+import {
+  FileTreeSearch,
+  type SearchState,
+} from "~/components/file-tree-search"
 import { KeysDialog } from "~/components/keys-dialog"
 import { PreviewPane } from "~/components/preview-pane"
 import {
@@ -73,6 +77,13 @@ function ArchiveApp() {
   const [keysOpen, setKeysOpen] = useState(false)
   const [keys, setKeys] = useState<KeySet | null>(null)
   const [reloadCounter, setReloadCounter] = useState(0)
+  const [searchState, setSearchState] = useState<SearchState>({
+    query: "",
+    matches: [],
+    walking: false,
+    visited: 0,
+    totalKnown: 0,
+  })
 
   // Persist sidebar / preview widths to localStorage. The hook handles
   // serialisation; we only need to wire the returned `defaultLayout` and
@@ -162,6 +173,34 @@ function ArchiveApp() {
     [opened],
   )
 
+  // Translate the search-component output into the shape `FileTree`
+  // wants: per-node match indexes, set of visible ids (matches + all
+  // their ancestors), set of ids to auto-expand (the ancestors only —
+  // the matched leaf doesn't need to be force-expanded).
+  const searchFilter = useMemo<SearchFilter | undefined>(() => {
+    if (searchState.query.trim().length === 0) return undefined
+    const matchSet = new Map<string, number[]>()
+    const visibleIds = new Set<string>()
+    const forcedExpandedIds = new Set<string>()
+    for (const match of searchState.matches) {
+      matchSet.set(match.node.id, match.indexes)
+      // Every id along the path is visible. The match itself is
+      // visible; its ancestors are also visible AND auto-expanded
+      // so the user can see where the match is.
+      for (let i = 0; i < match.pathIds.length; i++) {
+        const id = match.pathIds[i]
+        visibleIds.add(id)
+        if (i < match.pathIds.length - 1) forcedExpandedIds.add(id)
+      }
+    }
+    return {
+      searchActive: true,
+      matchSet,
+      visibleIds,
+      forcedExpandedIds,
+    }
+  }, [searchState])
+
   return (
     <div className="flex h-full min-h-0 flex-col switch-backdrop">
       <AppHeader
@@ -203,6 +242,13 @@ function ArchiveApp() {
               <div className="shrink-0 border-b px-3 py-1.5 text-[10px] font-medium tracking-wider text-muted-foreground uppercase">
                 Archive contents
               </div>
+              <div className="shrink-0 border-b p-2">
+                <FileTreeSearch
+                  root={opened.root}
+                  walkVersion={reloadCounter}
+                  onChange={setSearchState}
+                />
+              </div>
               <ScrollArea className="min-h-0 flex-1">
                 <div className="p-2">
                   <FileTree
@@ -210,9 +256,29 @@ function ArchiveApp() {
                     root={opened.root}
                     selectedId={selected?.id}
                     onSelect={setSelected}
+                    search={searchFilter}
                   />
                 </div>
               </ScrollArea>
+              {searchFilter &&
+                (searchState.matches.length > 0 || searchState.walking) && (
+                  <div className="shrink-0 border-t px-3 py-1.5 text-[10px] text-muted-foreground">
+                    {searchState.walking
+                      ? `${searchState.matches.length} match${
+                          searchState.matches.length === 1 ? "" : "es"
+                        }… (searching)`
+                      : `${searchState.matches.length} match${
+                          searchState.matches.length === 1 ? "" : "es"
+                        }`}
+                  </div>
+                )}
+              {searchFilter &&
+                !searchState.walking &&
+                searchState.matches.length === 0 && (
+                  <div className="shrink-0 border-t px-3 py-1.5 text-[10px] text-muted-foreground italic">
+                    No matches.
+                  </div>
+                )}
             </ResizablePanel>
             <ResizableHandle withHandle />
             <ResizablePanel

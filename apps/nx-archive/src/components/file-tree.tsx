@@ -20,9 +20,36 @@ interface FileTreeProps {
   root: Node
   selectedId?: string
   onSelect: (node: Node) => void
+  /**
+   * Optional filter state. When provided AND `searchActive` is true,
+   * the tree shows:
+   *   - any node whose id is in `matchSet` (the actual matches),
+   *   - their ancestors (so the user sees the path),
+   *   - hides everything else.
+   *
+   * `forcedExpandedIds` lists ancestor ids that should be auto-
+   * expanded regardless of the user's manual expand state.
+   *
+   * `matchSet` carries match positions for in-name highlighting.
+   *
+   * Clearing the search restores the manual expand state — that
+   * lives per-row in `useState` and is preserved across this prop
+   * toggling because the row component doesn't unmount.
+   */
+  search?: SearchFilter
 }
 
-export function FileTree({ root, selectedId, onSelect }: FileTreeProps) {
+export interface SearchFilter {
+  searchActive: boolean
+  /** Map of node id → array of matched character indexes (for highlight). */
+  matchSet: Map<string, number[]>
+  /** Set of ancestor (and match) ids that must be visible / expanded. */
+  visibleIds: Set<string>
+  /** Subset of visibleIds that should auto-expand. */
+  forcedExpandedIds: Set<string>
+}
+
+export function FileTree({ root, selectedId, onSelect, search }: FileTreeProps) {
   return (
     <ul role="tree" className="text-sm">
       <TreeRow
@@ -31,6 +58,7 @@ export function FileTree({ root, selectedId, onSelect }: FileTreeProps) {
         selectedId={selectedId}
         onSelect={onSelect}
         defaultExpanded
+        search={search}
       />
     </ul>
   )
@@ -42,6 +70,7 @@ interface TreeRowProps {
   selectedId?: string
   onSelect: (node: Node) => void
   defaultExpanded?: boolean
+  search?: SearchFilter
 }
 
 function TreeRow({
@@ -50,11 +79,19 @@ function TreeRow({
   selectedId,
   onSelect,
   defaultExpanded = false,
+  search,
 }: TreeRowProps) {
-  const [expanded, setExpanded] = useState(defaultExpanded)
+  const [manualExpanded, setManualExpanded] = useState(defaultExpanded)
   const [loading, setLoading] = useState(false)
   const [children, setChildren] = useState<Node[] | null>(node._children ?? null)
   const [error, setError] = useState<Error | null>(node._childrenError ?? null)
+
+  // Search overrides expansion: any ancestor of a match expands
+  // automatically, but the user's manual state is preserved for
+  // when search clears.
+  const forcedExpand =
+    search?.searchActive && search.forcedExpandedIds.has(node.id)
+  const expanded = manualExpanded || !!forcedExpand
 
   // Fetch children lazily on first expansion.
   //
@@ -65,7 +102,9 @@ function TreeRow({
   //
   // Result and error are cached on the node itself so that StrictMode's
   // remount can pick up the result of the previous (cancelled) attempt
-  // without re-fetching.
+  // without re-fetching. The same cache is shared with the search walker
+  // (lib/search.ts), so a search expansion populates these and the tree
+  // re-renders without a duplicate fetch.
   useEffect(() => {
     if (!expanded || !node.isContainer || !node.getChildren) return
 
@@ -107,13 +146,27 @@ function TreeRow({
 
   const isSelected = selectedId === node.id
 
+  // Filter visibility: when search is active, only show nodes whose
+  // id is in `visibleIds` (the union of matches and their ancestors).
+  // The root is always visible regardless.
+  const isHiddenBySearch =
+    search?.searchActive && depth > 0 && !search.visibleIds.has(node.id)
+  if (isHiddenBySearch) return null
+
   const toggle = () => {
-    if (node.isContainer) setExpanded((e) => !e)
+    if (node.isContainer) setManualExpanded((e) => !e)
     onSelect(node)
   }
 
   // Indent calculation — leave room on the left for the chevron
   const indent = `calc(${depth * 1.0}rem + 0.5rem)`
+
+  // Build the displayed name with highlight ranges if this row is
+  // a match.
+  const matchIndexes = search?.matchSet.get(node.id)
+  const name = matchIndexes
+    ? renderHighlighted(node.name, matchIndexes, isSelected)
+    : node.name
 
   return (
     <li role="treeitem" aria-expanded={node.isContainer ? expanded : undefined}>
@@ -124,11 +177,11 @@ function TreeRow({
         onKeyDown={(e) => {
           if (e.key === "ArrowRight" && node.isContainer) {
             e.preventDefault()
-            setExpanded(true)
+            setManualExpanded(true)
           }
           if (e.key === "ArrowLeft" && node.isContainer) {
             e.preventDefault()
-            setExpanded(false)
+            setManualExpanded(false)
           }
         }}
         className={cn(
@@ -149,7 +202,7 @@ function TreeRow({
           )}
         />
         <NodeIcon node={node} expanded={expanded} />
-        <span className="min-w-0 flex-1 truncate">{node.name}</span>
+        <span className="min-w-0 flex-1 truncate">{name}</span>
         {node.format && (
           <Badge
             variant={isSelected ? "outline" : "secondary"}
@@ -200,12 +253,50 @@ function TreeRow({
               depth={depth + 1}
               selectedId={selectedId}
               onSelect={onSelect}
+              search={search}
             />
           ))}
         </ul>
       )}
     </li>
   )
+}
+
+/**
+ * Render a filename with the matched character ranges underlined +
+ * bolded. `indexes` is an array of haystack character offsets; we
+ * group consecutive offsets into spans for slightly nicer DOM.
+ */
+function renderHighlighted(name: string, indexes: number[], isSelected: boolean) {
+  if (indexes.length === 0) return name
+  const set = new Set(indexes)
+  const parts: React.ReactNode[] = []
+  let i = 0
+  while (i < name.length) {
+    const isMatch = set.has(i)
+    let j = i + 1
+    while (j < name.length && set.has(j) === isMatch) j++
+    const slice = name.slice(i, j)
+    if (isMatch) {
+      parts.push(
+        <span
+          key={i}
+          className={cn(
+            "rounded-sm font-bold",
+            isSelected
+              ? "bg-primary-foreground/25 text-current"
+              : "bg-primary/15 text-primary",
+          )}
+        >
+          {slice}
+        </span>,
+      )
+    } else {
+      parts.push(<span key={i}>{slice}</span>)
+    }
+    i = j
+  }
+  return parts
 }
 
 function LoadingSkeletons({ depth }: { depth: number }) {
