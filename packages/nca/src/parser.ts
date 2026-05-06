@@ -506,11 +506,27 @@ function createLazySectionBlob(params: LazySectionParams): Blob {
 		return source.slice(start, end);
 	}
 
-	// Only AES-CTR is supported for lazy decryption. BKTR sections are
-	// patches that require a base NCA, which we don't model here.
+	// BKTR (4) is the patch-encoding scheme used by Update NCAs. It
+	// uses an indirect bucket-tree at the end of the section to map
+	// logical offsets to "look up in this section" vs "look up in the
+	// base NCA", plus a separate AES-CTR-EX bucket-tree for per-region
+	// counter overrides. Without the base NCA we can't reconstruct
+	// the full content — and even the metadata is usually in the base
+	// NCA (the patch just overlays a few files). So we surface a
+	// clear error here instead of letting downstream parsers fail
+	// with cryptic "DataView" errors on undecryptable bytes.
+	if (cryptType === NCA_CRYPT_BKTR) {
+		return makeFailingBlob(
+			sectionSize,
+			'BKTR patch section: this section is part of an Update NCA and references data in the base NCA, which would need to be supplied separately. Decoding patch sections standalone is not supported.',
+		);
+	}
+
+	// Only AES-CTR is supported for lazy decryption. Anything else
+	// (XTS sections, NCA0_XTS, …) falls through to handing back the
+	// raw encrypted bytes — the caller sees garbled data but the
+	// file is at least downloadable.
 	if (cryptType !== NCA_CRYPT_CTR) {
-		// Fallback: return the encrypted slice. The caller will see garbled data,
-		// but at least the file is downloadable.
 		return source.slice(start, end);
 	}
 
