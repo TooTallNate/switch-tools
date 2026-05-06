@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/sarc",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for Nintendo's SARC archive format (used widely in Switch / Wii U / 3DS first-party games, often Yaz0-wrapped as .szs)",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/sarc"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

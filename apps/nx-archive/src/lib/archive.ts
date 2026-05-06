@@ -16,6 +16,9 @@ import { parseHfs0 } from '@tootallnate/hfs0';
 import { parseXci } from '@tootallnate/xci';
 import { decode as romfsDecode, type RomFsEntry } from '@tootallnate/romfs';
 import { decompressNcz, isNcz } from '@tootallnate/ncz';
+import { parseSarc, type SarcEntry } from '@tootallnate/sarc';
+import { decompressYaz0 } from '@tootallnate/yaz0';
+import { parseZip, type ZipEntry } from './zip';
 import {
 	parseNca,
 	NCA_FS_TYPE_PFS0,
@@ -41,6 +44,8 @@ export type NodeKind =
 	| 'romfs'
 	| 'nca'
 	| 'xci-partition'
+	| 'zip'
+	| 'sarc'
 	/**
 	 * A user-selected folder from the local filesystem. Functions like
 	 * an "ad-hoc PFS0" — its children are the files inside, with `.tik`
@@ -116,6 +121,17 @@ const TIK_RIGHTS_ID_OFFSET = 0x2a0;
 const TIK_TITLE_KEY_OFFSET = 0x180;
 const TIK_TITLE_KEY_SIZE = 0x10;
 
+/**
+ * The first 0x4000 bytes of an NCZ are the original (encrypted) NCA
+ * header passed through verbatim, before the NCZ section table begins.
+ * For preview-time inspection we can read these bytes directly off the
+ * compressed file and never touch zstd.
+ *
+ * Source: `@tootallnate/ncz`'s `NCZ_HEADER_SIZE` constant; documented
+ * in the NCZ section magic at offset 0x4000.
+ */
+const NCZ_NCA_HEADER_BYTES = 0x4000;
+
 function bytesToHex(bytes: Uint8Array): string {
 	let s = '';
 	for (let i = 0; i < bytes.length; i++) s += bytes[i].toString(16).padStart(2, '0');
@@ -170,6 +186,11 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	npdm: 'NPDM',
 	bfttf: 'BFTTF',
 	bfotf: 'BFOTF',
+	zip: 'ZIP',
+	sarc: 'SARC',
+	pack: 'SARC', // BotW / Splatoon style — `.pack` is plain SARC
+	szs: 'SZS', // Yaz0-compressed SARC, ubiquitous across 1st-party games
+	yaz0: 'YAZ0',
 };
 
 /**
@@ -218,6 +239,13 @@ async function sniffMagic(blob: Blob): Promise<string | null> {
 	if (m4 === 'PFS0') return 'pfs0';
 	if (m4 === 'HFS0') return 'hfs0';
 	if (m4 === 'IVFC') return 'romfs';
+	if (m4 === 'SARC') return 'sarc';
+	if (m4 === 'Yaz0') return 'szs'; // we treat all Yaz0 as SZS-style for browsing
+	// ZIP local file header is "PK\x03\x04" — match raw bytes since
+	// the trailing two bytes aren't printable.
+	if (head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04) {
+		return 'zip';
+	}
 	// NRO has its magic at offset 0x10 ("NRO0")
 	if (blob.size >= 0x14) {
 		const magicAt10 = new Uint8Array(
@@ -270,6 +298,13 @@ export async function buildRootNode(
 			return makeNczNode(id, displayName, blob, ctx);
 		case 'RomFS':
 			return makeRomfsNode(id, displayName, blob);
+		case 'ZIP':
+			return makeZipNode(id, displayName, blob);
+		case 'SARC':
+			return makeSarcNode(id, displayName, blob);
+		case 'SZS':
+		case 'YAZ0':
+			return makeSzsNode(id, displayName, blob);
 		default:
 			// Unknown — present it as a single file the user can download
 			return {
@@ -600,6 +635,44 @@ function makeXciNode(
 
 // ----- NCA -----
 
+/**
+ * Parse an NCA blob, automatically applying the matching titlekey from
+ * the surrounding container's `tikMap` when the NCA is rights-id-keyed.
+ *
+ * Two-pass: a first cheap parse (header decrypt only) reads the rights
+ * ID and key generation; if the NCA needs a titlekey AND the tikMap
+ * has one for that rights ID, we re-parse with the titlekey wired in
+ * so section bodies can be decrypted.
+ *
+ * Throws if `ctx.getKeys()` returns null (and asks the UI for keys);
+ * does NOT throw on `parsed.missingKey` — callers can decide whether
+ * to surface the metadata anyway. (The lazy section blobs already
+ * throw on read when keys are missing, so the user gets a clear
+ * error at the point where they actually try to use the data.)
+ */
+async function parseNcaWithTik(
+	blob: Blob,
+	ctx: ArchiveContext,
+	tikMap: TikMap | undefined,
+): Promise<ParsedNca> {
+	const keys = ctx.getKeys();
+	if (!keys) {
+		ctx.requestKeys();
+		throw new Error(
+			'NCA decryption requires prod.keys. Click the "Add keys" button to provide them.',
+		);
+	}
+	let parsed = await parseNca(blob, { keys });
+	if (parsed.hasRightsId && tikMap) {
+		const ridKey = bytesToHex(parsed.rightsId);
+		const encryptedTitleKey = tikMap.get(ridKey);
+		if (encryptedTitleKey) {
+			parsed = await parseNca(blob, { keys, encryptedTitleKey });
+		}
+	}
+	return parsed;
+}
+
 function makeNcaNode(
 	id: string,
 	name: string,
@@ -614,26 +687,24 @@ function makeNcaNode(
 		isContainer: true,
 		size: blob.size,
 		format: 'NCA',
+		// `meta.ncaSource` carries everything the preview component
+		// needs to re-parse the NCA on its own (whether or not the user
+		// has expanded it in the tree). Stash it as part of the node so
+		// the preview pane can look it up via `node.meta`.
+		meta: {
+			ncaSource: {
+				// For plain NCAs the header is already at the start of the
+				// blob and `parseNca` only reads the first 0xC00 bytes
+				// regardless, so it's fine to hand it the whole blob.
+				getHeader: async () => blob,
+				getBlob: async () => blob,
+				ctx,
+				tikMap,
+			} satisfies NcaSource,
+		},
 		blob: async () => blob,
 		getChildren: async () => {
-			const keys = ctx.getKeys();
-			if (!keys) {
-				ctx.requestKeys();
-				throw new Error(
-					'NCA decryption requires prod.keys. Click the "Add keys" button to provide them.',
-				);
-			}
-			// Two-pass: first peek at the rights ID, then look up the
-			// matching titlekey from the tikMap (if any) and re-parse with
-			// it. The peek is cheap (header decrypt only).
-			let parsed = await parseNca(blob, { keys });
-			if (parsed.hasRightsId && tikMap) {
-				const ridKey = bytesToHex(parsed.rightsId);
-				const encryptedTitleKey = tikMap.get(ridKey);
-				if (encryptedTitleKey) {
-					parsed = await parseNca(blob, { keys, encryptedTitleKey });
-				}
-			}
+			const parsed = await parseNcaWithTik(blob, ctx, tikMap);
 			if (parsed.missingKey) {
 				throw new Error(parsed.missingKey);
 			}
@@ -642,53 +713,66 @@ function makeNcaNode(
 	};
 }
 
+/**
+ * Public type for the `meta.ncaSource` field stashed on `'nca'`-kind
+ * nodes. The preview component imports this type and re-parses the
+ * NCA on demand when the user selects the node.
+ *
+ * Two thunks are exposed because not every consumer needs the full
+ * NCA bytes:
+ *
+ * - `getHeader()` returns a `Blob` from which the NCA *header* can be
+ *   parsed — i.e. at least the first 0xC00 bytes, decrypted on demand
+ *   by `parseNca` using the AES-XTS header key. Crucially, for NCZ
+ *   sources this returns the first 0x4000 bytes of the *NCZ* blob
+ *   (which holds the original NCA header verbatim, per the NCZ spec).
+ *   This is what the preview pane uses, so opening an NCZ doesn't
+ *   trigger a multi-gigabyte zstd decompression.
+ *
+ * - `getBlob()` returns the full NCA blob — for plain NCAs that's the
+ *   blob as-is; for NCZs it triggers (and caches) the zstd
+ *   decompression. Used when the user actually expands the NCA in
+ *   the tree to drill into its sections.
+ */
+export interface NcaSource {
+	/** Lightweight: only the bytes needed for header parsing. */
+	getHeader: () => Promise<Blob>;
+	/** Heavyweight: the full NCA, materialising NCZ decompression if needed. */
+	getBlob: () => Promise<Blob>;
+	ctx: ArchiveContext;
+	tikMap?: TikMap;
+}
+
+/**
+ * Re-parse the NCA *header* backing an `'nca'` node, applying
+ * titlekey crypto via the surrounding container's tikMap when
+ * applicable.
+ *
+ * Important: this only reads enough bytes to populate `ParsedNca`
+ * fields. The returned object's `sections[].data` will not be
+ * usable for reading section bodies on NCZ-backed nodes — that's
+ * intentional. Reading section bodies needs the full decompressed
+ * NCA, which only happens when the user expands the NCA in the
+ * tree (`getChildren`) and gets back proper section nodes.
+ */
+export async function parseNcaForNode(source: NcaSource): Promise<ParsedNca> {
+	const blob = await source.getHeader();
+	return parseNcaWithTik(blob, source.ctx, source.tikMap);
+}
+
 function ncaSectionNodes(
 	parentId: string,
 	parsed: ParsedNca,
 	ctx: ArchiveContext,
 	tikMap?: TikMap,
 ): Node[] {
-	const out: Node[] = [];
-
-	// Synthetic info file at the top of the NCA so users can preview the header
-	out.push({
-		id: `${parentId}/__info.json`,
-		name: '_nca-info.json',
-		kind: 'file',
-		isContainer: false,
-		format: 'JSON',
-		meta: { ncaInfo: ncaInfoForPreview(parsed) },
-		blob: async () => {
-			const json = JSON.stringify(ncaInfoForPreview(parsed), null, 2);
-			return new Blob([json], { type: 'application/json' });
-		},
-	});
-
-	for (const section of parsed.sections) {
-		out.push(makeNcaSectionNode(parentId, parsed, section, ctx, tikMap));
-	}
-	return out;
-}
-
-function ncaInfoForPreview(parsed: ParsedNca) {
-	return {
-		magic: parsed.magic,
-		distribution: parsed.distribution,
-		contentType: NcaContentType[parsed.contentType] ?? parsed.contentType,
-		titleId: '0x' + parsed.titleId.toString(16).padStart(16, '0'),
-		ncaSize: parsed.ncaSize.toString(),
-		keyGeneration: parsed.keyGeneration,
-		kaekIndex: parsed.kaekIndex,
-		sdkVersion: parsed.sdkVersion,
-		hasRightsId: parsed.hasRightsId,
-		sections: parsed.sections.map((s) => ({
-			index: s.index,
-			fsType: s.fsType === NCA_FS_TYPE_PFS0 ? 'PFS0' : s.fsType === NCA_FS_TYPE_ROMFS ? 'RomFS' : `unknown(${s.fsType})`,
-			cryptType: s.cryptType,
-			mediaStartOffset: s.mediaStartOffset,
-			mediaEndOffset: s.mediaEndOffset,
-		})),
-	};
+	// The NCA's structured header info is shown directly when the user
+	// selects the NCA node in the tree (see `NcaPreview` in
+	// `preview-pane.tsx`), so the children are just the real sections —
+	// no synthetic `_nca-info.json` file.
+	return parsed.sections.map((section) =>
+		makeNcaSectionNode(parentId, parsed, section, ctx, tikMap),
+	);
 }
 
 function makeNcaSectionNode(
@@ -750,23 +834,26 @@ function makeNczNode(
 		size: blob.size,
 		format: 'NCZ',
 		blob: decompressOnce, // download yields the decompressed NCA
+		meta: {
+			ncaSource: {
+				// The structured preview only needs the NCA header — and
+				// per the NCZ spec, the first 0x4000 bytes of an NCZ are
+				// the original NCA header verbatim. So we can serve the
+				// preview straight off the compressed file without
+				// triggering zstd decompression of the (possibly
+				// multi-gigabyte) section bodies.
+				getHeader: async () => blob.slice(0, NCZ_NCA_HEADER_BYTES),
+				// `getBlob` returns the FULL decompressed NCA. Used by
+				// `getChildren` and the download button. Cached, so we
+				// only decompress once per session.
+				getBlob: decompressOnce,
+				ctx,
+				tikMap,
+			} satisfies NcaSource,
+		},
 		getChildren: async () => {
-			const keys = ctx.getKeys();
-			if (!keys) {
-				ctx.requestKeys();
-				throw new Error(
-					'NCA decryption requires prod.keys. Click the "Add keys" button to provide them.',
-				);
-			}
 			const ncaBlob = await decompressOnce();
-			let parsed = await parseNca(ncaBlob, { keys });
-			if (parsed.hasRightsId && tikMap) {
-				const ridKey = bytesToHex(parsed.rightsId);
-				const encryptedTitleKey = tikMap.get(ridKey);
-				if (encryptedTitleKey) {
-					parsed = await parseNca(ncaBlob, { keys, encryptedTitleKey });
-				}
-			}
+			const parsed = await parseNcaWithTik(ncaBlob, ctx, tikMap);
 			if (parsed.missingKey) {
 				throw new Error(parsed.missingKey);
 			}
@@ -868,6 +955,240 @@ function romfsEntriesToNodes(parentId: string, dir: RomFsEntry): Node[] {
 	return out;
 }
 
+// ----- ZIP -----
+
+function makeZipNode(id: string, name: string, blob: Blob): Node {
+	return {
+		id,
+		name,
+		kind: 'zip',
+		isContainer: true,
+		size: blob.size,
+		format: 'ZIP',
+		blob: async () => blob,
+		getChildren: async () => {
+			const zip = await parseZip(blob);
+			return zipEntriesToNodes(id, zip.entries);
+		},
+	};
+}
+
+/**
+ * Convert a flat list of ZIP entries into a hierarchical `Node` tree
+ * by splitting on `/`. ZIP entries store full paths (`a/b/c.txt`)
+ * with no separate directory records — though directory placeholder
+ * entries (paths ending in `/`) do exist and we treat them as
+ * empty-content directories.
+ *
+ * Mirrors the RomFS sort order: directories first, then files,
+ * alphabetised within each group.
+ */
+function zipEntriesToNodes(parentId: string, entries: ZipEntry[]): Node[] {
+	type Tree = Map<string, { dir?: Tree; file?: ZipEntry }>;
+	const root: Tree = new Map();
+	for (const entry of entries) {
+		const parts = entry.name.split('/').filter((p) => p.length > 0);
+		if (parts.length === 0) continue;
+		let cur = root;
+		for (let i = 0; i < parts.length; i++) {
+			const part = parts[i];
+			const isLast = i === parts.length - 1;
+			let node = cur.get(part);
+			if (!node) {
+				node = {};
+				cur.set(part, node);
+			}
+			if (isLast && !entry.isDirectory) {
+				node.file = entry;
+			} else {
+				if (!node.dir) node.dir = new Map();
+				cur = node.dir;
+			}
+		}
+	}
+
+	const treeToNodes = (treeId: string, t: Tree): Node[] => {
+		const out: Node[] = [];
+		const names = [...t.keys()].sort((a, b) => {
+			const aIsDir = !!t.get(a)!.dir;
+			const bIsDir = !!t.get(b)!.dir;
+			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+			return a.localeCompare(b);
+		});
+		for (const name of names) {
+			const child = t.get(name)!;
+			const childId = `${treeId}/${name}`;
+			if (child.dir) {
+				const subNodes = treeToNodes(childId, child.dir);
+				out.push({
+					id: childId,
+					name,
+					kind: 'directory',
+					isContainer: true,
+					format: 'directory',
+					getChildren: async () => subNodes,
+				});
+			} else if (child.file) {
+				const file = child.file;
+				out.push({
+					id: childId,
+					name,
+					kind: 'file',
+					isContainer: false,
+					size: file.size,
+					format: detectFormat(name) || 'BIN',
+					blob: file.data,
+				});
+			}
+		}
+		return out;
+	};
+
+	return treeToNodes(parentId, root);
+}
+
+// ----- SARC -----
+
+function makeSarcNode(id: string, name: string, blob: Blob): Node {
+	return {
+		id,
+		name,
+		kind: 'sarc',
+		isContainer: true,
+		size: blob.size,
+		format: 'SARC',
+		blob: async () => blob,
+		getChildren: async () => {
+			const parsed = await parseSarc(blob);
+			return sarcEntriesToNodes(id, parsed.entries);
+		},
+	};
+}
+
+/**
+ * Convert SARC entries (flat list of slash-delimited paths) into a
+ * hierarchical `Node` tree. Same shape as the ZIP version above —
+ * SARC names are also full paths, just without explicit directory
+ * markers.
+ */
+function sarcEntriesToNodes(parentId: string, entries: SarcEntry[]): Node[] {
+	type Tree = Map<string, { dir?: Tree; file?: SarcEntry }>;
+	const root: Tree = new Map();
+	for (const entry of entries) {
+		const parts = entry.name.split('/').filter((p) => p.length > 0);
+		if (parts.length === 0) continue;
+		let cur = root;
+		for (let i = 0; i < parts.length; i++) {
+			const part = parts[i];
+			const isLast = i === parts.length - 1;
+			let node = cur.get(part);
+			if (!node) {
+				node = {};
+				cur.set(part, node);
+			}
+			if (isLast) {
+				node.file = entry;
+			} else {
+				if (!node.dir) node.dir = new Map();
+				cur = node.dir;
+			}
+		}
+	}
+
+	const treeToNodes = (treeId: string, t: Tree): Node[] => {
+		const out: Node[] = [];
+		const names = [...t.keys()].sort((a, b) => {
+			const aIsDir = !!t.get(a)!.dir;
+			const bIsDir = !!t.get(b)!.dir;
+			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+			return a.localeCompare(b);
+		});
+		for (const name of names) {
+			const child = t.get(name)!;
+			const childId = `${treeId}/${name}`;
+			if (child.dir) {
+				const subNodes = treeToNodes(childId, child.dir);
+				out.push({
+					id: childId,
+					name,
+					kind: 'directory',
+					isContainer: true,
+					format: 'directory',
+					getChildren: async () => subNodes,
+				});
+			} else if (child.file) {
+				const file = child.file;
+				const innerData = file.data;
+				out.push({
+					id: childId,
+					name,
+					kind: 'file',
+					isContainer: false,
+					size: file.size,
+					format: detectFormat(name) || 'BIN',
+					blob: async () => innerData,
+				});
+			}
+		}
+		return out;
+	};
+
+	return treeToNodes(parentId, root);
+}
+
+// ----- SZS / Yaz0 -----
+
+/**
+ * SZS = Yaz0-compressed SARC. We decompress lazily on first child
+ * request, then expose the inner SARC's tree directly so the user
+ * doesn't see a redundant `.szs → .sarc` indirection.
+ *
+ * Standalone (non-SARC) Yaz0 files also flow through here; in that
+ * case `parseSarc` will throw and we fall back to a single-file
+ * representation of the decompressed payload.
+ */
+function makeSzsNode(id: string, name: string, blob: Blob): Node {
+	let cached: Promise<Blob> | null = null;
+	const decompressOnce = () => {
+		if (!cached) cached = decompressYaz0(blob);
+		return cached;
+	};
+	return {
+		id,
+		name,
+		kind: 'sarc',
+		isContainer: true,
+		size: blob.size,
+		format: 'SZS (Yaz0+SARC)',
+		// Downloading an SZS gives you the *decompressed* payload — that's
+		// almost always what someone actually wants (e.g. drop into an
+		// external SARC tool).
+		blob: decompressOnce,
+		getChildren: async () => {
+			const inner = await decompressOnce();
+			try {
+				const parsed = await parseSarc(inner);
+				return sarcEntriesToNodes(id, parsed.entries);
+			} catch {
+				// Standalone Yaz0 (no SARC inside) — show the
+				// decompressed file as a single child so the user can
+				// still preview / download it.
+				return [
+					{
+						id: `${id}/decompressed`,
+						name: name.replace(/\.szs$/i, '') || 'decompressed',
+						kind: 'file',
+						isContainer: false,
+						size: inner.size,
+						format: detectFormat(name.replace(/\.szs$/i, '')) || 'BIN',
+						blob: async () => inner,
+					},
+				];
+			}
+		},
+	};
+}
+
 // ----- Generic dispatcher for nested children whose container type is determined by name/sniff -----
 
 async function childNodeFor(
@@ -885,6 +1206,18 @@ async function childNodeFor(
 	if (ext === 'pfs0') return makePfs0Node(id, name, blob, ctx, 'PFS0');
 	if (ext === 'hfs0') return makeHfs0Node(id, name, blob, ctx);
 	if (ext === 'xci') return makeXciNode(id, name, blob, ctx);
+	if (ext === 'zip') return makeZipNode(id, name, blob);
+	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob);
+	if (ext === 'szs') return makeSzsNode(id, name, blob);
+	// Some 1st-party games hide Yaz0+SARC behind Nintendo-internal
+	// extensions like `.sbeventpack`, `.sbactorpack`, `.sbgdata`, etc.
+	// Anything starting with `s` followed by one of those well-known
+	// SARC-ish suffixes gets the SZS treatment. We could also magic-
+	// sniff, but that would require an async read for every leaf
+	// file, which is too expensive — exts cover ~99% of real cases.
+	if (ext.length > 1 && ext.startsWith('s') && SARC_LIKE_SUFFIXES.has(ext.slice(1))) {
+		return makeSzsNode(id, name, blob);
+	}
 
 	// Generic file
 	return {
@@ -897,3 +1230,22 @@ async function childNodeFor(
 		blob: async () => blob,
 	};
 }
+
+/**
+ * BotW / Splatoon / Mario Odyssey naming convention: many `.pack`
+ * archives are actually Yaz0-compressed and re-extension'd with a
+ * leading `s`. We recognize the most common suffixes here so users
+ * don't have to know the convention. The list isn't exhaustive on
+ * purpose — formats like `.sbgdata` (binary game data, not a
+ * container) live alongside `.sbactorpack` (a SARC), and we'd
+ * rather mis-treat one as a SARC and fail-open than crash the
+ * whole tree.
+ */
+const SARC_LIKE_SUFFIXES = new Set([
+	// `s` + name → Yaz0-wrapped SARC. Non-`s` versions of these
+	// extensions are *plain* SARCs and match the `.pack` / `.sarc`
+	// branch above instead.
+	'pack', // .spack — extremely common across BotW/Splatoon
+	'beventpack',
+	'bactorpack',
+]);

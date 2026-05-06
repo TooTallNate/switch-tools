@@ -195,7 +195,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       autoprefixer:
         specifier: ^10.4.24
-        version: 10.4.24(postcss@8.4.49)
+        version: 10.4.24(postcss@8.4.35)
       tailwindcss:
         specifier: ^3.4.16
         version: 3.4.16
@@ -250,15 +250,24 @@ importers:
       '@tootallnate/romfs':
         specifier: workspace:*
         version: link:../../packages/romfs
+      '@tootallnate/sarc':
+        specifier: workspace:*
+        version: link:../../packages/sarc
       '@tootallnate/xci':
         specifier: workspace:*
         version: link:../../packages/xci
+      '@tootallnate/yaz0':
+        specifier: workspace:*
+        version: link:../../packages/yaz0
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
       clsx:
         specifier: ^1.2.1
         version: 1.2.1
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.2
       fzstd:
         specifier: ^0.1.1
         version: 0.1.1
@@ -482,11 +491,23 @@ importers:
         specifier: ^5.3.3
         version: 5.3.3
 
+  packages/sarc:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/xci:
     dependencies:
       '@tootallnate/hfs0':
         specifier: workspace:^
         version: link:../hfs0
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/yaz0:
     devDependencies:
       typescript:
         specifier: ^5.3.3
@@ -3979,6 +4000,9 @@ packages:
   fetch-blob@4.0.0:
     resolution: {integrity: sha512-nPmnhRmpNMjYWnp9EBMGs6z5lq9RXed5W1vuZcECrsDVQInM8AMQSooVb3X183Aole60adzjWbH9qlRFWzDDTA==}
     engines: {node: '>=16.7'}
+
+  fflate@0.8.2:
+    resolution: {integrity: sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A==}
 
   figures@6.1.0:
     resolution: {integrity: sha512-d+l3qxjSesT4V7v2fh+QnmFnUWv9lSpjarhShNTgBOfA0ttejbQUAlHLitbjkoRiDulW0OPoQPYIGhIC8ohejg==}
@@ -9608,13 +9632,13 @@ snapshots:
 
   astring@1.8.6: {}
 
-  autoprefixer@10.4.24(postcss@8.4.49):
+  autoprefixer@10.4.24(postcss@8.4.35):
     dependencies:
       browserslist: 4.28.1
       caniuse-lite: 1.0.30001774
       fraction.js: 5.3.4
       picocolors: 1.1.1
-      postcss: 8.4.49
+      postcss: 8.4.35
       postcss-value-parser: 4.2.0
 
   available-typed-arrays@1.0.5: {}
@@ -10536,6 +10560,8 @@ snapshots:
   fetch-blob@4.0.0:
     dependencies:
       node-domexception: 1.0.0
+
+  fflate@0.8.2: {}
 
   figures@6.1.0:
     dependencies:

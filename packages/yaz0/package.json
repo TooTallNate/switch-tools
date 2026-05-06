@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/yaz0",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Decoder for Nintendo's Yaz0 LZ-style compression (used in .szs files and many first-party game archives)",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/yaz0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

@@ -24,7 +24,18 @@ import { ScrollArea } from "~/components/ui/scroll-area"
 import { Separator } from "~/components/ui/separator"
 import { Skeleton } from "~/components/ui/skeleton"
 import { Spinner } from "~/components/ui/spinner"
-import type { Node } from "~/lib/archive"
+import {
+  parseNcaForNode,
+  type NcaSource,
+  type Node,
+} from "~/lib/archive"
+import {
+  NCA_FS_TYPE_PFS0,
+  NCA_FS_TYPE_ROMFS,
+  NcaContentType,
+  type NcaSection,
+  type ParsedNca,
+} from "@tootallnate/nca"
 import {
   HtdocsBundle,
   buildNxShim,
@@ -94,9 +105,10 @@ function PreviewContent({ node }: { node: Node }) {
     [isFile, node.name],
   )
 
-  // `*.htdocs/` directories get a dedicated interactive preview that
-  // renders the manual in an iframe with a stubbed `window.nx`.
+  // Container nodes that have a dedicated structured preview instead
+  // of the generic "expand me" empty state.
   const isHtdocs = node.kind === "htdocs"
+  const isNca = node.kind === "nca"
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -104,6 +116,8 @@ function PreviewContent({ node }: { node: Node }) {
       <div className="min-h-0 flex-1 overflow-hidden">
         {isHtdocs ? (
           <HtdocsPreview node={node} />
+        ) : isNca ? (
+          <NcaPreview node={node} />
         ) : node.isContainer ? (
           <ContainerSummary node={node} />
         ) : (
@@ -522,6 +536,232 @@ function HtdocsPreview({ node }: { node: Node }) {
       </div>
     </div>
   )
+}
+
+// =============================================================================
+// NCA structured preview
+// =============================================================================
+//
+// Selecting an NCA in the tree shows its decoded header info — magic,
+// content type, title ID, key generation, key area, sections, rights ID.
+// This replaces the older synthetic `_nca-info.json` child.
+
+function NcaPreview({ node }: { node: Node }) {
+  // The archive lib stashes the NCA's source ({ getBlob, ctx, tikMap })
+  // on the node's meta so we can re-parse it on demand without going
+  // through the (expensive) tree expansion path.
+  const source = node.meta?.ncaSource as NcaSource | undefined
+
+  const { loading, data, error } = useAsync(
+    async () => {
+      if (!source) {
+        throw new Error(
+          "Internal error: this NCA node is missing its source metadata.",
+        )
+      }
+      return parseNcaForNode(source)
+    },
+    [node.id],
+  )
+
+  if (loading) return <LoadingFiller label="Decrypting NCA header…" />
+  if (error) return <ErrorFiller error={error} />
+  const parsed = data!
+
+  const contentTypeLabel =
+    NcaContentType[parsed.contentType] ?? `unknown(${parsed.contentType})`
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="NCA — Nintendo Content Archive" />
+
+        {parsed.missingKey && (
+          <Alert variant="destructive">
+            <CircleAlertIcon />
+            <AlertTitle>Section bodies can’t be decrypted</AlertTitle>
+            <AlertDescription>{parsed.missingKey}</AlertDescription>
+          </Alert>
+        )}
+
+        <KvBlock title="Header">
+          <KvRow k="Magic" v={parsed.magic} mono />
+          <KvRow k="Content type" v={contentTypeLabel} />
+          <KvRow
+            k="Title ID"
+            v={"0x" + parsed.titleId.toString(16).padStart(16, "0")}
+            mono
+          />
+          <KvRow k="Size" v={formatBytes(Number(parsed.ncaSize))} />
+          <KvRow
+            k="SDK version"
+            v={formatSdkVersion(parsed.sdkVersion)}
+          />
+          <KvRow
+            k="Distribution"
+            v={
+              parsed.distribution === 0
+                ? "Download"
+                : parsed.distribution === 1
+                  ? "GameCard"
+                  : `unknown(${parsed.distribution})`
+            }
+          />
+          <KvRow
+            k="Key generation"
+            v={`${parsed.keyGeneration} (${describeKeyGeneration(parsed.keyGeneration)})`}
+          />
+          <KvRow
+            k="KAEK index"
+            v={
+              parsed.kaekIndex === 0
+                ? "0 (Application)"
+                : parsed.kaekIndex === 1
+                  ? "1 (Ocean)"
+                  : parsed.kaekIndex === 2
+                    ? "2 (System)"
+                    : `${parsed.kaekIndex}`
+            }
+          />
+          <KvRow k="Has rights ID" v={parsed.hasRightsId ? "yes" : "no"} />
+          {parsed.hasRightsId && (
+            <KvRow
+              k="Rights ID"
+              v={hexBytesToString(parsed.rightsId)}
+              mono
+            />
+          )}
+        </KvBlock>
+
+        <NcaSectionsTable sections={parsed.sections} />
+
+        <KvBlock title="Decrypted key area">
+          {parsed.keyArea.map((k, i) => (
+            <KvRow
+              key={i}
+              k={`keyArea[${i}]${i === 2 ? " (section key)" : ""}`}
+              v={hexBytesToString(k)}
+              mono
+            />
+          ))}
+        </KvBlock>
+      </div>
+    </ScrollArea>
+  )
+}
+
+function NcaSectionsTable({ sections }: { sections: NcaSection[] }) {
+  if (sections.length === 0) {
+    return (
+      <KvBlock title="Sections">
+        <KvRow k="Sections" v="(none)" />
+      </KvBlock>
+    )
+  }
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Sections ({sections.length})
+      </h3>
+      <div className="overflow-x-auto rounded-md border">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b bg-muted/50 text-muted-foreground">
+              <th className="px-2 py-1.5 text-left font-medium">#</th>
+              <th className="px-2 py-1.5 text-left font-medium">FS</th>
+              <th className="px-2 py-1.5 text-left font-medium">Crypto</th>
+              <th className="px-2 py-1.5 text-right font-medium">Offset</th>
+              <th className="px-2 py-1.5 text-right font-medium">Size</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sections.map((s) => {
+              const fsLabel =
+                s.fsType === NCA_FS_TYPE_PFS0
+                  ? "PFS0"
+                  : s.fsType === NCA_FS_TYPE_ROMFS
+                    ? "RomFS"
+                    : `unknown(${s.fsType})`
+              const cryptoLabel =
+                s.cryptType === 1
+                  ? "None"
+                  : s.cryptType === 2
+                    ? "AES-XTS"
+                    : s.cryptType === 3
+                      ? "AES-CTR"
+                      : s.cryptType === 4
+                        ? "AES-CTR-Ex (BKTR)"
+                        : `unknown(${s.cryptType})`
+              const sectionLen = s.mediaEndOffset - s.mediaStartOffset
+              return (
+                <tr key={s.index} className="border-b last:border-0">
+                  <td className="px-2 py-1.5 font-mono">{s.index}</td>
+                  <td className="px-2 py-1.5 font-mono">{fsLabel}</td>
+                  <td className="px-2 py-1.5 font-mono">{cryptoLabel}</td>
+                  <td className="px-2 py-1.5 text-right font-mono">
+                    0x{s.mediaStartOffset.toString(16)}
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">
+                    {formatBytes(sectionLen)}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+/** Human-friendly label for the SDK Addon Version field (a packed BCD). */
+function formatSdkVersion(raw: number): string {
+  // Format used by FS_ACCESS log lines: "{byte3}.{byte2}.{byte1}"
+  // where the high byte is byte3.
+  const b3 = (raw >>> 24) & 0xff
+  const b2 = (raw >>> 16) & 0xff
+  const b1 = (raw >>> 8) & 0xff
+  return `${b3}.${b2}.${b1}  (raw 0x${raw.toString(16).padStart(8, "0")})`
+}
+
+/**
+ * Map an NCA `keyGeneration` field (1-indexed, matching what the
+ * hacbrewpack reference uses) to a human-readable firmware label.
+ */
+function describeKeyGeneration(gen: number): string {
+  // From switchbrew's NCA wiki page; values are 1-indexed externally,
+  // i.e. gen=1 ↔ master_key_00 ↔ firmware 1.0.0.
+  switch (gen) {
+    case 1: return "1.0.0–2.3.0"
+    case 2: return "3.0.0"
+    case 3: return "3.0.1"
+    case 4: return "4.0.0"
+    case 5: return "5.0.0"
+    case 6: return "6.0.0"
+    case 7: return "6.2.0"
+    case 8: return "7.0.0"
+    case 9: return "8.1.0"
+    case 10: return "9.0.0"
+    case 11: return "9.1.0"
+    case 12: return "12.1.0"
+    case 13: return "13.0.0"
+    case 14: return "14.0.0"
+    case 15: return "15.0.0"
+    case 16: return "16.0.0"
+    case 17: return "17.0.0"
+    case 18: return "18.0.0"
+    case 19: return "19.0.0"
+    case 20: return "20.0.0"
+    case 21: return "21.0.0"
+    case 22: return "22.0.0"
+    default: return `firmware unknown (master_key_${(gen - 1).toString(16).padStart(2, "0")})`
+  }
+}
+
+function hexBytesToString(bytes: Uint8Array): string {
+  let s = ""
+  for (let i = 0; i < bytes.length; i++) s += bytes[i].toString(16).padStart(2, "0")
+  return s
 }
 
 function FilePreview({ node, kind }: { node: Node; kind: PreviewKind }) {
@@ -1581,6 +1821,42 @@ function ErrorFiller({ error }: { error: Error }) {
   )
 }
 
+/**
+ * Convert a `Blob` *or* a `Blob`-shaped facade (e.g. the lazy
+ * AES-CTR decryption blob produced by `@tootallnate/nca`'s parser)
+ * into a real `Blob` instance.
+ *
+ * `URL.createObjectURL`, `<img src>`, the CSS Font Loading API and
+ * various other browser entry points are strict: they require an
+ * actual `Blob` instance (`MediaSource` is also accepted, but not
+ * relevant here). They reject anything that just *quacks* like a
+ * Blob with `Argument 1 could not be converted to any of: Blob,
+ * MediaSource`.
+ *
+ * If `value` already passes `instanceof Blob`, we return it
+ * unchanged — that avoids paying for a copy on real Blobs. Otherwise
+ * we read it through its (chunked, decrypting) `stream()` if
+ * available, falling back to `arrayBuffer()` so that even minimal
+ * facades work.
+ *
+ * Memory note: the materialised Blob holds the whole file in memory.
+ * For multi-gigabyte assets this can OOM the tab — true streaming
+ * downloads require the File System Access API's `createWritable()`,
+ * which we don't use here yet. Acceptable for now since most browsable
+ * files inside Switch archives are well under that range.
+ */
+async function materializeAsBlob(value: Blob): Promise<Blob> {
+  // Real Blobs (and File, which extends Blob) pass straight through.
+  if (typeof Blob !== "undefined" && value instanceof Blob) {
+    return value
+  }
+  if (typeof value.stream === "function") {
+    return new Response(value.stream()).blob()
+  }
+  const buf = await value.arrayBuffer()
+  return new Blob([buf])
+}
+
 function DownloadButton({
   blobFn,
   fileName,
@@ -1595,7 +1871,8 @@ function DownloadButton({
     const id = toast.loading(`Preparing ${fileName}…`)
     try {
       const blob = await blobFn()
-      const url = URL.createObjectURL(blob)
+      const realBlob = await materializeAsBlob(blob)
+      const url = URL.createObjectURL(realBlob)
       const a = document.createElement("a")
       a.href = url
       a.download = fileName
