@@ -280,6 +280,44 @@ function HtdocsPreview({ node }: { node: Node }) {
     }
   }, [entryPoint, bundle])
 
+  // Switch offline manuals universally use a one-line "router"
+  // index.html that reads `?r=N` from the URL and redirects to a
+  // localised page (`index_All.html`, `index_US.html`, …). Inside a
+  // srcdoc iframe `location.search` is `''`, so the router script
+  // falls through and renders an empty body. We could (and do) try
+  // to override `location.search` from inside the iframe — see
+  // `buildLocationSearchOverride` — but the `Location` exotic
+  // object is locked down enough that the override silently fails
+  // in some browsers.
+  //
+  // The reliable fix is to short-circuit the router from the OUTSIDE:
+  // if we're about to load a router page AND we know the region,
+  // redirect to `regions[regionKey]` directly. The user never sees
+  // the empty router page.
+  useEffect(() => {
+    if (!bundle || !currentPath || !regionsTable || !regionKey) return
+    if (!isRouterPage) return
+    const target = regionsTable.regions[regionKey]
+    if (!target) return
+    // Resolve the regional page relative to the regions.js directory.
+    const dir = regionsTable.scriptPath.includes("/")
+      ? regionsTable.scriptPath.slice(
+          0,
+          regionsTable.scriptPath.lastIndexOf("/"),
+        )
+      : ""
+    const resolved = bundle.resolvePath(
+      dir ? `${dir}/x` : "x",
+      target,
+    )
+    if (resolved && resolved !== currentPath) {
+      // Push the router page onto history so the back button can
+      // return there if the user wants to inspect it.
+      setHistory((h) => [...h, currentPath])
+      setCurrentPath(resolved)
+    }
+  }, [bundle, currentPath, regionsTable, regionKey, isRouterPage])
+
   const appendLog = useCallback((text: string, detail?: string) => {
     setLog((prev) => {
       const next: NxLogEntry = {
@@ -303,6 +341,9 @@ function HtdocsPreview({ node }: { node: Node }) {
       switch (d.type) {
         case "ready":
           appendLog("ready", d.url)
+          break
+        case "debug":
+          appendLog("[debug]", String(d.message ?? ""))
           break
         case "sendMessage":
           appendLog("nx.sendMessage", d.message)
@@ -500,17 +541,14 @@ function HtdocsPreview({ node }: { node: Node }) {
             selectedKey={regionKey}
             onChange={(newKey) => {
               setRegionKey(newKey)
-              // If the user is currently on a regional page (not the
-              // router), navigate directly to the new region's page —
-              // the regionKey change alone won't trigger a redirect
-              // because the regional page doesn't read location.search.
-              // The router page route works fine: changing regionKey
-              // re-rewrites the iframe, the inline script reads our
-              // new ?r=N and redirects.
-              if (!isRouterPage && currentPath && bundle) {
+              // Navigate directly to the new region's page. We don't
+              // rely on the router-page short-circuit effect for this
+              // because the user is typically already on a regional
+              // page when they switch — that effect only fires when
+              // currentPath is the router itself.
+              if (currentPath && bundle) {
                 const target = regionsTable.regions[newKey]
                 if (target) {
-                  // Resolve relative to the regions.js directory.
                   const dir = regionsTable.scriptPath.includes("/")
                     ? regionsTable.scriptPath.slice(
                         0,

@@ -574,29 +574,32 @@ export function rewriteCss(
 
 /**
  * Build the snippet that overrides `location.search` for a srcdoc
- * iframe. Unlike a real navigation, srcdoc iframes have no URL of
- * their own — `location.search` returns `''`. Switch offline manuals
- * gate their per-region routing on this value (`if (location.search)
- * { … set href … }`), so without an override they sit blank waiting
- * for a query string that will never arrive.
+ * iframe. Switch offline manuals gate their per-region routing on
+ * `location.search`, but srcdoc iframes have no real URL so the
+ * value is always `''` — leaving the page blank.
  *
- * We can't just *set* `location.search` (it's a setter that triggers
- * navigation, and we'd lose our srcdoc context). Instead we install
- * a getter on `Location.prototype` that returns the chosen value.
- * This must run BEFORE any `<script>` tag in the page evaluates, so
- * we put it at the top of the bootstrap (which the rewriter inserts
- * as the first child of `<head>`).
+ * We try two strategies because browsers vary on which is permitted
+ * for the `Location` exotic object:
+ *
+ *   1. Define on the instance — works in Chrome / Edge / Safari.
+ *   2. Fall back to `Location.prototype`.
+ *
+ * In addition to the override, we directly post a debug message so
+ * the host nx-log panel can show whether the override took effect.
+ *
+ * Note: the host preview also has a separate, more reliable path —
+ * if it knows the page is a region router, it skips loading the
+ * router HTML entirely and goes straight to `regions[regionKey]`.
+ * The override here is a defence in depth for cases where the host
+ * heuristic misses the routing pattern.
  */
 function buildLocationSearchOverride(forcedSearch: string): string {
 	// JSON.stringify gives us a safely-escaped JS string literal.
 	const lit = JSON.stringify(forcedSearch);
-	// `bridge` is a local var inside the surrounding bootstrap IIFE
-	// (declared on the very first line: `const bridge = '...';`), so
-	// we can reference it directly from inside this snippet.
 	return `
+		var __searchInstalled = false;
 		try {
-			var __locProto = Object.getPrototypeOf(location) || Location.prototype;
-			Object.defineProperty(__locProto, 'search', {
+			Object.defineProperty(location, 'search', {
 				configurable: true,
 				get: function() { return ${lit}; },
 				set: function(v) {
@@ -608,6 +611,32 @@ function buildLocationSearchOverride(forcedSearch: string): string {
 					} catch (e) {}
 				},
 			});
+			__searchInstalled = 'instance';
+		} catch (e1) {
+			try {
+				var __locProto = Object.getPrototypeOf(location) || Location.prototype;
+				Object.defineProperty(__locProto, 'search', {
+					configurable: true,
+					get: function() { return ${lit}; },
+					set: function(v) {
+						try {
+							window.parent.postMessage(
+								{ kind: bridge, type: 'navigate', href: location.pathname + String(v) },
+								'*'
+							);
+						} catch (e) {}
+					},
+				});
+				__searchInstalled = 'prototype';
+			} catch (e2) {
+				__searchInstalled = 'failed:' + (e1 && e1.message) + '|' + (e2 && e2.message);
+			}
+		}
+		try {
+			window.parent.postMessage(
+				{ kind: bridge, type: 'debug', message: 'forcedSearch=' + ${JSON.stringify(forcedSearch)} + ' install=' + __searchInstalled + ' read=' + location.search },
+				'*'
+			);
 		} catch (e) {}
 	`;
 }
