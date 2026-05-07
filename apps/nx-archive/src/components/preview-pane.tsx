@@ -72,6 +72,8 @@ import {
   parseBntxForView,
   parseBnvibForView,
   parseByamlForView,
+  parseWemForAudioView,
+  type WemView,
   parseFontForView,
   parseCnmtForView,
   parseNacpForView,
@@ -1031,6 +1033,8 @@ function FilePreview({ node, kind }: { node: Node; kind: PreviewKind }) {
       return <NintendoAudioPreview node={node} kind="bfwav" />
     case "bfstm-audio":
       return <NintendoAudioPreview node={node} kind="bfstm" />
+    case "wem-audio":
+      return <WemAudioPreview node={node} />
     case "barslist-info":
       return <BarslistPreview node={node} />
     case "bnvib-audio":
@@ -2873,6 +2877,163 @@ function formatDuration(seconds: number): string {
   if (m === 0) return `${s.toFixed(1)}s`
   const ss = s.toFixed(1).padStart(4, "0")
   return `${m}:${ss}`
+}
+
+// ====================================================================
+// WEM — Wwise Encoded Media (audio asset, browser playback)
+// ====================================================================
+
+function WemAudioPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseWemForAudioView(await node.blob!())
+  }, [node.id])
+
+  // Object URL for the decoded audio Blob (WAV or Ogg-Opus). Same
+  // ownership/lifecycle pattern as `NintendoAudioPreview`.
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!data || !data.decoded) return
+    const url = URL.createObjectURL(data.decoded.blob)
+    setAudioUrl(url)
+    return () => {
+      URL.revokeObjectURL(url)
+      setAudioUrl(null)
+    }
+  }, [data])
+
+  if (loading) return <LoadingFiller label="Decoding WEM…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="WEM — Wwise Encoded Media" />
+
+        {v.decoded ? (
+          <WemAudioPlayer view={v} audioUrl={audioUrl} />
+        ) : (
+          <section className="flex flex-col gap-2 rounded-md border bg-card p-4">
+            <p className="text-sm font-medium">
+              Browser playback isn't supported for this codec yet.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {v.decodeError ?? "Unknown error."}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              You can still download the raw `.wem` from the toolbar above
+              and convert it offline (e.g. with vgmstream / ww2ogg).
+            </p>
+          </section>
+        )}
+
+        <KvBlock title="Audio">
+          <KvRow
+            k="Codec"
+            v={`${v.parsed.fmt.codecName} (0x${v.parsed.fmt.codecId.toString(16).padStart(4, "0")})`}
+          />
+          <KvRow k="Sample rate" v={`${v.parsed.fmt.sampleRate} Hz`} />
+          <KvRow
+            k="Channels"
+            v={`${v.parsed.fmt.channels} (${v.parsed.fmt.channels === 1 ? "mono" : v.parsed.fmt.channels === 2 ? "stereo" : `${v.parsed.fmt.channels}-channel`})`}
+          />
+          <KvRow
+            k="Avg bytes/s"
+            v={v.parsed.fmt.avgBytesPerSec.toLocaleString()}
+          />
+          <KvRow k="Block align" v={String(v.parsed.fmt.blockAlign)} />
+          <KvRow
+            k="Bits/sample"
+            v={String(v.parsed.fmt.bitsPerSample)}
+          />
+        </KvBlock>
+
+        <section className="flex flex-col gap-2">
+          <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+            Chunks
+          </h3>
+          <div className="overflow-x-auto rounded-md border bg-card">
+            <table className="w-full border-collapse text-xs">
+              <thead className="border-b bg-muted/40 text-left text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 font-medium">ID</th>
+                  <th className="px-3 py-2 font-medium">Offset</th>
+                  <th className="px-3 py-2 font-medium">Size</th>
+                </tr>
+              </thead>
+              <tbody>
+                {v.parsed.chunks.map((c) => (
+                  <tr key={c.offset} className="border-b last:border-b-0">
+                    <td className="px-3 py-2 font-mono">{c.id}</td>
+                    <td className="px-3 py-2 font-mono">
+                      0x{c.offset.toString(16)}
+                    </td>
+                    <td className="px-3 py-2 font-mono">
+                      {formatBytes(c.size)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </ScrollArea>
+  )
+}
+
+function WemAudioPlayer({
+  view,
+  audioUrl,
+}: {
+  view: WemView
+  audioUrl: string | null
+}) {
+  const downloadName = useMemo(() => {
+    if (!view.decoded) return "wem.bin"
+    return `wem_${view.parsed.fmt.codecId.toString(16)}.${view.decoded.extension}`
+  }, [view])
+  const decodeLabel = useMemo(() => {
+    if (!view.decoded) return ""
+    if (view.decoded.kind === "switch-opus-to-ogg-opus")
+      return "Re-muxed Switch-Opus → Ogg-Opus (browser-native decode)"
+    if (view.decoded.kind === "pcm-wav") return "PCM → WAV (no decode)"
+    if (view.decoded.kind === "opus-passthrough")
+      return "Standard Ogg-Opus (passthrough)"
+    return ""
+  }, [view])
+  const mime = view.decoded?.blob.type ?? ""
+  return (
+    <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+      {audioUrl ? (
+        <audio
+          src={audioUrl}
+          controls
+          className="w-full"
+          preload="auto"
+        />
+      ) : (
+        <Skeleton className="h-12 w-full" />
+      )}
+      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span>{decodeLabel}</span>
+        {audioUrl && view.decoded && (
+          <a
+            href={audioUrl}
+            download={downloadName}
+            className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+          >
+            Save .{view.decoded.extension}
+          </a>
+        )}
+      </div>
+      {mime && (
+        <span className="text-[11px] text-muted-foreground/70">
+          MIME: {mime}
+        </span>
+      )}
+    </section>
+  )
 }
 
 // ====================================================================

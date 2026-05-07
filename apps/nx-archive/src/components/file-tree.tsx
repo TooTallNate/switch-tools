@@ -701,7 +701,7 @@ function NodeIcon({ node, expanded }: { node: Node; expanded: boolean }) {
     return <TypeIcon className={cls} />
   }
   if (
-    /\.(wav|mp3|ogg|flac|m4a|bars|bfsar|bfstm|bfwav|bfstp|bfwar|bfbnk|bfseq|bfgrp|bfwsd)$/.test(
+    /\.(wav|mp3|ogg|flac|m4a|bars|bfsar|bfstm|bfwav|bfstp|bfwar|bfbnk|bfseq|bfgrp|bfwsd|wem|bnk|pck)$/.test(
       lower,
     )
   ) {

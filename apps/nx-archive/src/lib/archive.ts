@@ -24,6 +24,8 @@ import { parseBfsar, extForMagic as bfsarExtForMagic } from '@tootallnate/bfsar'
 import { parseBfwar } from '@tootallnate/bfwar';
 import { parseBfres } from '@tootallnate/bfres';
 import { parseGfpak } from '@tootallnate/gfpak';
+import { parseAkpk } from '@tootallnate/wwise-pck';
+import { parseBnk } from '@tootallnate/wwise-bnk';
 import { parseZip, type ZipEntry } from './zip';
 import { parseUnityFs, type UnityFsNode } from './unityfs';
 import {
@@ -60,6 +62,8 @@ export type NodeKind =
 	| 'bfwar'
 	| 'bfres'
 	| 'gfpak'
+	| 'wwise-pck'
+	| 'wwise-bnk'
 	/**
 	 * A user-selected directory from the local filesystem. Functions
 	 * like an "ad-hoc PFS0" — its children are the files inside, with
@@ -235,6 +239,9 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	bfseq: 'BFSEQ', // Sequence (MIDI-like)
 	bfgrp: 'BFGRP', // Group sub-archive
 	bfwsd: 'BFWSD', // Wave-sound graph (used inside BFSARs)
+	pck: 'AKPK', // Audiokinetic Wwise streaming-WEM package
+	bnk: 'BNK', // Audiokinetic Wwise SoundBank
+	wem: 'WEM', // Wwise Encoded Media (audio asset)
 };
 
 /**
@@ -294,7 +301,9 @@ type SniffedFormat =
 	| 'bfsar'
 	| 'bfwar'
 	| 'bfres'
-	| 'gfpak';
+	| 'gfpak'
+	| 'wwise-pck'
+	| 'wwise-bnk';
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -328,6 +337,8 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (m4 === 'FSAR') return 'bfsar';
 	if (m4 === 'FWAR') return 'bfwar';
 	if (m4 === 'FRES') return 'bfres';
+	if (m4 === 'AKPK' || m4 === 'KPKA') return 'wwise-pck';
+	if (m4 === 'BKHD') return 'wwise-bnk';
 	// GFPAK has 8-byte magic "GFLXPACK" — sniff if we read enough bytes.
 	if (head.length >= 8) {
 		const m8 = new TextDecoder().decode(head.subarray(0, 8));
@@ -446,6 +457,10 @@ export async function buildRootNode(
 			return makeBfresNode(id, displayName, blob, ctx);
 		case 'GFPAK':
 			return makeGfpakNode(id, displayName, blob, ctx);
+		case 'AKPK':
+			return makeWwisePckNode(id, displayName, blob, ctx);
+		case 'BNK':
+			return makeWwiseBnkNode(id, displayName, blob, ctx);
 		default:
 			// Unknown — present it as a single file the user can download
 			return {
@@ -1791,6 +1806,103 @@ function makeGfpakNode(
 	};
 }
 
+// ----- Wwise (.pck AKPK / .bnk SoundBank) -----
+
+/**
+ * Make a Wwise `.pck` (AKPK) container node. The PCK is a flat
+ * package of streamed WEMs — each entry has a Wwise FNV-hashed id
+ * (the original asset name isn't stored) plus a language index.
+ *
+ * We synthesize a `wem_<id>.wem` leaf name per entry; the WEM
+ * preview decodes it (PCM → WAV, Switch-Opus → Ogg-Opus) for
+ * in-browser playback.
+ */
+function makeWwisePckNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'wwise-pck',
+		isContainer: true,
+		size: blob.size,
+		format: 'AKPK',
+		blob: async () => blob,
+		getChildren: async () => {
+			const parsed = await parseAkpk(blob);
+			const all: Node[] = [];
+			// Soundbanks first (they expand into more children themselves)…
+			for (const sb of parsed.soundbanks) {
+				const leaf = `bank_${sb.id.toString(16).padStart(8, '0')}.bnk`;
+				const childId = `${id}/${leaf}`;
+				all.push(await childNodeFor(childId, leaf, sb.data, ctx));
+			}
+			// …then streamed WEMs.
+			for (const w of parsed.streamedFiles) {
+				const langSuffix =
+					parsed.languageMap[w.languageIndex]?.name &&
+					parsed.languageMap[w.languageIndex].name !== 'sfx'
+						? `__${parsed.languageMap[w.languageIndex].name}`
+						: '';
+				const leaf = `wem_${w.id.toString(16).padStart(8, '0')}${langSuffix}.wem`;
+				const childId = `${id}/${leaf}`;
+				all.push({
+					id: childId,
+					name: leaf,
+					kind: 'file',
+					isContainer: false,
+					size: w.size,
+					format: 'WEM',
+					blob: async () => w.data,
+				});
+			}
+			return all;
+		},
+	};
+}
+
+/**
+ * Make a Wwise `.bnk` SoundBank container node. The bank's DIDX +
+ * DATA chunks list embedded WEMs that we expose as children; the
+ * structured preview (rendered separately) shows the BKHD header
+ * + chunk table, including HIRC size for power users.
+ */
+function makeWwiseBnkNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'wwise-bnk',
+		isContainer: true,
+		size: blob.size,
+		format: 'BNK',
+		blob: async () => blob,
+		getChildren: async () => {
+			const parsed = await parseBnk(blob);
+			return parsed.wems.map((w): Node => {
+				const leaf = `wem_${w.id.toString(16).padStart(8, '0')}.wem`;
+				const childId = `${id}/${leaf}`;
+				return {
+					id: childId,
+					name: leaf,
+					kind: 'file',
+					isContainer: false,
+					size: w.size,
+					format: 'WEM',
+					blob: async () => w.data,
+				};
+			});
+		},
+	};
+}
+
 /**
  * A `Blob`-shaped facade that lazily materialises its bytes on
  * first read (or first slice). Used for GFPAK entries where the
@@ -2021,6 +2133,8 @@ async function childNodeFor(
 	if (ext === 'bfwar') return makeBfwarNode(id, name, blob, ctx);
 	if (ext === 'bfres') return makeBfresNode(id, name, blob, ctx);
 	if (ext === 'gfpak') return makeGfpakNode(id, name, blob, ctx);
+	if (ext === 'pck') return makeWwisePckNode(id, name, blob, ctx);
+	if (ext === 'bnk') return makeWwiseBnkNode(id, name, blob, ctx);
 
 	// Magic sniff fallback for files whose extension doesn't tell us
 	// what they are. Especially important for 1st-party Nintendo
@@ -2046,6 +2160,8 @@ async function childNodeFor(
 	if (sniffed === 'bfwar') return makeBfwarNode(id, name, blob, ctx);
 	if (sniffed === 'bfres') return makeBfresNode(id, name, blob, ctx);
 	if (sniffed === 'gfpak') return makeGfpakNode(id, name, blob, ctx);
+	if (sniffed === 'wwise-pck') return makeWwisePckNode(id, name, blob, ctx);
+	if (sniffed === 'wwise-bnk') return makeWwiseBnkNode(id, name, blob, ctx);
 
 	// Generic file
 	return {

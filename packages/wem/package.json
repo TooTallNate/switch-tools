@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/wem",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser + decoder for Audiokinetic Wwise Encoded Media (.wem) files. Identifies the codec (PCM, Vorbis, Switch-Opus, etc) from the RIFF/WAVE/fmt chunk and converts playable codecs (PCM, Switch-Opus) to browser-friendly formats (WAV, Ogg-Opus).",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/wem"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

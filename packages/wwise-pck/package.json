@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/wwise-pck",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for Audiokinetic Wwise's AKPK (.pck) streaming-WEM packages — the loose-WEM container shipped alongside .bnk SoundBanks in every Wwise-using game (the bulk of third-party Switch audio).",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/wwise-pck"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

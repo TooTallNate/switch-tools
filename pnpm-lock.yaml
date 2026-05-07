@@ -195,7 +195,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       autoprefixer:
         specifier: ^10.4.24
-        version: 10.4.24(postcss@8.4.49)
+        version: 10.4.24(postcss@8.4.35)
       tailwindcss:
         specifier: ^3.4.16
         version: 3.4.16
@@ -301,6 +301,15 @@ importers:
       '@tootallnate/sarc':
         specifier: workspace:*
         version: link:../../packages/sarc
+      '@tootallnate/wem':
+        specifier: workspace:*
+        version: link:../../packages/wem
+      '@tootallnate/wwise-bnk':
+        specifier: workspace:*
+        version: link:../../packages/wwise-bnk
+      '@tootallnate/wwise-pck':
+        specifier: workspace:*
+        version: link:../../packages/wwise-pck
       '@tootallnate/xci':
         specifier: workspace:*
         version: link:../../packages/xci
@@ -639,6 +648,24 @@ importers:
         version: 5.3.3
 
   packages/sarc:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/wem:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/wwise-bnk:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/wwise-pck:
     devDependencies:
       typescript:
         specifier: ^5.3.3
@@ -9947,13 +9974,13 @@ snapshots:
 
   astring@1.8.6: {}
 
-  autoprefixer@10.4.24(postcss@8.4.49):
+  autoprefixer@10.4.24(postcss@8.4.35):
     dependencies:
       browserslist: 4.28.1
       caniuse-lite: 1.0.30001774
       fraction.js: 5.3.4
       picocolors: 1.1.1
-      postcss: 8.4.49
+      postcss: 8.4.35
       postcss-value-parser: 4.2.0
 
   available-typed-arrays@1.0.5: {}

@@ -51,6 +51,12 @@ import {
 	type BntxTexture,
 } from '@tootallnate/bntx';
 import { parseBfres, type ParsedBfres } from '@tootallnate/bfres';
+import {
+	parseWem,
+	decodeWemToBlob,
+	type ParsedWem,
+	type WemDecodeResult,
+} from '@tootallnate/wem';
 
 export type PreviewKind =
 	| 'text'
@@ -70,6 +76,8 @@ export type PreviewKind =
 	| 'bfwav-audio'
 	/** Switch / Wii U streamed audio (BFSTM / BFSTP). */
 	| 'bfstm-audio'
+	/** Wwise WEM audio asset (Switch-Opus → Ogg, PCM → WAV). */
+	| 'wem-audio'
 	/** Tiny ARSL manifest of BARS file paths. */
 	| 'barslist-info'
 	/** Switch HD Rumble vibration patterns. */
@@ -197,6 +205,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.bffnt')) return 'bffnt-info';
 	if (lower.endsWith('.bfwav')) return 'bfwav-audio';
 	if (lower.endsWith('.bfstm') || lower.endsWith('.bfstp')) return 'bfstm-audio';
+	if (lower.endsWith('.wem')) return 'wem-audio';
 	if (lower.endsWith('.barslist')) return 'barslist-info';
 	if (lower.endsWith('.bnvib')) return 'bnvib-audio';
 	if (lower.endsWith('.byaml') || lower.endsWith('.byml')) return 'byaml-tree';
@@ -1041,6 +1050,35 @@ export interface BfresView {
 export async function parseBfresForView(blob: Blob): Promise<BfresView> {
 	const parsed = await parseBfres(blob);
 	return { parsed };
+}
+
+// ----- WEM (Wwise Encoded Media) audio preview -----
+
+/**
+ * Unified WEM preview view-model. Either we managed to decode the
+ * WEM into a browser-playable Blob (PCM → WAV, Switch-Opus → Ogg-
+ * Opus), in which case `decoded` is non-null, or the codec isn't
+ * something we can play in-browser yet (Vorbis, OPUSWW, etc.) and
+ * we surface the codec metadata + a clear "unsupported" message.
+ */
+export interface WemView {
+	parsed: ParsedWem;
+	/** Successful decode result (browser-playable Blob), or null. */
+	decoded: WemDecodeResult | null;
+	/** Error message if the codec isn't supported for playback. */
+	decodeError: string | null;
+}
+
+export async function parseWemForAudioView(blob: Blob): Promise<WemView> {
+	const parsed = await parseWem(blob);
+	let decoded: WemDecodeResult | null = null;
+	let decodeError: string | null = null;
+	try {
+		decoded = await decodeWemToBlob(parsed);
+	} catch (e) {
+		decodeError = e instanceof Error ? e.message : String(e);
+	}
+	return { parsed, decoded, decodeError };
 }
 
 // ----- Hex view helpers -----
