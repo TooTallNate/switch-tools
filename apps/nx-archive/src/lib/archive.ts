@@ -362,7 +362,7 @@ export async function buildRootNode(
 
 	switch (format) {
 		case 'NRO':
-			return makeNroNode(id, displayName, blob);
+			return makeNroNode(id, displayName, blob, ctx);
 		case 'NSP':
 		case 'NSZ': // NSZ is an NSP whose NCAs are NCZs — same container
 			return makePfs0Node(id, displayName, blob, ctx, 'NSP');
@@ -378,7 +378,7 @@ export async function buildRootNode(
 		case 'NCZ':
 			return makeNczNode(id, displayName, blob, ctx);
 		case 'RomFS':
-			return makeRomfsNode(id, displayName, blob);
+			return makeRomfsNode(id, displayName, blob, ctx);
 		case 'ZIP':
 			return makeZipNode(id, displayName, blob, ctx);
 		case 'SARC':
@@ -540,7 +540,12 @@ async function directoryFileNode(
 
 // ----- NRO -----
 
-function makeNroNode(id: string, name: string, blob: Blob): Node {
+function makeNroNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
 	return {
 		id,
 		name,
@@ -584,7 +589,9 @@ function makeNroNode(id: string, name: string, blob: Blob): Node {
 				});
 			}
 			if (nro.romfs) {
-				children.push(makeRomfsNode(`${id}/romfs`, 'romfs', nro.romfs));
+				children.push(
+					makeRomfsNode(`${id}/romfs`, 'romfs', nro.romfs, ctx),
+				);
 			}
 			return children;
 		},
@@ -883,7 +890,7 @@ function makeNcaSectionNode(
 		return makePfs0Node(id, sectionLabel, section.pfs0Data, ctx, 'PFS0 (NCA section)');
 	}
 	if (section.fsType === NCA_FS_TYPE_ROMFS && section.romfsData) {
-		return makeRomfsNode(id, sectionLabel, section.romfsData);
+		return makeRomfsNode(id, sectionLabel, section.romfsData, ctx);
 	}
 
 	// Fallback: just expose the raw decrypted section as a file
@@ -967,7 +974,12 @@ async function decompressNczToBlob(blob: Blob): Promise<Blob> {
 
 // ----- RomFS -----
 
-function makeRomfsNode(id: string, name: string, blob: Blob): Node {
+function makeRomfsNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
 	return {
 		id,
 		name,
@@ -978,7 +990,7 @@ function makeRomfsNode(id: string, name: string, blob: Blob): Node {
 		blob: async () => blob,
 		getChildren: async () => {
 			const root = await romfsDecode(blob);
-			return romfsEntriesToNodes(id, root);
+			return romfsEntriesToNodes(id, root, ctx);
 		},
 	};
 }
@@ -1004,8 +1016,11 @@ function isBlobLike(value: unknown): value is Blob {
 	);
 }
 
-function romfsEntriesToNodes(parentId: string, dir: RomFsEntry): Node[] {
-	const out: Node[] = [];
+async function romfsEntriesToNodes(
+	parentId: string,
+	dir: RomFsEntry,
+	ctx: ArchiveContext,
+): Promise<Node[]> {
 	const names = Object.keys(dir).sort((a, b) => {
 		// Directories first, then files; alphabetical within each group.
 		const aIsDir = !isBlobLike(dir[a]);
@@ -1013,33 +1028,35 @@ function romfsEntriesToNodes(parentId: string, dir: RomFsEntry): Node[] {
 		if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
 		return a.localeCompare(b);
 	});
-	for (const name of names) {
-		const value = dir[name];
-		const id = `${parentId}/${name}`;
-		if (isBlobLike(value)) {
-			out.push({
-				id,
-				name,
-				kind: 'file',
-				isContainer: false,
-				size: value.size,
-				format: detectFormat(name) || 'BIN',
-				blob: async () => value,
-			});
-		} else {
+	// Resolve children in parallel — `childNodeFor` is sync object
+	// construction for typical leaves, but for unknown extensions it
+	// reads ~4 bytes to magic-sniff. RomFS file blobs are random-
+	// access slices into the (already decrypted) source NCA section,
+	// so the per-leaf cost is one AES-CTR block decrypt — fine.
+	return Promise.all(
+		names.map(async (name): Promise<Node> => {
+			const value = dir[name];
+			const id = `${parentId}/${name}`;
+			if (isBlobLike(value)) {
+				// Route through childNodeFor so nested archives —
+				// SARC, Yaz0+SARC under bizarre extensions like
+				// `.sbfarc` / `.shksc` / `.sbactorpack`, ZIP, etc. —
+				// become traversable instead of just downloadable.
+				return childNodeFor(id, name, value, ctx);
+			}
 			const isHtdocs = name.toLowerCase().endsWith('.htdocs');
-			out.push({
+			return {
 				id,
 				name,
 				kind: isHtdocs ? 'htdocs' : 'directory',
 				isContainer: true,
 				format: isHtdocs ? 'HTDOCS' : 'directory',
 				meta: isHtdocs ? { htdocsRoot: value as RomFsEntry } : undefined,
-				getChildren: async () => romfsEntriesToNodes(id, value as RomFsEntry),
-			});
-		}
-	}
-	return out;
+				getChildren: async () =>
+					romfsEntriesToNodes(id, value as RomFsEntry, ctx),
+			};
+		}),
+	);
 }
 
 // ----- ZIP -----
@@ -1591,7 +1608,7 @@ async function childNodeFor(
 	const ext = extOf(name);
 	if (ext === 'nca') return makeNcaNode(id, name, blob, ctx, tikMap);
 	if (ext === 'ncz') return makeNczNode(id, name, blob, ctx, tikMap);
-	if (ext === 'nro') return makeNroNode(id, name, blob);
+	if (ext === 'nro') return makeNroNode(id, name, blob, ctx);
 	if (ext === 'nsp') return makePfs0Node(id, name, blob, ctx, 'NSP');
 	if (ext === 'pfs0') return makePfs0Node(id, name, blob, ctx, 'PFS0');
 	if (ext === 'hfs0') return makeHfs0Node(id, name, blob, ctx);
@@ -1618,7 +1635,7 @@ async function childNodeFor(
 	if (sniffed === 'szs') return makeSzsNode(id, name, blob, ctx);
 	if (sniffed === 'pfs0') return makePfs0Node(id, name, blob, ctx, 'PFS0');
 	if (sniffed === 'hfs0') return makeHfs0Node(id, name, blob, ctx);
-	if (sniffed === 'romfs') return makeRomfsNode(id, name, blob);
+	if (sniffed === 'romfs') return makeRomfsNode(id, name, blob, ctx);
 	if (sniffed === 'zip') return makeZipNode(id, name, blob, ctx);
 	if (sniffed === 'lz4') return makeLz4Node(id, name, blob, ctx);
 	if (sniffed === 'unityfs') return makeUnityFsNode(id, name, blob, ctx);
