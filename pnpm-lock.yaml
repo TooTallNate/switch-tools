@@ -226,6 +226,9 @@ importers:
       '@tootallnate/bars':
         specifier: workspace:*
         version: link:../../packages/bars
+      '@tootallnate/barslist':
+        specifier: workspace:*
+        version: link:../../packages/barslist
       '@tootallnate/bffnt':
         specifier: workspace:*
         version: link:../../packages/bffnt
@@ -244,6 +247,12 @@ importers:
       '@tootallnate/bfwav':
         specifier: workspace:*
         version: link:../../packages/bfwav
+      '@tootallnate/bnvib':
+        specifier: workspace:*
+        version: link:../../packages/bnvib
+      '@tootallnate/byaml':
+        specifier: workspace:*
+        version: link:../../packages/byaml
       '@tootallnate/dsp-adpcm':
         specifier: workspace:*
         version: link:../../packages/dsp-adpcm
@@ -406,6 +415,12 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/barslist:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/bffnt:
     devDependencies:
       typescript:
@@ -445,6 +460,18 @@ importers:
       '@tootallnate/dsp-adpcm':
         specifier: workspace:*
         version: link:../dsp-adpcm
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/bnvib:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/byaml:
     devDependencies:
       typescript:
         specifier: ^5.3.3

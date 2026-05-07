@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/byaml",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for Nintendo's BYAML / BYML binary YAML format. Used across Wii U / Switch first-party games for AI rivalry tables, course parameters, layout configs, and most other game data tables. Decodes to a JavaScript object tree (with type-discriminated wrappers for u32 vs s32 vs u64 etc.).",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/byaml"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

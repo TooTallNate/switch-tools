@@ -36,7 +36,14 @@ import {
 	decodeBfstmToPcm16,
 	type ParsedBfstm,
 } from '@tootallnate/bfstm';
-import { encodeWavBlob } from '@tootallnate/dsp-adpcm';
+import { encodeWav, encodeWavBlob } from '@tootallnate/dsp-adpcm';
+import { parseBarslist, type ParsedBarslist } from '@tootallnate/barslist';
+import {
+	parseBnvib,
+	renderBnvibToPcm16,
+	type ParsedBnvib,
+} from '@tootallnate/bnvib';
+import { parseByaml, byamlToJson, type ParsedByaml } from '@tootallnate/byaml';
 
 export type PreviewKind =
 	| 'text'
@@ -56,6 +63,12 @@ export type PreviewKind =
 	| 'bfwav-audio'
 	/** Switch / Wii U streamed audio (BFSTM / BFSTP). */
 	| 'bfstm-audio'
+	/** Tiny ARSL manifest of BARS file paths. */
+	| 'barslist-info'
+	/** Switch HD Rumble vibration patterns. */
+	| 'bnvib-audio'
+	/** Nintendo binary YAML — game configs / data tables. */
+	| 'byaml-tree'
 	| 'hex';
 
 export const TEXT_EXTS = new Set([
@@ -175,6 +188,9 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.bffnt')) return 'bffnt-info';
 	if (lower.endsWith('.bfwav')) return 'bfwav-audio';
 	if (lower.endsWith('.bfstm') || lower.endsWith('.bfstp')) return 'bfstm-audio';
+	if (lower.endsWith('.barslist')) return 'barslist-info';
+	if (lower.endsWith('.bnvib')) return 'bnvib-audio';
+	if (lower.endsWith('.byaml') || lower.endsWith('.byml')) return 'byaml-tree';
 	// Switch app icons (in Control NCA RomFS) are JPEGs with a `.dat` ext.
 	if (/^icon_.*\.dat$/.test(lower)) return 'image';
 	const ext = extOf(name);
@@ -923,6 +939,67 @@ export async function parseBfstmForAudioView(
 		parsed: { kind: 'bfstm', data: parsed },
 	};
 }
+
+// ----- BARSLIST manifest preview -----
+
+export interface BarslistView {
+	parsed: ParsedBarslist;
+}
+
+export async function parseBarslistForView(blob: Blob): Promise<BarslistView> {
+	const parsed = await parseBarslist(blob);
+	return { parsed };
+}
+
+// ----- BNVIB rumble pattern preview -----
+
+export interface BnvibView {
+	parsed: ParsedBnvib;
+	/** Rendered audio waveform of the rumble (stereo: low/high band). */
+	wavBlob: Blob;
+}
+
+export async function parseBnvibForView(blob: Blob): Promise<BnvibView> {
+	const parsed = await parseBnvib(blob);
+	const { samples, numChannels, sampleRate } = renderBnvibToPcm16(parsed);
+	const wavBlob = encodeWavBlob(samples, sampleRate, numChannels);
+	return { parsed, wavBlob };
+}
+
+// ----- BYAML / BYML tree preview -----
+
+export interface ByamlView {
+	parsed: ParsedByaml;
+	/** JSON-serialisable tree, ready to feed to the JSON preview. */
+	json: unknown;
+	/** Pre-rendered, indented JSON string. */
+	jsonString: string;
+}
+
+export async function parseByamlForView(blob: Blob): Promise<ByamlView> {
+	const parsed = await parseByaml(blob);
+	const json = byamlToJson(parsed.root);
+	const jsonString = stringifyJson(json);
+	return { parsed, json, jsonString };
+}
+
+/**
+ * JSON.stringify wrapper that handles BigInt by stringifying it
+ * (BYAML's i64 / u64 wrappers are already converted to strings by
+ * byamlToJson, so this is just a safety net for any escaped
+ * BigInts the converter doesn't catch).
+ */
+function stringifyJson(value: unknown): string {
+	return JSON.stringify(
+		value,
+		(_k, v) => (typeof v === 'bigint' ? v.toString() : v),
+		2,
+	);
+}
+
+// `encodeWav` is re-exported (used by some scripts/tools); avoid
+// the unused-import lint by referencing it once.
+void encodeWav;
 
 // ----- Hex view helpers -----
 

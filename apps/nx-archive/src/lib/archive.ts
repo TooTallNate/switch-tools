@@ -210,12 +210,17 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	lz4: 'LZ4',
 	bundle: 'UnityFS', // Unity Addressables: `*.bundle`
 	unity3d: 'UnityFS', // Legacy Unity AssetBundle extension
+	ab: 'UnityFS', // Common Unity AssetBundle extension (Detective Pikachu, etc.)
 	bars: 'BARS', // Nintendo audio resource archive (BotW, TotK, etc.)
 	bfsar: 'BFSAR', // Nintendo sound archive (NintendoWare; magic FSAR)
 	bfwar: 'BFWAR', // Wave archive (collection of BFWAVs)
 	bfstm: 'BFSTM', // Streamed audio
 	bfwav: 'BFWAV', // Cached/baked audio
 	bfstp: 'BFSTP', // Prefetch stream
+	barslist: 'BARSLIST', // ARSL — manifest of BARS file refs
+	bnvib: 'BNVIB', // Switch HD Rumble vibration pattern
+	byaml: 'BYAML', // Nintendo binary YAML
+	byml: 'BYML',
 	bfbnk: 'BFBNK', // Instrument bank
 	bfseq: 'BFSEQ', // Sequence (MIDI-like)
 	bfgrp: 'BFGRP', // Group sub-archive
@@ -1844,7 +1849,7 @@ async function childNodeFor(
 	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob, ctx);
 	if (ext === 'szs') return makeSzsNode(id, name, blob, ctx);
 	if (ext === 'lz4') return makeLz4Node(id, name, blob, ctx);
-	if (ext === 'bundle' || ext === 'unity3d')
+	if (ext === 'bundle' || ext === 'unity3d' || ext === 'ab')
 		return makeUnityFsNode(id, name, blob, ctx);
 	if (ext === 'bars') return makeBarsNode(id, name, blob, ctx);
 	if (ext === 'bfsar') return makeBfsarNode(id, name, blob, ctx);

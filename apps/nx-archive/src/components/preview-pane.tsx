@@ -63,10 +63,13 @@ import {
   detectPreviewKind,
   extOf,
   parseBarsForView,
+  parseBarslistForView,
   parseBffntForView,
   parseBfsarForView,
   parseBfstmForAudioView,
   parseBfwavForAudioView,
+  parseBnvibForView,
+  parseByamlForView,
   parseFontForView,
   parseCnmtForView,
   parseNacpForView,
@@ -76,7 +79,10 @@ import {
   renderBffntText,
   type AudioPreviewView,
   type BarsView,
+  type BarslistView,
   type BfsarView,
+  type BnvibView,
+  type ByamlView,
   type FontView,
   type CnmtView,
   type NacpView,
@@ -1018,6 +1024,12 @@ function FilePreview({ node, kind }: { node: Node; kind: PreviewKind }) {
       return <NintendoAudioPreview node={node} kind="bfwav" />
     case "bfstm-audio":
       return <NintendoAudioPreview node={node} kind="bfstm" />
+    case "barslist-info":
+      return <BarslistPreview node={node} />
+    case "bnvib-audio":
+      return <BnvibPreview node={node} />
+    case "byaml-tree":
+      return <ByamlPreview node={node} />
     case "hex":
     default:
       return <HexPreview node={node} />
@@ -2697,6 +2709,302 @@ function formatDuration(seconds: number): string {
   if (m === 0) return `${s.toFixed(1)}s`
   const ss = s.toFixed(1).padStart(4, "0")
   return `${m}:${ss}`
+}
+
+// ====================================================================
+// BARSLIST — ARSL manifest preview
+// ====================================================================
+
+function BarslistPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseBarslistForView(await node.blob!())
+  }, [node.id])
+  if (loading) return <LoadingFiller label="Decoding BARSLIST…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="BARSLIST — Audio resource manifest" />
+        <KvBlock title="Manifest">
+          <KvRow k="Name" v={v.parsed.name} />
+          <KvRow k="Endian" v={v.parsed.endian} />
+          <KvRow k="Version" v={String(v.parsed.version)} />
+          <KvRow k="Resources" v={String(v.parsed.resources.length)} />
+        </KvBlock>
+        <section className="flex flex-col gap-2">
+          <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+            Resources
+          </h3>
+          <div className="overflow-x-auto rounded-md border bg-card">
+            <table className="w-full border-collapse text-xs">
+              <thead className="border-b bg-muted/40 text-left text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 font-medium">#</th>
+                  <th className="px-3 py-2 font-medium">Path</th>
+                </tr>
+              </thead>
+              <tbody>
+                {v.parsed.resources.map((r, i) => (
+                  <tr key={i} className="border-b border-border/40 last:border-0">
+                    <td className="px-3 py-1.5 font-mono text-muted-foreground">{i}</td>
+                    <td className="px-3 py-1.5 font-mono break-all">{r}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </ScrollArea>
+  )
+}
+
+// ====================================================================
+// BNVIB — Switch HD Rumble vibration pattern preview
+// ====================================================================
+//
+// We decode the binary haptic pattern into a stereo PCM16 waveform
+// (low band → left, high band → right) so the user can both *hear*
+// the rumble and see the amplitude envelopes plotted alongside.
+
+function BnvibPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseBnvibForView(await node.blob!())
+  }, [node.id])
+  const [wavUrl, setWavUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!data) return
+    const url = URL.createObjectURL(data.wavBlob)
+    setWavUrl(url)
+    return () => {
+      URL.revokeObjectURL(url)
+      setWavUrl(null)
+    }
+  }, [data])
+  if (loading) return <LoadingFiller label="Decoding rumble pattern…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="BNVIB — Switch HD Rumble vibration pattern" />
+        <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+          {wavUrl ? (
+            <audio
+              src={wavUrl}
+              controls
+              className="w-full"
+              preload="auto"
+            />
+          ) : (
+            <Skeleton className="h-12 w-full" />
+          )}
+          <div className="text-xs text-muted-foreground">
+            Stereo: low band (left) and high band (right) rendered as
+            sine waves at the per-sample frequency, scaled by the
+            per-sample amplitude. Listen with headphones to hear the
+            two bands separately.
+          </div>
+        </section>
+        <BnvibAmplitudeChart parsed={v.parsed} />
+        <KvBlock title="Vibration">
+          <KvRow k="Type" v={v.parsed.typeName} />
+          <KvRow k="Sample rate" v={`${v.parsed.sampleRate} Hz`} />
+          <KvRow
+            k="Samples"
+            v={`${v.parsed.sampleCount.toLocaleString()} (${v.parsed.durationSeconds.toFixed(3)} s)`}
+          />
+          {v.parsed.loopStart !== null && (
+            <KvRow
+              k="Loop"
+              v={`samples [${v.parsed.loopStart!.toLocaleString()}, ${v.parsed.loopEnd!.toLocaleString()}]`}
+            />
+          )}
+          {v.parsed.loopWait !== null && (
+            <KvRow k="Loop wait" v={`${v.parsed.loopWait} samples`} />
+          )}
+        </KvBlock>
+      </div>
+    </ScrollArea>
+  )
+}
+
+/**
+ * Plot the per-band amplitude envelope as a small canvas chart.
+ * X axis = sample index (compressed to fit the canvas), Y axis =
+ * amplitude (0..1). Two stacked traces — low and high — give an
+ * at-a-glance feel for the rumble's dynamics.
+ */
+function BnvibAmplitudeChart({ parsed }: { parsed: BnvibView["parsed"] }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme === "dark"
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const W = canvas.width
+    const H = canvas.height
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    ctx.clearRect(0, 0, W, H)
+    if (parsed.sampleCount === 0) return
+    // Background
+    ctx.fillStyle = isDark ? "#0a0a0a" : "#fafafa"
+    ctx.fillRect(0, 0, W, H)
+    // Mid line
+    ctx.strokeStyle = isDark ? "#27272a" : "#e4e4e7"
+    ctx.beginPath()
+    ctx.moveTo(0, H / 2)
+    ctx.lineTo(W, H / 2)
+    ctx.stroke()
+    // Loop region shading (if any)
+    if (parsed.loopStart !== null && parsed.loopEnd !== null) {
+      const x0 = (parsed.loopStart! / parsed.sampleCount) * W
+      const x1 = (parsed.loopEnd! / parsed.sampleCount) * W
+      ctx.fillStyle = isDark
+        ? "rgba(96, 165, 250, 0.10)"
+        : "rgba(37, 99, 235, 0.08)"
+      ctx.fillRect(x0, 0, x1 - x0, H)
+    }
+    const drawTrace = (color: string, getter: (i: number) => number) => {
+      ctx.strokeStyle = color
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      // Bin samples into one column per pixel.
+      for (let x = 0; x < W; x++) {
+        const start = Math.floor((x / W) * parsed.sampleCount)
+        const end = Math.floor(((x + 1) / W) * parsed.sampleCount)
+        let peak = 0
+        for (let i = start; i < end; i++) {
+          const a = getter(i)
+          if (a > peak) peak = a
+        }
+        const y = H / 2 - (peak * H) / 2 + 0.5
+        if (x === 0) ctx.moveTo(x + 0.5, y)
+        else ctx.lineTo(x + 0.5, y)
+      }
+      ctx.stroke()
+    }
+    drawTrace(isDark ? "#60a5fa" : "#2563eb", (i) => parsed.samples[i].ampLow)
+    drawTrace(isDark ? "#fb923c" : "#ea580c", (i) => parsed.samples[i].ampHigh)
+  }, [parsed, isDark])
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Amplitude envelopes
+      </h3>
+      <div className="rounded-md border bg-card p-3">
+        <canvas
+          ref={canvasRef}
+          width={800}
+          height={120}
+          className="block w-full"
+          style={{ height: "120px" }}
+        />
+        <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-3 rounded-sm bg-blue-500" />
+            low band
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-3 rounded-sm bg-orange-500" />
+            high band
+          </span>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+// ====================================================================
+// BYAML — Nintendo binary YAML preview
+// ====================================================================
+//
+// Decode to JSON and pipe through the existing Shiki JSON
+// highlighter. Big files (course balloons can be ~700 KB after
+// expansion) are truncated with a banner so the highlighter stays
+// responsive.
+
+const BYAML_HIGHLIGHT_LIMIT = 256 * 1024 // chars of formatted JSON
+
+function ByamlPreview({ node }: { node: Node }) {
+  const { resolvedTheme } = useTheme()
+  const { loading, data, error } = useAsync(async () => {
+    return parseByamlForView(await node.blob!())
+  }, [node.id])
+  const [highlighted, setHighlighted] = useState<string | null>(null)
+  useEffect(() => {
+    if (!data) {
+      setHighlighted(null)
+      return
+    }
+    let cancelled = false
+    const text = data.jsonString.length > BYAML_HIGHLIGHT_LIMIT
+      ? data.jsonString.slice(0, BYAML_HIGHLIGHT_LIMIT)
+      : data.jsonString
+    highlightCode(text, "json", resolvedTheme === "dark" ? "dark" : "light")
+      .then((html) => {
+        if (!cancelled) setHighlighted(html)
+      })
+      .catch(() => {
+        if (!cancelled) setHighlighted(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [data, resolvedTheme])
+  if (loading) return <LoadingFiller label="Decoding BYAML…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const truncated = v.jsonString.length > BYAML_HIGHLIGHT_LIMIT
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="BYAML — Nintendo binary YAML" />
+        <KvBlock title="Header">
+          <KvRow k="Endian" v={v.parsed.endian} />
+          <KvRow k="Version" v={String(v.parsed.version)} />
+          <KvRow k="Hash keys" v={String(v.parsed.hashKeys.length)} />
+          <KvRow k="String values" v={String(v.parsed.values.length)} />
+          <KvRow
+            k="Root"
+            v={
+              v.parsed.root === null
+                ? "(null)"
+                : Array.isArray(v.parsed.root)
+                  ? `array[${(v.parsed.root as unknown[]).length}]`
+                  : `dict{${Object.keys(v.parsed.root as object).length}}`
+            }
+          />
+        </KvBlock>
+        {truncated && (
+          <Alert>
+            <AlertTitle>Tree truncated</AlertTitle>
+            <AlertDescription>
+              Showing the first {Math.floor(BYAML_HIGHLIGHT_LIMIT / 1024)} KB of the
+              formatted JSON ({v.jsonString.length.toLocaleString()} chars total).
+              Download the file to inspect the full tree.
+            </AlertDescription>
+          </Alert>
+        )}
+        <section className="flex min-h-0 flex-col">
+          {highlighted ? (
+            <div
+              className="overflow-x-auto rounded-md border bg-card text-xs leading-relaxed [&_pre]:!m-0 [&_pre]:!bg-transparent [&_pre]:p-4"
+              dangerouslySetInnerHTML={{ __html: highlighted }}
+            />
+          ) : (
+            <pre className="overflow-x-auto rounded-md border bg-card p-4 text-xs leading-relaxed">
+              {truncated
+                ? v.jsonString.slice(0, BYAML_HIGHLIGHT_LIMIT)
+                : v.jsonString}
+            </pre>
+          )}
+        </section>
+      </div>
+    </ScrollArea>
+  )
 }
 
 // -------- Layout helpers --------
