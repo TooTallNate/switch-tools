@@ -16,6 +16,14 @@ import { NACP } from '@tootallnate/nacp';
 import { parseHeader as parseNsoHeader, hex as nsoHex, type ParsedNsoHeader } from '@tootallnate/nso';
 import { parseNpdm, hex as npdmHex, type ParsedNpdm } from '@tootallnate/npdm';
 import { isBfttf, parseBfttf, type ParsedBfttf } from '@tootallnate/bfttf';
+import {
+	decodeBffnt,
+	parseBffnt,
+	renderText,
+	textureFormatName,
+	type ParsedBffnt,
+	type RenderableBffnt,
+} from '@tootallnate/bffnt';
 
 export type PreviewKind =
 	| 'text'
@@ -30,6 +38,7 @@ export type PreviewKind =
 	| 'npdm-info'
 	| 'bfttf-info'
 	| 'font-info'
+	| 'bffnt-info'
 	| 'hex';
 
 export const TEXT_EXTS = new Set([
@@ -146,6 +155,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.bfttf') || lower.endsWith('.bfotf')) return 'bfttf-info';
 	if (lower.endsWith('.ttf') || lower.endsWith('.otf') || lower.endsWith('.ttc') || lower.endsWith('.otc'))
 		return 'font-info';
+	if (lower.endsWith('.bffnt')) return 'bffnt-info';
 	// Switch app icons (in Control NCA RomFS) are JPEGs with a `.dat` ext.
 	if (/^icon_.*\.dat$/.test(lower)) return 'image';
 	const ext = extOf(name);
@@ -685,6 +695,59 @@ function utf16beDecode(bytes: Uint8Array): string {
 	}
 	return s;
 }
+
+// ----- BFFNT preview (Switch bitmap fonts) -----
+
+/**
+ * View model for the BFFNT preview pane. Wraps a fully-decoded
+ * {@link RenderableBffnt} (parsed container + de-swizzled atlases)
+ * with the metadata strings the React UI surfaces in its sidebar.
+ *
+ * Rendering happens lazily in the React component — we don't pre-
+ * rasterise anything here so the user can type custom sample text.
+ */
+export interface BffntView {
+	parsed: ParsedBffnt;
+	renderable: RenderableBffnt;
+	/** Friendly format name, e.g. "BC4" or "A8". */
+	formatName: string;
+	/** Total number of glyphs the font has CWDH metrics for. */
+	glyphCount: number;
+	/** Number of CMAP blocks (each covers some Unicode range). */
+	cmapBlockCount: number;
+	/** Total codepoints mapped across all CMAP blocks. */
+	mappedCodepoints: number;
+	/** Endian of the on-disk container. */
+	endian: 'little' | 'big';
+}
+
+export async function parseBffntForView(blob: Blob): Promise<BffntView> {
+	const parsed = await parseBffnt(blob);
+	const renderable = decodeBffnt(parsed, { singleChannelTo: 'alpha' });
+	const glyphCount = parsed.cwdhBlocks.reduce(
+		(n, b) => n + (b.endIndex - b.startIndex + 1),
+		0,
+	);
+	let mappedCodepoints = 0;
+	for (const b of parsed.cmapBlocks) {
+		mappedCodepoints += b.codeEnd - b.codeBegin + 1;
+	}
+	return {
+		parsed,
+		renderable,
+		formatName: textureFormatName(parsed.tglp.sheetImageFormat),
+		glyphCount,
+		cmapBlockCount: parsed.cmapBlocks.length,
+		mappedCodepoints,
+		endian: parsed.header.endian,
+	};
+}
+
+/**
+ * Re-export of the underlying renderer so the preview component can
+ * rasterise user-entered text without re-decoding the atlas.
+ */
+export { renderText as renderBffntText };
 
 // ----- Hex view helpers -----
 

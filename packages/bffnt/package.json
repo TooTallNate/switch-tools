@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/bffnt",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser and texture decoder for Nintendo's BFFNT (Cafe Font Format) bitmap fonts — the format used for game fonts on the Wii U / Switch (FFNT magic, version 4)",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/bffnt"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

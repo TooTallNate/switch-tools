@@ -191,6 +191,7 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	npdm: 'NPDM',
 	bfttf: 'BFTTF',
 	bfotf: 'BFOTF',
+	bffnt: 'BFFNT',
 	ttf: 'TTF',
 	otf: 'OTF',
 	ttc: 'TTC',

@@ -54,6 +54,7 @@ import {
   rewriteHtml,
 } from "~/lib/htdocs"
 import type { RomFsEntry } from "@tootallnate/romfs"
+import type { RenderableBffnt } from "@tootallnate/bffnt"
 import {
   AUDIO_MIME,
   IMAGE_MIME,
@@ -61,12 +62,14 @@ import {
   buildHexDump,
   detectPreviewKind,
   extOf,
+  parseBffntForView,
   parseFontForView,
   parseCnmtForView,
   parseNacpForView,
   parseNpdmForView,
   parseNroForView,
   parseNsoForView,
+  renderBffntText,
   type FontView,
   type CnmtView,
   type NacpView,
@@ -996,6 +999,8 @@ function FilePreview({ node, kind }: { node: Node; kind: PreviewKind }) {
     case "bfttf-info":
     case "font-info":
       return <FontPreview node={node} />
+    case "bffnt-info":
+      return <BffntPreview node={node} />
     case "hex":
     default:
       return <HexPreview node={node} />
@@ -2046,6 +2051,226 @@ function FontDownloadAsTtfButton({
       {busy ? <Spinner data-icon="inline-start" /> : <DownloadIcon data-icon="inline-start" />}
       Download as .{ext}
     </Button>
+  )
+}
+
+// =============================================================================
+// BFFNT preview (Switch bitmap fonts)
+// =============================================================================
+//
+// BFFNTs are sprite-sheet fonts: a deswizzled, BC4/A8/LA8/RGBA8 atlas
+// of pre-rendered glyphs plus per-glyph metrics (CWDH) and a Unicode
+// → glyph-index map (CMAP). Unlike `.bfttf` (an obfuscated TrueType
+// outline that we hand straight to the browser via `FontFace`), here
+// the browser has no native renderer — we have to composite the
+// sample text glyph-by-glyph onto a `<canvas>` ourselves using
+// `@tootallnate/bffnt`'s `renderText`.
+
+const BFFNT_DEFAULT_SAMPLE = "ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789  !@#$%&*()_+-=[]{};':\",./<>?"
+
+function BffntPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseBffntForView(await node.blob!())
+  }, [node.id])
+
+  const [sample, setSample] = useState(BFFNT_DEFAULT_SAMPLE)
+
+  if (loading) return <LoadingFiller label="Decoding BFFNT…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const { tglp, finf, header } = v.parsed
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="BFFNT — Switch bitmap font" />
+
+        <KvBlock title="Font">
+          <KvRow k="Cell size" v={`${tglp.cellWidth} × ${tglp.cellHeight} px`} />
+          <KvRow k="Line height" v={`${finf.lineFeed} px`} />
+          <KvRow k="Ascent" v={`${finf.ascent} px`} />
+          <KvRow k="Baseline" v={`${tglp.baselinePosition} px from top of cell`} />
+          <KvRow
+            k="Glyphs"
+            v={`${v.glyphCount} (${v.mappedCodepoints} codepoints across ${v.cmapBlockCount} CMAP block${v.cmapBlockCount === 1 ? "" : "s"})`}
+          />
+        </KvBlock>
+
+        <KvBlock title="Atlas">
+          <KvRow
+            k="Sheet size"
+            v={`${tglp.sheetWidth} × ${tglp.sheetHeight} px`}
+          />
+          <KvRow
+            k="Sheets"
+            v={`${tglp.sheetCount} × ${tglp.sheetColumns}c × ${tglp.sheetRows}r cells`}
+          />
+          <KvRow k="Texture format" v={v.formatName} />
+          <KvRow k="Endian" v={v.endian} />
+          <KvRow k="Version" v={`0x${header.version.toString(16).padStart(8, "0")}`} />
+        </KvBlock>
+
+        <BffntSampleSection
+          font={v.renderable}
+          sample={sample}
+          onSampleChange={setSample}
+        />
+
+        <BffntAtlasSection font={v.renderable} formatName={v.formatName} />
+      </div>
+    </ScrollArea>
+  )
+}
+
+/**
+ * Live sample-text section: a textarea bound to a canvas, with
+ * `renderText` re-running on every keystroke. The canvas is sized
+ * to fit the rendered ImageData exactly; CSS scales it up via
+ * `image-rendering: pixelated` so the rasterised glyphs stay crisp
+ * even on zoomed-in displays.
+ */
+function BffntSampleSection({
+  font,
+  sample,
+  onSampleChange,
+}: {
+  font: RenderableBffnt
+  sample: string
+  onSampleChange: (value: string) => void
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme === "dark"
+
+  // Re-rasterise into the canvas whenever the sample text or theme
+  // changes. We compose against a transparent background and let CSS
+  // provide the surrounding card colour.
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const text = sample.length > 0 ? sample : " "
+    const rendered = renderBffntText(font, text)
+    canvas.width = rendered.width
+    canvas.height = rendered.height
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    // Recolour the alpha-mode RGBA8 ImageData to match the active
+    // theme's foreground. The source pixels are pre-keyed to white
+    // (alpha = glyph coverage), so we just overwrite RGB.
+    const imageData = ctx.createImageData(rendered.width, rendered.height)
+    const px = imageData.data
+    const src = rendered.pixels
+    const fg = isDark ? 235 : 25
+    // Recolour to the active theme's foreground (source pixels are
+    // pre-keyed white with alpha = glyph coverage).
+    for (let i = 0; i < src.length; i += 4) {
+      px[i] = fg
+      px[i + 1] = fg
+      px[i + 2] = fg
+      px[i + 3] = src[i + 3]
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.putImageData(imageData, 0, 0)
+  }, [font, sample, isDark])
+
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Sample
+      </h3>
+      <textarea
+        value={sample}
+        onChange={(e) => onSampleChange(e.target.value)}
+        rows={3}
+        className="resize-y rounded-md border bg-background px-3 py-2 text-sm font-mono"
+        spellCheck={false}
+      />
+      <div className="overflow-x-auto rounded-md border bg-card p-4">
+        <canvas
+          ref={canvasRef}
+          className="block max-w-full"
+          style={{ imageRendering: "pixelated" }}
+        />
+      </div>
+    </section>
+  )
+}
+
+/**
+ * Render the full deswizzled atlas (one image per TGLP sheet) so the
+ * user can see every glyph the font ships with. Each sheet renders
+ * to its own `<canvas>` at native resolution, then CSS scales it
+ * down to fit the column.
+ */
+function BffntAtlasSection({
+  font,
+  formatName,
+}: {
+  font: RenderableBffnt
+  formatName: string
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Atlas
+      </h3>
+      <p className="text-xs text-muted-foreground">
+        {font.sheets.length} sheet{font.sheets.length === 1 ? "" : "s"} ·{" "}
+        {formatName} · deswizzled and Y-flipped to top-left origin
+      </p>
+      <div className="flex flex-col gap-3">
+        {font.sheets.map((sheet, i) => (
+          <BffntAtlasSheet key={i} sheet={sheet} index={i} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function BffntAtlasSheet({
+  sheet,
+  index,
+}: {
+  sheet: RenderableBffnt["sheets"][number]
+  index: number
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme === "dark"
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    canvas.width = sheet.width
+    canvas.height = sheet.height
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    // Recolour atlas pixels for theme contrast, same as the sample.
+    const imageData = ctx.createImageData(sheet.width, sheet.height)
+    const px = imageData.data
+    const src = sheet.pixels
+    const fg = isDark ? 235 : 25
+    for (let i = 0; i < src.length; i += 4) {
+      px[i] = fg
+      px[i + 1] = fg
+      px[i + 2] = fg
+      px[i + 3] = src[i + 3]
+    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.putImageData(imageData, 0, 0)
+  }, [sheet, isDark])
+
+  return (
+    <div className="overflow-x-auto rounded-md border bg-card p-3">
+      <div className="mb-2 text-xs text-muted-foreground">
+        Sheet {index} — {sheet.width} × {sheet.height} px
+      </div>
+      <canvas
+        ref={canvasRef}
+        className="block max-w-full"
+        style={{ imageRendering: "pixelated" }}
+      />
+    </div>
   )
 }
 

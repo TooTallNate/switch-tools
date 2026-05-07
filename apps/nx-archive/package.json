@@ -21,6 +21,7 @@
     "@shikijs/langs": "^4.0.2",
     "@shikijs/themes": "^4.0.2",
     "@tootallnate/aes-xts": "workspace:*",
+    "@tootallnate/bffnt": "workspace:*",
     "@tootallnate/bfttf": "workspace:*",
     "@tootallnate/hfs0": "workspace:*",
     "@tootallnate/lz4": "workspace:^",
