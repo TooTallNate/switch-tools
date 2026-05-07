@@ -1,0 +1,30 @@
+{
+  "name": "@tootallnate/fsb5",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser + decoder for FMOD Sample Banks (FSB5 format). Walks the header + sample table + name table, exposes each sample with codec metadata, and decodes PCM/IMA-ADPCM samples to WAV plus Vorbis samples to Ogg-Vorbis using a CRC32-keyed setup-packet lookup table.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "files": [
+    "dist",
+    "assets"
+  ],
+  "exports": {
+    ".": "./dist/index.js",
+    "./assets/fmod_vorbis_setup_packets.bin": "./assets/fmod_vorbis_setup_packets.bin"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/fsb5"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

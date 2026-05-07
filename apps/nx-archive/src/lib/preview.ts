@@ -57,6 +57,17 @@ import {
 	type ParsedWem,
 	type WemDecodeResult,
 } from '@tootallnate/wem';
+import { parseFmodBank, extractFsb5FromBank } from '@tootallnate/fmod-bank';
+import {
+	parseFsb5,
+	decodeSampleToBlob,
+	loadFmodVorbisSetupPackets,
+	SOUND_FORMAT_NAMES,
+	type ParsedFsb5,
+	type ParsedFsb5Sample,
+	type DecodeSampleResult,
+	type FmodVorbisSetupPackets,
+} from '@tootallnate/fsb5';
 
 export type PreviewKind =
 	| 'text'
@@ -78,6 +89,8 @@ export type PreviewKind =
 	| 'bfstm-audio'
 	/** Wwise WEM audio asset (Switch-Opus → Ogg, PCM → WAV). */
 	| 'wem-audio'
+	/** FMOD Studio FSB5 sample (PCM → WAV, FMOD-Vorbis → Ogg-Vorbis). */
+	| 'fmod-sample-audio'
 	/** Tiny ARSL manifest of BARS file paths. */
 	| 'barslist-info'
 	/** Switch HD Rumble vibration patterns. */
@@ -1087,6 +1100,95 @@ export async function parseWemForAudioView(blob: Blob): Promise<WemView> {
 	}
 	return { parsed, decoded, decodeError };
 }
+
+// ----- FMOD sample preview -----
+
+export interface FmodSampleView {
+	parsedFsb5: ParsedFsb5;
+	sample: ParsedFsb5Sample;
+	/** Successful decode (ready-to-play Blob), or null. */
+	decoded: DecodeSampleResult | null;
+	/** Error message if the codec isn't supported / decoding failed. */
+	decodeError: string | null;
+	/** Bank-level metadata for UI display. */
+	bankInfo: {
+		wasEncrypted: boolean;
+		matchedKeyGame: string | null;
+		paddingBytes: number;
+	};
+}
+
+/**
+ * Parse the FMOD bank that contains this sample, locate it by index,
+ * and decode it. Used by the preview pane.
+ */
+export async function parseFmodSampleForView(
+	bankBlob: Blob,
+	sampleIndex: number,
+): Promise<FmodSampleView> {
+	const bank = await parseFmodBank(bankBlob);
+	const r = await extractFsb5FromBank(bank, bankBlob);
+	if (!r || !r.fsb5) {
+		throw new Error(
+			r?.wasEncrypted
+				? 'FMOD bank is encrypted and no matching key was found in the built-in list.'
+				: 'FMOD bank has no SND chunk (Master/strings bank?)',
+		);
+	}
+	const fsb5 = parseFsb5(r.fsb5);
+	if (sampleIndex < 0 || sampleIndex >= fsb5.samples.length) {
+		throw new Error(`FMOD sample index ${sampleIndex} out of range (have ${fsb5.samples.length})`);
+	}
+	const sample = fsb5.samples[sampleIndex];
+
+	let decoded: DecodeSampleResult | null = null;
+	let decodeError: string | null = null;
+	try {
+		// Load the Vorbis setup library for Vorbis samples.
+		let lib: FmodVorbisSetupPackets | undefined;
+		if (fsb5.header.mode === 15) {
+			lib = await getFmodVorbisLibrary();
+		}
+		decoded = await decodeSampleToBlob(sample, fsb5.header.mode, lib);
+	} catch (e) {
+		decodeError = e instanceof Error ? e.message : String(e);
+	}
+
+	return {
+		parsedFsb5: fsb5,
+		sample,
+		decoded,
+		decodeError,
+		bankInfo: {
+			wasEncrypted: r.wasEncrypted,
+			matchedKeyGame: r.matchedKey?.game ?? null,
+			paddingBytes: r.paddingBytes,
+		},
+	};
+}
+
+let _fmodVorbisLib: FmodVorbisSetupPackets | null = null;
+let _fmodVorbisFetch: Promise<FmodVorbisSetupPackets> | null = null;
+async function getFmodVorbisLibrary() {
+	if (_fmodVorbisLib) return _fmodVorbisLib;
+	if (_fmodVorbisFetch) return _fmodVorbisFetch;
+	_fmodVorbisFetch = (async () => {
+		const url = (
+			await import(
+				/* @vite-ignore */
+				'@tootallnate/fsb5/assets/fmod_vorbis_setup_packets.bin?url'
+			)
+		).default as string;
+		const res = await fetch(url);
+		const buf = new Uint8Array(await res.arrayBuffer());
+		_fmodVorbisLib = loadFmodVorbisSetupPackets(buf);
+		return _fmodVorbisLib;
+	})();
+	return _fmodVorbisFetch;
+}
+
+// Re-export for the preview component
+export { SOUND_FORMAT_NAMES };
 
 // Lazy + cached fetch of the aoTuV-603 codebook library. The asset
 // is bundled with `@tootallnate/wem-vorbis` and Vite resolves the

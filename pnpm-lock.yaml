@@ -262,6 +262,12 @@ importers:
       '@tootallnate/dsp-adpcm':
         specifier: workspace:*
         version: link:../../packages/dsp-adpcm
+      '@tootallnate/fmod-bank':
+        specifier: workspace:*
+        version: link:../../packages/fmod-bank
+      '@tootallnate/fsb5':
+        specifier: workspace:*
+        version: link:../../packages/fsb5
       '@tootallnate/gfpak':
         specifier: workspace:*
         version: link:../../packages/gfpak
@@ -517,6 +523,18 @@ importers:
         version: 5.3.3
 
   packages/dsp-adpcm:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/fmod-bank:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/fsb5:
     devDependencies:
       typescript:
         specifier: ^5.3.3

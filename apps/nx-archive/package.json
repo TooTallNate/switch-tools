@@ -47,6 +47,8 @@
     "@tootallnate/pfs0": "workspace:*",
     "@tootallnate/romfs": "workspace:*",
     "@tootallnate/sarc": "workspace:*",
+    "@tootallnate/fmod-bank": "workspace:*",
+    "@tootallnate/fsb5": "workspace:*",
     "@tootallnate/wem": "workspace:*",
     "@tootallnate/wem-vorbis": "workspace:*",
     "@tootallnate/wwise-bnk": "workspace:*",

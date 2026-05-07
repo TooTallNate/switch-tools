@@ -26,6 +26,12 @@ import { parseBfres } from '@tootallnate/bfres';
 import { parseGfpak } from '@tootallnate/gfpak';
 import { parseAkpk } from '@tootallnate/wwise-pck';
 import { parseBnk } from '@tootallnate/wwise-bnk';
+import {
+	parseFmodBank,
+	extractFsb5FromBank,
+	type Fsb5ExtractResult,
+} from '@tootallnate/fmod-bank';
+import { parseFsb5 } from '@tootallnate/fsb5';
 import { parseZip, type ZipEntry } from './zip';
 import { parseUnityFs, type UnityFsNode } from './unityfs';
 import {
@@ -64,6 +70,7 @@ export type NodeKind =
 	| 'gfpak'
 	| 'wwise-pck'
 	| 'wwise-bnk'
+	| 'fmod-bank'
 	/**
 	 * A user-selected directory from the local filesystem. Functions
 	 * like an "ad-hoc PFS0" — its children are the files inside, with
@@ -212,14 +219,14 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	otc: 'OTC',
 	zip: 'ZIP',
 	sarc: 'SARC',
-	pack: 'SARC', // BotW / Splatoon style — `.pack` is plain SARC
+	pack: 'SARC', // common first-party-game SARC alias
 	szs: 'SZS', // Yaz0-compressed SARC, ubiquitous across 1st-party games
 	yaz0: 'YAZ0',
 	lz4: 'LZ4',
 	bundle: 'UnityFS', // Unity Addressables: `*.bundle`
 	unity3d: 'UnityFS', // Legacy Unity AssetBundle extension
 	ab: 'UnityFS', // Common Unity AssetBundle extension (Detective Pikachu, etc.)
-	bars: 'BARS', // Nintendo audio resource archive (BotW, TotK, etc.)
+	bars: 'BARS', // Nintendo audio resource archive
 	bfsar: 'BFSAR', // Nintendo sound archive (NintendoWare; magic FSAR)
 	bfwar: 'BFWAR', // Wave archive (collection of BFWAVs)
 	bfstm: 'BFSTM', // Streamed audio
@@ -231,7 +238,7 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	byml: 'BYML',
 	bntx: 'BNTX', // Nintendo texture format (BC1/3/4/5/7, RGBA8, etc.)
 	bfres: 'BFRES', // Nintendo 3D resource (FRES) — models + embedded BNTX
-	gfpak: 'GFPAK', // Game Freak (Pokémon) archive
+	gfpak: 'GFPAK', // Game Freak archive
 	gfbmdl: 'GFBMDL', // Game Freak model
 	gfbanm: 'GFBANM', // Game Freak skeletal animation
 	gfbanmcfg: 'GFBANMCFG', // Game Freak animation config
@@ -242,6 +249,8 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	pck: 'AKPK', // Audiokinetic Wwise streaming-WEM package
 	bnk: 'BNK', // Audiokinetic Wwise SoundBank
 	wem: 'WEM', // Wwise Encoded Media (audio asset)
+	bank: 'BANK', // FMOD Studio bank (FEV form-type)
+	fsb: 'FSB5', // FMOD Sample Bank
 };
 
 /**
@@ -303,7 +312,8 @@ type SniffedFormat =
 	| 'bfres'
 	| 'gfpak'
 	| 'wwise-pck'
-	| 'wwise-bnk';
+	| 'wwise-bnk'
+	| 'fmod-bank';
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -321,7 +331,9 @@ type SniffedFormat =
  */
 async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (blob.size < 4) return null;
-	const headLen = Math.min(blob.size, 8);
+	// 12-byte read covers everything we need: 8-byte magics (GFLXPACK,
+	// UnityFS) plus the RIFF+formType pattern at offsets 0..3 and 8..11.
+	const headLen = Math.min(blob.size, 12);
 	const head = new Uint8Array(await blob.slice(0, headLen).arrayBuffer());
 	// 4-byte ASCII magics.
 	const m4 =
@@ -339,6 +351,17 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (m4 === 'FRES') return 'bfres';
 	if (m4 === 'AKPK' || m4 === 'KPKA') return 'wwise-pck';
 	if (m4 === 'BKHD') return 'wwise-bnk';
+	// FMOD Studio bank: RIFF + form-type "FEV " at offset 8.
+	if (
+		m4 === 'RIFF' &&
+		head.length >= 12 &&
+		head[8] === 0x46 &&
+		head[9] === 0x45 &&
+		head[10] === 0x56 &&
+		head[11] === 0x20
+	) {
+		return 'fmod-bank';
+	}
 	// GFPAK has 8-byte magic "GFLXPACK" — sniff if we read enough bytes.
 	if (head.length >= 8) {
 		const m8 = new TextDecoder().decode(head.subarray(0, 8));
@@ -461,6 +484,22 @@ export async function buildRootNode(
 			return makeWwisePckNode(id, displayName, blob, ctx);
 		case 'BNK':
 			return makeWwiseBnkNode(id, displayName, blob, ctx);
+		case 'BANK': {
+			// Disambiguate Wwise vs FMOD by magic.
+			const sniffed = await sniffMagicCheap(blob);
+			if (sniffed === 'fmod-bank') return makeFmodBankNode(id, displayName, blob, ctx);
+			if (sniffed === 'wwise-bnk') return makeWwiseBnkNode(id, displayName, blob, ctx);
+			// Unknown bank flavour — fall through to generic.
+			return {
+				id,
+				name: displayName,
+				kind: 'file',
+				isContainer: false,
+				size: blob.size,
+				format: 'BANK',
+				blob: async () => blob,
+			};
+		}
 		default:
 			// Unknown — present it as a single file the user can download
 			return {
@@ -1516,7 +1555,7 @@ function makeSzsNode(
  * `.bfwav` / `.bfstp` extension so the format badge and any
  * downstream audio preview pick up on it. Tracks whose audio
  * payload is missing (common for "stub" archives that ship in
- * BotW's `Sound/Resource/` directory) come through as empty
+ * audio-resource directories) come through as empty
  * placeholders that surface the AMTA metadata via the structured
  * preview pane.
  */
@@ -1754,7 +1793,7 @@ function makeBfresNode(
 	};
 }
 
-// ----- GFPAK (Pokémon archive) -----
+// ----- GFPAK (Game Freak archive) -----
 
 /**
  * Make a GFPAK container node. Each entry inside the GFPAK
@@ -1764,7 +1803,7 @@ function makeBfresNode(
  * inner-file extension (`bntx`, `bfres`, `byaml`, …) so the
  * downstream previews pick them up automatically.
  *
- * Oodle-compressed entries (the default in modern Pokémon games)
+ * Oodle-compressed entries (the default in newer Game Freak titles)
  * surface as info-only leaves with the original 0-byte blob; the
  * user gets a friendly error if they click "Download" because the
  * extractor throws. LZ4 / uncompressed entries extract cleanly.
@@ -1903,6 +1942,92 @@ function makeWwiseBnkNode(
 	};
 }
 
+// ----- FMOD Studio bank (.bank with "FEV " form-type) -----
+
+/**
+ * Make an FMOD Studio `.bank` container node. The bank's metadata
+ * tree (`PROJ` LIST with `EVTS`, `WAIS`, `BSSL`, etc.) is hidden
+ * behind the scenes; we only expose the actual audio samples
+ * (extracted from the embedded FSB5 inside the SND chunk).
+ *
+ * Encrypted banks auto-detect the right key from a built-in list
+ * of ~50 known per-game keys. Banks with unknown keys surface a
+ * single "encrypted (key not in built-in list)" placeholder leaf
+ * — the user can still download the raw bank.
+ */
+function makeFmodBankNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'fmod-bank',
+		isContainer: true,
+		size: blob.size,
+		format: 'BANK',
+		blob: async () => blob,
+		getChildren: async () => {
+			const parsed = await parseFmodBank(blob);
+			const extracted: Fsb5ExtractResult | null = await extractFsb5FromBank(parsed, blob);
+			if (!extracted) {
+				// No SND chunk — Master.bank / Master.strings.bank-like
+				// metadata-only banks. Show no children.
+				return [];
+			}
+			if (!extracted.fsb5) {
+				// Encrypted with unknown key. Surface a single placeholder
+				// leaf with a friendly message.
+				return [
+					{
+						id: `${id}/__encrypted__`,
+						name: '⚠︎ encrypted (no matching key)',
+						kind: 'file',
+						isContainer: false,
+						size: 0,
+						format: 'BIN',
+						blob: async () => new Blob([]),
+					},
+				];
+			}
+			// Got plaintext FSB5 → parse and surface each sample as a leaf.
+			const fsb5 = parseFsb5(extracted.fsb5);
+			const ext =
+				fsb5.header.mode === 15 // VORBIS
+					? 'ogg'
+					: fsb5.header.mode === 11 // MPEG
+						? 'mp3'
+						: 'wav';
+			return fsb5.samples.map((s): Node => {
+				const safeName = (s.name || `sample_${s.index}`)
+					.replace(/[^a-zA-Z0-9._-]/g, '_');
+				const leaf = `${safeName}.${ext}`;
+				const childId = `${id}/${leaf}`;
+				// We surface the per-sample raw payload bytes via blob().
+				// The preview will re-parse the bank on click to actually
+				// decode (PCM/ADPCM → WAV, Vorbis → Ogg). For "Download"
+				// we give the bytes verbatim too — most useful as a
+				// reference for offline tools (vgmstream / fsbtool / etc).
+				return {
+					id: childId,
+					name: leaf,
+					kind: 'file',
+					isContainer: false,
+					size: s.data.length,
+					format: fsb5.header.modeName,
+					blob: async () => new Blob([s.data as unknown as BlobPart]),
+					meta: {
+						fmodBankBlob: blob,
+						fmodSampleIndex: s.index,
+					},
+				};
+			});
+		},
+	};
+}
+
 /**
  * A `Blob`-shaped facade that lazily materialises its bytes on
  * first read (or first slice). Used for GFPAK entries where the
@@ -1919,7 +2044,7 @@ class LazyDecompressBlob extends Blob {
 	// We declare a fake "size" up front since callers (the
 	// preview pane, the file tree) read `size` synchronously to
 	// label entries. We surface 0 — the entry's true size becomes
-	// known only after decompression. Most Pokémon GFPAKs are
+	// known only after decompression. Most Game Freak GFPAKs are
 	// already opaque enough that this is fine UX.
 	constructor(decoder: () => Promise<Blob>) {
 		super([]);
@@ -2135,6 +2260,14 @@ async function childNodeFor(
 	if (ext === 'gfpak') return makeGfpakNode(id, name, blob, ctx);
 	if (ext === 'pck') return makeWwisePckNode(id, name, blob, ctx);
 	if (ext === 'bnk') return makeWwiseBnkNode(id, name, blob, ctx);
+	if (ext === 'bank') {
+		// `.bank` is ambiguous: Wwise uses BKHD, FMOD uses RIFF/FEV.
+		// Sniff first, then dispatch.
+		const sniffed = await sniffMagicCheap(blob);
+		if (sniffed === 'fmod-bank') return makeFmodBankNode(id, name, blob, ctx);
+		if (sniffed === 'wwise-bnk') return makeWwiseBnkNode(id, name, blob, ctx);
+		// Unknown bank — fall through to generic.
+	}
 
 	// Magic sniff fallback for files whose extension doesn't tell us
 	// what they are. Especially important for 1st-party Nintendo
@@ -2162,6 +2295,7 @@ async function childNodeFor(
 	if (sniffed === 'gfpak') return makeGfpakNode(id, name, blob, ctx);
 	if (sniffed === 'wwise-pck') return makeWwisePckNode(id, name, blob, ctx);
 	if (sniffed === 'wwise-bnk') return makeWwiseBnkNode(id, name, blob, ctx);
+	if (sniffed === 'fmod-bank') return makeFmodBankNode(id, name, blob, ctx);
 
 	// Generic file
 	return {

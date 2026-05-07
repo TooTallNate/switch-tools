@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/fmod-bank",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for FMOD Studio `.bank` files (RIFF/FEV containers). Walks the chunk tree, surfaces metadata structure, extracts the embedded FSB5 sample bank from the SND chunk, and supports the FMOD Studio XOR encryption scheme with an embedded list of ~50 known per-game keys.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/fmod-bank"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

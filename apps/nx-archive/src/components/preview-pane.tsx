@@ -73,7 +73,10 @@ import {
   parseBnvibForView,
   parseByamlForView,
   parseWemForAudioView,
+  parseFmodSampleForView,
+  SOUND_FORMAT_NAMES,
   type WemView,
+  type FmodSampleView,
   parseFontForView,
   parseCnmtForView,
   parseNacpForView,
@@ -140,8 +143,13 @@ export function PreviewPane({ node }: PreviewPaneProps) {
 function PreviewContent({ node }: { node: Node }) {
   const isFile = !node.isContainer
   const kind = useMemo<PreviewKind | null>(
-    () => (isFile ? detectPreviewKind(node.name) : null),
-    [isFile, node.name],
+    () => {
+      if (!isFile) return null
+      // FMOD bank samples carry their bank+sample-index in `meta`.
+      if (node.meta?.fmodSampleIndex !== undefined) return 'fmod-sample-audio'
+      return detectPreviewKind(node.name)
+    },
+    [isFile, node.name, node.meta],
   )
 
   // Container nodes that have a dedicated structured preview instead
@@ -1035,6 +1043,8 @@ function FilePreview({ node, kind }: { node: Node; kind: PreviewKind }) {
       return <NintendoAudioPreview node={node} kind="bfstm" />
     case "wem-audio":
       return <WemAudioPreview node={node} />
+    case "fmod-sample-audio":
+      return <FmodSamplePreview node={node} />
     case "barslist-info":
       return <BarslistPreview node={node} />
     case "bnvib-audio":
@@ -3034,6 +3044,148 @@ function WemAudioPlayer({
           MIME: {mime}
         </span>
       )}
+    </section>
+  )
+}
+
+// ====================================================================
+// FMOD Studio bank sample (FSB5) — audio preview
+// ====================================================================
+
+function FmodSamplePreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    const bankBlob = node.meta?.fmodBankBlob as Blob | undefined
+    const sampleIndex = node.meta?.fmodSampleIndex as number | undefined
+    if (!bankBlob || sampleIndex === undefined) {
+      throw new Error("FMOD sample node missing bank/index metadata")
+    }
+    return parseFmodSampleForView(bankBlob, sampleIndex)
+  }, [node.id])
+
+  // Object URL lifecycle.
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!data || !data.decoded) return
+    const url = URL.createObjectURL(data.decoded.blob)
+    setAudioUrl(url)
+    return () => {
+      URL.revokeObjectURL(url)
+      setAudioUrl(null)
+    }
+  }, [data])
+
+  if (loading) return <LoadingFiller label="Decoding FMOD sample…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader
+          title={
+            v.parsedFsb5.header.mode === 15
+              ? "FMOD Vorbis sample"
+              : `FMOD ${SOUND_FORMAT_NAMES[v.parsedFsb5.header.mode]} sample`
+          }
+        />
+
+        {v.decoded ? (
+          <FmodSampleAudioPlayer view={v} audioUrl={audioUrl} />
+        ) : (
+          <section className="flex flex-col gap-2 rounded-md border bg-card p-4">
+            <p className="text-sm font-medium">
+              Browser playback isn't supported for this codec yet.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {v.decodeError ?? "Unknown error."}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              You can still download the raw payload and convert offline
+              (e.g. via fsbtool / vgmstream).
+            </p>
+          </section>
+        )}
+
+        <KvBlock title="Sample">
+          <KvRow k="Name" v={v.sample.name || "(unnamed)"} />
+          <KvRow k="Codec" v={SOUND_FORMAT_NAMES[v.parsedFsb5.header.mode] ?? `mode_${v.parsedFsb5.header.mode}`} />
+          <KvRow k="Sample rate" v={`${v.sample.frequency} Hz`} />
+          <KvRow
+            k="Channels"
+            v={`${v.sample.channels} (${v.sample.channels === 1 ? "mono" : v.sample.channels === 2 ? "stereo" : `${v.sample.channels}-channel`})`}
+          />
+          <KvRow k="Total samples" v={v.sample.numSamples.toLocaleString()} />
+          <KvRow
+            k="Duration"
+            v={`${formatDuration(v.sample.numSamples / v.sample.frequency)} (${(v.sample.numSamples / v.sample.frequency).toFixed(2)}s)`}
+          />
+          <KvRow k="Payload size" v={formatBytes(v.sample.data.length)} />
+        </KvBlock>
+
+        <KvBlock title="Bank">
+          <KvRow k="Total samples" v={String(v.parsedFsb5.samples.length)} />
+          <KvRow
+            k="Encryption"
+            v={
+              v.bankInfo.wasEncrypted
+                ? `decrypted with key for "${v.bankInfo.matchedKeyGame}"`
+                : "none"
+            }
+          />
+          {v.bankInfo.paddingBytes > 0 && (
+            <KvRow k="SND padding bytes" v={String(v.bankInfo.paddingBytes)} />
+          )}
+        </KvBlock>
+      </div>
+    </ScrollArea>
+  )
+}
+
+function FmodSampleAudioPlayer({
+  view,
+  audioUrl,
+}: {
+  view: FmodSampleView
+  audioUrl: string | null
+}) {
+  const downloadName = useMemo(() => {
+    if (!view.decoded) return "fmod-sample.bin"
+    const safe = (view.sample.name || `sample_${view.sample.index}`).replace(
+      /[^a-zA-Z0-9._-]/g,
+      "_",
+    )
+    return `${safe}.${view.decoded.extension}`
+  }, [view])
+  const decodeLabel = useMemo(() => {
+    if (!view.decoded) return ""
+    if (view.decoded.kind === "fmod-vorbis-to-ogg-vorbis")
+      return "Rebuilt FMOD Vorbis → Ogg-Vorbis (CRC32 setup-packet lookup)"
+    if (view.decoded.kind === "ima-adpcm-wav") return "IMA-ADPCM → WAV"
+    if (view.decoded.kind === "pcm-wav") return "PCM → WAV (no decode)"
+    return ""
+  }, [view])
+  return (
+    <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+      {audioUrl ? (
+        <audio src={audioUrl} controls className="w-full" preload="auto" />
+      ) : (
+        <Skeleton className="h-12 w-full" />
+      )}
+      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span>{decodeLabel}</span>
+        {audioUrl && view.decoded && (
+          <a
+            href={audioUrl}
+            download={downloadName}
+            className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+          >
+            Save .{view.decoded.extension}
+          </a>
+        )}
+      </div>
+      <span className="text-[11px] text-muted-foreground/70">
+        MIME: {view.decoded?.blob.type ?? "—"}
+      </span>
     </section>
   )
 }

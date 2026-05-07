@@ -1,0 +1,30 @@
+@tootallnate/fmod-bank
+=======================
+
+This package's source code is MIT licensed. The bundled per-game
+encryption-key list (`KNOWN_BANK_KEYS` in `src/decrypt.ts`) is
+documented public knowledge sourced from the following OSS
+projects:
+
+- **CUE4Parse** (Apache License 2.0) —
+  <https://github.com/FabianFG/CUE4Parse/blob/master/CUE4Parse/UE4/FMod/Fsb5Decryption.cs>
+  Documents game→key mappings for the FMOD Studio bank XOR
+  encryption scheme.
+
+- **FMODBankDecryptor** (MIT) —
+  <https://github.com/9382/FMODBankDecryptor>
+  Reference C# implementation of the per-byte XOR + bit-reversal
+  algorithm. Our `reverseBitsInByte` matches its `fourbitreverse`
+  table behaviour bit-for-bit; the algorithm itself is
+  trivially-reproducible from the format spec.
+
+- **vgmstream** (ISC) —
+  <https://github.com/vgmstream/vgmstream/blob/master/src/meta/fsb_keys.h>
+  Adjacent reference for FSB-direct (not bank-level) keys. We
+  don't include FSB keys (the sole layer of encryption Game Freak
+  uses on Switch, for example, is at the bank level).
+
+The keys themselves are not derived from any single commercial-
+game extraction; they are documented public knowledge, refined by
+many contributors over the years. Each entry includes the title
+attribution from the source projects so users can cross-check.
