@@ -79,6 +79,30 @@ export type ZstdDecompressStream = (
 	input: ReadableStream<Uint8Array>,
 ) => ReadableStream<Uint8Array>;
 
+/**
+ * Progress event fired during a long-running decryption /
+ * decompression operation. Values are cumulative-since-start
+ * (not deltas) so callers don't need to track state.
+ *
+ * `bytesInTotal` and `bytesOutTotal` may be undefined when the
+ * total size isn't known up-front (e.g. some compressed-stream
+ * formats); progressive UIs should fall back to a spinner /
+ * indeterminate state when totals aren't available.
+ */
+export interface ProgressEvent {
+	/** Bytes consumed from the input so far. */
+	bytesIn: number;
+	/** Bytes produced to the output so far. */
+	bytesOut: number;
+	/** Total input size, if known. */
+	bytesInTotal?: number;
+	/** Total output size, if known. */
+	bytesOutTotal?: number;
+}
+
+/** Subscriber callback for {@link ProgressEvent}s. */
+export type OnProgress = (e: ProgressEvent) => void;
+
 export interface NczOptions {
 	/**
 	 * The `Crypto` implementation to use for AES-CTR re-encryption.
@@ -101,6 +125,17 @@ export interface NczOptions {
 	 * If not provided and a stream-mode NCZ is encountered, an error is thrown.
 	 */
 	decompressStream?: ZstdDecompressStream;
+
+	/**
+	 * Called periodically (typically once per decompressed chunk
+	 * flushed) so callers can render a progress bar. Both the input
+	 * size (= NCZ blob size) and the output size (= decompressed NCA
+	 * size, derived from the NCZ section header) are known up front,
+	 * so consumers can render a real percentage.
+	 *
+	 * Throwing from `onProgress` aborts the operation.
+	 */
+	onProgress?: OnProgress;
 }
 
 /**
@@ -260,12 +295,27 @@ export async function decompressNcz(
 	// Create the sink now that we know the NCA size, and get a writer
 	const writer = createSink(ncaSize).getWriter();
 
+	// Progress tracking. The NCZ blob's full size is `bytesInTotal`;
+	// the decompressed NCA's size is `bytesOutTotal`. We emit an
+	// initial 0% event up-front so consumers can render the bar
+	// before the first chunk lands.
+	const bytesInTotal = Number(blob.size);
+	const bytesOutTotal = Number(ncaSize);
+	let bytesIn = 0;
+	const reportProgress = (bytesOut: number) => {
+		if (!options.onProgress) return;
+		options.onProgress({ bytesIn, bytesOut, bytesInTotal, bytesOutTotal });
+	};
+	reportProgress(0);
+
 	// Write the NCA header as-is (encrypted)
 	await writer.write(new Uint8Array(ncaHeaderBuf));
 
 	// Track position in the NCA (absolute offset).
 	// Starts after the header since we already emitted it.
 	let written = BigInt(NCZ_HEADER_SIZE);
+	bytesIn = NCZ_HEADER_SIZE; // header read from input
+	reportProgress(NCZ_HEADER_SIZE);
 
 	// Import all section AES keys upfront
 	const sectionKeys: (CryptoKey | null)[] = [];
@@ -395,6 +445,8 @@ export async function decompressNcz(
 			await reencrypt(decompressed, written);
 			await writer.write(decompressed);
 			written += BigInt(decompressed.length);
+			bytesIn = block.offset + block.size - compressedDataOffset + Number(NCZ_HEADER_SIZE);
+			reportProgress(Number(written));
 		}
 	} else {
 		// Stream mode: the compressed body may contain multiple zstd frames.
@@ -442,6 +494,15 @@ export async function decompressNcz(
 						await writer.write(chunk);
 						written += BigInt(accOffset);
 						accOffset = 0;
+						// Track input progress as the current frame's
+						// position within the compressed data. We don't
+						// know exactly how many compressed bytes have
+						// been consumed inside the zstd decoder, but
+						// the next-frame scan boundary is a useful
+						// proxy: we update bytesIn each time we move
+						// `compressedPos` (after each frame). For
+						// mid-frame chunks we just advance bytesOut.
+						reportProgress(Number(written));
 					}
 				}
 				frameDecompressedBytes += value.length;
@@ -477,6 +538,9 @@ export async function decompressNcz(
 			}
 
 			if (!nextFrameFound) break;
+			// Advance input progress to the start of the next frame.
+			bytesIn = compressedPos;
+			reportProgress(Number(written));
 		}
 
 		// Flush remaining accumulated data
@@ -489,6 +553,8 @@ export async function decompressNcz(
 	}
 
 	await writer.close();
+	bytesIn = bytesInTotal;
+	reportProgress(Number(written));
 
 	return { ncaSize, sections, blockHeader };
 }

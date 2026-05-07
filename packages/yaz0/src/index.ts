@@ -84,6 +84,30 @@ export async function readYaz0Header(blob: Blob): Promise<Yaz0Header> {
 }
 
 /**
+ * Progress event for {@link decompressYaz0}. Cumulative-since-start;
+ * see `@tootallnate/ncz` for the same shape used by every other
+ * decompressor in this monorepo.
+ */
+export interface ProgressEvent {
+	bytesIn: number;
+	bytesOut: number;
+	bytesInTotal?: number;
+	bytesOutTotal?: number;
+}
+export type OnProgress = (e: ProgressEvent) => void;
+
+export interface DecompressYaz0Options {
+	/**
+	 * Called periodically with the running `bytesOut`. We don't
+	 * track exact bytesIn (the decoder reads the input stream
+	 * byte-by-byte and would slow down measurably if we counted
+	 * each one), so callers should treat `bytesIn` as a rough
+	 * estimate based on the input/output ratio.
+	 */
+	onProgress?: OnProgress;
+}
+
+/**
  * Decompress a Yaz0-compressed `Blob` into a fresh `Blob` of the
  * decompressed payload. The output `Blob` has no MIME type set —
  * callers should detect/set the content type themselves.
@@ -93,20 +117,47 @@ export async function readYaz0Header(blob: Blob): Promise<Yaz0Header> {
  * output is held in a single `Uint8Array` since Yaz0 back-references
  * can reach 4 KiB into already-emitted data.
  */
-export async function decompressYaz0(blob: Blob): Promise<Blob> {
-	const bytes = await decompressYaz0ToBytes(blob);
+export async function decompressYaz0(
+	blob: Blob,
+	options: DecompressYaz0Options = {},
+): Promise<Blob> {
+	const bytes = await decompressYaz0ToBytes(blob, options);
 	// Cast: TS lib.dom.d.ts insists on `ArrayBufferView<ArrayBuffer>` for
 	// `BlobPart`, but a freshly-allocated `Uint8Array` is always backed by
 	// an `ArrayBuffer` (never `SharedArrayBuffer`).
 	return new Blob([bytes as BlobPart]);
 }
 
+/** Fire `onProgress` every PROGRESS_INTERVAL output bytes. */
+const PROGRESS_INTERVAL = 256 * 1024;
+
 /** Same as {@link decompressYaz0} but returns the raw `Uint8Array`. */
-export async function decompressYaz0ToBytes(blob: Blob): Promise<Uint8Array> {
+export async function decompressYaz0ToBytes(
+	blob: Blob,
+	options: DecompressYaz0Options = {},
+): Promise<Uint8Array> {
 	const header = await readYaz0Header(blob);
 	const out = new Uint8Array(header.uncompressedSize);
 
 	const reader = new ChunkReader(blob.slice(HEADER_SIZE).stream().getReader());
+
+	const bytesInTotal = blob.size;
+	const bytesOutTotal = out.length;
+	let nextProgressAt = PROGRESS_INTERVAL;
+	const reportProgress = (outPos: number) => {
+		if (!options.onProgress) return;
+		// Estimate bytesIn from the input/output ratio so the bar
+		// advances on both sides — close enough for UI purposes.
+		const ratio = outPos / Math.max(1, bytesOutTotal);
+		const estIn = Math.min(bytesInTotal, Math.floor(ratio * bytesInTotal));
+		options.onProgress({
+			bytesIn: estIn,
+			bytesOut: outPos,
+			bytesInTotal,
+			bytesOutTotal,
+		});
+	};
+	reportProgress(0);
 
 	let outPos = 0;
 	while (outPos < out.length) {
@@ -153,9 +204,14 @@ export async function decompressYaz0ToBytes(blob: Blob): Promise<Uint8Array> {
 				}
 			}
 		}
+		if (outPos >= nextProgressAt) {
+			reportProgress(outPos);
+			nextProgressAt = outPos + PROGRESS_INTERVAL;
+		}
 	}
 
 	await reader.cancel();
+	reportProgress(out.length);
 	return out;
 }
 

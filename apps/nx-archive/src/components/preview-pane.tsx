@@ -30,6 +30,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "~/components/ui/empty"
+import { Progress } from "~/components/ui/progress"
 import { ScrollArea } from "~/components/ui/scroll-area"
 import { Separator } from "~/components/ui/separator"
 import { Skeleton } from "~/components/ui/skeleton"
@@ -107,6 +108,12 @@ import {
 } from "~/lib/highlight"
 import { useTheme } from "next-themes"
 import { cn, formatBytes } from "~/lib/utils"
+import {
+  formatBytesShort,
+  progressPercent,
+  type ProgressEvent,
+  type OnProgress,
+} from "~/lib/progress"
 
 const TEXT_PREVIEW_LIMIT = 1 * 1024 * 1024 // 1 MB
 const HEX_PREVIEW_LIMIT = 4 * 1024 // 4 KB hex window
@@ -1080,6 +1087,68 @@ function useAsync<T>(loader: () => Promise<T>, deps: unknown[]) {
       })
     return () => {
       cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps)
+
+  return state
+}
+
+/**
+ * Same as {@link useAsync} but the loader receives an `onProgress`
+ * callback. The most-recent progress event is exposed alongside
+ * `loading` so the consumer can render `<ProgressFiller>`.
+ *
+ * Progress updates are throttled via `requestAnimationFrame` so
+ * decompressors firing 10s of events per second don't trigger a
+ * re-render storm.
+ */
+function useAsyncWithProgress<T>(
+  loader: (onProgress: OnProgress) => Promise<T>,
+  deps: unknown[],
+) {
+  const [state, setState] = useState<{
+    loading: boolean
+    data: T | null
+    error: Error | null
+    progress: ProgressEvent | null
+  }>({ loading: true, data: null, error: null, progress: null })
+
+  useEffect(() => {
+    let cancelled = false
+    let pending: ProgressEvent | null = null
+    let rafId: number | null = null
+
+    const onProgress: OnProgress = (e) => {
+      pending = e
+      if (rafId !== null || cancelled) return
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        if (cancelled) return
+        const next = pending
+        pending = null
+        setState((s) => ({ ...s, progress: next }))
+      })
+    }
+
+    setState({ loading: true, data: null, error: null, progress: null })
+    loader(onProgress)
+      .then((data) => {
+        if (!cancelled)
+          setState({ loading: false, data, error: null, progress: null })
+      })
+      .catch((err: Error) => {
+        if (!cancelled)
+          setState({
+            loading: false,
+            data: null,
+            error: err,
+            progress: null,
+          })
+      })
+    return () => {
+      cancelled = true
+      if (rafId !== null) cancelAnimationFrame(rafId)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
@@ -3657,6 +3726,50 @@ function LoadingFiller({ label }: { label: string }) {
   )
 }
 
+/**
+ * Drop-in replacement for {@link LoadingFiller} that shows a real
+ * progress bar plus byte counts. Used for long-running decompression
+ * / decryption operations (NCZ, large NCA section reads, Yaz0).
+ */
+function ProgressFiller({
+  label,
+  progress,
+}: {
+  label: string
+  progress: ProgressEvent | null
+}) {
+  const pct = progressPercent(progress)
+  const haveTotal =
+    progress !== null &&
+    (progress.bytesOutTotal !== undefined ||
+      progress.bytesInTotal !== undefined)
+  const bytesOut = progress?.bytesOut ?? 0
+  const bytesOutTotal = progress?.bytesOutTotal
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
+      <Spinner />
+      <span className="text-sm">{label}</span>
+      <div className="flex w-72 max-w-[80vw] flex-col items-center gap-1.5">
+        {haveTotal && pct !== null ? (
+          <>
+            <Progress value={pct} className="w-full" />
+            <span className="font-mono text-[11px] tabular-nums">
+              {formatBytesShort(bytesOut)} / {formatBytesShort(bytesOutTotal)}{" "}
+              ({pct.toFixed(1)}%)
+            </span>
+          </>
+        ) : progress !== null ? (
+          <span className="font-mono text-[11px] tabular-nums">
+            {formatBytesShort(bytesOut)} processed
+          </span>
+        ) : (
+          <Skeleton className="h-3 w-40" />
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ErrorFiller({ error }: { error: Error }) {
   return (
     <div className="flex h-full items-center justify-center p-6">
@@ -3709,7 +3822,7 @@ function DownloadButton({
   blobFn,
   fileName,
 }: {
-  blobFn: () => Promise<Blob>
+  blobFn: (options?: { onProgress?: OnProgress }) => Promise<Blob>
   fileName: string
 }) {
   const [busy, setBusy] = useState(false)
@@ -3717,8 +3830,32 @@ function DownloadButton({
     if (busy) return
     setBusy(true)
     const id = toast.loading(`Preparing ${fileName}…`)
+    // rAF-throttled progress updates so the toast doesn't re-render
+    // 60+ times a second while a multi-GB NCZ is decompressing.
+    let pending: ProgressEvent | null = null
+    let rafId: number | null = null
+    const flush = () => {
+      rafId = null
+      if (!pending) return
+      const e = pending
+      pending = null
+      const pct = progressPercent(e)
+      const bytes = `${formatBytesShort(e.bytesOut)} / ${formatBytesShort(e.bytesOutTotal)}`
+      const label = pct !== null
+        ? `Preparing ${fileName} — ${bytes} (${pct.toFixed(1)}%)`
+        : `Preparing ${fileName} — ${formatBytesShort(e.bytesOut)} processed`
+      toast.loading(label, { id })
+    }
+    const onProgress: OnProgress = (e) => {
+      pending = e
+      if (rafId === null) rafId = requestAnimationFrame(flush)
+    }
     try {
-      const blob = await blobFn()
+      const blob = await blobFn({ onProgress })
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
       const realBlob = await materializeAsBlob(blob)
       const url = URL.createObjectURL(realBlob)
       const a = document.createElement("a")
@@ -3732,6 +3869,7 @@ function DownloadButton({
       setTimeout(() => URL.revokeObjectURL(url), 1500)
       toast.success(`Downloaded ${fileName}`, { id })
     } catch (err) {
+      if (rafId !== null) cancelAnimationFrame(rafId)
       toast.error(
         `Failed to prepare ${fileName}: ${err instanceof Error ? err.message : String(err)}`,
         { id },

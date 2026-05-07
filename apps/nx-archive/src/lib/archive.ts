@@ -15,7 +15,7 @@ import { parseNsp } from '@tootallnate/nsp';
 import { parseHfs0 } from '@tootallnate/hfs0';
 import { parseXci } from '@tootallnate/xci';
 import { decode as romfsDecode, type RomFsEntry } from '@tootallnate/romfs';
-import { decompressNcz, isNcz } from '@tootallnate/ncz';
+import { decompressNcz, isNcz, type OnProgress } from '@tootallnate/ncz';
 import { parseSarc, type SarcEntry } from '@tootallnate/sarc';
 import { decompressYaz0 } from '@tootallnate/yaz0';
 import { decompressLz4, type Lz4Variant } from '@tootallnate/lz4';
@@ -92,6 +92,14 @@ export interface NodeMeta {
 }
 
 /**
+ * Options accepted by {@link Node.blob} for callers that want
+ * progress events. See {@link OnProgress} from `@tootallnate/ncz`.
+ */
+export interface BlobOptions {
+	onProgress?: OnProgress;
+}
+
+/**
  * A node in the virtual archive tree. Nodes are lazy: their children
  * (and sometimes their blob contents) are produced on demand.
  */
@@ -109,10 +117,28 @@ export interface Node {
 	format?: string;
 	/** Arbitrary metadata for preview formatters (e.g. NCA fields) */
 	meta?: NodeMeta;
-	/** Returns the file's data as a Blob. For directories, undefined. */
-	blob?: () => Promise<Blob>;
-	/** Lazy children for containers. */
-	getChildren?: () => Promise<Node[]>;
+	/**
+	 * Returns the file's data as a Blob. For directories, undefined.
+	 *
+	 * The optional `onProgress` callback is fired periodically when
+	 * materialising the blob involves a long-running decompression
+	 * or decryption (e.g. NCZ → NCA, AES-CTR over multi-GB sections,
+	 * Yaz0). For trivial blob retrievals (slicing a containers's
+	 * already-loaded bytes) it's typically not called at all, or
+	 * called once at 100% on completion. UIs that want a progress
+	 * bar should always pass a callback; UIs that don't care can
+	 * call `node.blob!()` without arguments.
+	 */
+	blob?: (options?: BlobOptions) => Promise<Blob>;
+	/**
+	 * Lazy children for containers.
+	 *
+	 * Same `onProgress` semantics as {@link Node.blob}: typically
+	 * not called for trivial container expansions (parsing a few
+	 * hundred bytes of header), but fires when expansion triggers
+	 * a multi-second operation like NCZ decompression.
+	 */
+	getChildren?: (options?: BlobOptions) => Promise<Node[]>;
 	/** Cached children once resolved. */
 	_children?: Node[];
 	_childrenError?: Error;
@@ -901,7 +927,21 @@ function makeNcaNode(
 				// blob and `parseNca` only reads the first 0xC00 bytes
 				// regardless, so it's fine to hand it the whole blob.
 				getHeader: async () => blob,
-				getBlob: async () => blob,
+				// Plain NCAs don't need decompression — return the blob
+				// immediately. We still fire a single progress event at
+				// 100% for callers that wired up a `<ProgressFiller>`,
+				// so the UI doesn't get stuck on the spinner.
+				getBlob: async (options) => {
+					if (options?.onProgress) {
+						options.onProgress({
+							bytesIn: blob.size,
+							bytesOut: blob.size,
+							bytesInTotal: blob.size,
+							bytesOutTotal: blob.size,
+						});
+					}
+					return blob;
+				},
 				ctx,
 				tikMap,
 			} satisfies NcaSource,
@@ -941,8 +981,13 @@ function makeNcaNode(
 export interface NcaSource {
 	/** Lightweight: only the bytes needed for header parsing. */
 	getHeader: () => Promise<Blob>;
-	/** Heavyweight: the full NCA, materialising NCZ decompression if needed. */
-	getBlob: () => Promise<Blob>;
+	/**
+	 * Heavyweight: the full NCA, materialising NCZ decompression if
+	 * needed. The optional `onProgress` is called periodically while
+	 * decompression is running so the caller can render a progress
+	 * bar; for already-plaintext NCAs it's only fired once at 100%.
+	 */
+	getBlob: (options?: { onProgress?: OnProgress }) => Promise<Blob>;
 	ctx: ArchiveContext;
 	tikMap?: TikMap;
 }
@@ -1024,9 +1069,40 @@ function makeNczNode(
 	ctx: ArchiveContext,
 	tikMap?: TikMap,
 ): Node {
+	// We cache the decompressed NCA promise so multiple callers
+	// (preview, getChildren, download) share a single zstd pass.
+	// Concurrent `onProgress` subscribers all receive every event
+	// produced after they subscribe.
 	let cachedNca: Promise<Blob> | null = null;
-	const decompressOnce = () => {
-		if (!cachedNca) cachedNca = decompressNczToBlob(blob);
+	const subscribers = new Set<OnProgress>();
+	let lastProgress: Parameters<OnProgress>[0] | null = null;
+
+	const broadcast: OnProgress = (e) => {
+		lastProgress = e;
+		for (const fn of subscribers) {
+			try {
+				fn(e);
+			} catch {
+				// One bad subscriber shouldn't blow up the others.
+			}
+		}
+	};
+
+	const decompressOnce = (
+		options?: { onProgress?: OnProgress },
+	): Promise<Blob> => {
+		if (options?.onProgress) {
+			subscribers.add(options.onProgress);
+			// Catch up newly-arrived subscribers with the last known
+			// state (so the bar renders immediately without waiting
+			// for the next event).
+			if (lastProgress) options.onProgress(lastProgress);
+		}
+		if (!cachedNca) {
+			cachedNca = decompressNczToBlob(blob, broadcast).finally(() => {
+				subscribers.clear();
+			});
+		}
 		return cachedNca;
 	};
 
@@ -1037,7 +1113,9 @@ function makeNczNode(
 		isContainer: true,
 		size: blob.size,
 		format: 'NCZ',
-		blob: decompressOnce, // download yields the decompressed NCA
+		// Download yields the decompressed NCA. We propagate the
+		// caller's onProgress through to the shared decompressor.
+		blob: (options) => decompressOnce(options),
 		meta: {
 			ncaSource: {
 				// The structured preview only needs the NCA header — and
@@ -1055,8 +1133,8 @@ function makeNczNode(
 				tikMap,
 			} satisfies NcaSource,
 		},
-		getChildren: async () => {
-			const ncaBlob = await decompressOnce();
+		getChildren: async (options) => {
+			const ncaBlob = await decompressOnce(options);
 			const parsed = await parseNcaWithTik(ncaBlob, ctx, tikMap);
 			if (parsed.missingKey) {
 				throw new Error(parsed.missingKey);
@@ -1066,7 +1144,10 @@ function makeNczNode(
 	};
 }
 
-async function decompressNczToBlob(blob: Blob): Promise<Blob> {
+async function decompressNczToBlob(
+	blob: Blob,
+	onProgress?: OnProgress,
+): Promise<Blob> {
 	if (!(await isNcz(blob))) {
 		throw new Error('Not an NCZ file');
 	}
@@ -1078,6 +1159,7 @@ async function decompressNczToBlob(blob: Blob): Promise<Blob> {
 	await decompressNcz(blob, () => writable, {
 		decompressBlob: zstdDecompressBlob,
 		decompressStream: zstdDecompressStream,
+		onProgress,
 	});
 	return finish;
 }

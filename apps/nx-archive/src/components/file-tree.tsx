@@ -54,8 +54,15 @@ import {
   TypeIcon,
 } from "lucide-react"
 import { Badge } from "~/components/ui/badge"
+import { Progress } from "~/components/ui/progress"
 import { Skeleton } from "~/components/ui/skeleton"
 import type { Node } from "~/lib/archive"
+import {
+  formatBytesShort,
+  progressPercent,
+  type OnProgress,
+  type ProgressEvent,
+} from "~/lib/progress"
 import { cn, formatBytes } from "~/lib/utils"
 
 interface FileTreeProps {
@@ -452,6 +459,13 @@ function TreeRow({
 }: TreeRowProps) {
   const { node, depth, expanded, pending } = row
 
+  // Track in-flight progress for `getChildren()` so we can show a
+  // real bar when expanding e.g. an NCZ container (multi-second
+  // zstd decompression). For trivial expansions (a SARC's directory
+  // table, etc.) the progress callback never fires and the row
+  // shows the regular loading skeletons.
+  const [progress, setProgress] = useState<ProgressEvent | null>(null)
+
   // Lazy-load children when this container becomes expanded for the
   // first time. Results / errors are cached on the node object so
   // re-renders (or unmount/remount cycles under React StrictMode)
@@ -472,18 +486,38 @@ function TreeRow({
       return
     }
     let cancelled = false
+    let pendingEvent: ProgressEvent | null = null
+    let rafId: number | null = null
+    const onProgress: OnProgress = (e) => {
+      pendingEvent = e
+      if (rafId !== null || cancelled) return
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        if (cancelled) return
+        const next = pendingEvent
+        pendingEvent = null
+        if (next) setProgress(next)
+      })
+    }
     void node
-      .getChildren!()
+      .getChildren!({ onProgress })
       .then((kids) => {
         node._children = kids
-        if (!cancelled) onLoaded()
+        if (!cancelled) {
+          setProgress(null)
+          onLoaded()
+        }
       })
       .catch((err: Error) => {
         node._childrenError = err instanceof Error ? err : new Error(String(err))
-        if (!cancelled) onLoaded()
+        if (!cancelled) {
+          setProgress(null)
+          onLoaded()
+        }
       })
     return () => {
       cancelled = true
+      if (rafId !== null) cancelAnimationFrame(rafId)
     }
   }, [pending, node, onLoaded])
 
@@ -553,7 +587,11 @@ function TreeRow({
           with the previous tree. */}
       {expanded && pending && !node._childrenError && (
         <ul role="group" className="flex flex-col">
-          <LoadingSkeletons depth={depth + 1} />
+          {progress ? (
+            <LoadingProgress depth={depth + 1} progress={progress} />
+          ) : (
+            <LoadingSkeletons depth={depth + 1} />
+          )}
         </ul>
       )}
       {expanded && node._childrenError && (
@@ -666,6 +704,36 @@ function LoadingSkeletons({ depth }: { depth: number }) {
         </li>
       ))}
     </>
+  )
+}
+
+/**
+ * Replacement for {@link LoadingSkeletons} when a progress event is
+ * available — typically when expanding an NCZ-backed NCA, which
+ * triggers multi-second zstd decompression.
+ */
+function LoadingProgress({
+  depth,
+  progress,
+}: {
+  depth: number
+  progress: ProgressEvent
+}) {
+  const pct = progressPercent(progress)
+  const bytes = `${formatBytesShort(progress.bytesOut)} / ${formatBytesShort(
+    progress.bytesOutTotal,
+  )}`
+  return (
+    <li
+      className="flex flex-col gap-1 py-1.5 pr-2"
+      style={{ paddingLeft: `calc(${depth * 1.0}rem + 1.5rem)` }}
+    >
+      <span className="text-[11px] text-muted-foreground">
+        Decompressing… {bytes}
+        {pct !== null ? ` (${pct.toFixed(1)}%)` : ""}
+      </span>
+      {pct !== null && <Progress value={pct} className="w-full" />}
+    </li>
   )
 }
 
