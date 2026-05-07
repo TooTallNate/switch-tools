@@ -242,12 +242,46 @@ export function detectFormat(name: string): string {
 	return FILE_EXT_FORMATS[ext] ?? ext.toUpperCase();
 }
 
-// Sniff magic bytes to recognize containers when we don't have a friendly extension.
-async function sniffMagic(blob: Blob): Promise<string | null> {
-	if (blob.size < 0x10) return null;
-	const head = new Uint8Array(await blob.slice(0, 0x10).arrayBuffer());
-	const dec = new TextDecoder();
-	const m4 = dec.decode(head.subarray(0, 4));
+/**
+ * The format token ({@link FILE_EXT_FORMATS} value) for a magic
+ * recognised by {@link sniffMagicCheap}. The caller maps these
+ * tokens onto `make*Node` builders.
+ */
+type SniffedFormat =
+	| 'pfs0'
+	| 'hfs0'
+	| 'romfs'
+	| 'sarc'
+	| 'szs'
+	| 'unityfs'
+	| 'zip'
+	| 'lz4'
+	| 'nro'
+	| 'xci';
+
+/**
+ * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
+ * enough to call on every child of a freshly-expanded container —
+ * even when there are hundreds of children — because each call reads
+ * at most 8 bytes, which for SARC / ZIP / RomFS children is a
+ * synchronous slice into an already-resident `Uint8Array`.
+ *
+ * Avoid this for unbounded folders of unknown size opened at the
+ * top level — for those, prefer {@link sniffMagic} which also looks
+ * for magics deeper in the file (NRO at 0x10, XCI at 0x100). Those
+ * deeper reads are unlikely to be relevant for nested content
+ * (you don't typically find an NRO inside a SARC) and add fixed cost
+ * even when the magic doesn't match.
+ */
+async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
+	if (blob.size < 4) return null;
+	const headLen = Math.min(blob.size, 8);
+	const head = new Uint8Array(await blob.slice(0, headLen).arrayBuffer());
+	// 4-byte ASCII magics.
+	const m4 =
+		head.length >= 4
+			? new TextDecoder().decode(head.subarray(0, 4))
+			: '';
 	if (m4 === 'PFS0') return 'pfs0';
 	if (m4 === 'HFS0') return 'hfs0';
 	if (m4 === 'IVFC') return 'romfs';
@@ -255,6 +289,7 @@ async function sniffMagic(blob: Blob): Promise<string | null> {
 	if (m4 === 'Yaz0') return 'szs'; // we treat all Yaz0 as SZS-style for browsing
 	// UnityFS bundle magic: NUL-terminated "UnityFS" (8 bytes including NUL).
 	if (
+		head.length >= 8 &&
 		head[0] === 0x55 &&
 		head[1] === 0x6e &&
 		head[2] === 0x69 &&
@@ -279,6 +314,19 @@ async function sniffMagic(blob: Blob): Promise<string | null> {
 	if (head[0] === 0x02 && head[1] === 0x21 && head[2] === 0x4c && head[3] === 0x18) {
 		return 'lz4';
 	}
+	return null;
+}
+
+/**
+ * Top-level magic sniffer used by {@link buildRootNode}. Includes
+ * the cheap header-front magics plus deeper checks for NRO (magic
+ * at 0x10) and XCI (magic at 0x100) — the two formats whose magic
+ * doesn't sit at the start of the file.
+ */
+async function sniffMagic(blob: Blob): Promise<SniffedFormat | null> {
+	const cheap = await sniffMagicCheap(blob);
+	if (cheap) return cheap;
+	const dec = new TextDecoder();
 	// NRO has its magic at offset 0x10 ("NRO0")
 	if (blob.size >= 0x14) {
 		const magicAt10 = new Uint8Array(
@@ -1554,15 +1602,26 @@ async function childNodeFor(
 	if (ext === 'lz4') return makeLz4Node(id, name, blob, ctx);
 	if (ext === 'bundle' || ext === 'unity3d')
 		return makeUnityFsNode(id, name, blob, ctx);
-	// Some 1st-party games hide Yaz0+SARC behind Nintendo-internal
-	// extensions like `.sbeventpack`, `.sbactorpack`, `.sbgdata`, etc.
-	// Anything starting with `s` followed by one of those well-known
-	// SARC-ish suffixes gets the SZS treatment. We could also magic-
-	// sniff, but that would require an async read for every leaf
-	// file, which is too expensive — exts cover ~99% of real cases.
-	if (ext.length > 1 && ext.startsWith('s') && SARC_LIKE_SUFFIXES.has(ext.slice(1))) {
-		return makeSzsNode(id, name, blob, ctx);
-	}
+
+	// Magic sniff fallback for files whose extension doesn't tell us
+	// what they are. Especially important for 1st-party Nintendo
+	// games, which use a long tail of bespoke extensions (`.shksc`,
+	// `.shknm2`, `.sbactorpack`, `.sbfarc`, `.sbeventpack`, `.spack`,
+	// …) for what's almost always a Yaz0+SARC archive. Rather than
+	// maintain a doomed catalogue of every Nintendo internal-team
+	// suffix, we read the first 8 bytes and dispatch by the actual
+	// magic. This is cheap for SARC / ZIP / RomFS children (the
+	// parent's bytes are already in memory and a 4-byte slice is
+	// effectively free) and handles the long tail uniformly.
+	const sniffed = await sniffMagicCheap(blob);
+	if (sniffed === 'sarc') return makeSarcNode(id, name, blob, ctx);
+	if (sniffed === 'szs') return makeSzsNode(id, name, blob, ctx);
+	if (sniffed === 'pfs0') return makePfs0Node(id, name, blob, ctx, 'PFS0');
+	if (sniffed === 'hfs0') return makeHfs0Node(id, name, blob, ctx);
+	if (sniffed === 'romfs') return makeRomfsNode(id, name, blob);
+	if (sniffed === 'zip') return makeZipNode(id, name, blob, ctx);
+	if (sniffed === 'lz4') return makeLz4Node(id, name, blob, ctx);
+	if (sniffed === 'unityfs') return makeUnityFsNode(id, name, blob, ctx);
 
 	// Generic file
 	return {
@@ -1575,22 +1634,3 @@ async function childNodeFor(
 		blob: async () => blob,
 	};
 }
-
-/**
- * BotW / Splatoon / Mario Odyssey naming convention: many `.pack`
- * archives are actually Yaz0-compressed and re-extension'd with a
- * leading `s`. We recognize the most common suffixes here so users
- * don't have to know the convention. The list isn't exhaustive on
- * purpose — formats like `.sbgdata` (binary game data, not a
- * container) live alongside `.sbactorpack` (a SARC), and we'd
- * rather mis-treat one as a SARC and fail-open than crash the
- * whole tree.
- */
-const SARC_LIKE_SUFFIXES = new Set([
-	// `s` + name → Yaz0-wrapped SARC. Non-`s` versions of these
-	// extensions are *plain* SARCs and match the `.pack` / `.sarc`
-	// branch above instead.
-	'pack', // .spack — extremely common across BotW/Splatoon
-	'beventpack',
-	'bactorpack',
-]);
