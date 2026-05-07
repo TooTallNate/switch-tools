@@ -75,6 +75,12 @@ import {
   type NsoView,
   type PreviewKind,
 } from "~/lib/preview"
+import {
+  highlightCode,
+  languageForFile,
+  type SupportedLang,
+} from "~/lib/highlight"
+import { useTheme } from "next-themes"
 import { cn, formatBytes } from "~/lib/utils"
 
 const TEXT_PREVIEW_LIMIT = 1 * 1024 * 1024 // 1 MB
@@ -1107,7 +1113,21 @@ function MediaPreview({
   )
 }
 
+/**
+ * Cap on the size we'll syntax-highlight. Beyond this we fall back to
+ * plain `<pre>` rendering — Shiki's tokenizer is fast but a 1 MB
+ * minified JS file would still spike the main thread and the colours
+ * stop being useful at that scale anyway.
+ */
+const HIGHLIGHT_LIMIT = 256 * 1024 // 256 KB
+
 function TextPreview({ node, kind }: { node: Node; kind: "text" | "json" }) {
+  const { resolvedTheme } = useTheme()
+  // We pick the language up-front (cheap, just an extension lookup)
+  // so the loader knows whether to format JSON and/or highlight.
+  const lang: SupportedLang | null =
+    kind === "json" ? "json" : languageForFile(node.name)
+
   const { loading, data, error } = useAsync(async () => {
     const blob = await node.blob!()
     const truncated = blob.size > TEXT_PREVIEW_LIMIT
@@ -1121,8 +1141,38 @@ function TextPreview({ node, kind }: { node: Node; kind: "text" | "json" }) {
         /* leave raw */
       }
     }
-    return { display, truncated, fullSize: blob.size }
-  }, [node.id, kind])
+    // Don't highlight oversized payloads — `display` may be the raw
+    // 1 MB blob even if we successfully read it.
+    const highlightable = !!lang && display.length <= HIGHLIGHT_LIMIT
+    return { display, truncated, fullSize: blob.size, highlightable }
+  }, [node.id, kind, lang])
+
+  // Highlight asynchronously: the highlighter is lazily loaded on
+  // first use, then cached, so subsequent renders are essentially
+  // synchronous. We re-run when the source text or active theme
+  // changes; until the first highlight resolves we render the plain
+  // text so the user isn't staring at a blank pane.
+  const [highlighted, setHighlighted] = useState<string | null>(null)
+  const themeMode = resolvedTheme === "dark" ? "dark" : "light"
+  useEffect(() => {
+    if (!data || !data.highlightable || !lang) {
+      setHighlighted(null)
+      return
+    }
+    let cancelled = false
+    highlightCode(data.display, lang, themeMode)
+      .then((html) => {
+        if (!cancelled) setHighlighted(html)
+      })
+      .catch(() => {
+        // Highlighter failures (e.g. missing grammar) just fall back
+        // to plain text — never break the preview pane.
+        if (!cancelled) setHighlighted(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [data, lang, themeMode])
 
   if (loading) return <LoadingFiller label="Reading…" />
   if (error) return <ErrorFiller error={error} />
@@ -1139,9 +1189,22 @@ function TextPreview({ node, kind }: { node: Node; kind: "text" | "json" }) {
             </AlertDescription>
           </Alert>
         )}
-        <pre className="rounded-md bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words">
-          {data!.display}
-        </pre>
+        {highlighted ? (
+          // Shiki returns `<pre><code>…</code></pre>` with inline `style`
+          // attrs carrying token colours and the theme's background. We
+          // wrap it in our own padded container so it fits the rest of
+          // the preview pane visually, and target Shiki's `<pre>` with
+          // a child selector to apply our font-size / scroll behaviour
+          // without losing its theme background.
+          <div
+            className="shiki-host overflow-x-auto rounded-md text-xs leading-relaxed [&>pre]:m-0 [&>pre]:p-3 [&_code]:font-mono [&_code]:whitespace-pre-wrap [&_code]:break-words"
+            dangerouslySetInnerHTML={{ __html: highlighted }}
+          />
+        ) : (
+          <pre className="rounded-md bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words">
+            {data!.display}
+          </pre>
+        )}
       </div>
     </ScrollArea>
   )
