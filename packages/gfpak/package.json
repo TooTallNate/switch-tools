@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/gfpak",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for Game Freak's GFLXPACK (a.k.a. .gfpak) archive — used by Pokémon Let's Go, Pokémon Sword/Shield, Pokémon Legends Arceus, and Pokémon Scarlet/Violet to bundle game assets (BNTX textures, .gfbmdl models, .gfbanm animations, shaders) under FNV-1a 64-bit hashed paths. Decompresses LZ4 / Zlib payloads and exposes each entry as a lazy Blob.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/gfpak"
+  },
+  "dependencies": {
+    "@tootallnate/lz4": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

@@ -232,6 +232,9 @@ importers:
       '@tootallnate/bffnt':
         specifier: workspace:*
         version: link:../../packages/bffnt
+      '@tootallnate/bfres':
+        specifier: workspace:*
+        version: link:../../packages/bfres
       '@tootallnate/bfsar':
         specifier: workspace:*
         version: link:../../packages/bfsar
@@ -259,6 +262,9 @@ importers:
       '@tootallnate/dsp-adpcm':
         specifier: workspace:*
         version: link:../../packages/dsp-adpcm
+      '@tootallnate/gfpak':
+        specifier: workspace:*
+        version: link:../../packages/gfpak
       '@tootallnate/hfs0':
         specifier: workspace:*
         version: link:../../packages/hfs0
@@ -430,6 +436,12 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/bfres:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/bfsar:
     devDependencies:
       typescript:
@@ -493,6 +505,16 @@ importers:
         version: 5.3.3
 
   packages/dsp-adpcm:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/gfpak:
+    dependencies:
+      '@tootallnate/lz4':
+        specifier: workspace:*
+        version: link:../lz4
     devDependencies:
       typescript:
         specifier: ^5.3.3

@@ -50,6 +50,7 @@ import {
 	type ParsedBntx,
 	type BntxTexture,
 } from '@tootallnate/bntx';
+import { parseBfres, type ParsedBfres } from '@tootallnate/bfres';
 
 export type PreviewKind =
 	| 'text'
@@ -1029,6 +1030,17 @@ export async function parseBntxForView(blob: Blob): Promise<BntxView> {
 	const texture = parsed.textures[0];
 	const decoded = decodeBntxLayer(bytes, texture, 0);
 	return { parsed, texture, pixels: decoded.pixels };
+}
+
+// ----- BFRES metadata preview -----
+
+export interface BfresView {
+	parsed: ParsedBfres;
+}
+
+export async function parseBfresForView(blob: Blob): Promise<BfresView> {
+	const parsed = await parseBfres(blob);
+	return { parsed };
 }
 
 // ----- Hex view helpers -----

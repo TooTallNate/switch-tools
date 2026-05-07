@@ -68,6 +68,7 @@ import {
   parseBfsarForView,
   parseBfstmForAudioView,
   parseBfwavForAudioView,
+  parseBfresForView,
   parseBntxForView,
   parseBnvibForView,
   parseByamlForView,
@@ -81,6 +82,7 @@ import {
   type AudioPreviewView,
   type BarsView,
   type BarslistView,
+  type BfresView,
   type BfsarView,
   type BntxView,
   type BnvibView,
@@ -146,6 +148,7 @@ function PreviewContent({ node }: { node: Node }) {
   const isNca = node.kind === "nca"
   const isBars = node.kind === "bars"
   const isBfsar = node.kind === "bfsar"
+  const isBfres = node.kind === "bfres"
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -159,6 +162,8 @@ function PreviewContent({ node }: { node: Node }) {
           <BarsPreview node={node} />
         ) : isBfsar ? (
           <BfsarPreview node={node} />
+        ) : isBfres ? (
+          <BfresPreview node={node} />
         ) : node.isContainer ? (
           <ContainerSummary node={node} />
         ) : (
@@ -2545,6 +2550,161 @@ function BfsarFileTableSection({ view }: { view: BfsarView }) {
                 <td className="px-3 py-1.5">external</td>
                 <td className="px-3 py-1.5 font-mono break-all">{f.path}</td>
                 <td className="px-3 py-1.5">—</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+// ====================================================================
+// BFRES — Nintendo 3D resource container preview
+// ====================================================================
+//
+// Surfaces the metadata tree (header version, models with bone /
+// shape / material counts, animation counts per kind, embedded
+// BNTX info) as a sidebar. The container itself is browsable in
+// the tree (external files, typically `textures.bntx`).
+
+function BfresPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseBfresForView(await node.blob!())
+  }, [node.id])
+  if (loading) return <LoadingFiller label="Decoding BFRES…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="BFRES — Nintendo 3D resource container" />
+        <KvBlock title="Header">
+          <KvRow k="Name" v={v.parsed.name || "(unnamed)"} />
+          <KvRow
+            k="Version"
+            v={`${v.parsed.version.major}.${v.parsed.version.minor}.${v.parsed.version.patch}`}
+          />
+          <KvRow k="File size" v={formatBytes(v.parsed.fileSize)} />
+          <KvRow
+            k="Alignment"
+            v={`2^${v.parsed.alignmentExponent} = ${1 << v.parsed.alignmentExponent} bytes`}
+          />
+        </KvBlock>
+        <BfresModelsSection view={v} />
+        <BfresAnimationsSection view={v} />
+        <BfresExternalSection view={v} />
+      </div>
+    </ScrollArea>
+  )
+}
+
+function BfresModelsSection({ view }: { view: BfresView }) {
+  const models = view.parsed.models
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Models ({models.length})
+      </h3>
+      {models.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No models in this BFRES.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-md border bg-card">
+          <table className="w-full border-collapse text-xs">
+            <thead className="border-b bg-muted/40 text-left text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 font-medium">Name</th>
+                <th className="px-3 py-2 font-medium">Vertex bufs</th>
+                <th className="px-3 py-2 font-medium">Shapes</th>
+                <th className="px-3 py-2 font-medium">Materials</th>
+                <th className="px-3 py-2 font-medium">Bones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {models.map((m, i) => (
+                <tr key={i} className="border-b border-border/40 last:border-0">
+                  <td className="px-3 py-1.5">{m.name || "(unnamed)"}</td>
+                  <td className="px-3 py-1.5">{m.numVertexBuffer}</td>
+                  <td className="px-3 py-1.5">{m.numShape}</td>
+                  <td className="px-3 py-1.5">{m.numMaterial}</td>
+                  <td className="px-3 py-1.5">{m.numBone || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function BfresAnimationsSection({ view }: { view: BfresView }) {
+  const groups = view.parsed.animationGroups
+  const total = groups.reduce((sum, g) => sum + g.names.length, 0)
+  if (total === 0) return null
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Animations ({total})
+      </h3>
+      <div className="flex flex-col gap-2">
+        {groups
+          .filter((g) => g.names.length > 0)
+          .map((g) => (
+            <div key={g.kind} className="rounded-md border bg-card p-3">
+              <div className="text-xs font-medium">
+                {g.kind} <span className="text-muted-foreground">({g.magic})</span>
+                <span className="ml-2 text-muted-foreground">
+                  · {g.names.length}
+                </span>
+              </div>
+              <div className="mt-1 flex flex-wrap gap-1.5 text-xs">
+                {g.names.slice(0, 30).map((n, i) => (
+                  <span
+                    key={i}
+                    className="rounded-md border bg-background px-2 py-0.5 font-mono"
+                  >
+                    {n}
+                  </span>
+                ))}
+                {g.names.length > 30 && (
+                  <span className="text-muted-foreground">
+                    …{g.names.length - 30} more
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+      </div>
+    </section>
+  )
+}
+
+function BfresExternalSection({ view }: { view: BfresView }) {
+  const files = view.parsed.externalFiles
+  if (files.length === 0) return null
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        External files ({files.length})
+      </h3>
+      <div className="overflow-x-auto rounded-md border bg-card">
+        <table className="w-full border-collapse text-xs">
+          <thead className="border-b bg-muted/40 text-left text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">Name</th>
+              <th className="px-3 py-2 font-medium">Magic</th>
+              <th className="px-3 py-2 font-medium">Size</th>
+            </tr>
+          </thead>
+          <tbody>
+            {files.map((f, i) => (
+              <tr key={i} className="border-b border-border/40 last:border-0">
+                <td className="px-3 py-1.5">{f.name || "(unnamed)"}</td>
+                <td className="px-3 py-1.5 font-mono">{f.innerMagic ?? "—"}</td>
+                <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                  {formatBytes(f.size)}
+                </td>
               </tr>
             ))}
           </tbody>

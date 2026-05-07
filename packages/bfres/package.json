@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/bfres",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for Nintendo's BFRES (Binary Cafe Resource) format — the master 3D resource container used by NintendoWare across Wii U / Switch first-party games (MK8D, BotW, TotK, Splatoon, Smash, etc.). Walks the FMDL / FSKA / FMAA / FVIS / FSHU / FSCN sub-file dicts and surfaces an embedded BNTX texture bank as a plain Blob, ready to feed to @tootallnate/bntx for actual texture decode.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/bfres"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

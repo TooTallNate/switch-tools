@@ -22,6 +22,8 @@ import { decompressLz4, type Lz4Variant } from '@tootallnate/lz4';
 import { parseBars, type BarsEntry } from '@tootallnate/bars';
 import { parseBfsar, extForMagic as bfsarExtForMagic } from '@tootallnate/bfsar';
 import { parseBfwar } from '@tootallnate/bfwar';
+import { parseBfres } from '@tootallnate/bfres';
+import { parseGfpak } from '@tootallnate/gfpak';
 import { parseZip, type ZipEntry } from './zip';
 import { parseUnityFs, type UnityFsNode } from './unityfs';
 import {
@@ -56,6 +58,8 @@ export type NodeKind =
 	| 'bars'
 	| 'bfsar'
 	| 'bfwar'
+	| 'bfres'
+	| 'gfpak'
 	/**
 	 * A user-selected directory from the local filesystem. Functions
 	 * like an "ad-hoc PFS0" — its children are the files inside, with
@@ -222,6 +226,11 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	byaml: 'BYAML', // Nintendo binary YAML
 	byml: 'BYML',
 	bntx: 'BNTX', // Nintendo texture format (BC1/3/4/5/7, RGBA8, etc.)
+	bfres: 'BFRES', // Nintendo 3D resource (FRES) — models + embedded BNTX
+	gfpak: 'GFPAK', // Game Freak (Pokémon) archive
+	gfbmdl: 'GFBMDL', // Game Freak model
+	gfbanm: 'GFBANM', // Game Freak skeletal animation
+	gfbanmcfg: 'GFBANMCFG', // Game Freak animation config
 	bfbnk: 'BFBNK', // Instrument bank
 	bfseq: 'BFSEQ', // Sequence (MIDI-like)
 	bfgrp: 'BFGRP', // Group sub-archive
@@ -283,7 +292,9 @@ type SniffedFormat =
 	| 'xci'
 	| 'bars'
 	| 'bfsar'
-	| 'bfwar';
+	| 'bfwar'
+	| 'bfres'
+	| 'gfpak';
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -316,6 +327,12 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (m4 === 'BARS') return 'bars';
 	if (m4 === 'FSAR') return 'bfsar';
 	if (m4 === 'FWAR') return 'bfwar';
+	if (m4 === 'FRES') return 'bfres';
+	// GFPAK has 8-byte magic "GFLXPACK" — sniff if we read enough bytes.
+	if (head.length >= 8) {
+		const m8 = new TextDecoder().decode(head.subarray(0, 8));
+		if (m8 === 'GFLXPACK') return 'gfpak';
+	}
 	// UnityFS bundle magic: NUL-terminated "UnityFS" (8 bytes including NUL).
 	if (
 		head.length >= 8 &&
@@ -425,6 +442,10 @@ export async function buildRootNode(
 			return makeBfsarNode(id, displayName, blob, ctx);
 		case 'BFWAR':
 			return makeBfwarNode(id, displayName, blob, ctx);
+		case 'BFRES':
+			return makeBfresNode(id, displayName, blob, ctx);
+		case 'GFPAK':
+			return makeGfpakNode(id, displayName, blob, ctx);
 		default:
 			// Unknown — present it as a single file the user can download
 			return {
@@ -1670,6 +1691,149 @@ function makeBfwarNode(
 	};
 }
 
+// ----- BFRES (Nintendo 3D resource) -----
+
+/**
+ * Make a BFRES container node. The structured preview pane reads
+ * the parsed metadata directly via {@link parseBfresForView}; the
+ * children we expose here are the *external* files — typically
+ * just `textures.bntx`, but occasionally a `*.bfsha` shader bank
+ * — which the user can drill into for actual content (the BNTX
+ * preview decodes textures, the shader bank is opaque).
+ */
+function makeBfresNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'bfres',
+		isContainer: true,
+		size: blob.size,
+		format: 'BFRES',
+		blob: async () => blob,
+		getChildren: async () => {
+			const parsed = await parseBfres(blob);
+			return Promise.all(
+				parsed.externalFiles.map(async (e): Promise<Node> => {
+					const leaf = e.name || `external_${e.offset.toString(16)}`;
+					const childId = `${id}/${leaf}`;
+					if (e.size === 0) {
+						return {
+							id: childId,
+							name: leaf,
+							kind: 'file',
+							isContainer: false,
+							size: 0,
+							format: 'EMPTY',
+							blob: async () => new Blob([]),
+						};
+					}
+					return childNodeFor(childId, leaf, e.data, ctx);
+				}),
+			);
+		},
+	};
+}
+
+// ----- GFPAK (Pokémon archive) -----
+
+/**
+ * Make a GFPAK container node. Each entry inside the GFPAK
+ * becomes a leaf in the tree; we synthesize a name that combines
+ * the entry's embedded name (when available, for BNTX / BFRES
+ * containers that store their own filename) with its sniffed
+ * inner-file extension (`bntx`, `bfres`, `byaml`, …) so the
+ * downstream previews pick them up automatically.
+ *
+ * Oodle-compressed entries (the default in modern Pokémon games)
+ * surface as info-only leaves with the original 0-byte blob; the
+ * user gets a friendly error if they click "Download" because the
+ * extractor throws. LZ4 / uncompressed entries extract cleanly.
+ */
+function makeGfpakNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'gfpak',
+		isContainer: true,
+		size: blob.size,
+		format: 'GFPAK',
+		blob: async () => blob,
+		getChildren: async () => {
+			const parsed = await parseGfpak(blob);
+			const used = new Set<string>();
+			return Promise.all(
+				parsed.entries.map(async (e): Promise<Node> => {
+					const baseName =
+						e.embeddedName ||
+						`0x${e.pathHash.toString(16).padStart(16, '0')}`;
+					let leaf = `${baseName}.${e.innerExt}`;
+					if (used.has(leaf)) leaf = `${baseName}_${e.index}.${e.innerExt}`;
+					used.add(leaf);
+					const childId = `${id}/${leaf}`;
+					// Lazy: only call `getData()` on demand. childNodeFor
+					// expects a Blob, so wrap in a deferred-decompress
+					// proxy that materialises bytes when first read.
+					const lazyBlob = new LazyDecompressBlob(() => e.getData());
+					return childNodeFor(childId, leaf, lazyBlob, ctx);
+				}),
+			);
+		},
+	};
+}
+
+/**
+ * A `Blob`-shaped facade that lazily materialises its bytes on
+ * first read (or first slice). Used for GFPAK entries where the
+ * actual decompression is expensive and we'd rather not run it
+ * just to populate a tree node — many users will browse the GFPAK
+ * without ever clicking into individual files.
+ *
+ * Internally, `arrayBuffer()` triggers the underlying decoder
+ * and caches the result. Subsequent calls return the same buffer.
+ */
+class LazyDecompressBlob extends Blob {
+	private _decoder: () => Promise<Blob>;
+	private _cached: Promise<ArrayBuffer> | null = null;
+	// We declare a fake "size" up front since callers (the
+	// preview pane, the file tree) read `size` synchronously to
+	// label entries. We surface 0 — the entry's true size becomes
+	// known only after decompression. Most Pokémon GFPAKs are
+	// already opaque enough that this is fine UX.
+	constructor(decoder: () => Promise<Blob>) {
+		super([]);
+		this._decoder = decoder;
+	}
+	override async arrayBuffer(): Promise<ArrayBuffer> {
+		if (!this._cached) {
+			this._cached = this._decoder().then((b) => b.arrayBuffer());
+		}
+		return this._cached;
+	}
+	override slice(start = 0, end?: number): Blob {
+		// `slice()` is used by magic-sniffing code and by leaf-blob
+		// downloaders. We materialise the whole thing and slice
+		// synthetically; once the cache is warm this is cheap.
+		const promise = this.arrayBuffer().then((buf) => {
+			const u8 = new Uint8Array(buf);
+			const sliced = u8.subarray(start, end ?? u8.byteLength);
+			return new Blob([sliced as BlobPart]);
+		});
+		// Return a Blob facade backed by `promise`. Recursive use of
+		// LazyDecompressBlob keeps things uniform.
+		return new LazyDecompressBlob(async () => promise);
+	}
+}
+
 // ----- LZ4 -----
 
 /**
@@ -1855,6 +2019,8 @@ async function childNodeFor(
 	if (ext === 'bars') return makeBarsNode(id, name, blob, ctx);
 	if (ext === 'bfsar') return makeBfsarNode(id, name, blob, ctx);
 	if (ext === 'bfwar') return makeBfwarNode(id, name, blob, ctx);
+	if (ext === 'bfres') return makeBfresNode(id, name, blob, ctx);
+	if (ext === 'gfpak') return makeGfpakNode(id, name, blob, ctx);
 
 	// Magic sniff fallback for files whose extension doesn't tell us
 	// what they are. Especially important for 1st-party Nintendo
@@ -1878,6 +2044,8 @@ async function childNodeFor(
 	if (sniffed === 'bars') return makeBarsNode(id, name, blob, ctx);
 	if (sniffed === 'bfsar') return makeBfsarNode(id, name, blob, ctx);
 	if (sniffed === 'bfwar') return makeBfwarNode(id, name, blob, ctx);
+	if (sniffed === 'bfres') return makeBfresNode(id, name, blob, ctx);
+	if (sniffed === 'gfpak') return makeGfpakNode(id, name, blob, ctx);
 
 	// Generic file
 	return {
