@@ -300,7 +300,7 @@ export async function parseBfwav(blob: Blob): Promise<ParsedBfwav> {
  *
  * Reads the entire DATA block into memory. That's fine for the
  * single-shot effects BFWAV is used for — typical sizes are a few
- * dozen KB and the largest BARS-embedded FWAV in BotW is ~600 KB.
+ * dozen KB and BARS-embedded FWAVs rarely exceed 1 MB.
  */
 export async function decodeBfwavToPcm16(
 	parsed: ParsedBfwav,

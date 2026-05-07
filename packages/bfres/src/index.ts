@@ -1,7 +1,7 @@
 /**
  * BFRES — Nintendo's Binary Cafe Resource format. The master 3D
  * resource container used across Wii U / Switch first-party
- * games — MK8D, BotW, TotK, Splatoon, Smash Bros., you name it.
+ * games across the first-party catalog.
  * A single `.bfres` bundles models (FMDL), skeletons (FSKL),
  * meshes (FSHP), animations (FSKA / FMAA / FVIS / FSHU / FSCN),
  * and a texture bank embedded as an external-file BNTX.

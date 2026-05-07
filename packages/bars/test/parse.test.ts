@@ -15,7 +15,7 @@ import {
  *     given track name,
  *   - either a real FWAV/FSTP payload of the given length and magic,
  *     or a "stub" entry whose audio offset is `0xFFFFFFFF` (matches
- *     real shipped BARS like Zelda: BotW's `AkkareLabBgm.bars`).
+ *     real shipped BARS files in the wild).
  *
  * The DATA sub-block is filled with deterministic-but-meaningful
  * fields so we can exercise the parser's `AmtaData` decoder.

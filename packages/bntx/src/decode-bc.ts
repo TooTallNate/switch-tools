@@ -287,7 +287,7 @@ export function decodeBC4(
  *     actually represent.
  *   - `'normal'`: reconstruct the third channel as if this were a
  *     normalised tangent-space normal — what the user expects when
- *     they preview a `*_nrm.bntx` (Pokémon, etc.). Default.
+ *     they preview a `*_nrm.bntx`. Default.
  */
 export function decodeBC5(
 	src: Uint8Array,

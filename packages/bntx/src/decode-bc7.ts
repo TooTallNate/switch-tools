@@ -1,9 +1,9 @@
 /**
  * BC7 (BPTC) decoder — high-quality 4×4-pixel block compression.
  *
- * BC7 is the modern replacement for BC1/BC3, used by Mario Kart 8
- * Deluxe (1,775 textures!), Pokémon Legends Arceus, and basically
- * every Switch UI texture. Unlike BC1/3 it gets near-lossless RGBA
+ * BC7 is the modern replacement for BC1/BC3, used widely across
+ * NintendoWare-based games for high-quality UI textures, character
+ * art, and HDR maps. Unlike BC1/3 it gets near-lossless RGBA
  * quality in 1 byte/pixel — at the cost of a *very* complex decode.
  *
  * Each 16-byte block selects one of 8 modes (mode is encoded as the

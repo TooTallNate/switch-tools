@@ -15,8 +15,8 @@ import {
  *   - Type 0x0C (loop) with 2 samples
  *   - Type 0x10 (loop + wait) with 1 sample
  *
- * The Mario Kart 8 Deluxe samples checked into `/tmp/samples/bnvib`
- * are too long to inline here, but the format is mechanical enough
+ * Real-world BNVIB samples are too long to inline here, but the
+ * format is mechanical enough
  * that we test the parser's headers + sample decoding against
  * synthesised inputs and rely on integration via the nx-archive
  * preview to validate against real shipped files.

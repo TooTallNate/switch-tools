@@ -1,9 +1,8 @@
 /**
  * GFLXPACK (`.gfpak`) — Game Freak's archive format.
  *
- * Used by every Pokémon game on Switch (Let's Go Pikachu / Eevee,
- * Sword / Shield, Legends Arceus, Scarlet / Violet) as the master
- * container for game assets — BNTX textures, .gfbmdl models,
+ * Used by Game Freak's Switch titles as the master container for
+ * game assets — BNTX textures, .gfbmdl models,
  * .gfbanm animations, shaders, and so on. The format is built
  * around 64-bit FNV-1a hashes for both folder and file names; the
  * actual path strings are not stored, which means we can't
@@ -377,7 +376,7 @@ async function sniffEntry(blob: Blob, entry: GfpakEntry): Promise<SniffResult> {
 		// Decompress just enough to read 4 KB of the inner payload.
 		// LZ4's block decoder won't stop early though, so we have to
 		// decode the whole thing. For massive entries we'd want a
-		// smarter strategy, but in practice Pokémon GFPAK entries
+		// smarter strategy, but in practice GFPAK entries
 		// max out around a few MB.
 		try {
 			const full = await readDecompressedAsBytes(blob, entry);

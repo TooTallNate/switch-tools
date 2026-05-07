@@ -1,8 +1,8 @@
 /**
  * BARSLIST — `ARSL` magic. A tiny string-only manifest that names
  * a logical audio resource group and lists the BARS files belonging
- * to it. Used by Mario Kart 8 Deluxe (and other first-party Switch
- * titles) as a sound-pack table-of-contents.
+ * to it. Used by various NintendoWare-based first-party Switch
+ * titles as a sound-pack table-of-contents.
  *
  * Wire layout (offsets relative to file start):
  *

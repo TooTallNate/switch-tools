@@ -1,17 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { parseBnk, isBnk, BKHD_MAGIC, isKnownBnkChunkId } from '../src/index.js';
 
-const SAMPLE_DIR = '/tmp/samples/bnk';
-const ADEMO = resolve(SAMPLE_DIR, 'pla__ADEMO.bnk');
-const BGM = resolve(SAMPLE_DIR, 'pla__BGM.bnk');
-const ME = resolve(SAMPLE_DIR, 'pla__ME.bnk');
-const BATTLE = resolve(SAMPLE_DIR, 'pla__BATTLE_SYSTEM.bnk');
-const INIT = resolve(SAMPLE_DIR, 'pla__Init.bnk');
+/**
+ * Tests use only synthetic / hand-crafted byte streams. No
+ * commercial-game extracts.
+ */
 
 function blob(buf: Uint8Array): Blob {
 	return new Blob([buf as unknown as BlobPart]);
+}
+
+/** Build a 4-char + size + payload chunk. */
+function buildChunk(id: string, payload: Uint8Array): Uint8Array {
+	const out = new Uint8Array(8 + payload.length);
+	new TextEncoder().encodeInto(id, out);
+	new DataView(out.buffer).setUint32(4, payload.length, true);
+	out.set(payload, 8);
+	return out;
+}
+
+function concat(...chunks: Uint8Array[]): Uint8Array {
+	const total = chunks.reduce((a, c) => a + c.length, 0);
+	const out = new Uint8Array(total);
+	let off = 0;
+	for (const c of chunks) {
+		out.set(c, off);
+		off += c.length;
+	}
+	return out;
 }
 
 describe('BKHD magic', () => {
@@ -34,34 +50,29 @@ describe('BKHD magic', () => {
 
 describe('synthetic BNK', () => {
 	it('parses a hand-built bank with one WEM', async () => {
-		// BKHD (16 bytes payload: ver=140, bankId=0xCAFEBABE, langId=0, headerSize=0)
-		const bkhd = new Uint8Array(8 + 16);
-		new TextEncoder().encodeInto('BKHD', bkhd);
-		new DataView(bkhd.buffer).setUint32(4, 16, true);
-		new DataView(bkhd.buffer).setUint32(8, 140, true);
-		new DataView(bkhd.buffer).setUint32(12, 0xcafebabe, true);
-		new DataView(bkhd.buffer).setUint32(16, 0, true);
-		new DataView(bkhd.buffer).setUint32(20, 0, true);
+		// BKHD: ver=140, bankId=0xCAFEBABE, langId=0, headerSize=0
+		const bkhdPayload = new Uint8Array(16);
+		const bdv = new DataView(bkhdPayload.buffer);
+		bdv.setUint32(0, 140, true);
+		bdv.setUint32(4, 0xcafebabe, true);
+		bdv.setUint32(8, 0, true);
+		bdv.setUint32(12, 0, true);
 
-		// DIDX: one entry pointing into DATA at offset 0, size 4
-		const didx = new Uint8Array(8 + 12);
-		new TextEncoder().encodeInto('DIDX', didx);
-		new DataView(didx.buffer).setUint32(4, 12, true);
-		new DataView(didx.buffer).setUint32(8, 0xdeadbeef, true); // wem id
-		new DataView(didx.buffer).setUint32(12, 0, true); // off
-		new DataView(didx.buffer).setUint32(16, 4, true); // size
+		// DIDX: one entry — wem_id, off=0, size=4
+		const didxPayload = new Uint8Array(12);
+		const ddv = new DataView(didxPayload.buffer);
+		ddv.setUint32(0, 0xdeadbeef, true);
+		ddv.setUint32(4, 0, true);
+		ddv.setUint32(8, 4, true);
 
-		// DATA: 4-byte WEM payload
-		const data = new Uint8Array(8 + 4);
-		new TextEncoder().encodeInto('DATA', data);
-		new DataView(data.buffer).setUint32(4, 4, true);
-		data.set([0x11, 0x22, 0x33, 0x44], 8);
+		// DATA: 4 bytes
+		const dataPayload = new Uint8Array([0x11, 0x22, 0x33, 0x44]);
 
-		// Stitch.
-		const out = new Uint8Array(bkhd.length + didx.length + data.length);
-		out.set(bkhd, 0);
-		out.set(didx, bkhd.length);
-		out.set(data, bkhd.length + didx.length);
+		const out = concat(
+			buildChunk('BKHD', bkhdPayload),
+			buildChunk('DIDX', didxPayload),
+			buildChunk('DATA', dataPayload),
+		);
 
 		const parsed = await parseBnk(blob(out));
 		expect(parsed.header.version).toBe(140);
@@ -74,58 +85,97 @@ describe('synthetic BNK', () => {
 		expect(Array.from(wemBytes)).toEqual([0x11, 0x22, 0x33, 0x44]);
 	});
 
+	it('parses a HIRC-only init bank with no embedded WEMs', async () => {
+		const bkhdPayload = new Uint8Array(16);
+		new DataView(bkhdPayload.buffer).setUint32(0, 140, true);
+		const hircPayload = new Uint8Array([0, 0, 0, 0]); // 0 objects
+		const out = concat(buildChunk('BKHD', bkhdPayload), buildChunk('HIRC', hircPayload));
+
+		const parsed = await parseBnk(blob(out));
+		expect(parsed.chunks.map((c) => c.id)).toEqual(['BKHD', 'HIRC']);
+		expect(parsed.wems.length).toBe(0);
+	});
+
+	it('parses a multi-WEM bank with non-contiguous data offsets', async () => {
+		// 3 WEMs, scattered in the DATA chunk.
+		const bkhdPayload = new Uint8Array(16);
+		new DataView(bkhdPayload.buffer).setUint32(0, 140, true);
+
+		// 3 DIDX entries pointing at DATA payload offsets 0, 16, 36.
+		// WEM 0: 8 bytes, WEM 1: 16 bytes (with padding), WEM 2: 12 bytes.
+		const didxPayload = new Uint8Array(36);
+		const ddv = new DataView(didxPayload.buffer);
+		ddv.setUint32(0, 0x1111, true);
+		ddv.setUint32(4, 0, true);
+		ddv.setUint32(8, 8, true);
+		ddv.setUint32(12, 0x2222, true);
+		ddv.setUint32(16, 16, true);
+		ddv.setUint32(20, 16, true);
+		ddv.setUint32(24, 0x3333, true);
+		ddv.setUint32(28, 36, true);
+		ddv.setUint32(32, 12, true);
+
+		const dataPayload = new Uint8Array(48);
+		// Fill with deterministic bytes per region.
+		for (let i = 0; i < 8; i++) dataPayload[i] = 0xaa;
+		for (let i = 16; i < 32; i++) dataPayload[i] = 0xbb;
+		for (let i = 36; i < 48; i++) dataPayload[i] = 0xcc;
+
+		const out = concat(
+			buildChunk('BKHD', bkhdPayload),
+			buildChunk('DIDX', didxPayload),
+			buildChunk('DATA', dataPayload),
+		);
+
+		const parsed = await parseBnk(blob(out));
+		expect(parsed.wems.length).toBe(3);
+		expect(parsed.wems[0].id).toBe(0x1111);
+		expect(parsed.wems[1].id).toBe(0x2222);
+		expect(parsed.wems[2].id).toBe(0x3333);
+		expect(parsed.wems[0].size).toBe(8);
+		expect(parsed.wems[1].size).toBe(16);
+		expect(parsed.wems[2].size).toBe(12);
+
+		// Verify each WEM payload is the right region.
+		const w0 = new Uint8Array(await parsed.wems[0].data.arrayBuffer());
+		expect(w0.every((b) => b === 0xaa)).toBe(true);
+		const w1 = new Uint8Array(await parsed.wems[1].data.arrayBuffer());
+		expect(w1.every((b) => b === 0xbb)).toBe(true);
+		const w2 = new Uint8Array(await parsed.wems[2].data.arrayBuffer());
+		expect(w2.every((b) => b === 0xcc)).toBe(true);
+	});
+
+	it('handles the BKHD-DIDX-DATA-HIRC chunk ordering common in audio banks', async () => {
+		const bkhdPayload = new Uint8Array(16);
+		new DataView(bkhdPayload.buffer).setUint32(0, 140, true);
+		const didxPayload = new Uint8Array(12);
+		const ddv = new DataView(didxPayload.buffer);
+		ddv.setUint32(0, 0xabcdef00, true);
+		ddv.setUint32(4, 0, true);
+		ddv.setUint32(8, 4, true);
+		const dataPayload = new Uint8Array([0x52, 0x49, 0x46, 0x46]); // "RIFF"
+		const hircPayload = new Uint8Array(8); // 0 objects + padding
+
+		const out = concat(
+			buildChunk('BKHD', bkhdPayload),
+			buildChunk('DIDX', didxPayload),
+			buildChunk('DATA', dataPayload),
+			buildChunk('HIRC', hircPayload),
+		);
+
+		const parsed = await parseBnk(blob(out));
+		expect(parsed.chunks.map((c) => c.id)).toEqual(['BKHD', 'DIDX', 'DATA', 'HIRC']);
+		expect(parsed.wems.length).toBe(1);
+		// Verify the WEM payload is the embedded "RIFF" magic.
+		const w = new Uint8Array(await parsed.wems[0].data.arrayBuffer());
+		expect(String.fromCharCode(...w)).toBe('RIFF');
+	});
+
 	it('rejects non-BNK input', async () => {
 		await expect(parseBnk(blob(new TextEncoder().encode('NOPE')))).rejects.toThrow();
 	});
-});
 
-describe.runIf(existsSync(ADEMO))('ADEMO.bnk (PLA, HIRC-only)', () => {
-	it('parses a HIRC-only bank with no embedded WEMs', async () => {
-		const bytes = readFileSync(ADEMO);
-		const parsed = await parseBnk(blob(new Uint8Array(bytes)));
-		expect(parsed.chunks.map((c) => c.id)).toContain('BKHD');
-		expect(parsed.chunks.map((c) => c.id)).toContain('HIRC');
-		expect(parsed.chunks.find((c) => c.id === 'DIDX')).toBeUndefined();
-		expect(parsed.wems.length).toBe(0);
-	});
-});
-
-describe.runIf(existsSync(BGM))('BGM.bnk (PLA, mixed Opus/Vorbis)', () => {
-	it('parses 2 embedded WEMs plus HIRC', async () => {
-		const bytes = readFileSync(BGM);
-		const parsed = await parseBnk(blob(new Uint8Array(bytes)));
-		expect(parsed.chunks.map((c) => c.id)).toEqual(['BKHD', 'DIDX', 'DATA', 'HIRC']);
-		expect(parsed.wems.length).toBe(2);
-		// First WEM payload starts with "RIFF"
-		const first = new Uint8Array(await parsed.wems[0].data.slice(0, 4).arrayBuffer());
-		expect(String.fromCharCode(...first)).toBe('RIFF');
-	});
-});
-
-describe.runIf(existsSync(BATTLE))('BATTLE_SYSTEM.bnk (PLA, 159 SFX)', () => {
-	it('parses 159 embedded WEMs', async () => {
-		const bytes = readFileSync(BATTLE);
-		const parsed = await parseBnk(blob(new Uint8Array(bytes)));
-		expect(parsed.wems.length).toBe(159);
-		// Spot-check first ID seen during probing
-		expect(parsed.wems[0].id).toBe(0x0016d39e);
-	});
-});
-
-describe.runIf(existsSync(ME))('ME.bnk (PLA, music events)', () => {
-	it('parses 3 embedded WEMs', async () => {
-		const bytes = readFileSync(ME);
-		const parsed = await parseBnk(blob(new Uint8Array(bytes)));
-		expect(parsed.wems.length).toBe(3);
-	});
-});
-
-describe.runIf(existsSync(INIT))('Init.bnk (PLA, init bank)', () => {
-	it('parses init-bank chunks (no WEMs)', async () => {
-		const bytes = readFileSync(INIT);
-		const parsed = await parseBnk(blob(new Uint8Array(bytes)));
-		const ids = parsed.chunks.map((c) => c.id);
-		expect(ids[0]).toBe('BKHD');
-		expect(parsed.wems.length).toBe(0);
+	it('rejects too-small input', async () => {
+		await expect(parseBnk(blob(new Uint8Array(8)))).rejects.toThrow();
 	});
 });

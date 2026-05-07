@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
 import {
 	LZ4_FRAME_MAGIC,
 	LZ4_LEGACY_MAGIC,
@@ -290,29 +289,34 @@ describe('detectLz4 / decompressLz4 (auto-detect)', () => {
 	});
 });
 
-// Real-data test: only run if a sample is present on disk. The
-// extraction script in the repo's history (run once locally) writes
-// firmware-NCA samples to /tmp/lz4-samples/.
-const REAL_SAMPLE =
-	'/tmp/lz4-samples/section0_nro_netfront_core_0_default_cfi_disabled_libfont.nro.lz4';
-describe.runIf(existsSync(REAL_SAMPLE))(
-	'real-world Switch firmware sample',
-	() => {
-		it('decompresses libfont.nro.lz4 to a valid NRO0 file', async () => {
-			const bytes = readFileSync(REAL_SAMPLE);
-			const blob = new Blob([new Uint8Array(bytes) as BlobPart]);
-			const { data, variant } = await decompressLz4(blob);
-			expect(variant).toBe('switch');
-			// First 0x10 bytes are the BrS_ start stub (zeros), then "NRO0".
-			const head = new Uint8Array(await data.slice(0, 0x14).arrayBuffer());
-			expect(String.fromCharCode(head[0x10], head[0x11], head[0x12], head[0x13])).toBe(
-				'NRO0',
-			);
-			// Decompressed size should match the u32 LE size prefix.
-			const declaredSize = new DataView(
-				new Uint8Array(bytes).buffer,
-			).getUint32(0, true);
-			expect(data.size).toBe(declaredSize);
-		});
-	},
-);
+describe('Switch wrapper end-to-end', () => {
+	function makeSwitchLz4FromBlock(payloadLen: number, payload: Uint8Array): Uint8Array {
+		const block = encodeAsLiterals(payload);
+		const out = new Uint8Array(4 + block.length);
+		new DataView(out.buffer).setUint32(0, payloadLen, true);
+		out.set(block, 4);
+		return out;
+	}
+
+	it('decompresses a synthetic NRO-shaped payload (BrS_ stub + NRO0 magic)', async () => {
+		// Simulate the typical Switch-firmware-LZ4 case: a payload that
+		// begins with 16 NUL bytes (the BrS_ start stub region) followed
+		// by an "NRO0" magic at offset 0x10. We just want to exercise
+		// the end-to-end auto-detect → decompress path on real-shaped
+		// content — not actually parse NRO.
+		const payload = new Uint8Array(64);
+		// Bytes 0x10..0x13 = "NRO0"
+		payload[0x10] = 0x4e;
+		payload[0x11] = 0x52;
+		payload[0x12] = 0x4f;
+		payload[0x13] = 0x30;
+		const wrapped = makeSwitchLz4FromBlock(payload.length, payload);
+		const { data, variant } = await decompressLz4(new Blob([wrapped as BlobPart]));
+		expect(variant).toBe('switch');
+		const head = new Uint8Array(await data.slice(0, 0x14).arrayBuffer());
+		expect(String.fromCharCode(head[0x10], head[0x11], head[0x12], head[0x13])).toBe(
+			'NRO0',
+		);
+		expect(data.size).toBe(payload.length);
+	});
+});

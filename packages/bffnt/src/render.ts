@@ -204,8 +204,8 @@ export interface GlyphRect {
  *
  * Glyph cells are arranged in row-major order with row 0 at the
  * top of the (Y-flipped) atlas — empirically verified against
- * BotW's `Normal_00.bffnt` where row 0 contains glyphs 0-31
- * (`' '..'?'`) and row 1 contains glyphs 32-63 (`'@'..'_'`).
+ * a typical Latin-script BFFNT atlas where row 0 contains glyphs
+ * 0-31 (`' '..'?'`) and row 1 contains glyphs 32-63 (`'@'..'_'`).
  */
 export function glyphRect(
 	tglp: TextureGlyph,

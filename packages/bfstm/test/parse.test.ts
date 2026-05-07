@@ -9,8 +9,8 @@ import { isBfstmOrBfstp, parseBfstm, BFSTM_MAGIC, BFSTP_MAGIC } from '../src/ind
  *   - magic-detection unit tests against synthetic 8-byte stubs;
  *   - a smoke test against a 64-byte header-only blob that proves
  *     the parser bails cleanly when the file is too small;
- *   - end-to-end decode validation in the app, where we throw real
- *     BotW / SMO BFSTMs at the parser and play the resulting WAVs.
+ *   - end-to-end decode validation in the app, where real BFSTMs
+ *     are parsed and the resulting WAVs played in-browser.
  */
 
 describe('isBfstmOrBfstp', () => {

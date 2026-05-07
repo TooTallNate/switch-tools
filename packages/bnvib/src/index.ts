@@ -2,7 +2,7 @@
  * BNVIB — Switch HD Rumble vibration patterns.
  *
  * BNVIB is Nintendo's binary haptic format. Shipped first-party
- * games (Mario Kart 8 Deluxe, Splatoon, etc.) drop one file per
+ * games drop one file per
  * named rumble cue under `/Common/Controller/Vibration/`. The
  * format has *no magic string* — the first byte is the
  * vibration type, which doubles as a discriminator:

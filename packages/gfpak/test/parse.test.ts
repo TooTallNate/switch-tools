@@ -8,9 +8,9 @@ import {
 
 /**
  * Build a minimal GFPAK with a single uncompressed file. Used for
- * happy-path tests of the header / folder / file-info walk; for
- * real LZ4-compressed entries we lean on integration tests against
- * captured Pokémon ROMs (which we don't ship).
+ * happy-path tests of the header / folder / file-info walk;
+ * compressed-entry coverage relies on the parser being exercised
+ * end-to-end via the nx-archive app's manual workflow.
  */
 function buildMinimalGfpak(payload: Uint8Array, fileHash: bigint, folderHash: bigint) {
 	const enc = new TextEncoder();

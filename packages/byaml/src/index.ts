@@ -11,7 +11,7 @@
  * Wire layout:
  *
  *   0x00  char[2]   magic = "BY" (big-endian) or "YB" (little-endian)
- *   0x02  u16       version (1..7; v1 is the Wii U / MK8D variant)
+ *   0x02  u16       version (1..7; v1 is the early Wii U variant)
  *   0x04  u32       hash-key string table offset (or 0 if none)
  *   0x08  u32       value string table offset (or 0 if none)
  *   0x0C  u32       root node offset
@@ -155,8 +155,8 @@ export async function parseByaml(blob: Blob): Promise<ParsedByaml> {
 	const stringTableOffset = v.getUint32(8, isLittle);
 	// BYAML v ≥ 5 sometimes has a binary-data-table offset at 0x0C
 	// (and pushes the root offset to 0x10). Some shipped v1 / v2
-	// files (Mario Kart 8 Deluxe, Splatoon) also use that layout
-	// despite the lower version field — heuristic: if the value at
+	// files in the wild also use that layout despite the lower
+	// version field — heuristic: if the value at
 	// 0x0C either is zero OR doesn't point at a valid array/hash
 	// node, read the root offset from 0x10 instead.
 	let rootOffset = v.getUint32(0x0c, isLittle);

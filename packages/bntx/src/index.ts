@@ -2,8 +2,8 @@
  * BNTX — "Binary NinTeXture", Nintendo's standard texture format
  * on Switch / Wii U.
  *
- * Used by every NintendoWare-based game (MK8D, Pokémon, Mario,
- * Zelda) for everything from character textures to UI atlases to
+ * Used by every NintendoWare-based game on Switch / Wii U for
+ * everything from character textures to UI atlases to
  * normal maps. Each `.bntx` file is a small container that holds
  * one or more 2D textures (or 2D arrays); each texture has a fixed
  * format (BC1..BC7, ASTC, RGBA8, …) and is stored in Tegra X1
@@ -251,7 +251,7 @@ export function decodeBntxLayer(
 		throw new Error(
 			`ASTC textures are not supported (format ${info.name}). ` +
 				`Most Switch BNTXes use BCn instead — ASTC is rare on Switch but ` +
-				`appears in some Pokémon titles. Use vgmstream-web or BNTX-Editor ` +
+				`appears in some Switch titles. Use BNTX-Editor or similar ` +
 				`to decode.`,
 		);
 	}

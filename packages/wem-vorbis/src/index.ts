@@ -4,8 +4,8 @@
  *
  * TypeScript port of hcs64's [ww2ogg](https://github.com/hcs64/ww2ogg)
  * (BSD-3-Clause), narrowed to the **Wwise V62** format used by all
- * Switch-era titles (2018+) — Pokémon Legends Arceus, Hollow Knight,
- * NieR, Bayonetta 3, etc. Older Wwise versions (V34 / V44 / V48 /
+ * Switch-era Wwise titles (2018+). Older Wwise versions (V34 /
+ * V44 / V48 /
  * V52 / V53 / V56) are out of scope; throw a clear error.
  *
  * Switch-era V62 is identified by:

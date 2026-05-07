@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { parseAkpk, isAkpk, AKPK_MAGIC } from '../src/index.js';
 
-const SAMPLE_DIR = '/tmp/samples/pck';
-const LOOSE = resolve(SAMPLE_DIR, 'pla__LooseMedia.pck');
-const DEFAULT_HEAD = resolve(SAMPLE_DIR, 'pla__Default-head128k.bin');
+/**
+ * Tests use only synthetic / hand-crafted byte streams. No
+ * commercial-game extracts.
+ */
 
 function blob(buf: Uint8Array): Blob {
 	return new Blob([buf as unknown as BlobPart]);
@@ -116,29 +115,85 @@ describe('synthetic AKPK', () => {
 	});
 });
 
-describe.runIf(existsSync(LOOSE))('LooseMedia.pck (PLA, empty)', () => {
-	it('parses headers with all-empty tables', async () => {
-		const bytes = readFileSync(LOOSE);
-		const parsed = await parseAkpk(blob(new Uint8Array(bytes)));
-		expect(parsed.version).toBe(1);
-		expect(parsed.languageMap[0].name).toBe('sfx');
-		expect(parsed.soundbanks.length).toBe(0);
-		expect(parsed.streamedFiles.length).toBe(0);
-	});
-});
+describe('synthetic AKPK — larger N entries', () => {
+	/**
+	 * Build a synthetic AKPK with N streamed entries to exercise the
+	 * binary-search code path on a non-trivial table. Same shape as
+	 * the minimal builder but with a parametrised entry count.
+	 */
+	function buildSyntheticN(n: number): Uint8Array {
+		const langName = new TextEncoder().encode('sfx');
+		const langMap = new Uint8Array(4 + 8 + langName.length + 1);
+		const lmDv = new DataView(langMap.buffer);
+		lmDv.setUint32(0, 1, true);
+		lmDv.setUint32(4, 12, true);
+		lmDv.setUint32(8, 0, true);
+		langMap.set(langName, 12);
 
-describe.runIf(existsSync(DEFAULT_HEAD))('Default.pck head (PLA, 128 KB)', () => {
-	it('parses 5,471 streamed entries from the header dump', async () => {
-		const bytes = readFileSync(DEFAULT_HEAD);
-		// We have 128 KB which fits the entire 109 KB header + a few KB of
-		// payload. Header parsing fully succeeds; data Blobs for entries
-		// pointing past 128 KB will be truncated/empty (acceptable here).
-		const parsed = await parseAkpk(blob(new Uint8Array(bytes)));
-		expect(parsed.version).toBe(1);
-		expect(parsed.streamedFiles.length).toBe(5471);
-		expect(parsed.streamedFiles[0].id).toBe(0x0000f2cb);
-		expect(parsed.streamedFiles[0].size).toBe(22007);
-		expect(parsed.streamedFiles[0].dataOffset).toBe(0x1aba4);
-		expect(parsed.languageMap[0].name).toBe('sfx');
+		const sbTable = new Uint8Array(4);
+		const streamTable = new Uint8Array(4 + n * 20);
+		const stDv = new DataView(streamTable.buffer);
+		stDv.setUint32(0, n, true);
+		const extTable = new Uint8Array(4);
+
+		const headerBody =
+			(0x1c - 8) +
+			langMap.byteLength +
+			sbTable.byteLength +
+			streamTable.byteLength +
+			extTable.byteLength;
+		const totalHeader = 8 + headerBody;
+
+		// Each entry gets a 4-byte payload at totalHeader + i*4.
+		for (let i = 0; i < n; i++) {
+			const eo = 4 + i * 20;
+			stDv.setUint32(eo, 0x10000000 + i, true); // id
+			stDv.setUint32(eo + 4, 1, true); // blockSize
+			stDv.setUint32(eo + 8, 4, true); // size
+			stDv.setUint32(eo + 12, totalHeader + i * 4, true); // dataOff
+			stDv.setUint32(eo + 16, 0, true); // langIdx
+		}
+
+		const totalSize = totalHeader + n * 4;
+		const out = new Uint8Array(totalSize);
+		const prelude = new Uint8Array(0x1c);
+		const pDv = new DataView(prelude.buffer);
+		prelude[0] = 0x41; prelude[1] = 0x4b; prelude[2] = 0x50; prelude[3] = 0x4b;
+		pDv.setUint32(4, headerBody, true);
+		pDv.setUint32(8, 1, true);
+		pDv.setUint32(12, langMap.byteLength, true);
+		pDv.setUint32(16, sbTable.byteLength, true);
+		pDv.setUint32(20, streamTable.byteLength, true);
+		pDv.setUint32(24, extTable.byteLength, true);
+
+		out.set(prelude, 0);
+		out.set(langMap, 0x1c);
+		out.set(sbTable, 0x1c + langMap.byteLength);
+		out.set(streamTable, 0x1c + langMap.byteLength + sbTable.byteLength);
+		out.set(extTable, 0x1c + langMap.byteLength + sbTable.byteLength + streamTable.byteLength);
+		// Fill each entry's 4 bytes with a deterministic pattern.
+		for (let i = 0; i < n; i++) {
+			const off = totalHeader + i * 4;
+			out[off] = (i >> 0) & 0xff;
+			out[off + 1] = (i >> 8) & 0xff;
+			out[off + 2] = 0xab;
+			out[off + 3] = 0xcd;
+		}
+		return out;
+	}
+
+	it('parses 1000 streamed entries with correct ids + sizes', async () => {
+		const bytes = buildSyntheticN(1000);
+		const parsed = await parseAkpk(blob(bytes));
+		expect(parsed.streamedFiles.length).toBe(1000);
+		expect(parsed.streamedFiles[0].id).toBe(0x10000000);
+		expect(parsed.streamedFiles[999].id).toBe(0x10000000 + 999);
+		// Spot-check a middle entry's data payload.
+		const mid = await parsed.streamedFiles[500].data.arrayBuffer();
+		const midBytes = new Uint8Array(mid);
+		expect(midBytes[0]).toBe(500 & 0xff);
+		expect(midBytes[1]).toBe((500 >> 8) & 0xff);
+		expect(midBytes[2]).toBe(0xab);
+		expect(midBytes[3]).toBe(0xcd);
 	});
 });
