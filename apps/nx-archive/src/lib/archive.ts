@@ -21,6 +21,7 @@ import { decompressYaz0 } from '@tootallnate/yaz0';
 import { decompressLz4, type Lz4Variant } from '@tootallnate/lz4';
 import { parseBars, type BarsEntry } from '@tootallnate/bars';
 import { parseBfsar, extForMagic as bfsarExtForMagic } from '@tootallnate/bfsar';
+import { parseBfwar } from '@tootallnate/bfwar';
 import { parseZip, type ZipEntry } from './zip';
 import { parseUnityFs, type UnityFsNode } from './unityfs';
 import {
@@ -54,6 +55,7 @@ export type NodeKind =
 	| 'unityfs'
 	| 'bars'
 	| 'bfsar'
+	| 'bfwar'
 	/**
 	 * A user-selected directory from the local filesystem. Functions
 	 * like an "ad-hoc PFS0" — its children are the files inside, with
@@ -210,10 +212,10 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	unity3d: 'UnityFS', // Legacy Unity AssetBundle extension
 	bars: 'BARS', // Nintendo audio resource archive (BotW, TotK, etc.)
 	bfsar: 'BFSAR', // Nintendo sound archive (NintendoWare; magic FSAR)
+	bfwar: 'BFWAR', // Wave archive (collection of BFWAVs)
 	bfstm: 'BFSTM', // Streamed audio
 	bfwav: 'BFWAV', // Cached/baked audio
 	bfstp: 'BFSTP', // Prefetch stream
-	bfwar: 'BFWAR', // Wave archive (collection of BFWAVs)
 	bfbnk: 'BFBNK', // Instrument bank
 	bfseq: 'BFSEQ', // Sequence (MIDI-like)
 	bfgrp: 'BFGRP', // Group sub-archive
@@ -274,7 +276,8 @@ type SniffedFormat =
 	| 'nro'
 	| 'xci'
 	| 'bars'
-	| 'bfsar';
+	| 'bfsar'
+	| 'bfwar';
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -306,6 +309,7 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (m4 === 'Yaz0') return 'szs'; // we treat all Yaz0 as SZS-style for browsing
 	if (m4 === 'BARS') return 'bars';
 	if (m4 === 'FSAR') return 'bfsar';
+	if (m4 === 'FWAR') return 'bfwar';
 	// UnityFS bundle magic: NUL-terminated "UnityFS" (8 bytes including NUL).
 	if (
 		head.length >= 8 &&
@@ -413,6 +417,8 @@ export async function buildRootNode(
 			return makeBarsNode(id, displayName, blob, ctx);
 		case 'BFSAR':
 			return makeBfsarNode(id, displayName, blob, ctx);
+		case 'BFWAR':
+			return makeBfwarNode(id, displayName, blob, ctx);
 		default:
 			// Unknown — present it as a single file the user can download
 			return {
@@ -1504,9 +1510,16 @@ async function barsEntriesToNodes(
 			// Each track gets a name based on its AMTA STRG. Tracks
 			// without an audio payload still show up so the user can
 			// see the metadata; we just give them a deterministic
-			// `track_NN` fallback.
+			// `track_NN` fallback. Use the canonical `.bfwav` /
+			// `.bfstp` extensions (not `.fwav` / `.fstp`) so the
+			// preview pane's audio detection picks them up.
 			const baseName = e.name || `track_${e.index.toString().padStart(3, '0')}`;
-			const ext = e.audioKind ?? 'bin';
+			const ext =
+				e.audioKind === 'fwav'
+					? 'bfwav'
+					: e.audioKind === 'fstp'
+						? 'bfstp'
+						: 'bin';
 			let leaf = `${baseName}.${ext}`;
 			// Real BARS archives occasionally have duplicate track
 			// names (rare but it happens with auto-generated stubs);
@@ -1600,6 +1613,53 @@ function makeBfsarNode(
 				};
 			});
 			return [...internals, ...externals];
+		},
+	};
+}
+
+// ----- BFWAR (wave archive) -----
+
+/**
+ * Make a BFWAR container node. Each inline FWAV becomes a leaf;
+ * since BFWAR doesn't store names, leaves are numbered
+ * `wave_NNN.bfwav` so the BFWAV preview & audio player still pick
+ * them up via the `.bfwav` extension.
+ */
+function makeBfwarNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'bfwar',
+		isContainer: true,
+		size: blob.size,
+		format: 'BFWAR',
+		blob: async () => blob,
+		getChildren: async () => {
+			const parsed = await parseBfwar(blob);
+			return Promise.all(
+				parsed.entries.map(async (e): Promise<Node> => {
+					const ext = e.innerMagic === 'FWAV' ? 'bfwav' : 'bin';
+					const leaf = `wave_${e.index.toString().padStart(3, '0')}.${ext}`;
+					const childId = `${id}/${leaf}`;
+					if (e.size === 0) {
+						return {
+							id: childId,
+							name: leaf,
+							kind: 'file',
+							isContainer: false,
+							size: 0,
+							format: 'EMPTY',
+							blob: async () => new Blob([]),
+						};
+					}
+					return childNodeFor(childId, leaf, e.data, ctx);
+				}),
+			);
 		},
 	};
 }
@@ -1788,6 +1848,7 @@ async function childNodeFor(
 		return makeUnityFsNode(id, name, blob, ctx);
 	if (ext === 'bars') return makeBarsNode(id, name, blob, ctx);
 	if (ext === 'bfsar') return makeBfsarNode(id, name, blob, ctx);
+	if (ext === 'bfwar') return makeBfwarNode(id, name, blob, ctx);
 
 	// Magic sniff fallback for files whose extension doesn't tell us
 	// what they are. Especially important for 1st-party Nintendo
@@ -1810,6 +1871,7 @@ async function childNodeFor(
 	if (sniffed === 'unityfs') return makeUnityFsNode(id, name, blob, ctx);
 	if (sniffed === 'bars') return makeBarsNode(id, name, blob, ctx);
 	if (sniffed === 'bfsar') return makeBfsarNode(id, name, blob, ctx);
+	if (sniffed === 'bfwar') return makeBfwarNode(id, name, blob, ctx);
 
 	// Generic file
 	return {

@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/bfwav",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser and audio decoder for Nintendo's BFWAV (FWAV magic) format — the standalone single-shot audio file used across Wii U / Switch first-party games. Decodes DSP-ADPCM and PCM16/PCM8 to interleaved PCM16 samples and (optionally) wraps the result in a RIFF WAVE blob ready for HTML5 <audio>.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/bfwav"
+  },
+  "dependencies": {
+    "@tootallnate/dsp-adpcm": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

@@ -65,6 +65,8 @@ import {
   parseBarsForView,
   parseBffntForView,
   parseBfsarForView,
+  parseBfstmForAudioView,
+  parseBfwavForAudioView,
   parseFontForView,
   parseCnmtForView,
   parseNacpForView,
@@ -72,6 +74,7 @@ import {
   parseNroForView,
   parseNsoForView,
   renderBffntText,
+  type AudioPreviewView,
   type BarsView,
   type BfsarView,
   type FontView,
@@ -1011,6 +1014,10 @@ function FilePreview({ node, kind }: { node: Node; kind: PreviewKind }) {
       return <FontPreview node={node} />
     case "bffnt-info":
       return <BffntPreview node={node} />
+    case "bfwav-audio":
+      return <NintendoAudioPreview node={node} kind="bfwav" />
+    case "bfstm-audio":
+      return <NintendoAudioPreview node={node} kind="bfstm" />
     case "hex":
     default:
       return <HexPreview node={node} />
@@ -2529,6 +2536,167 @@ function BfsarFileTableSection({ view }: { view: BfsarView }) {
       </div>
     </section>
   )
+}
+
+// ====================================================================
+// BFWAV / BFSTM / BFSTP — playable audio preview
+// ====================================================================
+//
+// Decodes the Nintendo container to PCM16 (via @tootallnate/dsp-adpcm
+// + @tootallnate/bfwav / @tootallnate/bfstm), wraps the result in a
+// RIFF WAVE blob, and hands the resulting `audio/wav` object URL to
+// a plain `<audio>` element. The browser's built-in player handles
+// scrub / seek / play-pause / loop without us writing any of that.
+
+function NintendoAudioPreview({
+  node,
+  kind,
+}: {
+  node: Node
+  kind: "bfwav" | "bfstm"
+}) {
+  const { loading, data, error } = useAsync(async () => {
+    const blob = await node.blob!()
+    if (kind === "bfwav") return parseBfwavForAudioView(blob)
+    return parseBfstmForAudioView(blob)
+  }, [node.id, kind])
+
+  // Object URL for the decoded WAV. Created when `data` arrives,
+  // revoked when the node changes. Tracked separately from `data`
+  // so React can render the `<audio>` source synchronously.
+  const [wavUrl, setWavUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!data) return
+    const url = URL.createObjectURL(data.wavBlob)
+    setWavUrl(url)
+    return () => {
+      URL.revokeObjectURL(url)
+      setWavUrl(null)
+    }
+  }, [data])
+
+  if (loading) return <LoadingFiller label="Decoding audio…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader
+          title={
+            v.source === "bfwav"
+              ? "BFWAV — Cafe single-shot audio"
+              : v.source === "bfstp"
+                ? "BFSTP — Cafe prefetch stream"
+                : "BFSTM — Cafe streamed audio"
+          }
+        />
+
+        <NintendoAudioPlayer wavUrl={wavUrl} view={v} />
+
+        <KvBlock title="Audio">
+          <KvRow k="Codec" v={v.codecName} />
+          <KvRow k="Sample rate" v={`${v.sampleRate} Hz`} />
+          <KvRow
+            k="Channels"
+            v={`${v.numChannels} (${v.numChannels === 1 ? "mono" : v.numChannels === 2 ? "stereo" : `${v.numChannels}-channel`})`}
+          />
+          <KvRow k="Total samples" v={v.totalSamples.toLocaleString()} />
+          <KvRow
+            k="Duration"
+            v={`${formatDuration(v.durationSeconds)} (${v.durationSeconds.toFixed(2)}s)`}
+          />
+          <KvRow
+            k="Loop"
+            v={
+              v.loopFlag
+                ? `samples [${v.loopStart.toLocaleString()}, ${v.totalSamples.toLocaleString()}]`
+                : "no"
+            }
+          />
+        </KvBlock>
+
+        {v.parsed.kind === "bfstm" && (
+          <KvBlock title="Stream layout">
+            <KvRow
+              k="Interleave"
+              v={`${v.parsed.data.interleaveBlockCount} blocks × ${v.parsed.data.interleaveBlockSize.toLocaleString()} bytes/channel`}
+            />
+            <KvRow
+              k="Samples per block"
+              v={v.parsed.data.samplesPerBlock.toLocaleString()}
+            />
+            <KvRow
+              k="Last block"
+              v={`${v.parsed.data.lastBlockSamples.toLocaleString()} samples (${v.parsed.data.lastBlockSizeWithoutPadding} valid bytes / ${v.parsed.data.lastBlockSizeWithPadding} padded)`}
+            />
+          </KvBlock>
+        )}
+
+        {v.parsed.kind === "bfwav" && (
+          <KvBlock title="Container">
+            <KvRow k="Endian" v={v.parsed.data.endian} />
+            <KvRow
+              k="Version"
+              v={
+                "0x" + v.parsed.data.version.toString(16).padStart(8, "0")
+              }
+            />
+            <KvRow k="File size" v={formatBytes(v.parsed.data.fileSize)} />
+          </KvBlock>
+        )}
+      </div>
+    </ScrollArea>
+  )
+}
+
+function NintendoAudioPlayer({
+  wavUrl,
+  view,
+}: {
+  wavUrl: string | null
+  view: AudioPreviewView
+}) {
+  const downloadName = useMemo(() => {
+    return `${view.source}_${view.numChannels}ch_${view.sampleRate}Hz.wav`
+  }, [view])
+  return (
+    <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+      {wavUrl ? (
+        <audio
+          src={wavUrl}
+          controls
+          className="w-full"
+          preload="auto"
+        />
+      ) : (
+        <Skeleton className="h-12 w-full" />
+      )}
+      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span>
+          Decoded {view.codecName} → 16-bit PCM ({view.numChannels} ch ·{" "}
+          {view.sampleRate} Hz · {formatDuration(view.durationSeconds)})
+        </span>
+        {wavUrl && (
+          <a
+            href={wavUrl}
+            download={downloadName}
+            className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+          >
+            Save .wav
+          </a>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function formatDuration(seconds: number): string {
+  if (!isFinite(seconds) || seconds < 0) return "—"
+  const m = Math.floor(seconds / 60)
+  const s = seconds - m * 60
+  if (m === 0) return `${s.toFixed(1)}s`
+  const ss = s.toFixed(1).padStart(4, "0")
+  return `${m}:${ss}`
 }
 
 // -------- Layout helpers --------

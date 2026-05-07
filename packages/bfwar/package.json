@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/bfwar",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for Nintendo's BFWAR (FWAR magic) wave archive — a flat container of N inline BFWAVs used by NintendoWare on Wii U / Switch (referenced from BFSARs as the per-sound-bank wave pool).",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/bfwar"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

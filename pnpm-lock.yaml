@@ -232,9 +232,21 @@ importers:
       '@tootallnate/bfsar':
         specifier: workspace:*
         version: link:../../packages/bfsar
+      '@tootallnate/bfstm':
+        specifier: workspace:*
+        version: link:../../packages/bfstm
       '@tootallnate/bfttf':
         specifier: workspace:*
         version: link:../../packages/bfttf
+      '@tootallnate/bfwar':
+        specifier: workspace:*
+        version: link:../../packages/bfwar
+      '@tootallnate/bfwav':
+        specifier: workspace:*
+        version: link:../../packages/bfwav
+      '@tootallnate/dsp-adpcm':
+        specifier: workspace:*
+        version: link:../../packages/dsp-adpcm
       '@tootallnate/hfs0':
         specifier: workspace:*
         version: link:../../packages/hfs0
@@ -406,7 +418,33 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/bfstm:
+    dependencies:
+      '@tootallnate/dsp-adpcm':
+        specifier: workspace:*
+        version: link:../dsp-adpcm
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/bfttf:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/bfwar:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/bfwav:
+    dependencies:
+      '@tootallnate/dsp-adpcm':
+        specifier: workspace:*
+        version: link:../dsp-adpcm
     devDependencies:
       typescript:
         specifier: ^5.3.3
@@ -417,6 +455,12 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.3.3
+
+  packages/dsp-adpcm:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
 
   packages/hacbrewpack:
     dependencies:

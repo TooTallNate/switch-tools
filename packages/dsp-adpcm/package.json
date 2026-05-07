@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/dsp-adpcm",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Pure-JS decoder for Nintendo DSP-ADPCM (also called GC ADPCM), the 4-bit lossy audio codec used in Nintendo's audio formats from the GameCube onward (BFWAV, BFSTM, BFSTP, BWAV, BCWAV, BRSTM, …). Produces interleaved s16 PCM ready to wrap in a WAV file or feed to the Web Audio API.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/dsp-adpcm"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

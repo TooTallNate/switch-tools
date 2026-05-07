@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/bfstm",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser and audio decoder for Nintendo's BFSTM (FSTM magic) streamed-audio format and its prefetch sibling BFSTP. Walks the block-interleaved DATA layout and decodes DSP-ADPCM / PCM16 / PCM8 channels to interleaved PCM16 samples, ready to wrap as RIFF WAVE and play in a browser.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/bfstm"
+  },
+  "dependencies": {
+    "@tootallnate/dsp-adpcm": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

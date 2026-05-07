@@ -26,6 +26,17 @@ import {
 } from '@tootallnate/bffnt';
 import { parseBars, type ParsedBars } from '@tootallnate/bars';
 import { parseBfsar, type ParsedBfsar } from '@tootallnate/bfsar';
+import {
+	parseBfwav,
+	decodeBfwavToPcm16,
+	type ParsedBfwav,
+} from '@tootallnate/bfwav';
+import {
+	parseBfstm,
+	decodeBfstmToPcm16,
+	type ParsedBfstm,
+} from '@tootallnate/bfstm';
+import { encodeWavBlob } from '@tootallnate/dsp-adpcm';
 
 export type PreviewKind =
 	| 'text'
@@ -41,6 +52,10 @@ export type PreviewKind =
 	| 'bfttf-info'
 	| 'font-info'
 	| 'bffnt-info'
+	/** Switch / Wii U single-shot audio (BFWAV / BFSTP, also BARS-embedded FWAVs). */
+	| 'bfwav-audio'
+	/** Switch / Wii U streamed audio (BFSTM / BFSTP). */
+	| 'bfstm-audio'
 	| 'hex';
 
 export const TEXT_EXTS = new Set([
@@ -158,6 +173,8 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.ttf') || lower.endsWith('.otf') || lower.endsWith('.ttc') || lower.endsWith('.otc'))
 		return 'font-info';
 	if (lower.endsWith('.bffnt')) return 'bffnt-info';
+	if (lower.endsWith('.bfwav')) return 'bfwav-audio';
+	if (lower.endsWith('.bfstm') || lower.endsWith('.bfstp')) return 'bfstm-audio';
 	// Switch app icons (in Control NCA RomFS) are JPEGs with a `.dat` ext.
 	if (/^icon_.*\.dat$/.test(lower)) return 'image';
 	const ext = extOf(name);
@@ -819,6 +836,91 @@ export async function parseBfsarForView(blob: Blob): Promise<BfsarView> {
 		sequenceCount,
 		inlineCount,
 		groupCount,
+	};
+}
+
+// ----- BFWAV / BFSTM audio preview -----
+
+/**
+ * Unified view model for the audio preview pane. Wraps the parsed
+ * container metadata, an `audio/wav` `Blob` ready to play, and a
+ * few derived fields for the metadata sidebar (duration, codec
+ * label).
+ *
+ * `wavUrl` is owned by the React component that builds it — call
+ * `URL.revokeObjectURL` on cleanup.
+ */
+export interface AudioPreviewView {
+	/** What kind of source this came from. */
+	source: 'bfwav' | 'bfstm' | 'bfstp';
+	/** Codec name, e.g. `'DSP-ADPCM'` / `'PCM16'`. */
+	codecName: string;
+	sampleRate: number;
+	numChannels: number;
+	totalSamples: number;
+	loopFlag: boolean;
+	loopStart: number;
+	/** Duration in seconds. */
+	durationSeconds: number;
+	/** Decoded WAV-format bytes ready for `<audio>` playback. */
+	wavBlob: Blob;
+	/**
+	 * Original parsed metadata. We surface a discriminated union so
+	 * the UI can show format-specific extras (e.g. interleave
+	 * geometry for BFSTMs).
+	 */
+	parsed:
+		| { kind: 'bfwav'; data: ParsedBfwav }
+		| { kind: 'bfstm'; data: ParsedBfstm };
+}
+
+/**
+ * Decode a BFWAV blob into an `AudioPreviewView`. Throws on
+ * unsupported codecs (only DSP-ADPCM / PCM16 / PCM8 are wired up).
+ */
+export async function parseBfwavForAudioView(
+	blob: Blob,
+): Promise<AudioPreviewView> {
+	const parsed = await parseBfwav(blob);
+	const { samples, numChannels, sampleRate } = await decodeBfwavToPcm16(parsed);
+	const wavBlob = encodeWavBlob(samples, sampleRate, numChannels);
+	return {
+		source: 'bfwav',
+		codecName: parsed.codecName,
+		sampleRate: parsed.sampleRate,
+		numChannels: parsed.channels.length,
+		totalSamples: parsed.totalSamples,
+		loopFlag: parsed.loopFlag,
+		loopStart: parsed.loopStart,
+		durationSeconds: parsed.totalSamples / parsed.sampleRate,
+		wavBlob,
+		parsed: { kind: 'bfwav', data: parsed },
+	};
+}
+
+/**
+ * Decode a BFSTM (or BFSTP) blob into an `AudioPreviewView`. The
+ * WAV blob represents the *full* decoded stream, including looped
+ * sections — for BFSTPs (prefetch streams) this is the only
+ * portion of the audio that's present anyway.
+ */
+export async function parseBfstmForAudioView(
+	blob: Blob,
+): Promise<AudioPreviewView> {
+	const parsed = await parseBfstm(blob);
+	const { samples, numChannels, sampleRate } = await decodeBfstmToPcm16(parsed);
+	const wavBlob = encodeWavBlob(samples, sampleRate, numChannels);
+	return {
+		source: parsed.magic === 'FSTP' ? 'bfstp' : 'bfstm',
+		codecName: parsed.codecName,
+		sampleRate: parsed.sampleRate,
+		numChannels: parsed.numChannels,
+		totalSamples: parsed.totalSamples,
+		loopFlag: parsed.loopFlag,
+		loopStart: parsed.loopStart,
+		durationSeconds: parsed.totalSamples / parsed.sampleRate,
+		wavBlob,
+		parsed: { kind: 'bfstm', data: parsed },
 	};
 }
 
