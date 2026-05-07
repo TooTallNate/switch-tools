@@ -20,6 +20,7 @@ import { parseSarc, type SarcEntry } from '@tootallnate/sarc';
 import { decompressYaz0 } from '@tootallnate/yaz0';
 import { decompressLz4, type Lz4Variant } from '@tootallnate/lz4';
 import { parseZip, type ZipEntry } from './zip';
+import { parseUnityFs, type UnityFsNode } from './unityfs';
 import {
 	parseNca,
 	NCA_FS_TYPE_PFS0,
@@ -48,6 +49,7 @@ export type NodeKind =
 	| 'zip'
 	| 'sarc'
 	| 'lz4'
+	| 'unityfs'
 	/**
 	 * A user-selected directory from the local filesystem. Functions
 	 * like an "ad-hoc PFS0" — its children are the files inside, with
@@ -199,6 +201,8 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	szs: 'SZS', // Yaz0-compressed SARC, ubiquitous across 1st-party games
 	yaz0: 'YAZ0',
 	lz4: 'LZ4',
+	bundle: 'UnityFS', // Unity Addressables: `*.bundle`
+	unity3d: 'UnityFS', // Legacy Unity AssetBundle extension
 };
 
 /**
@@ -249,6 +253,19 @@ async function sniffMagic(blob: Blob): Promise<string | null> {
 	if (m4 === 'IVFC') return 'romfs';
 	if (m4 === 'SARC') return 'sarc';
 	if (m4 === 'Yaz0') return 'szs'; // we treat all Yaz0 as SZS-style for browsing
+	// UnityFS bundle magic: NUL-terminated "UnityFS" (8 bytes including NUL).
+	if (
+		head[0] === 0x55 &&
+		head[1] === 0x6e &&
+		head[2] === 0x69 &&
+		head[3] === 0x74 &&
+		head[4] === 0x79 &&
+		head[5] === 0x46 &&
+		head[6] === 0x53 &&
+		head[7] === 0x00
+	) {
+		return 'unityfs';
+	}
 	// ZIP local file header is "PK\x03\x04" — match raw bytes since
 	// the trailing two bytes aren't printable.
 	if (head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04) {
@@ -323,6 +340,8 @@ export async function buildRootNode(
 			return makeSzsNode(id, displayName, blob, ctx);
 		case 'LZ4':
 			return makeLz4Node(id, displayName, blob, ctx);
+		case 'UnityFS':
+			return makeUnityFsNode(id, displayName, blob, ctx);
 		default:
 			// Unknown — present it as a single file the user can download
 			return {
@@ -1404,6 +1423,114 @@ function makeLz4Node(
 	};
 }
 
+// ----- UnityFS (Unity AssetBundle) -----
+
+/**
+ * `.bundle` / `.unity3d` files (and anything with the `UnityFS` magic)
+ * are Unity AssetBundles — the runtime container Unity-engine games
+ * use to ship their asset payloads. We parse the envelope and expose
+ * each inner virtual file as an entry in the tree, routing through
+ * `childNodeFor` so any inner files that happen to be in formats we
+ * already know about (rare in practice — most are Unity's own
+ * `*.assets` SerializedFile binaries) get their normal preview.
+ *
+ * Unity SerializedFile parsing (the per-object Texture2D / AudioClip /
+ * GameObject / etc. listing) is intentionally NOT implemented here —
+ * that's a much larger project handled by external tools like
+ * AssetStudio / AssetRipper. Browsing stops at "here are the inner
+ * files".
+ */
+function makeUnityFsNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'unityfs',
+		isContainer: true,
+		size: blob.size,
+		format: 'UnityFS',
+		blob: async () => blob,
+		getChildren: async () => {
+			const parsed = await parseUnityFs(blob);
+			return unityFsEntriesToNodes(id, parsed.nodes, ctx);
+		},
+	};
+}
+
+/**
+ * Convert a UnityFS bundle's flat node list into tree-shaped
+ * children. Most bundles emit flat names (`CAB-xxxxxxxxxxxx`,
+ * `CAB-xxxxxxxxxxxx.resS`, etc.), but Addressable bundles
+ * occasionally use `/`-delimited paths — handle both transparently
+ * by splitting on `/` and grouping into nested directories the same
+ * way the ZIP / SARC code paths do.
+ */
+async function unityFsEntriesToNodes(
+	parentId: string,
+	entries: UnityFsNode[],
+	ctx: ArchiveContext,
+): Promise<Node[]> {
+	type Tree = Map<string, { dir?: Tree; file?: UnityFsNode }>;
+	const root: Tree = new Map();
+	for (const entry of entries) {
+		const parts = entry.path.split('/').filter((p) => p.length > 0);
+		if (parts.length === 0) continue;
+		let cur = root;
+		for (let i = 0; i < parts.length; i++) {
+			const part = parts[i];
+			const isLast = i === parts.length - 1;
+			let node = cur.get(part);
+			if (!node) {
+				node = {};
+				cur.set(part, node);
+			}
+			if (isLast) {
+				node.file = entry;
+			} else {
+				if (!node.dir) node.dir = new Map();
+				cur = node.dir;
+			}
+		}
+	}
+
+	const treeToNodes = async (
+		treeId: string,
+		t: Tree,
+	): Promise<Node[]> => {
+		const names = [...t.keys()].sort((a, b) => {
+			const aIsDir = !!t.get(a)!.dir;
+			const bIsDir = !!t.get(b)!.dir;
+			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+			return a.localeCompare(b);
+		});
+		return Promise.all(
+			names.map(async (name): Promise<Node> => {
+				const child = t.get(name)!;
+				const childId = `${treeId}/${name}`;
+				if (child.dir) {
+					const subNodes = await treeToNodes(childId, child.dir);
+					return {
+						id: childId,
+						name,
+						kind: 'directory',
+						isContainer: true,
+						format: 'directory',
+						getChildren: async () => subNodes,
+					};
+				}
+				const file = child.file!;
+				return childNodeFor(childId, name, file.data, ctx);
+			}),
+		);
+	};
+
+	return treeToNodes(parentId, root);
+}
+
 // ----- Generic dispatcher for nested children whose container type is determined by name/sniff -----
 
 async function childNodeFor(
@@ -1425,6 +1552,8 @@ async function childNodeFor(
 	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob, ctx);
 	if (ext === 'szs') return makeSzsNode(id, name, blob, ctx);
 	if (ext === 'lz4') return makeLz4Node(id, name, blob, ctx);
+	if (ext === 'bundle' || ext === 'unity3d')
+		return makeUnityFsNode(id, name, blob, ctx);
 	// Some 1st-party games hide Yaz0+SARC behind Nintendo-internal
 	// extensions like `.sbeventpack`, `.sbactorpack`, `.sbgdata`, etc.
 	// Anything starting with `s` followed by one of those well-known
