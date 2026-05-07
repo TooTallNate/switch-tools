@@ -29,7 +29,7 @@ import {
 	NcaContentType,
 	type KeySet,
 } from '@tootallnate/nca';
-import type { WalkedFolder } from './folder';
+import type { WalkedDirectory } from './directory';
 import { mergeSplitFiles, type MergedFile } from './split-file';
 import { zstdDecompressBlob, zstdDecompressStream } from './zstd';
 
@@ -49,11 +49,12 @@ export type NodeKind =
 	| 'sarc'
 	| 'lz4'
 	/**
-	 * A user-selected folder from the local filesystem. Functions like
-	 * an "ad-hoc PFS0" — its children are the files inside, with `.tik`
-	 * tickets aggregated for titlekey decryption across the subtree.
+	 * A user-selected directory from the local filesystem. Functions
+	 * like an "ad-hoc PFS0" — its children are the files inside, with
+	 * `.tik` tickets aggregated for titlekey decryption across the
+	 * subtree.
 	 */
-	| 'fs-folder'
+	| 'fs-directory'
 	/**
 	 * A `*.htdocs/` directory inside an offline-manual RomFS — these
 	 * contain a self-contained mini-website (HTML/CSS/img/JS) shipped with
@@ -336,43 +337,45 @@ export async function buildRootNode(
 	}
 }
 
-// ----- Top-level entry: turn a user-selected folder into a root Node -----
+// ----- Top-level entry: turn a user-selected directory into a root Node -----
 
 /**
- * Build a root node from a walked folder. The folder is rendered as a
- * single top-level container ("ad-hoc PFS0") with one child per merged
- * file. `.tik` tickets anywhere in the subtree are aggregated into a
- * single tikMap so any encrypted NCAs in the folder can decrypt with
- * their matching titlekey.
+ * Build a root node from a walked directory. The directory is rendered
+ * as a single top-level container ("ad-hoc PFS0") with one child per
+ * merged file. `.tik` tickets anywhere in the subtree are aggregated
+ * into a single tikMap so any encrypted NCAs in the directory can
+ * decrypt with their matching titlekey.
  *
  * Split-archive parts (`foo.xci.00` / `foo.xci/00` / `foo.nsp.partN`)
  * are auto-merged into a single virtual archive via lazy `Blob` concat.
  */
-export async function buildFolderRootNode(
-	folder: WalkedFolder,
+export async function buildDirectoryRootNode(
+	directory: WalkedDirectory,
 	ctx: ArchiveContext,
 ): Promise<Node> {
 	// Merge split-file groups before anything else, so the rest of the
 	// pipeline never sees `.xci.00` etc.
-	const merged = mergeSplitFiles(folder.files);
-	// Build the tikMap once for the whole folder so titlekey decryption
-	// works regardless of where the .tik file sits relative to the NCA.
+	const merged = mergeSplitFiles(directory.files);
+	// Build the tikMap once for the whole directory so titlekey
+	// decryption works regardless of where the .tik file sits relative
+	// to the NCA.
 	const tikMap = await buildTikMap(
 		merged.map((m) => [m.relativePath, { data: m.blob }] as const),
 	);
-	const rootId = `/${folder.name}`;
+	const rootId = `/${directory.name}`;
 	const totalSize = merged.reduce((s, m) => s + m.size, 0);
 	return {
 		id: rootId,
-		name: folder.name,
-		kind: 'fs-folder',
+		name: directory.name,
+		kind: 'fs-directory',
 		isContainer: true,
 		size: totalSize,
-		format: 'folder',
-		// Folder roots aren't downloadable as a single blob (we'd have to
-		// zip them); leave `blob` unset so the toolbar's Download button
-		// hides itself.
-		getChildren: async () => folderChildrenFromMerged(rootId, merged, ctx, tikMap),
+		format: 'directory',
+		// Directory roots aren't downloadable as a single blob (we'd
+		// have to zip them); leave `blob` unset so the toolbar's
+		// Download button hides itself.
+		getChildren: async () =>
+			directoryChildrenFromMerged(rootId, merged, ctx, tikMap),
 	};
 }
 
@@ -382,7 +385,7 @@ export async function buildFolderRootNode(
  * split — its first segment becomes a sub-directory node with the
  * remainder of the path passed down.
  */
-function folderChildrenFromMerged(
+function directoryChildrenFromMerged(
 	parentId: string,
 	merged: MergedFile[],
 	ctx: ArchiveContext,
@@ -429,24 +432,24 @@ function folderChildrenFromMerged(
 				size: subtotal,
 				format: 'directory',
 				getChildren: () =>
-					folderChildrenFromMerged(id, childMerged, ctx, tikMap),
+					directoryChildrenFromMerged(id, childMerged, ctx, tikMap),
 			}),
 		);
 	}
 	for (const m of fileNames) {
 		const name = m.relativePath; // already a leaf
 		const id = `${parentId}/${name}`;
-		out.push(folderFileNode(id, name, m, ctx, tikMap));
+		out.push(directoryFileNode(id, name, m, ctx, tikMap));
 	}
 	return Promise.all(out);
 }
 
 /**
- * Wrap a leaf file from a folder walk into a Node. Routes through
+ * Wrap a leaf file from a directory walk into a Node. Routes through
  * `childNodeFor` so we get format detection + container expansion +
  * NCA decryption for free.
  */
-async function folderFileNode(
+async function directoryFileNode(
 	id: string,
 	name: string,
 	m: MergedFile,
@@ -993,7 +996,7 @@ function makeZipNode(
 			// Build a tikMap from any `.tik` entries anywhere in the
 			// archive, so an NCA buried inside the ZIP can still
 			// decrypt with its matching titlekey if a sibling
-			// ticket is present (mirrors the NSP / HFS0 / folder
+			// ticket is present (mirrors the NSP / HFS0 / directory
 			// behaviour elsewhere). ZIP entry data is async, so we
 			// resolve the .tik blobs eagerly here — there are
 			// usually only one or two and they're tiny.
@@ -1086,7 +1089,7 @@ async function zipEntriesToNodes(
 				// Route through childNodeFor so nested formats
 				// (NRO/NSP/NCA/SARC/LZ4/etc.) become traversable
 				// inside the ZIP, exactly as they would be inside a
-				// folder, NSP, or HFS0.
+				// directory, NSP, or HFS0.
 				return childNodeFor(
 					childId,
 					name,

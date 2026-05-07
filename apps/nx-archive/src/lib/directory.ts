@@ -1,5 +1,5 @@
 /**
- * Cross-API folder traversal.
+ * Cross-API directory traversal.
  *
  * Browsers expose three different ways to read a user-selected
  * directory:
@@ -10,12 +10,12 @@
  *   2. `<input type="file" webkitdirectory>` (legacy, broadly supported)
  *      → returns a `FileList` where each entry has `webkitRelativePath`.
  *
- *   3. Drag-and-drop of a folder
+ *   3. Drag-and-drop of a directory
  *      → `DataTransferItem.webkitGetAsEntry()` returns a (recursive)
  *      `FileSystemEntry` you walk via callbacks.
  *
  * This module flattens all three into a single synchronous-iteration-
- * friendly shape: `WalkedFolder { name, files: { relativePath, file }[] }`.
+ * friendly shape: `WalkedDirectory { name, files: { relativePath, file }[] }`.
  *
  * Empty-directory entries are dropped — only files reach the consumer.
  *
@@ -30,8 +30,8 @@ export interface WalkedFile {
 	file: File;
 }
 
-export interface WalkedFolder {
-	/** Display name of the chosen root folder. */
+export interface WalkedDirectory {
+	/** Display name of the chosen root directory. */
 	name: string;
 	files: WalkedFile[];
 }
@@ -61,7 +61,7 @@ interface DirectoryPickerWindow {
  * Prompt the user for a directory using the File System Access API.
  * Throws if the user cancels or the API isn't available.
  */
-export async function pickDirectoryViaHandle(): Promise<WalkedFolder> {
+export async function pickDirectoryViaHandle(): Promise<WalkedDirectory> {
 	const w = window as DirectoryPickerWindow;
 	if (!w.showDirectoryPicker) {
 		throw new Error('Directory picker is not supported in this browser.');
@@ -72,7 +72,7 @@ export async function pickDirectoryViaHandle(): Promise<WalkedFolder> {
 
 async function walkDirectoryHandle(
 	root: FileSystemDirectoryHandle,
-): Promise<WalkedFolder> {
+): Promise<WalkedDirectory> {
 	const files: WalkedFile[] = [];
 	await walkDirHandleInto(root, '', files);
 	return { name: root.name, files };
@@ -110,10 +110,10 @@ async function walkDirHandleInto(
 
 /**
  * Convert a `FileList` produced by an `<input webkitdirectory>` into
- * a `WalkedFolder`. The list's `webkitRelativePath` strings start with
- * the chosen folder's name; we strip that to use as `name`.
+ * a `WalkedDirectory`. The list's `webkitRelativePath` strings start
+ * with the chosen directory's name; we strip that to use as `name`.
  */
-export function walkedFolderFromFileList(list: FileList): WalkedFolder {
+export function walkedDirectoryFromFileList(list: FileList): WalkedDirectory {
 	const files: WalkedFile[] = [];
 	let rootName = '';
 	for (let i = 0; i < list.length; i++) {
@@ -126,7 +126,7 @@ export function walkedFolderFromFileList(list: FileList): WalkedFolder {
 			files.push({ relativePath: f.name, file: f });
 			continue;
 		}
-		// "MyFolder/sub/file.txt" → root = "MyFolder", rest = "sub/file.txt"
+		// "MyDir/sub/file.txt" → root = "MyDir", rest = "sub/file.txt"
 		const slash = rel.indexOf('/');
 		if (slash < 0) {
 			files.push({ relativePath: rel, file: f });
@@ -135,14 +135,14 @@ export function walkedFolderFromFileList(list: FileList): WalkedFolder {
 		if (!rootName) rootName = rel.slice(0, slash);
 		files.push({ relativePath: rel.slice(slash + 1), file: f });
 	}
-	return { name: rootName || 'folder', files };
+	return { name: rootName || 'directory', files };
 }
 
 // ---------- Drag-and-drop (DataTransfer with directory entries) ----------
 
 /**
  * Returns true if any of the given `DataTransferItem`s looks like a
- * directory entry. Used to choose between single-file and folder
+ * directory entry. Used to choose between single-file and directory
  * handling on drop.
  */
 export function dataTransferContainsDirectory(
@@ -163,13 +163,13 @@ export function dataTransferContainsDirectory(
 
 /**
  * Walk every directory among the dropped items into a single
- * `WalkedFolder`. If multiple folders were dropped, they're merged
- * under their original names; loose files dropped alongside go into
- * the top level.
+ * `WalkedDirectory`. If multiple directories were dropped, they're
+ * merged under their original names; loose files dropped alongside
+ * go into the top level.
  */
-export async function walkedFolderFromDataTransfer(
+export async function walkedDirectoryFromDataTransfer(
 	items: DataTransferItemList,
-): Promise<WalkedFolder> {
+): Promise<WalkedDirectory> {
 	const out: WalkedFile[] = [];
 	const roots: string[] = [];
 	for (let i = 0; i < items.length; i++) {
@@ -189,7 +189,7 @@ export async function walkedFolderFromDataTransfer(
 			out.push({ relativePath: file.name, file });
 		}
 	}
-	const name = roots.length === 1 ? roots[0] : 'dropped folder';
+	const name = roots.length === 1 ? roots[0] : 'dropped directory';
 	return { name, files: out };
 }
 

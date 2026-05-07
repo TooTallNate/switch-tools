@@ -13,14 +13,14 @@
  *      `Game.xci/00`, `Game.xci/01`, ... (no extension on parts)
  *      `Game.nsp/`, `Game.nsz/`
  *
- * This module groups loose-folder files into virtual whole archives,
+ * This module groups loose-directory files into virtual whole archives,
  * concatenating the parts via `new Blob([...])`. `Blob` concat is
  * lazy: the parts aren't read into memory until something calls
  * `.arrayBuffer()` / `.slice()` / etc., and `.slice()` only materialises
  * the requested range.
  */
 
-import type { WalkedFile } from './folder';
+import type { WalkedFile } from './directory';
 
 export interface MergedFile {
 	/** The path the merged file should appear under (with the split suffix stripped). */

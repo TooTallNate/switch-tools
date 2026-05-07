@@ -104,7 +104,7 @@ export function PreviewPane({ node }: PreviewPaneProps) {
             <EmptyTitle>No file selected</EmptyTitle>
             <EmptyDescription>
               Choose a file from the tree on the left to preview its contents,
-              or expand a folder to browse deeper.
+              or expand a directory to browse deeper.
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

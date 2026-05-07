@@ -22,33 +22,33 @@ import {
 import { ScrollArea } from "~/components/ui/scroll-area"
 import { ThemeProvider } from "~/components/theme-provider"
 import {
-  buildFolderRootNode,
+  buildDirectoryRootNode,
   buildRootNode,
   type ArchiveContext,
   type Node,
 } from "~/lib/archive"
-import type { WalkedFolder } from "~/lib/folder"
+import type { WalkedDirectory } from "~/lib/directory"
 import { loadStoredKeySet } from "~/lib/keys-store"
 import type { KeySet } from "@tootallnate/nca"
 import { formatBytes } from "~/lib/utils"
 
 /**
  * What's currently open in the UI. Either a single file the user
- * picked, or an entire folder of loose files (firmware dumps, unpacked
- * NSP/XCI contents, etc.).
+ * picked, or an entire directory of loose files (firmware dumps,
+ * unpacked NSP/XCI contents, etc.).
  */
 type Opened =
   | { kind: "file"; file: File; root: Node }
   | {
-      kind: "folder"
-      folder: WalkedFolder
-      /** Total size summed across all files in the folder. */
+      kind: "directory"
+      directory: WalkedDirectory
+      /** Total size summed across all files in the directory. */
       totalSize: number
       root: Node
     }
 
 function openedDisplayName(o: Opened): string {
-  return o.kind === "file" ? o.file.name : `${o.folder.name}/`
+  return o.kind === "file" ? o.file.name : `${o.directory.name}/`
 }
 function openedDisplaySize(o: Opened): number {
   return o.kind === "file" ? o.file.size : o.totalSize
@@ -131,19 +131,22 @@ function ArchiveApp() {
     [ctx],
   )
 
-  const handleOpenFolder = useCallback(
-    async (folder: WalkedFolder) => {
+  const handleOpenDirectory = useCallback(
+    async (directory: WalkedDirectory) => {
       try {
-        const totalSize = folder.files.reduce((s, f) => s + f.file.size, 0)
-        const root = await buildFolderRootNode(folder, ctx)
-        setOpened({ kind: "folder", folder, totalSize, root })
+        const totalSize = directory.files.reduce(
+          (s, f) => s + f.file.size,
+          0,
+        )
+        const root = await buildDirectoryRootNode(directory, ctx)
+        setOpened({ kind: "directory", directory, totalSize, root })
         setSelected(root)
-        toast.success(`Opened folder ${folder.name}`, {
-          description: `${folder.files.length} files · ${formatBytes(totalSize)}`,
+        toast.success(`Opened directory ${directory.name}`, {
+          description: `${directory.files.length} files · ${formatBytes(totalSize)}`,
         })
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
-        toast.error(`Couldn't open folder ${folder.name}`, {
+        toast.error(`Couldn't open directory ${directory.name}`, {
           description: message,
         })
       }
@@ -205,7 +208,7 @@ function ArchiveApp() {
     <div className="flex h-full min-h-0 flex-col switch-backdrop">
       <AppHeader
         onOpenFile={handleOpenFile}
-        onOpenFolder={handleOpenFolder}
+        onOpenDirectory={handleOpenDirectory}
         onOpenKeys={() => setKeysOpen(true)}
         onCloseFile={handleCloseFile}
         hasFile={!!opened}
@@ -219,7 +222,7 @@ function ArchiveApp() {
         {!opened ? (
           <Dropzone
             onFile={handleOpenFile}
-            onFolder={handleOpenFolder}
+            onDirectory={handleOpenDirectory}
             onPickerError={handlePickerError}
           />
         ) : (
@@ -295,7 +298,7 @@ function ArchiveApp() {
 
       <GlobalDragOverlay
         onFile={handleOpenFile}
-        onFolder={handleOpenFolder}
+        onDirectory={handleOpenDirectory}
         onPickerError={handlePickerError}
       />
 

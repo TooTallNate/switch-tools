@@ -27,14 +27,14 @@ import { ThemeToggle } from "~/components/theme-toggle"
 import {
   isDirectoryPickerSupported,
   pickDirectoryViaHandle,
-  walkedFolderFromFileList,
-  type WalkedFolder,
-} from "~/lib/folder"
+  walkedDirectoryFromFileList,
+  type WalkedDirectory,
+} from "~/lib/directory"
 import { formatBytes } from "~/lib/utils"
 
 interface AppHeaderProps {
   onOpenFile: (file: File) => void
-  onOpenFolder: (folder: WalkedFolder) => void
+  onOpenDirectory: (directory: WalkedDirectory) => void
   onOpenKeys: () => void
   onCloseFile: () => void
   hasFile: boolean
@@ -46,7 +46,7 @@ interface AppHeaderProps {
 
 export function AppHeader({
   onOpenFile,
-  onOpenFolder,
+  onOpenDirectory,
   onOpenKeys,
   onCloseFile,
   hasFile,
@@ -56,14 +56,14 @@ export function AppHeader({
   onPickerError,
 }: AppHeaderProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const folderInputRef = useRef<HTMLInputElement>(null)
+  const directoryInputRef = useRef<HTMLInputElement>(null)
 
-  const handleOpenFolder = async () => {
+  const handleOpenDirectory = async () => {
     // Prefer the modern API; gracefully fall back to <input webkitdirectory>.
     if (isDirectoryPickerSupported()) {
       try {
-        const folder = await pickDirectoryViaHandle()
-        onOpenFolder(folder)
+        const directory = await pickDirectoryViaHandle()
+        onOpenDirectory(directory)
         return
       } catch (err) {
         // The user cancelling raises an AbortError; that's not an error
@@ -73,7 +73,7 @@ export function AppHeader({
         return
       }
     }
-    folderInputRef.current?.click()
+    directoryInputRef.current?.click()
   }
 
   return (
@@ -94,7 +94,7 @@ export function AppHeader({
         whose entries have webkitRelativePath set.
       */}
       <input
-        ref={folderInputRef}
+        ref={directoryInputRef}
         type="file"
         className="hidden"
         // @ts-expect-error — webkitdirectory isn't in the lib.dom types
@@ -104,7 +104,7 @@ export function AppHeader({
         onChange={(e) => {
           const list = e.target.files
           if (list && list.length > 0) {
-            onOpenFolder(walkedFolderFromFileList(list))
+            onOpenDirectory(walkedDirectoryFromFileList(list))
           }
           e.target.value = ""
         }}
@@ -164,9 +164,9 @@ export function AppHeader({
                   <FileIcon />
                   Open file…
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={handleOpenFolder}>
+                <DropdownMenuItem onSelect={handleOpenDirectory}>
                   <FolderIcon />
-                  Open folder…
+                  Open directory…
                 </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>

@@ -27,10 +27,10 @@ import {
   dataTransferContainsDirectory,
   isDirectoryPickerSupported,
   pickDirectoryViaHandle,
-  walkedFolderFromDataTransfer,
-  walkedFolderFromFileList,
-  type WalkedFolder,
-} from "~/lib/folder"
+  walkedDirectoryFromDataTransfer,
+  walkedDirectoryFromFileList,
+  type WalkedDirectory,
+} from "~/lib/directory"
 import { cn } from "~/lib/utils"
 
 const SUPPORTED_FORMATS = [
@@ -46,34 +46,34 @@ const SUPPORTED_FORMATS = [
 
 interface DropzoneProps {
   onFile: (file: File) => void
-  onFolder: (folder: WalkedFolder) => void
+  onDirectory: (directory: WalkedDirectory) => void
   onPickerError: (err: Error) => void
 }
 
 /**
  * The big, friendly initial picker shown when no file has been opened
- * yet. Supports both individual files and whole folders, picked via
- * dropdown or drag-and-drop. Folder drops use the `webkitGetAsEntry`
- * API to recursively walk; folder clicks prefer the modern File
+ * yet. Supports both individual files and whole directories, picked via
+ * dropdown or drag-and-drop. Directory drops use the `webkitGetAsEntry`
+ * API to recursively walk; directory clicks prefer the modern File
  * System Access picker, falling back to `<input webkitdirectory>`.
  */
-export function Dropzone({ onFile, onFolder, onPickerError }: DropzoneProps) {
+export function Dropzone({ onFile, onDirectory, onPickerError }: DropzoneProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const folderInputRef = useRef<HTMLInputElement>(null)
+  const directoryInputRef = useRef<HTMLInputElement>(null)
   const [hover, setHover] = useState(false)
 
-  const handlePickFolder = async () => {
+  const handlePickDirectory = async () => {
     if (isDirectoryPickerSupported()) {
       try {
-        const folder = await pickDirectoryViaHandle()
-        onFolder(folder)
+        const directory = await pickDirectoryViaHandle()
+        onDirectory(directory)
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return
         onPickerError(err instanceof Error ? err : new Error(String(err)))
       }
       return
     }
-    folderInputRef.current?.click()
+    directoryInputRef.current?.click()
   }
 
   return (
@@ -94,7 +94,7 @@ export function Dropzone({ onFile, onFolder, onPickerError }: DropzoneProps) {
         }}
       />
       <input
-        ref={folderInputRef}
+        ref={directoryInputRef}
         type="file"
         className="hidden"
         // @ts-expect-error — webkitdirectory isn't in lib.dom types
@@ -104,7 +104,7 @@ export function Dropzone({ onFile, onFolder, onPickerError }: DropzoneProps) {
         onChange={(e) => {
           const list = e.target.files
           if (list && list.length > 0) {
-            onFolder(walkedFolderFromFileList(list))
+            onDirectory(walkedDirectoryFromFileList(list))
           }
           e.target.value = ""
         }}
@@ -135,8 +135,8 @@ export function Dropzone({ onFile, onFolder, onPickerError }: DropzoneProps) {
           // If the drop contains any directory entries, walk them all.
           if (dt.items && dataTransferContainsDirectory(dt.items)) {
             try {
-              const folder = await walkedFolderFromDataTransfer(dt.items)
-              if (folder.files.length > 0) onFolder(folder)
+              const directory = await walkedDirectoryFromDataTransfer(dt.items)
+              if (directory.files.length > 0) onDirectory(directory)
               return
             } catch (err) {
               onPickerError(err instanceof Error ? err : new Error(String(err)))
@@ -152,12 +152,12 @@ export function Dropzone({ onFile, onFolder, onPickerError }: DropzoneProps) {
             <FolderArchiveIcon />
           </EmptyMedia>
           <EmptyTitle className="text-lg">
-            Drop a Switch archive (or folder) to begin
+            Drop a Switch archive (or directory) to begin
           </EmptyTitle>
           <EmptyDescription>
             Browse the contents of any Nintendo Switch archive — extract files,
             preview images and metadata, peek inside encrypted containers.
-            Open a single file or a whole folder of loose NCAs / tickets;
+            Open a single file or a whole directory of loose NCAs / tickets;
             everything runs locally in your browser.
           </EmptyDescription>
         </EmptyHeader>
@@ -176,9 +176,9 @@ export function Dropzone({ onFile, onFolder, onPickerError }: DropzoneProps) {
                   <FileIcon />
                   Open file…
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={handlePickFolder}>
+                <DropdownMenuItem onSelect={handlePickDirectory}>
                   <FolderIcon />
-                  Open folder…
+                  Open directory…
                 </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>
@@ -198,17 +198,17 @@ export function Dropzone({ onFile, onFolder, onPickerError }: DropzoneProps) {
 
 interface GlobalDragOverlayProps {
   onFile: (file: File) => void
-  onFolder: (folder: WalkedFolder) => void
+  onDirectory: (directory: WalkedDirectory) => void
   onPickerError: (err: Error) => void
 }
 
 /**
  * Full-window drag overlay that appears whenever the user drags a file
- * (or folder) over the page from outside.
+ * (or directory) over the page from outside.
  */
 export function GlobalDragOverlay({
   onFile,
-  onFolder,
+  onDirectory,
   onPickerError,
 }: GlobalDragOverlayProps) {
   const [active, setActive] = useState(false)
@@ -242,8 +242,8 @@ export function GlobalDragOverlay({
       e.preventDefault()
       if (dt.items && dataTransferContainsDirectory(dt.items)) {
         try {
-          const folder = await walkedFolderFromDataTransfer(dt.items)
-          if (folder.files.length > 0) onFolder(folder)
+          const directory = await walkedDirectoryFromDataTransfer(dt.items)
+          if (directory.files.length > 0) onDirectory(directory)
         } catch (err) {
           onPickerError(err instanceof Error ? err : new Error(String(err)))
         }
@@ -262,7 +262,7 @@ export function GlobalDragOverlay({
       window.removeEventListener("dragover", onDragOver)
       window.removeEventListener("drop", onDrop)
     }
-  }, [onFile, onFolder, onPickerError])
+  }, [onFile, onDirectory, onPickerError])
 
   if (!active) return null
   return (
@@ -271,7 +271,7 @@ export function GlobalDragOverlay({
         <FolderArchiveIcon className="mx-auto mb-2 size-10 text-primary" />
         <div className="font-heading text-base font-medium">Drop to open</div>
         <div className="text-xs text-muted-foreground">
-          Release to load this file or folder
+          Release to load this file or directory
         </div>
       </div>
     </div>

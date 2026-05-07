@@ -16,7 +16,7 @@
  * Focus and selection are decoupled (per WAI-ARIA): arrow keys only
  * move focus. Pressing Enter / Space commits — that's what fires
  * `onSelect` and updates the preview pane. This way a user can scan
- * through a folder of NCAs without triggering AES-XTS decryption on
+ * through a directory of NCAs without triggering AES-XTS decryption on
  * every row.
  *
  * Internally the tree owns:
@@ -673,7 +673,7 @@ function NodeIcon({ node, expanded }: { node: Node; expanded: boolean }) {
   if (
     node.kind === "directory" ||
     node.kind === "romfs" ||
-    node.kind === "fs-folder"
+    node.kind === "fs-directory"
   ) {
     return expanded ? <FolderOpenIcon className={cls} /> : <FolderIcon className={cls} />
   }
