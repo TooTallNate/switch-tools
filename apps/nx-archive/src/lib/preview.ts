@@ -1074,11 +1074,45 @@ export async function parseWemForAudioView(blob: Blob): Promise<WemView> {
 	let decoded: WemDecodeResult | null = null;
 	let decodeError: string | null = null;
 	try {
-		decoded = await decodeWemToBlob(parsed);
+		// Vorbis WEMs need the aoTuV-603 codebook library. We fetch it
+		// once on first use and cache the parsed library for all
+		// subsequent decodes (kept in module scope below).
+		const opts: Parameters<typeof decodeWemToBlob>[1] = {};
+		if (parsed.fmt.codecId === 0xffff) {
+			opts.vorbisCodebookLibrary = await getVorbisCodebookLibrary();
+		}
+		decoded = await decodeWemToBlob(parsed, opts);
 	} catch (e) {
 		decodeError = e instanceof Error ? e.message : String(e);
 	}
 	return { parsed, decoded, decodeError };
+}
+
+// Lazy + cached fetch of the aoTuV-603 codebook library. The asset
+// is bundled with `@tootallnate/wem-vorbis` and Vite resolves the
+// `?url` import to a hashed asset URL at build time.
+let _vorbisCodebookLib: import('@tootallnate/wem-vorbis').CodebookLibrary | null = null;
+let _vorbisCodebookFetch: Promise<import('@tootallnate/wem-vorbis').CodebookLibrary> | null = null;
+async function getVorbisCodebookLibrary() {
+	if (_vorbisCodebookLib) return _vorbisCodebookLib;
+	if (_vorbisCodebookFetch) return _vorbisCodebookFetch;
+	_vorbisCodebookFetch = (async () => {
+		// The `?url` query asks Vite to give us the resolved asset URL
+		// (hashed in production, served as-is in dev). The .bin file
+		// ships in the @tootallnate/wem-vorbis package.
+		const cbUrl = (
+			await import(
+				/* @vite-ignore */
+				'@tootallnate/wem-vorbis/assets/packed_codebooks_aoTuV_603.bin?url'
+			)
+		).default as string;
+		const res = await fetch(cbUrl);
+		const buf = new Uint8Array(await res.arrayBuffer());
+		const { codebookLibraryFromBytes } = await import('@tootallnate/wem-vorbis');
+		_vorbisCodebookLib = codebookLibraryFromBytes(buf);
+		return _vorbisCodebookLib;
+	})();
+	return _vorbisCodebookFetch;
 }
 
 // ----- Hex view helpers -----

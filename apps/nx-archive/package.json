@@ -48,6 +48,7 @@
     "@tootallnate/romfs": "workspace:*",
     "@tootallnate/sarc": "workspace:*",
     "@tootallnate/wem": "workspace:*",
+    "@tootallnate/wem-vorbis": "workspace:*",
     "@tootallnate/wwise-bnk": "workspace:*",
     "@tootallnate/wwise-pck": "workspace:*",
     "@tootallnate/xci": "workspace:*",

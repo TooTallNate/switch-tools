@@ -5,6 +5,12 @@
 
 import type { ParsedWem } from './parse.js';
 import { wemSwitchOpusToOggOpus } from './opusnx.js';
+import {
+	parseWemVorbisV62,
+	wemVorbisToOggVorbis,
+	codebookLibraryFromBytes,
+	type CodebookLibrary,
+} from '@tootallnate/wem-vorbis';
 
 export interface WemDecodeResult {
 	/** A Blob with a usable MIME type (`audio/wav`, `audio/ogg; codecs=opus`, …). */
@@ -12,14 +18,38 @@ export interface WemDecodeResult {
 	/** Suggested file extension WITHOUT the leading dot (`wav`, `ogg`, …). */
 	extension: string;
 	/** What kind of decode happened, for UI labels. */
-	kind: 'pcm-wav' | 'opus-passthrough' | 'switch-opus-to-ogg-opus';
+	kind:
+		| 'pcm-wav'
+		| 'opus-passthrough'
+		| 'switch-opus-to-ogg-opus'
+		| 'wwise-vorbis-to-ogg-vorbis';
+}
+
+/**
+ * Optional decode-time inputs. Specifically: Wwise Vorbis playback
+ * needs an external codebook library that the consumer must supply
+ * (typically by fetching `packed_codebooks_aoTuV_603.bin` from the
+ * `@tootallnate/wem-vorbis` package's `assets/` directory at runtime).
+ *
+ * Either pass raw codebook bytes, a pre-parsed library, or omit
+ * entirely — Vorbis WEMs surface a friendly "needs codebooks" error
+ * if the library isn't available.
+ */
+export interface WemDecodeOptions {
+	/** Raw codebook file bytes (e.g. fetched at runtime). */
+	vorbisCodebookBytes?: Uint8Array;
+	/** Pre-parsed codebook library (cache between calls). */
+	vorbisCodebookLibrary?: CodebookLibrary;
 }
 
 /**
  * Decode a parsed WEM into a browser-friendly Blob, if its codec
  * is supported. Throws a clear error for unsupported codecs.
  */
-export async function decodeWemToBlob(parsed: ParsedWem): Promise<WemDecodeResult> {
+export async function decodeWemToBlob(
+	parsed: ParsedWem,
+	options: WemDecodeOptions = {},
+): Promise<WemDecodeResult> {
 	const { fmt, dataChunk } = parsed;
 	if (!dataChunk) throw new Error('WEM has no data chunk to decode');
 
@@ -53,10 +83,28 @@ export async function decodeWemToBlob(parsed: ParsedWem): Promise<WemDecodeResul
 			};
 		}
 
-		case 0xffff:
-			throw new Error(
-				`Wwise Vorbis (0xFFFF) playback isn't supported yet — needs a ww2ogg-style codebook reconstruction. The .wem can still be downloaded for offline conversion.`,
-			);
+		case 0xffff: {
+			// Wwise Vorbis. We need the external aoTuV-603 codebook
+			// library — surface a clear instruction if the caller didn't
+			// supply one.
+			let lib = options.vorbisCodebookLibrary;
+			if (!lib) {
+				if (!options.vorbisCodebookBytes) {
+					throw new Error(
+						`Wwise Vorbis playback needs the aoTuV-603 codebook library. Pass \`vorbisCodebookBytes\` or \`vorbisCodebookLibrary\` to decodeWemToBlob — fetch \`packed_codebooks_aoTuV_603.bin\` from the @tootallnate/wem-vorbis assets/ directory.`,
+					);
+				}
+				lib = codebookLibraryFromBytes(options.vorbisCodebookBytes);
+			}
+			const dataAll = new Uint8Array(await dataChunk.data.arrayBuffer());
+			const v = parseWemVorbisV62(fmt.rawPayload, dataAll);
+			const blob = await wemVorbisToOggVorbis(v, lib);
+			return {
+				blob,
+				extension: 'ogg',
+				kind: 'wwise-vorbis-to-ogg-vorbis',
+			};
+		}
 
 		case 0x3041:
 			throw new Error(

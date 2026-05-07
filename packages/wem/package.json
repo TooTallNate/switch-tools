@@ -16,6 +16,9 @@
     "url": "https://github.com/TooTallNate/switch-tools",
     "directory": "packages/wem"
   },
+  "dependencies": {
+    "@tootallnate/wem-vorbis": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.3.3"
   }

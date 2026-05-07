@@ -2997,6 +2997,8 @@ function WemAudioPlayer({
     if (!view.decoded) return ""
     if (view.decoded.kind === "switch-opus-to-ogg-opus")
       return "Re-muxed Switch-Opus → Ogg-Opus (browser-native decode)"
+    if (view.decoded.kind === "wwise-vorbis-to-ogg-vorbis")
+      return "Rebuilt Wwise Vorbis → Ogg-Vorbis (browser-native decode, ww2ogg-style codebook reconstruction)"
     if (view.decoded.kind === "pcm-wav") return "PCM → WAV (no decode)"
     if (view.decoded.kind === "opus-passthrough")
       return "Standard Ogg-Opus (passthrough)"

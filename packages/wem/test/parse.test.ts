@@ -131,11 +131,39 @@ describe.runIf(existsSync(OPUS_WEM))('Switch-Opus → Ogg-Opus', () => {
 	});
 });
 
-describe.runIf(existsSync(VORBIS_WEM))('Vorbis WEM (unsupported)', () => {
-	it('reports a clear error for Vorbis playback', async () => {
+describe.runIf(existsSync(VORBIS_WEM))('Vorbis WEM', () => {
+	it('reports a clear, actionable error when codebooks are absent', async () => {
 		const bytes = readFileSync(VORBIS_WEM);
 		const parsed = await parseWem(blob(new Uint8Array(bytes)));
 		expect(parsed.fmt.codecId).toBe(0xffff);
-		await expect(decodeWemToBlob(parsed)).rejects.toThrow(/Vorbis/);
+		// Without codebooks: should throw a friendly "needs codebooks" error.
+		await expect(decodeWemToBlob(parsed)).rejects.toThrow(/codebook/i);
+	});
+
+	it('decodes to Ogg-Vorbis when the codebook library is supplied', async () => {
+		const bytes = readFileSync(VORBIS_WEM);
+		const parsed = await parseWem(blob(new Uint8Array(bytes)));
+		// Load the bundled codebook library from @tootallnate/wem-vorbis.
+		const cbPath = resolve(
+			__dirname,
+			'..',
+			'..',
+			'wem-vorbis',
+			'assets',
+			'packed_codebooks_aoTuV_603.bin',
+		);
+		if (!existsSync(cbPath)) {
+			// Codebook asset missing — skip rather than fail (e.g. fresh clone before deps installed).
+			return;
+		}
+		const cbBytes = new Uint8Array(readFileSync(cbPath));
+		const result = await decodeWemToBlob(parsed, { vorbisCodebookBytes: cbBytes });
+		expect(result.kind).toBe('wwise-vorbis-to-ogg-vorbis');
+		expect(result.extension).toBe('ogg');
+		expect(result.blob.type).toBe('audio/ogg; codecs=vorbis');
+		expect(result.blob.size).toBeGreaterThan(1024);
+		// First bytes should be "OggS" capture pattern.
+		const head = new Uint8Array(await result.blob.slice(0, 4).arrayBuffer());
+		expect(String.fromCharCode(...head)).toBe('OggS');
 	});
 });
