@@ -223,9 +223,15 @@ importers:
       '@tootallnate/aes-xts':
         specifier: workspace:*
         version: link:../../packages/aes-xts
+      '@tootallnate/bars':
+        specifier: workspace:*
+        version: link:../../packages/bars
       '@tootallnate/bffnt':
         specifier: workspace:*
         version: link:../../packages/bffnt
+      '@tootallnate/bfsar':
+        specifier: workspace:*
+        version: link:../../packages/bfsar
       '@tootallnate/bfttf':
         specifier: workspace:*
         version: link:../../packages/bfttf
@@ -382,7 +388,19 @@ importers:
         specifier: ^5.3.3
         version: 5.3.3
 
+  packages/bars:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/bffnt:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/bfsar:
     devDependencies:
       typescript:
         specifier: ^5.3.3

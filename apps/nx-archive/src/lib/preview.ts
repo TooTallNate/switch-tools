@@ -24,6 +24,8 @@ import {
 	type ParsedBffnt,
 	type RenderableBffnt,
 } from '@tootallnate/bffnt';
+import { parseBars, type ParsedBars } from '@tootallnate/bars';
+import { parseBfsar, type ParsedBfsar } from '@tootallnate/bfsar';
 
 export type PreviewKind =
 	| 'text'
@@ -748,6 +750,77 @@ export async function parseBffntForView(blob: Blob): Promise<BffntView> {
  * rasterise user-entered text without re-decoding the atlas.
  */
 export { renderText as renderBffntText };
+
+// ----- BARS preview (Switch / Wii U audio resource archive) -----
+
+/**
+ * View model for the structured BARS preview. Wraps the full
+ * {@link ParsedBars} with a few derived counts the React UI uses
+ * to label the summary section ("12 tracks · 9 FWAV · 3 stub …").
+ */
+export interface BarsView {
+	parsed: ParsedBars;
+	fwavCount: number;
+	fstpCount: number;
+	stubCount: number;
+	totalAudioBytes: number;
+}
+
+export async function parseBarsForView(blob: Blob): Promise<BarsView> {
+	const parsed = await parseBars(blob);
+	let fwavCount = 0;
+	let fstpCount = 0;
+	let stubCount = 0;
+	let totalAudioBytes = 0;
+	for (const e of parsed.entries) {
+		if (e.audioKind === 'fwav') fwavCount++;
+		else if (e.audioKind === 'fstp') fstpCount++;
+		else stubCount++;
+		totalAudioBytes += e.audioSize;
+	}
+	return { parsed, fwavCount, fstpCount, stubCount, totalAudioBytes };
+}
+
+// ----- BFSAR preview (NintendoWare master sound archive) -----
+
+/**
+ * View model for the structured BFSAR preview. The underlying
+ * {@link ParsedBfsar} already exposes counts and the lazily-sliced
+ * file list; we just compute a sound-kind histogram so the summary
+ * section can call out streams vs. waves vs. sequences.
+ */
+export interface BfsarView {
+	parsed: ParsedBfsar;
+	streamCount: number;
+	waveCount: number;
+	sequenceCount: number;
+	inlineCount: number;
+	groupCount: number;
+}
+
+export async function parseBfsarForView(blob: Blob): Promise<BfsarView> {
+	const parsed = await parseBfsar(blob);
+	let streamCount = 0;
+	let waveCount = 0;
+	let sequenceCount = 0;
+	let inlineCount = 0;
+	let groupCount = 0;
+	for (const f of parsed.internalFiles) {
+		if (f.soundKind === 'stream') streamCount++;
+		else if (f.soundKind === 'wave') waveCount++;
+		else if (f.soundKind === 'sequence') sequenceCount++;
+		if (f.location === 'inline') inlineCount++;
+		else if (f.location === 'group') groupCount++;
+	}
+	return {
+		parsed,
+		streamCount,
+		waveCount,
+		sequenceCount,
+		inlineCount,
+		groupCount,
+	};
+}
 
 // ----- Hex view helpers -----
 

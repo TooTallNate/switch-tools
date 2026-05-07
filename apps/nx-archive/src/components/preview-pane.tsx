@@ -62,7 +62,9 @@ import {
   buildHexDump,
   detectPreviewKind,
   extOf,
+  parseBarsForView,
   parseBffntForView,
+  parseBfsarForView,
   parseFontForView,
   parseCnmtForView,
   parseNacpForView,
@@ -70,6 +72,8 @@ import {
   parseNroForView,
   parseNsoForView,
   renderBffntText,
+  type BarsView,
+  type BfsarView,
   type FontView,
   type CnmtView,
   type NacpView,
@@ -129,6 +133,8 @@ function PreviewContent({ node }: { node: Node }) {
   // of the generic "expand me" empty state.
   const isHtdocs = node.kind === "htdocs"
   const isNca = node.kind === "nca"
+  const isBars = node.kind === "bars"
+  const isBfsar = node.kind === "bfsar"
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -138,6 +144,10 @@ function PreviewContent({ node }: { node: Node }) {
           <HtdocsPreview node={node} />
         ) : isNca ? (
           <NcaPreview node={node} />
+        ) : isBars ? (
+          <BarsPreview node={node} />
+        ) : isBfsar ? (
+          <BfsarPreview node={node} />
         ) : node.isContainer ? (
           <ContainerSummary node={node} />
         ) : (
@@ -2271,6 +2281,253 @@ function BffntAtlasSheet({
         style={{ imageRendering: "pixelated" }}
       />
     </div>
+  )
+}
+
+// ====================================================================
+// BARS — Switch / Wii U audio resource archive
+// ====================================================================
+//
+// BARS is a flat archive of named audio cues — each cue is an
+// `(AMTA, FWAV|FSTP)` pair where AMTA carries the human-readable
+// track name plus per-track metadata (sample rate, channels, loop
+// range) and FWAV / FSTP is the actual audio payload. The
+// {@link makeBarsNode} container exposes each cue as an expandable
+// child of the BARS file in the tree, so this preview pane is
+// strictly the *summary* view shown when the user clicks the BARS
+// archive itself: counts, totals, and a top-N table of tracks.
+
+const BARS_TRACK_TABLE_LIMIT = 100
+
+function BarsPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseBarsForView(await node.blob!())
+  }, [node.id])
+
+  if (loading) return <LoadingFiller label="Decoding BARS…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="BARS — Binary Audio Resource System" />
+
+        <KvBlock title="Archive">
+          <KvRow k="Tracks" v={String(v.parsed.trackCount)} />
+          <KvRow
+            k="Audio payloads"
+            v={`${v.fwavCount} FWAV · ${v.fstpCount} FSTP · ${v.stubCount} stub (no audio)`}
+          />
+          <KvRow k="Audio bytes total" v={formatBytes(v.totalAudioBytes)} />
+          <KvRow k="File size" v={formatBytes(v.parsed.fileSize)} />
+          <KvRow k="Endian" v={v.parsed.endian} />
+        </KvBlock>
+
+        <BarsTrackTableSection view={v} />
+      </div>
+    </ScrollArea>
+  )
+}
+
+function BarsTrackTableSection({ view }: { view: BarsView }) {
+  const { parsed } = view
+  const truncated = parsed.entries.length > BARS_TRACK_TABLE_LIMIT
+  const rows = truncated
+    ? parsed.entries.slice(0, BARS_TRACK_TABLE_LIMIT)
+    : parsed.entries
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Tracks {truncated ? `(showing first ${BARS_TRACK_TABLE_LIMIT} of ${parsed.entries.length})` : ""}
+      </h3>
+      <div className="overflow-x-auto rounded-md border bg-card">
+        <table className="w-full border-collapse text-xs">
+          <thead className="border-b bg-muted/40 text-left text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">#</th>
+              <th className="px-3 py-2 font-medium">Name</th>
+              <th className="px-3 py-2 font-medium">Kind</th>
+              <th className="px-3 py-2 font-medium">Channels</th>
+              <th className="px-3 py-2 font-medium">Loop</th>
+              <th className="px-3 py-2 font-medium">Volume</th>
+              <th className="px-3 py-2 font-medium">Bytes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((e) => {
+              const data = e.amta.data
+              return (
+                <tr
+                  key={e.index}
+                  className="border-b border-border/40 last:border-0"
+                >
+                  <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                    {e.index}
+                  </td>
+                  <td className="px-3 py-1.5">
+                    {e.name || (
+                      <span className="text-muted-foreground">(unnamed)</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-1.5 font-mono">
+                    {e.audioKind ?? (
+                      <span className="text-muted-foreground">stub</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-1.5">
+                    {data?.channelCount ?? "—"}
+                  </td>
+                  <td className="px-3 py-1.5">
+                    {data?.loopFlag
+                      ? `${data.loopStart}–${data.loopEnd}`
+                      : "—"}
+                  </td>
+                  <td className="px-3 py-1.5">
+                    {data ? data.volume.toFixed(3) : "—"}
+                  </td>
+                  <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                    {e.audioSize > 0 ? formatBytes(e.audioSize) : "—"}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+// ====================================================================
+// BFSAR — Binary caFe Sound ARchive
+// ====================================================================
+//
+// BFSAR (`FSAR` magic) is NintendoWare's master sound archive on the
+// Wii U / Switch. It contains seven flavours of items (sounds, sound
+// groups, banks, wave archives, groups, players, files); the actual
+// audio bytes live in the `FILE` block as standalone BFSTM / BFWAV /
+// BFSTP / BFWAR / BFBNK / BFSEQ / BFGRP / BFWSD payloads.
+//
+// As with BARS, the {@link makeBfsarNode} container already exposes
+// each named internal file as a child node in the tree (suffixed
+// with the appropriate `.bfstm` / `.bfwav` / etc. extension), so
+// this preview is the summary view shown when the user clicks the
+// BFSAR file itself.
+
+function BfsarPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseBfsarForView(await node.blob!())
+  }, [node.id])
+
+  if (loading) return <LoadingFiller label="Decoding BFSAR…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+
+  // BFSAR version is encoded as packed BCD: e.g. 0x00020400 → "2.4.0".
+  const ver = v.parsed.version
+  const versionStr = `${(ver >> 16) & 0xff}.${(ver >> 8) & 0xff}.${ver & 0xff}`
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="BFSAR — Binary caFe Sound ARchive" />
+
+        <KvBlock title="Archive">
+          <KvRow k="Version" v={versionStr} />
+          <KvRow k="Endian" v={v.parsed.endian} />
+          <KvRow k="File size" v={formatBytes(v.parsed.fileSize)} />
+          <KvRow k="Top-level blocks" v={String(v.parsed.blockCount)} />
+          <KvRow
+            k="Strings"
+            v={`${v.parsed.strings.length} entries`}
+          />
+        </KvBlock>
+
+        <KvBlock title="Item counts">
+          <KvRow k="Sounds" v={String(v.parsed.counts.sounds)} />
+          <KvRow k="Sound groups" v={String(v.parsed.counts.soundGroups)} />
+          <KvRow k="Banks" v={String(v.parsed.counts.banks)} />
+          <KvRow k="Wave archives" v={String(v.parsed.counts.waveArchives)} />
+          <KvRow k="Groups" v={String(v.parsed.counts.groups)} />
+          <KvRow k="Players" v={String(v.parsed.counts.players)} />
+          <KvRow k="Files" v={String(v.parsed.counts.files)} />
+        </KvBlock>
+
+        <KvBlock title="File breakdown">
+          <KvRow k="Inline (in FILE block)" v={String(v.inlineCount)} />
+          <KvRow k="Inside group archives" v={String(v.groupCount)} />
+          <KvRow k="External (referenced by path)" v={String(v.parsed.externalFiles.length)} />
+          <KvRow
+            k="Sound kinds"
+            v={`${v.streamCount} stream · ${v.waveCount} wave · ${v.sequenceCount} sequence`}
+          />
+        </KvBlock>
+
+        <BfsarFileTableSection view={v} />
+      </div>
+    </ScrollArea>
+  )
+}
+
+function BfsarFileTableSection({ view }: { view: BfsarView }) {
+  const { parsed } = view
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Internal files
+      </h3>
+      <div className="overflow-x-auto rounded-md border bg-card">
+        <table className="w-full border-collapse text-xs">
+          <thead className="border-b bg-muted/40 text-left text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">#</th>
+              <th className="px-3 py-2 font-medium">Name</th>
+              <th className="px-3 py-2 font-medium">Magic</th>
+              <th className="px-3 py-2 font-medium">Kind</th>
+              <th className="px-3 py-2 font-medium">Location</th>
+              <th className="px-3 py-2 font-medium">Size</th>
+            </tr>
+          </thead>
+          <tbody>
+            {parsed.internalFiles.map((f) => (
+              <tr
+                key={f.index}
+                className="border-b border-border/40 last:border-0"
+              >
+                <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                  {f.index}
+                </td>
+                <td className="px-3 py-1.5">{f.name}</td>
+                <td className="px-3 py-1.5 font-mono">
+                  {f.innerMagic ?? "—"}
+                </td>
+                <td className="px-3 py-1.5">
+                  {f.soundKind ?? f.nameSource}
+                </td>
+                <td className="px-3 py-1.5">{f.location ?? "—"}</td>
+                <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                  {f.size > 0 ? formatBytes(f.size) : "—"}
+                </td>
+              </tr>
+            ))}
+            {parsed.externalFiles.map((f) => (
+              <tr
+                key={`ext-${f.index}`}
+                className="border-b border-border/40 last:border-0 text-muted-foreground"
+              >
+                <td className="px-3 py-1.5 font-mono">{f.index}</td>
+                <td className="px-3 py-1.5">{f.name}</td>
+                <td className="px-3 py-1.5 font-mono">EXT</td>
+                <td className="px-3 py-1.5">external</td>
+                <td className="px-3 py-1.5 font-mono break-all">{f.path}</td>
+                <td className="px-3 py-1.5">—</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }
 

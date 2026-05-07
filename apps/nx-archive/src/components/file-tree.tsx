@@ -49,6 +49,7 @@ import {
   HardDriveIcon,
   ImageIcon,
   LockIcon,
+  Music2Icon,
   PackageIcon,
   TypeIcon,
 } from "lucide-react"
@@ -698,6 +699,13 @@ function NodeIcon({ node, expanded }: { node: Node; expanded: boolean }) {
   }
   if (/\.(ttf|otf|ttc|otc|bfttf|bfotf|bffnt|woff2?)$/.test(lower)) {
     return <TypeIcon className={cls} />
+  }
+  if (
+    /\.(wav|mp3|ogg|flac|m4a|bars|bfsar|bfstm|bfwav|bfstp|bfwar|bfbnk|bfseq|bfgrp|bfwsd)$/.test(
+      lower,
+    )
+  ) {
+    return <Music2Icon className={cls} />
   }
   if (/\.(json|xml|txt|md|cfg|ini|toml|yml|yaml|csv|log)$/.test(lower)) {
     return <FileCode2Icon className={cls} />

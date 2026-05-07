@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/bars",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for Nintendo's BARS audio resource archive — a flat directory of named BFWAV / BFSTP audio entries plus per-track AMTA metadata, used by Wii U and Switch first-party games (notably Zelda: Breath of the Wild and Tears of the Kingdom)",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/bars"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
