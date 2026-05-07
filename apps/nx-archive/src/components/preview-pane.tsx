@@ -68,6 +68,7 @@ import {
   parseBfsarForView,
   parseBfstmForAudioView,
   parseBfwavForAudioView,
+  parseBntxForView,
   parseBnvibForView,
   parseByamlForView,
   parseFontForView,
@@ -81,6 +82,7 @@ import {
   type BarsView,
   type BarslistView,
   type BfsarView,
+  type BntxView,
   type BnvibView,
   type ByamlView,
   type FontView,
@@ -1030,6 +1032,8 @@ function FilePreview({ node, kind }: { node: Node; kind: PreviewKind }) {
       return <BnvibPreview node={node} />
     case "byaml-tree":
       return <ByamlPreview node={node} />
+    case "bntx-image":
+      return <BntxPreview node={node} />
     case "hex":
     default:
       return <HexPreview node={node} />
@@ -3004,6 +3008,130 @@ function ByamlPreview({ node }: { node: Node }) {
         </section>
       </div>
     </ScrollArea>
+  )
+}
+
+// ====================================================================
+// BNTX — Nintendo texture preview
+// ====================================================================
+//
+// Decode the texture's first layer to RGBA8, render to an offscreen
+// `<canvas>`, and let the user save it as a PNG. We render against a
+// checkerboard background so transparent areas are visually obvious.
+
+function BntxPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseBntxForView(await node.blob!())
+  }, [node.id])
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  // Keep a separate object URL for the "Save as PNG" download link.
+  const [pngUrl, setPngUrl] = useState<string | null>(null)
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !data) return
+    const w = data.texture.width
+    const h = data.texture.height
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    // Wrap the decoded pixels in an ImageData (no copy if widths match).
+    const imageData = ctx.createImageData(w, h)
+    imageData.data.set(data.pixels)
+    ctx.putImageData(imageData, 0, 0)
+    // Encode to PNG for the download link. `toBlob` is async.
+    canvas.toBlob((b) => {
+      if (b) setPngUrl(URL.createObjectURL(b))
+    }, "image/png")
+    return () => {
+      setPngUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+    }
+  }, [data])
+  if (loading) return <LoadingFiller label="Decoding BNTX…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="BNTX — Binary NinTeXture" />
+        <BntxImageSection canvasRef={canvasRef} view={v} pngUrl={pngUrl} />
+        <KvBlock title="Texture">
+          <KvRow k="Name" v={v.texture.name || "(unnamed)"} />
+          <KvRow k="Format" v={v.texture.formatInfo.name} />
+          <KvRow k="Dimensions" v={`${v.texture.width} × ${v.texture.height} px`} />
+          <KvRow k="Mip levels" v={String(v.texture.mipCount)} />
+          <KvRow k="Array length" v={String(v.texture.arrayLength)} />
+          <KvRow
+            k="Block size"
+            v={
+              v.texture.formatInfo.isBcn || v.texture.formatInfo.isAstc
+                ? `${v.texture.formatInfo.blkWidth} × ${v.texture.formatInfo.blkHeight} px / ${v.texture.formatInfo.bytesPerBlock} B`
+                : `${v.texture.formatInfo.bytesPerBlock} B/pixel`
+            }
+          />
+          <KvRow k="sRGB" v={v.texture.srgb ? "yes" : "no"} />
+          <KvRow k="Image data size" v={formatBytes(v.texture.imageSize)} />
+        </KvBlock>
+        <KvBlock title="Container">
+          <KvRow k="Endian" v={v.parsed.endian} />
+          <KvRow k="Target" v={v.parsed.target} />
+          <KvRow k="Texture count" v={String(v.parsed.textureCount)} />
+        </KvBlock>
+      </div>
+    </ScrollArea>
+  )
+}
+
+function BntxImageSection({
+  canvasRef,
+  view,
+  pngUrl,
+}: {
+  canvasRef: React.RefObject<HTMLCanvasElement | null>
+  view: BntxView
+  pngUrl: string | null
+}) {
+  const downloadName = (view.texture.name || "texture") + ".png"
+  return (
+    <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+      <div
+        className="overflow-auto rounded-md border"
+        // Light-and-dark transparency checkerboard so alpha is visible.
+        style={{
+          background:
+            "repeating-conic-gradient(rgb(36, 36, 36) 0% 25%, rgb(20, 20, 20) 0% 50%) 50% / 16px 16px",
+          maxHeight: "70vh",
+        }}
+      >
+        <canvas
+          ref={canvasRef}
+          className="block max-w-full"
+          style={{
+            imageRendering:
+              view.texture.width <= 256 && view.texture.height <= 256
+                ? "pixelated"
+                : "auto",
+          }}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span>
+          Decoded {view.texture.formatInfo.name} → 8-bit RGBA ({view.texture.width} × {view.texture.height})
+        </span>
+        {pngUrl && (
+          <a
+            href={pngUrl}
+            download={downloadName}
+            className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+          >
+            Save .png
+          </a>
+        )}
+      </div>
+    </section>
   )
 }
 

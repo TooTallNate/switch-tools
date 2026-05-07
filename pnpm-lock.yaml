@@ -247,6 +247,9 @@ importers:
       '@tootallnate/bfwav':
         specifier: workspace:*
         version: link:../../packages/bfwav
+      '@tootallnate/bntx':
+        specifier: workspace:*
+        version: link:../../packages/bntx
       '@tootallnate/bnvib':
         specifier: workspace:*
         version: link:../../packages/bnvib
@@ -460,6 +463,12 @@ importers:
       '@tootallnate/dsp-adpcm':
         specifier: workspace:*
         version: link:../dsp-adpcm
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/bntx:
     devDependencies:
       typescript:
         specifier: ^5.3.3

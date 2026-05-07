@@ -44,6 +44,12 @@ import {
 	type ParsedBnvib,
 } from '@tootallnate/bnvib';
 import { parseByaml, byamlToJson, type ParsedByaml } from '@tootallnate/byaml';
+import {
+	parseBntx,
+	decodeBntxLayer,
+	type ParsedBntx,
+	type BntxTexture,
+} from '@tootallnate/bntx';
 
 export type PreviewKind =
 	| 'text'
@@ -69,6 +75,8 @@ export type PreviewKind =
 	| 'bnvib-audio'
 	/** Nintendo binary YAML — game configs / data tables. */
 	| 'byaml-tree'
+	/** Nintendo texture format (BC1/3/4/5/7, RGBA8, etc.). */
+	| 'bntx-image'
 	| 'hex';
 
 export const TEXT_EXTS = new Set([
@@ -191,6 +199,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.barslist')) return 'barslist-info';
 	if (lower.endsWith('.bnvib')) return 'bnvib-audio';
 	if (lower.endsWith('.byaml') || lower.endsWith('.byml')) return 'byaml-tree';
+	if (lower.endsWith('.bntx')) return 'bntx-image';
 	// Switch app icons (in Control NCA RomFS) are JPEGs with a `.dat` ext.
 	if (/^icon_.*\.dat$/.test(lower)) return 'image';
 	const ext = extOf(name);
@@ -1000,6 +1009,27 @@ function stringifyJson(value: unknown): string {
 // `encodeWav` is re-exported (used by some scripts/tools); avoid
 // the unused-import lint by referencing it once.
 void encodeWav;
+
+// ----- BNTX texture preview -----
+
+export interface BntxView {
+	parsed: ParsedBntx;
+	/** The texture currently being previewed (always `parsed.textures[0]` here). */
+	texture: BntxTexture;
+	/** Decoded RGBA8 pixels (row-major, top-left origin). */
+	pixels: Uint8Array;
+}
+
+export async function parseBntxForView(blob: Blob): Promise<BntxView> {
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	const parsed = parseBntx(bytes);
+	if (parsed.textureCount === 0) {
+		throw new Error('BNTX has no textures');
+	}
+	const texture = parsed.textures[0];
+	const decoded = decodeBntxLayer(bytes, texture, 0);
+	return { parsed, texture, pixels: decoded.pixels };
+}
 
 // ----- Hex view helpers -----
 

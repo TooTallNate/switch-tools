@@ -221,6 +221,7 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	bnvib: 'BNVIB', // Switch HD Rumble vibration pattern
 	byaml: 'BYAML', // Nintendo binary YAML
 	byml: 'BYML',
+	bntx: 'BNTX', // Nintendo texture format (BC1/3/4/5/7, RGBA8, etc.)
 	bfbnk: 'BFBNK', // Instrument bank
 	bfseq: 'BFSEQ', // Sequence (MIDI-like)
 	bfgrp: 'BFGRP', // Group sub-archive

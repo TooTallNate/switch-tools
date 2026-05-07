@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/bntx",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser and decoder for Nintendo's BNTX (Binary NinTeXture) format — the standard texture container on Switch / Wii U used by every NintendoWare-based game (MK8D, Pokémon, Mario, Zelda, etc.). Supports BC1/BC2/BC3/BC4/BC5/BC7 block-compressed textures plus all the uncompressed variants, with full Tegra X1 GOB block-linear deswizzling. Produces RGBA8 pixel buffers ready for Canvas / PNG / WebGL.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/bntx"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
