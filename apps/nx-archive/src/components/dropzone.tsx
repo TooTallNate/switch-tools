@@ -77,7 +77,12 @@ export function Dropzone({ onFile, onFolder, onPickerError }: DropzoneProps) {
   }
 
   return (
-    <div className="flex h-full items-center justify-center p-8">
+    // Fill `<main>` (a row flexbox) on both axes, then center the card.
+    // The card itself overrides `Empty`'s baked-in `flex-1` with
+    // `flex-initial` so it doesn't grow to its `max-w-2xl` cap — that
+    // way it stays at the natural content width set by `EmptyHeader`/
+    // `EmptyContent`'s `max-w-sm`, matching the original look.
+    <div className="flex h-full w-full items-center justify-center p-8">
       <input
         ref={fileInputRef}
         type="file"
@@ -106,7 +111,15 @@ export function Dropzone({ onFile, onFolder, onPickerError }: DropzoneProps) {
       />
       <Empty
         className={cn(
-          "max-w-2xl border-2 bg-card transition-all",
+          // `flex-initial` (= `flex: 0 1 auto`) overrides Empty's
+          // `flex-1` so the card doesn't try to grow to fill the
+          // main-axis space, and `w-auto` overrides Empty's `w-full`
+          // so the card sizes to its content (matching the original
+          // shrink-to-fit width of ~28rem driven by the inner header
+          // and content blocks' `max-w-sm`). Both overrides are
+          // required: without `w-auto` the explicit `width: 100%`
+          // on Empty wins regardless of `flex-initial`.
+          "max-w-2xl w-auto flex-initial border-2 bg-card transition-all",
           hover && "scale-[1.01] border-primary ring-3 ring-ring/40",
         )}
         onDragOver={(e) => {
