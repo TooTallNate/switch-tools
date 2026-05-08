@@ -6,6 +6,9 @@ import {
 	extractGeometry,
 	extractMaterials,
 	extractSkeletons,
+	extractAnimations,
+	evaluateCurve,
+	type BfresAnimCurve,
 } from '../src/index.js';
 
 /**
@@ -167,5 +170,94 @@ describe('extractSkeletons', () => {
 
 	it('rejects a too-small blob', async () => {
 		await expect(extractSkeletons(new Blob([]))).rejects.toThrow(/too small/);
+	});
+});
+
+describe('extractAnimations', () => {
+	it('returns empty groups for a header-only BFRES', async () => {
+		const buf = buildSmokeHeader();
+		const a = await extractAnimations(new Blob([buf as BlobPart]));
+		expect(a.skeletal).toEqual([]);
+		expect(a.material).toEqual([]);
+		expect(a.boneVis).toEqual([]);
+		expect(a.shape).toEqual([]);
+		expect(a.scene).toEqual([]);
+	});
+
+	it('rejects a Wii U BFRES', async () => {
+		const buf = buildSmokeHeader();
+		buf[4] = 0;
+		await expect(
+			extractAnimations(new Blob([buf as BlobPart])),
+		).rejects.toThrow(/Wii U/);
+	});
+
+	it('rejects a too-small blob', async () => {
+		await expect(extractAnimations(new Blob([]))).rejects.toThrow(/too small/);
+	});
+});
+
+describe('evaluateCurve', () => {
+	function makeCurve(partial: Partial<BfresAnimCurve>): BfresAnimCurve {
+		return {
+			animDataOffset: 0,
+			curveType: 'linear',
+			startFrame: 0,
+			endFrame: 10,
+			scale: 1,
+			offset: 0,
+			frames: new Float32Array([0, 5, 10]),
+			keys: new Float32Array([0, 1, 5, 1, 10, 0]), // (val, delta) pairs
+			preWrap: 'clamp',
+			postWrap: 'clamp',
+			...partial,
+		};
+	}
+
+	it('linear interpolates within a segment', () => {
+		const c = makeCurve({});
+		expect(evaluateCurve(c, 0)).toBeCloseTo(0);
+		expect(evaluateCurve(c, 2.5)).toBeCloseTo(2.5); // 0 + 0.5 * 5
+		expect(evaluateCurve(c, 5)).toBeCloseTo(5);
+		expect(evaluateCurve(c, 7.5)).toBeCloseTo(7.5); // 5 + 0.5 * 5
+	});
+
+	it('clamps out-of-range frames by default', () => {
+		const c = makeCurve({});
+		expect(evaluateCurve(c, -10)).toBeCloseTo(0); // clamp to startFrame
+		expect(evaluateCurve(c, 100)).toBeCloseTo(10); // clamp to endFrame
+	});
+
+	it('cubic curves apply the Hermite polynomial across segments', () => {
+		// keys = (P0, P1, P2, P3) per segment; the evaluator computes
+		// `value(u) = P0 + u·P1 + u²·P2 + u³·P3` between frames
+		// [0, 10].
+		const c = makeCurve({
+			curveType: 'cubic',
+			frames: new Float32Array([0, 10]),
+			// Two keys: first carries the polynomial; second is end-of-curve.
+			// At u = 0 → 0; at u = 0.5 → 0 + 0.5 + 0.25*4 + 0.125*8 = 2.5;
+			// at u = 1 → 0 + 1 + 4 + 8 = 13.
+			keys: new Float32Array([0, 1, 4, 8, 13, 0, 0, 0]),
+		});
+		expect(evaluateCurve(c, 0)).toBeCloseTo(0);
+		expect(evaluateCurve(c, 5)).toBeCloseTo(0 + 0.5 + 0.25 * 4 + 0.125 * 8);
+		// At endFrame the search lands at the last key, which is P0=13.
+		expect(evaluateCurve(c, 10)).toBeCloseTo(13);
+	});
+
+	it('post-wrap "repeat" wraps modulo (endFrame - startFrame)', () => {
+		const c = makeCurve({ postWrap: 'repeat' });
+		expect(evaluateCurve(c, 12.5)).toBeCloseTo(2.5); // 12.5 % 10 = 2.5
+		expect(evaluateCurve(c, 25)).toBeCloseTo(5); // 25 % 10 = 5
+	});
+
+	it('returns offset for empty curves', () => {
+		const c = makeCurve({
+			frames: new Float32Array(0),
+			keys: new Float32Array(0),
+			offset: 7,
+		});
+		expect(evaluateCurve(c, 0)).toBe(7);
 	});
 });

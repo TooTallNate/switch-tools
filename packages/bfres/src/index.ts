@@ -161,6 +161,19 @@ export interface BfresGeometry {
 	 * directly into the skeleton. Empty for rigid-skinned shapes.
 	 */
 	skinBoneIndexList: Uint16Array;
+	/**
+	 * Per-vertex bone-influence indices, `vertexCount × 4` floats.
+	 * Each value is an index into {@link skinBoneIndexList} (NOT
+	 * directly into the skeleton). Zero-padded for skin counts < 4.
+	 * `null` if the shape has no skin attributes (rigid-skinned).
+	 */
+	skinIndices: Float32Array | null;
+	/**
+	 * Per-vertex bone-influence weights, `vertexCount × 4` floats.
+	 * Should sum to 1.0 across the four entries. `null` if the
+	 * shape has no skin attributes.
+	 */
+	skinWeights: Float32Array | null;
 }
 
 /**
@@ -188,6 +201,17 @@ export interface BfresBone {
 	/** How {@link rotation} should be interpreted. */
 	rotationMode: 'eulerXYZ' | 'quaternion';
 	/**
+	 * Index into the skeleton's smooth-matrix list, or `-1` if this
+	 * bone is not smooth-skinned. Used to look up the bone's
+	 * inverse-bind matrix during linear-blend skinning.
+	 */
+	smoothMatrixIndex: number;
+	/**
+	 * Index into the skeleton's rigid-matrix list, or `-1` if this
+	 * bone is not rigid-skinned.
+	 */
+	rigidMatrixIndex: number;
+	/**
 	 * 4×4 column-major **local** matrix (relative to parent),
 	 * computed from S/R/T. Length 16. Column-major means
 	 * `m[col*4 + row]` — the same layout as Three.js / glTF / WebGL.
@@ -199,6 +223,19 @@ export interface BfresBone {
 	 * transform geometry that's stored in this bone's local space.
 	 */
 	worldMatrix: Float32Array;
+	/**
+	 * 4×4 column-major **inverse-bind** matrix — the inverse of
+	 * the bone's bind-pose world matrix at the time the mesh was
+	 * authored. Used during linear-blend skinning to bring a model-
+	 * space vertex into the bone's local space before re-applying
+	 * the (possibly animated) world matrix.
+	 *
+	 * For Switch BFRES with `numSmoothMatrices > 0`, this is read
+	 * directly from the FSKL `InverseModelMatrices` array (one per
+	 * smooth-skinned bone). For bones without a stored inverse-
+	 * bind matrix we fall back to the inverse of {@link worldMatrix}.
+	 */
+	inverseBindMatrix: Float32Array;
 }
 
 export interface BfresSkeleton {
@@ -206,6 +243,20 @@ export interface BfresSkeleton {
 	bones: BfresBone[];
 	/** Default rotation mode for the skeleton (per-bone may differ). */
 	rotationMode: 'eulerXYZ' | 'quaternion';
+	/**
+	 * Maps each entry of the FSHP `skinBoneIndexList` to a bone
+	 * index. Index `i` corresponds to skin-matrix slot `i`; entries
+	 * `[0, numSmoothMatrices)` are smooth-skinned and have an
+	 * inverse-bind matrix in `inverseModelMatrices`; entries
+	 * `[numSmoothMatrices, numSmoothMatrices + numRigidMatrices)`
+	 * are rigid-skinned.
+	 */
+	matrixToBoneList: Uint16Array;
+	/** Number of smooth-skinned matrices (matches the inverse-bind
+	 *  matrices array length). */
+	numSmoothMatrices: number;
+	/** Number of rigid-skinned matrices. */
+	numRigidMatrices: number;
 }
 
 /**
@@ -238,6 +289,172 @@ export interface BfresMaterial {
 	/** Convenience: sampler-to-texture pairings. */
 	bindings: BfresTextureBinding[];
 }
+
+// ----- Animation types (FSKA / FMAA / FVIS / FSHU / FSCN) -----
+
+/**
+ * Curve interpolation type, decoded from the low 7 bits of the
+ * curve's flags word. Values match BfresLibrary's `AnimCurveType`
+ * enum.
+ */
+export type BfresCurveType =
+	| 'cubic' /** 4 elements per key (in, value, slope-in, slope-out). */
+	| 'linear' /** 2 elements per key (value0, value1) — value at frame K. */
+	| 'bakedFloat' /** 1 element per key, frame-array unused. */
+	| 'stepInt' /** 1 element per key (integer). */
+	| 'bakedInt'
+	| 'stepBool' /** 1 element per 32 keys (bit-packed). */
+	| 'bakedBool';
+
+/**
+ * One animation curve. Keys are normalized to `Float32Array`s
+ * regardless of on-disk frame/key types (`Single`, `Int16`,
+ * `SByte`, `Decimal10x5`, `Byte`). Use {@link evaluateCurve} to
+ * sample the curve at an arbitrary frame.
+ */
+export interface BfresAnimCurve {
+	/** Bytewise field offset inside the parent record (e.g. 0x10
+	 *  for `BoneAnimData.Translate.X`, 0x20 for `Rotate.X`).
+	 *  See {@link BoneAnimDataOffset} for FSKA mappings. */
+	animDataOffset: number;
+	curveType: BfresCurveType;
+	/** First frame at which a key is placed. */
+	startFrame: number;
+	/** Last frame at which a key is placed. */
+	endFrame: number;
+	/** Multiplied into integer-encoded keys when decoding. */
+	scale: number;
+	/** Added (after scaling) to integer-encoded keys when decoding. */
+	offset: number;
+	/** Frame numbers (monotonically increasing). */
+	frames: Float32Array;
+	/** Flat key array, `frames.length * elementsPerKey` long. */
+	keys: Float32Array;
+	/** How to evaluate frames before `startFrame`. */
+	preWrap: 'clamp' | 'repeat' | 'mirror';
+	/** How to evaluate frames after `endFrame`. */
+	postWrap: 'clamp' | 'repeat' | 'mirror';
+}
+
+/** Per-bone animation track inside a {@link BfresSkeletalAnim}. */
+export interface BfresBoneAnim {
+	/** Name of the animated bone (matches a `BfresBone.name`). */
+	name: string;
+	/** Initial S/R/T values used when no curve animates that
+	 *  channel. Indices: `[scaleX, scaleY, scaleZ, rotX, rotY,
+	 *  rotZ, rotW, translateX, translateY, translateZ]`. Channels
+	 *  with no base value (per `flagsBase`) are left at the rig's
+	 *  bind-pose default (S=1, R=identity, T=0). */
+	baseScale: [number, number, number];
+	baseRotation: [number, number, number, number];
+	baseTranslation: [number, number, number];
+	/** Curves (one per animated component). */
+	curves: BfresAnimCurve[];
+}
+
+/**
+ * One FSKA SkeletalAnim sub-file: armature animation for a
+ * skeleton. Multiple FSKA records can animate the same skeleton
+ * (different actions / clips).
+ */
+export interface BfresSkeletalAnim {
+	name: string;
+	/** Total frame count (animation duration in frames). */
+	frameCount: number;
+	/** True if the animation should loop after `frameCount`. */
+	loop: boolean;
+	/** True if all curves are pre-baked (one key per frame). */
+	baked: boolean;
+	/** Rotation storage mode for this animation (independent of
+	 *  the skeleton's mode). */
+	rotationMode: 'eulerXYZ' | 'quaternion';
+	/** Per-bone animation tracks, in storage order. */
+	boneAnims: BfresBoneAnim[];
+}
+
+/** Per-FMAT material-parameter animation track in an FMAA. */
+export interface BfresMaterialAnim {
+	/** Bone/material this track binds to (matches a material name). */
+	name: string;
+	/** Curves: animated material parameters by name. */
+	curves: BfresAnimCurve[];
+	/** Texture-pattern keys: `samplerName -> [{ frame, textureIndex }]`.
+	 *  Used by FMAA's per-sampler texture flipbook animation. */
+	texturePatterns: Map<string, { frame: number; textureIndex: number }[]>;
+}
+
+/** One FMAA MaterialAnim sub-file. */
+export interface BfresMaterialAnimFile {
+	name: string;
+	frameCount: number;
+	loop: boolean;
+	baked: boolean;
+	materialAnims: BfresMaterialAnim[];
+	/** Texture names referenced by texture-pattern animations,
+	 *  in storage order — `texturePatterns` entries index into this. */
+	textureNames: string[];
+}
+
+/** One FVIS BoneVisibilityAnim sub-file. */
+export interface BfresBoneVisAnim {
+	name: string;
+	frameCount: number;
+	loop: boolean;
+	baked: boolean;
+	/** Per-bone visibility track. Each bone's `visible[frame]` is a
+	 *  bool; for non-baked tracks, evaluate via the curve's keys. */
+	curves: BfresAnimCurve[];
+	/** Names of the bones each curve animates, parallel to `curves`. */
+	boneNames: string[];
+}
+
+/** One FSHU ShapeAnim sub-file (morph-target weights). */
+export interface BfresShapeAnim {
+	name: string;
+	frameCount: number;
+	loop: boolean;
+	baked: boolean;
+	/** Per-shape morph tracks — each carries a list of curves
+	 *  driving morph-target weights. */
+	curves: BfresAnimCurve[];
+	shapeNames: string[];
+}
+
+/** One FSCN SceneAnim sub-file (camera / fog / lighting). */
+export interface BfresSceneAnim {
+	name: string;
+	frameCount: number;
+	loop: boolean;
+	baked: boolean;
+	curves: BfresAnimCurve[];
+}
+
+export interface BfresAnimations {
+	skeletal: BfresSkeletalAnim[];
+	material: BfresMaterialAnimFile[];
+	boneVis: BfresBoneVisAnim[];
+	shape: BfresShapeAnim[];
+	scene: BfresSceneAnim[];
+}
+
+/**
+ * Field offsets inside a `BoneAnimData` struct, used as
+ * {@link BfresAnimCurve.animDataOffset} values to identify which
+ * channel a curve drives. Mirrors BfresLibrary's
+ * `BoneAnimDataOffset` enum.
+ */
+export const BoneAnimDataOffset = {
+	ScaleX: 0x04,
+	ScaleY: 0x08,
+	ScaleZ: 0x0c,
+	TranslateX: 0x10,
+	TranslateY: 0x14,
+	TranslateZ: 0x18,
+	RotateX: 0x20,
+	RotateY: 0x24,
+	RotateZ: 0x28,
+	RotateW: 0x2c,
+} as const;
 
 const HEADER_MIN_SIZE = 0x40;
 
@@ -640,6 +857,8 @@ const ATTRIB_FORMAT = {
 	Format_8_SInt: 0x0402,
 	Format_8_8_UNorm: 0x0109,
 	Format_8_8_SNorm: 0x0209,
+	Format_8_8_UInt: 0x0309,
+	Format_8_8_SInt: 0x0409,
 	Format_8_8_8_8_UNorm: 0x010b,
 	Format_8_8_8_8_SNorm: 0x020b,
 	Format_8_8_8_8_UInt: 0x030b,
@@ -648,12 +867,18 @@ const ATTRIB_FORMAT = {
 	Format_10_10_10_2_UNorm: 0x000b,
 	Format_16_UNorm: 0x010a,
 	Format_16_SNorm: 0x030a,
+	Format_16_UInt: 0x040a,
+	Format_16_SInt: 0x060a,
 	Format_16_Single: 0x050a,
 	Format_16_16_UNorm: 0x0112,
 	Format_16_16_SNorm: 0x0212,
+	Format_16_16_UInt: 0x0312,
+	Format_16_16_SInt: 0x0412,
 	Format_16_16_Single: 0x0512,
 	Format_16_16_16_16_UNorm: 0x0115,
 	Format_16_16_16_16_SNorm: 0x0215,
+	Format_16_16_16_16_UInt: 0x0315,
+	Format_16_16_16_16_SInt: 0x0415,
 	Format_16_16_16_16_Single: 0x0515,
 	Format_32_Single: 0x0516,
 	Format_32_32_Single: 0x0517,
@@ -803,6 +1028,44 @@ function decodeAttribValue(
 				view.getUint16(offset + 2, true) / 65535,
 				view.getUint16(offset + 4, true) / 65535,
 				view.getUint16(offset + 6, true) / 65535,
+			];
+		// Integer family — values returned as-is (no normalisation).
+		// Used for skin bone indices (`_i0`).
+		case ATTRIB_FORMAT.Format_8_UInt:
+			return [view.getUint8(offset)];
+		case ATTRIB_FORMAT.Format_8_8_UInt:
+			return [view.getUint8(offset), view.getUint8(offset + 1)];
+		case ATTRIB_FORMAT.Format_8_8_8_8_UInt:
+			return [
+				view.getUint8(offset),
+				view.getUint8(offset + 1),
+				view.getUint8(offset + 2),
+				view.getUint8(offset + 3),
+			];
+		case ATTRIB_FORMAT.Format_8_SInt:
+			return [view.getInt8(offset)];
+		case ATTRIB_FORMAT.Format_8_8_SInt:
+			return [view.getInt8(offset), view.getInt8(offset + 1)];
+		case ATTRIB_FORMAT.Format_8_8_8_8_SInt:
+			return [
+				view.getInt8(offset),
+				view.getInt8(offset + 1),
+				view.getInt8(offset + 2),
+				view.getInt8(offset + 3),
+			];
+		case ATTRIB_FORMAT.Format_16_UInt:
+			return [view.getUint16(offset, true)];
+		case ATTRIB_FORMAT.Format_16_16_UInt:
+			return [
+				view.getUint16(offset, true),
+				view.getUint16(offset + 2, true),
+			];
+		case ATTRIB_FORMAT.Format_16_16_16_16_UInt:
+			return [
+				view.getUint16(offset, true),
+				view.getUint16(offset + 2, true),
+				view.getUint16(offset + 4, true),
+				view.getUint16(offset + 6, true),
 			];
 		default:
 			return null;
@@ -1169,7 +1432,13 @@ export async function extractSkeletons(blob: Blob): Promise<BfresSkeleton[]> {
 }
 
 function emptySkeleton(): BfresSkeleton {
-	return { bones: [], rotationMode: 'eulerXYZ' };
+	return {
+		bones: [],
+		rotationMode: 'eulerXYZ',
+		matrixToBoneList: new Uint16Array(0),
+		numSmoothMatrices: 0,
+		numRigidMatrices: 0,
+	};
 }
 
 /**
@@ -1229,32 +1498,92 @@ function readSkeleton(
 	}
 	const fsklPtrBase = skeletonOff + (major >= 9 ? 0x08 : 0x10);
 	const boneArrayOff = Number(v.getBigUint64(fsklPtrBase + 0x08, true));
+	const matrixToBoneListOff = Number(v.getBigUint64(fsklPtrBase + 0x10, true));
+	const inverseModelMatricesOff = Number(v.getBigUint64(fsklPtrBase + 0x18, true));
 
-	// Locate `_flags` and `numBone`. v5–v7 has flags at +0x28,
-	// numBone at +0x2C. v8 inserts 16 bytes of padding before the
-	// flags / count region. v9+ moves flags before the pointer
-	// block (read up at the top of the FSKL record) and inserts
-	// a mirror-table pointer.
+	// Locate `_flags`, `numBone`, `numSmoothMatrices`, `numRigidMatrices`.
+	// v5–v7: flags @ +0x28, numBone @ +0x2C, smoothMat @ +0x2E,
+	// rigidMat @ +0x30.
+	// v8 inserts 16 bytes of padding before the flags / count region.
+	// v9+ moves flags up and inserts a mirror-table pointer.
 	let flags = 0;
 	let numBone = 0;
+	let numSmoothMatrices = 0;
+	let numRigidMatrices = 0;
 	if (major < 8) {
 		flags = v.getUint32(fsklPtrBase + 0x28, true);
 		numBone = v.getUint16(fsklPtrBase + 0x2c, true);
+		numSmoothMatrices = v.getUint16(fsklPtrBase + 0x2e, true);
+		numRigidMatrices = v.getUint16(fsklPtrBase + 0x30, true);
 	} else if (major === 8) {
 		// userPointer (8) + 16 bytes seek + flags (4) + numBone (2)
 		flags = v.getUint32(fsklPtrBase + 0x38, true);
 		numBone = v.getUint16(fsklPtrBase + 0x3c, true);
+		numSmoothMatrices = v.getUint16(fsklPtrBase + 0x3e, true);
+		numRigidMatrices = v.getUint16(fsklPtrBase + 0x40, true);
 	} else {
 		// v9+: flags is the first 4 bytes of the FSKL record
 		// (replacing HeaderBlock); mirrorTable u64 sits at offset
 		// 0x28 of the pointer block. numBone is right after.
 		flags = v.getUint32(skeletonOff + 4, true);
 		numBone = v.getUint16(fsklPtrBase + 0x30, true);
+		numSmoothMatrices = v.getUint16(fsklPtrBase + 0x32, true);
+		numRigidMatrices = v.getUint16(fsklPtrBase + 0x34, true);
 	}
 
 	// Sanity bound the bone count to avoid runaway loops on a
 	// corrupt / unexpected layout.
 	if (numBone > 4096) numBone = 0;
+	if (numSmoothMatrices > numBone) numSmoothMatrices = 0;
+	if (numRigidMatrices > numBone) numRigidMatrices = 0;
+
+	// MatrixToBoneList: maps each skin-matrix slot to its bone
+	// index. The first `numSmoothMatrices` entries are smooth-
+	// skinned (have inverse-bind matrices); the next
+	// `numRigidMatrices` are rigid-skinned. FSHP shapes use
+	// these indices to translate per-vertex `_i0` byte values
+	// into bone indices.
+	const matrixToBoneList = new Uint16Array(numSmoothMatrices + numRigidMatrices);
+	if (matrixToBoneListOff > 0) {
+		for (let i = 0; i < matrixToBoneList.length; i++) {
+			const off = matrixToBoneListOff + i * 2;
+			if (off + 2 > data.length) break;
+			matrixToBoneList[i] = v.getUint16(off, true);
+		}
+	}
+
+	// Inverse-bind matrices: `numSmoothMatrices` × Matrix3x4
+	// (row-major: 3 rows × 4 cols, so 12 floats per matrix). The
+	// fourth row is implicit `(0, 0, 0, 1)` for an affine matrix.
+	// We convert each one into a column-major 4×4 to match Three.js.
+	const inverseModelMatrices: Float32Array[] = [];
+	if (inverseModelMatricesOff > 0) {
+		for (let i = 0; i < numSmoothMatrices; i++) {
+			const baseOff = inverseModelMatricesOff + i * 48;
+			if (baseOff + 48 > data.length) break;
+			const m = new Float32Array(16);
+			// Row-major 3×4 → column-major 4×4.
+			// On disk: row 0 = [m00, m01, m02, m03], row 1 = [m10, ...].
+			const m00 = v.getFloat32(baseOff + 0, true);
+			const m01 = v.getFloat32(baseOff + 4, true);
+			const m02 = v.getFloat32(baseOff + 8, true);
+			const m03 = v.getFloat32(baseOff + 12, true);
+			const m10 = v.getFloat32(baseOff + 16, true);
+			const m11 = v.getFloat32(baseOff + 20, true);
+			const m12 = v.getFloat32(baseOff + 24, true);
+			const m13 = v.getFloat32(baseOff + 28, true);
+			const m20 = v.getFloat32(baseOff + 32, true);
+			const m21 = v.getFloat32(baseOff + 36, true);
+			const m22 = v.getFloat32(baseOff + 40, true);
+			const m23 = v.getFloat32(baseOff + 44, true);
+			// column-major fill
+			m[0] = m00; m[4] = m01; m[8]  = m02; m[12] = m03;
+			m[1] = m10; m[5] = m11; m[9]  = m12; m[13] = m13;
+			m[2] = m20; m[6] = m21; m[10] = m22; m[14] = m23;
+			m[3] = 0;   m[7] = 0;   m[11] = 0;   m[15] = 1;
+			inverseModelMatrices.push(m);
+		}
+	}
 
 	// Skeleton's `FlagsRotation` lives in bits 12–14 of `_flags`
 	// (mask 0x7000): 0 = quaternion, 1 = EulerXYZ. Per BfresLibrary's
@@ -1274,6 +1603,8 @@ function readSkeleton(
 		const nameOff = Number(v.getBigUint64(off + 0x00, true));
 		const fieldBase = off + 0x18 + boneFieldsExtraOffset;
 		const parentIndex = v.getInt16(fieldBase + 0x02, true);
+		const smoothMatrixIndex = v.getInt16(fieldBase + 0x04, true);
+		const rigidMatrixIndex = v.getInt16(fieldBase + 0x06, true);
 		const bFlags = v.getUint32(fieldBase + 0x0c, true);
 		const sx = v.getFloat32(fieldBase + 0x10, true);
 		const sy = v.getFloat32(fieldBase + 0x14, true);
@@ -1309,9 +1640,13 @@ function readSkeleton(
 			rotation: [rx, ry, rz, rw],
 			position: [px, py, pz],
 			rotationMode: boneRotMode,
+			smoothMatrixIndex,
+			rigidMatrixIndex,
 			localMatrix,
 			// Filled in below after the loop, once we have all locals.
 			worldMatrix: new Float32Array(16),
+			// Filled in after world matrices are composed.
+			inverseBindMatrix: new Float32Array(16),
 		});
 	}
 
@@ -1328,7 +1663,30 @@ function readSkeleton(
 		}
 	}
 
-	return { bones, rotationMode: skelRotMode };
+	// Assign inverse-bind matrices. Smooth-skinned bones pick from
+	// the FSKL `InverseModelMatrices` array directly. Bones without
+	// a stored inverse-bind matrix get one computed from the
+	// inverse of their world matrix (so `worldMatrix · inverseBind ·
+	// v_modelSpace = v_modelSpace` in bind pose).
+	for (let i = 0; i < bones.length; i++) {
+		const b = bones[i];
+		if (
+			b.smoothMatrixIndex >= 0 &&
+			b.smoothMatrixIndex < inverseModelMatrices.length
+		) {
+			b.inverseBindMatrix.set(inverseModelMatrices[b.smoothMatrixIndex]!);
+		} else {
+			invertMat4Affine(b.inverseBindMatrix, b.worldMatrix);
+		}
+	}
+
+	return {
+		bones,
+		rotationMode: skelRotMode,
+		matrixToBoneList,
+		numSmoothMatrices,
+		numRigidMatrices,
+	};
 }
 
 /**
@@ -1397,6 +1755,55 @@ function composeSrtMatrix(
 }
 
 /**
+ * Invert an **affine** 4×4 column-major matrix `m` into `out`
+ * (i.e. `m`'s last row must be `(0, 0, 0, 1)`). Faster + more
+ * numerically stable than a general matrix inversion since we can
+ * just transpose the 3×3 rotation/scale and negate the translation.
+ *
+ * For a matrix `M = T · R · S`, the inverse is `S⁻¹ · R⁻¹ · T⁻¹`.
+ * If S is uniform, this can be computed component-wise; for
+ * non-uniform scales we fall back to a general 3×3 invert. We
+ * support both cases (BFRES rigs occasionally use non-uniform
+ * scales — Peach has S=1 everywhere, but Bird's wings use 0.9).
+ */
+function invertMat4Affine(out: Float32Array, m: Float32Array): void {
+	const m00 = m[0], m10 = m[1], m20 = m[2];
+	const m01 = m[4], m11 = m[5], m21 = m[6];
+	const m02 = m[8], m12 = m[9], m22 = m[10];
+	const tx = m[12], ty = m[13], tz = m[14];
+	// Inverse of the 3×3 linear part via the standard adjugate formula.
+	const det =
+		m00 * (m11 * m22 - m21 * m12) -
+		m01 * (m10 * m22 - m20 * m12) +
+		m02 * (m10 * m21 - m20 * m11);
+	if (Math.abs(det) < 1e-12) {
+		// Degenerate — fall back to identity so callers don't crash.
+		out.fill(0);
+		out[0] = out[5] = out[10] = out[15] = 1;
+		return;
+	}
+	const invDet = 1 / det;
+	const i00 = (m11 * m22 - m21 * m12) * invDet;
+	const i01 = (m02 * m21 - m01 * m22) * invDet;
+	const i02 = (m01 * m12 - m02 * m11) * invDet;
+	const i10 = (m12 * m20 - m10 * m22) * invDet;
+	const i11 = (m00 * m22 - m02 * m20) * invDet;
+	const i12 = (m10 * m02 - m00 * m12) * invDet;
+	const i20 = (m10 * m21 - m20 * m11) * invDet;
+	const i21 = (m20 * m01 - m00 * m21) * invDet;
+	const i22 = (m00 * m11 - m10 * m01) * invDet;
+	// Inverse translation = -(R⁻¹ · t)
+	const itx = -(i00 * tx + i01 * ty + i02 * tz);
+	const ity = -(i10 * tx + i11 * ty + i12 * tz);
+	const itz = -(i20 * tx + i21 * ty + i22 * tz);
+	// column-major fill
+	out[0]  = i00; out[4]  = i01; out[8]  = i02; out[12] = itx;
+	out[1]  = i10; out[5]  = i11; out[9]  = i12; out[13] = ity;
+	out[2]  = i20; out[6]  = i21; out[10] = i22; out[14] = itz;
+	out[3]  = 0;   out[7]  = 0;   out[11] = 0;   out[15] = 1;
+}
+
+/**
  * `out = a · b` for 4×4 column-major matrices. Safe when `out`
  * aliases `a` or `b` because we read into temporaries first.
  */
@@ -1425,6 +1832,693 @@ function multiplyMat4(out: Float32Array, a: Float32Array, b: Float32Array): void
 	out[13] = a10 * b03 + a11 * b13 + a12 * b23 + a13 * b33;
 	out[14] = a20 * b03 + a21 * b13 + a22 * b23 + a23 * b33;
 	out[15] = a30 * b03 + a31 * b13 + a32 * b23 + a33 * b33;
+}
+
+// ===== Animation extraction =====
+
+/**
+ * Walk the parsed BFRES and surface each animation sub-file with
+ * its full curve data. Returns parallel arrays per animation type:
+ * `skeletal` (FSKA), `material` (FMAA), `boneVis` (FVIS), `shape`
+ * (FSHU), `scene` (FSCN).
+ *
+ * Each curve's keys are normalized to `Float32Array`; pair the
+ * curve with {@link evaluateCurve} to sample at any frame.
+ *
+ * Throws if the BFRES isn't a Switch v5+ build.
+ */
+export async function extractAnimations(
+	blob: Blob,
+): Promise<BfresAnimations> {
+	if (blob.size < HEADER_MIN_SIZE) {
+		throw new Error('Blob too small to be a BFRES');
+	}
+	const data = new Uint8Array(await blob.arrayBuffer());
+	const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+	if (
+		data[0] !== 0x46 ||
+		data[1] !== 0x52 ||
+		data[2] !== 0x45 ||
+		data[3] !== 0x53
+	) {
+		throw new Error('Bad BFRES magic');
+	}
+	if (
+		data[4] !== 0x20 ||
+		data[5] !== 0x20 ||
+		data[6] !== 0x20 ||
+		data[7] !== 0x20
+	) {
+		throw new Error('Wii U BFRES is not supported (Switch only)');
+	}
+	const versionRaw = v.getUint32(0x08, true);
+	const major = (versionRaw >> 16) & 0xff;
+	if (major < 5) throw new Error(`BFRES version ${major} is too old (need v5+)`);
+
+	// Walk the header pointer block to find each anim group's
+	// (array, dict) pair. Same layout as `parseBfres` uses.
+	let cursor = 0x28;
+	cursor += 16; // FMDL pair
+	if (major >= 9) cursor += 0x20; // 4 reserved u64s in v9+
+	const fska = readArrayDictPair(v, cursor); cursor += 16;
+	const fmaa = readArrayDictPair(v, cursor); cursor += 16;
+	const fvis = readArrayDictPair(v, cursor); cursor += 16;
+	const fshu = readArrayDictPair(v, cursor); cursor += 16;
+	const fscn = readArrayDictPair(v, cursor); cursor += 16;
+
+	const fskaNames = readDict(data, v, fska.dict);
+	const fmaaNames = readDict(data, v, fmaa.dict);
+	const fvisNames = readDict(data, v, fvis.dict);
+	const fshuNames = readDict(data, v, fshu.dict);
+	const fscnNames = readDict(data, v, fscn.dict);
+
+	// Each anim sub-file starts with its 4-byte magic. The values
+	// array stores records back-to-back at a stride that varies
+	// by sub-file type and version. To stay version-tolerant we
+	// magic-scan forward from each prior record's offset.
+	const skeletal: BfresSkeletalAnim[] = [];
+	const fskaOffsets = locateMagicRecords(data, fska.array, fskaNames.length, 'FSKA');
+	for (let i = 0; i < fskaOffsets.length; i++) {
+		const a = readSkeletalAnim(data, v, fskaOffsets[i], fskaNames[i] ?? '', major);
+		if (a) skeletal.push(a);
+	}
+
+	// FMAA / FVIS / FSHU / FSCN — parsed best-effort; if a
+	// sub-file's layout doesn't match what we know, surface an
+	// empty record rather than throwing so the rest of the file
+	// can still be inspected.
+	const material: BfresMaterialAnimFile[] = [];
+	const fmaaOffsets = locateMagicRecords(data, fmaa.array, fmaaNames.length, 'FMAA');
+	for (let i = 0; i < fmaaOffsets.length; i++) {
+		const a = readMaterialAnim(data, v, fmaaOffsets[i], fmaaNames[i] ?? '', major);
+		if (a) material.push(a);
+	}
+
+	const boneVis: BfresBoneVisAnim[] = [];
+	const fvisOffsets = locateMagicRecords(data, fvis.array, fvisNames.length, 'FBNV');
+	for (let i = 0; i < fvisOffsets.length; i++) {
+		const a = readBoneVisAnim(data, v, fvisOffsets[i], fvisNames[i] ?? '', major);
+		if (a) boneVis.push(a);
+	}
+
+	const shape: BfresShapeAnim[] = [];
+	const fshuOffsets = locateMagicRecords(data, fshu.array, fshuNames.length, 'FSHU');
+	for (let i = 0; i < fshuOffsets.length; i++) {
+		const a = readShapeAnim(data, v, fshuOffsets[i], fshuNames[i] ?? '', major);
+		if (a) shape.push(a);
+	}
+
+	const scene: BfresSceneAnim[] = [];
+	const fscnOffsets = locateMagicRecords(data, fscn.array, fscnNames.length, 'FSCN');
+	for (let i = 0; i < fscnOffsets.length; i++) {
+		const a = readSceneAnim(data, v, fscnOffsets[i], fscnNames[i] ?? '', major);
+		if (a) scene.push(a);
+	}
+
+	return { skeletal, material, boneVis, shape, scene };
+}
+
+function readArrayDictPair(v: DataView, offset: number): { array: number; dict: number } {
+	return {
+		array: Number(v.getBigUint64(offset, true)),
+		dict: Number(v.getBigUint64(offset + 8, true)),
+	};
+}
+
+/**
+ * Locate the file offsets of `count` records of a given 4-byte
+ * magic, scanning forward from `arrayOffset`. Same trick as
+ * {@link locateFmdls} but parameterised on the magic so it works
+ * across all five animation kinds (FSKA, FMAA, FBNV, FSHU, FSCN).
+ */
+function locateMagicRecords(
+	data: Uint8Array,
+	arrayOffset: number,
+	count: number,
+	magic: string,
+): number[] {
+	if (!arrayOffset || count === 0) return [];
+	const m0 = magic.charCodeAt(0);
+	const m1 = magic.charCodeAt(1);
+	const m2 = magic.charCodeAt(2);
+	const m3 = magic.charCodeAt(3);
+	const out: number[] = [];
+	const maxStride = 0x200;
+	let cursor = arrayOffset;
+	for (let i = 0; i < count; i++) {
+		if (i === 0) {
+			if (
+				data[cursor] !== m0 ||
+				data[cursor + 1] !== m1 ||
+				data[cursor + 2] !== m2 ||
+				data[cursor + 3] !== m3
+			) {
+				return out;
+			}
+			out.push(cursor);
+			continue;
+		}
+		let found = -1;
+		const stop = Math.min(cursor + maxStride, data.length - 4);
+		for (let p = cursor + 4; p <= stop; p += 4) {
+			if (
+				data[p] === m0 &&
+				data[p + 1] === m1 &&
+				data[p + 2] === m2 &&
+				data[p + 3] === m3
+			) {
+				found = p;
+				break;
+			}
+		}
+		if (found < 0) break;
+		out.push(found);
+		cursor = found;
+	}
+	return out;
+}
+
+/**
+ * Parse one FSKA SkeletalAnim record, per BfresLibrary's
+ * `SkeletalAnim.cs` Switch path:
+ *
+ *   "FSKA" magic (4)
+ *   v < 9: HeaderBlock (12)        -- ptrBase = +0x10
+ *   v >= 9: _flags u32             -- ptrBase = +0x08
+ *   ptrBase + 0x00 nameOffset (u64)
+ *   ptrBase + 0x08 pathOffset (u64)
+ *   ptrBase + 0x10 bindSkeletonOff (u64)
+ *   ptrBase + 0x18 bindIndexArrOff (u64)
+ *   ptrBase + 0x20 boneAnimArrOff (u64)
+ *   ptrBase + 0x28 userDataValOff (u64)
+ *   ptrBase + 0x30 userDataDictOff (u64)
+ *   v < 9:
+ *     ptrBase + 0x38 _flags (u32)
+ *     ptrBase + 0x3C frameCount (i32)
+ *     ptrBase + 0x40 numCurve (i32)
+ *     ptrBase + 0x44 bakedSize (u32)
+ *     ptrBase + 0x48 numBoneAnim (u16)
+ *     ptrBase + 0x4A numUserData (u16)
+ *     ptrBase + 0x4C padding (u32)
+ *   v >= 9:
+ *     (flags is at the very top, so frameCount sits at +0x38)
+ *     ptrBase + 0x38 frameCount (i32)
+ *     ptrBase + 0x3C numCurve (i32)
+ *     ptrBase + 0x40 bakedSize (u32)
+ *     ptrBase + 0x44 numBoneAnim (u16)
+ *     ptrBase + 0x46 numUserData (u16)
+ */
+function readSkeletalAnim(
+	data: Uint8Array,
+	v: DataView,
+	fskaOff: number,
+	name: string,
+	major: number,
+): BfresSkeletalAnim | null {
+	const ptrBase = fskaOff + (major >= 9 ? 0x08 : 0x10);
+	const boneAnimArrOff = Number(v.getBigUint64(ptrBase + 0x20, true));
+
+	let flags = 0;
+	let frameCount = 0;
+	let numBoneAnim = 0;
+	if (major >= 9) {
+		flags = v.getUint32(fskaOff + 4, true);
+		frameCount = v.getInt32(ptrBase + 0x38, true);
+		numBoneAnim = v.getUint16(ptrBase + 0x44, true);
+	} else {
+		flags = v.getUint32(ptrBase + 0x38, true);
+		frameCount = v.getInt32(ptrBase + 0x3c, true);
+		numBoneAnim = v.getUint16(ptrBase + 0x48, true);
+	}
+
+	const loop = (flags & 0x4) !== 0; // SkeletalAnimFlags.Looping = 1<<2
+	const baked = (flags & 0x1) !== 0; // SkeletalAnimFlags.BakedCurve = 1<<0
+	const rotationMode: 'eulerXYZ' | 'quaternion' =
+		(flags & 0x7000) === 0x1000 ? 'eulerXYZ' : 'quaternion';
+
+	const boneAnims: BfresBoneAnim[] = [];
+	if (boneAnimArrOff && numBoneAnim > 0) {
+		const stride = boneAnimRecordStride(major);
+		for (let i = 0; i < numBoneAnim; i++) {
+			const off = boneAnimArrOff + i * stride;
+			if (off + stride > data.length) break;
+			const ba = readBoneAnim(data, v, off, major);
+			if (ba) boneAnims.push(ba);
+		}
+	}
+
+	return {
+		name,
+		frameCount,
+		loop,
+		baked,
+		rotationMode,
+		boneAnims,
+	};
+}
+
+/** Stride of one BoneAnim record in bytes, per BfresLibrary. */
+function boneAnimRecordStride(major: number): number {
+	// Switch v5–v8: Name (8) + CurveOff (8) + BaseDataOff (8) +
+	//   _flags (4) + BeginRotate (1) + BeginTranslate (1) +
+	//   numCurve (1) + BeginBaseTranslate (1) + BeginCurve (4) +
+	//   padding (4) = 0x28 bytes
+	// v9+: adds 16 bytes of `unk` between BaseDataOff and _flags.
+	return major >= 9 ? 0x38 : 0x28;
+}
+
+function readBoneAnim(
+	data: Uint8Array,
+	v: DataView,
+	off: number,
+	major: number,
+): BfresBoneAnim | null {
+	const nameOff = Number(v.getBigInt64(off + 0x00, true));
+	const curveArrOff = Number(v.getBigInt64(off + 0x08, true));
+	const baseDataOff = Number(v.getBigInt64(off + 0x10, true));
+	let p = off + 0x18;
+	if (major >= 9) p += 16; // unk1, unk2
+	const flags = v.getUint32(p, true); p += 4;
+	p += 1; // beginRotate
+	p += 1; // beginTranslate
+	const numCurve = v.getUint8(p); p += 1;
+	p += 1; // beginBaseTranslate
+
+	const flagsBase = (flags >> 0) & 0x38; // bits 3-5
+	const useScale = (flagsBase & 0x08) !== 0;
+	const useRotate = (flagsBase & 0x10) !== 0;
+	const useTranslate = (flagsBase & 0x20) !== 0;
+
+	// BaseData layout: { Scale (3f), Rotate (4f), Translate (3f) }
+	// — but only the fields whose flag is set are present.
+	let baseScale: [number, number, number] = [1, 1, 1];
+	let baseRotation: [number, number, number, number] = [0, 0, 0, 1];
+	let baseTranslation: [number, number, number] = [0, 0, 0];
+	if (baseDataOff > 0) {
+		let bp = baseDataOff;
+		if (useScale) {
+			baseScale = [
+				v.getFloat32(bp, true),
+				v.getFloat32(bp + 4, true),
+				v.getFloat32(bp + 8, true),
+			];
+			bp += 12;
+		}
+		if (useRotate) {
+			baseRotation = [
+				v.getFloat32(bp, true),
+				v.getFloat32(bp + 4, true),
+				v.getFloat32(bp + 8, true),
+				v.getFloat32(bp + 12, true),
+			];
+			bp += 16;
+		}
+		if (useTranslate) {
+			baseTranslation = [
+				v.getFloat32(bp, true),
+				v.getFloat32(bp + 4, true),
+				v.getFloat32(bp + 8, true),
+			];
+			bp += 12;
+		}
+	}
+
+	const curves: BfresAnimCurve[] = [];
+	if (curveArrOff > 0 && numCurve > 0) {
+		const stride = ANIM_CURVE_STRIDE_SWITCH;
+		for (let i = 0; i < numCurve; i++) {
+			const c = readAnimCurve(data, v, curveArrOff + i * stride);
+			if (c) curves.push(c);
+		}
+	}
+
+	return {
+		name: readPoolString(data, nameOff),
+		baseScale,
+		baseRotation,
+		baseTranslation,
+		curves,
+	};
+}
+
+/** AnimCurve record stride on Switch — fixed at 0x30. */
+const ANIM_CURVE_STRIDE_SWITCH = 0x30;
+
+/**
+ * Parse a single AnimCurve record and decode its frames + keys
+ * arrays, normalising both to `Float32Array` regardless of the
+ * on-disk frame/key types.
+ *
+ * Switch layout (per `AnimCurve.cs` Load path):
+ *   0x00 frameArrayOff (u64)
+ *   0x08 keyArrayOff (u64)
+ *   0x10 _flags (u16)
+ *   0x12 numKey (u16)
+ *   0x14 animDataOffset (u32)
+ *   0x18 startFrame (f32)
+ *   0x1C endFrame (f32)
+ *   0x20 scale (f32)
+ *   0x24 offset (f32 / u32 union)
+ *   0x28 delta (f32)
+ *   0x2C padding (i32)
+ */
+function readAnimCurve(
+	data: Uint8Array,
+	v: DataView,
+	off: number,
+): BfresAnimCurve | null {
+	if (off + ANIM_CURVE_STRIDE_SWITCH > data.length) return null;
+	const frameArrOff = Number(v.getBigUint64(off + 0x00, true));
+	const keyArrOff = Number(v.getBigUint64(off + 0x08, true));
+	const flags = v.getUint16(off + 0x10, true);
+	const numKey = v.getUint16(off + 0x12, true);
+	const animDataOffset = v.getUint32(off + 0x14, true);
+	const startFrame = v.getFloat32(off + 0x18, true);
+	const endFrame = v.getFloat32(off + 0x1c, true);
+	const scale = v.getFloat32(off + 0x20, true);
+	const offset = v.getFloat32(off + 0x24, true);
+
+	const frameType = flags & 0x3;
+	const keyType = (flags >> 2) & 0x3;
+	const curveTypeRaw = (flags >> 4) & 0x7;
+	const preWrap = (['clamp', 'repeat', 'mirror'][(flags >> 8) & 0x3] ?? 'clamp') as
+		'clamp' | 'repeat' | 'mirror';
+	const postWrap = (['clamp', 'repeat', 'mirror'][(flags >> 12) & 0x3] ?? 'clamp') as
+		'clamp' | 'repeat' | 'mirror';
+
+	const curveType: BfresCurveType = (
+		[
+			'cubic',
+			'linear',
+			'bakedFloat',
+			'cubic', // 3 unused — fall back to cubic
+			'stepInt',
+			'bakedInt',
+			'stepBool',
+			'bakedBool',
+		] as BfresCurveType[]
+	)[curveTypeRaw] ?? 'cubic';
+
+	const elementsPerKey =
+		curveType === 'cubic' ? 4 : curveType === 'linear' ? 2 : 1;
+
+	// Decode frames array
+	const frames = new Float32Array(numKey);
+	if (frameArrOff > 0) {
+		switch (frameType) {
+			case 0: // Single (f32)
+				for (let i = 0; i < numKey; i++) {
+					const fOff = frameArrOff + i * 4;
+					if (fOff + 4 > data.length) break;
+					frames[i] = v.getFloat32(fOff, true);
+				}
+				break;
+			case 1: // Decimal10x5 — 16-bit, value = raw / 32 (5 fractional bits)
+				for (let i = 0; i < numKey; i++) {
+					const fOff = frameArrOff + i * 2;
+					if (fOff + 2 > data.length) break;
+					frames[i] = v.getInt16(fOff, true) / 32;
+				}
+				break;
+			case 2: // Byte
+				for (let i = 0; i < numKey; i++) {
+					if (frameArrOff + i >= data.length) break;
+					frames[i] = data[frameArrOff + i];
+				}
+				break;
+			default:
+				break;
+		}
+	}
+
+	// Decode keys array
+	const keys = new Float32Array(numKey * elementsPerKey);
+	if (keyArrOff > 0) {
+		// Step* curves' keys are integers (we store them as floats).
+		const isInt =
+			curveType === 'stepInt' ||
+			curveType === 'bakedInt' ||
+			curveType === 'stepBool' ||
+			curveType === 'bakedBool';
+		switch (keyType) {
+			case 0: { // Single (4 bytes)
+				for (let i = 0; i < numKey * elementsPerKey; i++) {
+					const kOff = keyArrOff + i * 4;
+					if (kOff + 4 > data.length) break;
+					keys[i] = isInt
+						? v.getUint32(kOff, true)
+						: v.getFloat32(kOff, true);
+				}
+				break;
+			}
+			case 1: { // Int16 (2 bytes)
+				for (let i = 0; i < numKey * elementsPerKey; i++) {
+					const kOff = keyArrOff + i * 2;
+					if (kOff + 2 > data.length) break;
+					keys[i] = v.getInt16(kOff, true);
+				}
+				break;
+			}
+			case 2: { // SByte (1 byte)
+				for (let i = 0; i < numKey * elementsPerKey; i++) {
+					const kOff = keyArrOff + i;
+					if (kOff >= data.length) break;
+					keys[i] = v.getInt8(kOff);
+				}
+				break;
+			}
+		}
+	}
+
+	return {
+		animDataOffset,
+		curveType,
+		startFrame,
+		endFrame,
+		scale,
+		offset,
+		frames,
+		keys,
+		preWrap,
+		postWrap,
+	};
+}
+
+// ----- FMAA / FVIS / FSHU / FSCN: best-effort headers -----
+//
+// These are parsed at a metadata level only for now (name, frame
+// count, loop / baked flags, curves). The full per-record content
+// (texture-pattern animations, morph-target lists, scene data)
+// requires more layout work; we surface what's available and
+// leave the deeper fields as stubs so the UI can list them.
+
+function readSimpleAnimHeader(
+	data: Uint8Array,
+	v: DataView,
+	recOff: number,
+	major: number,
+): { flags: number; frameCount: number } {
+	// Most of the secondary anim sub-files share the SkeletalAnim
+	// header shape: magic + headerBlock/flags + name/path + a few
+	// per-anim-kind pointers + frameCount near offset 0x38 (v<9)
+	// or 0x30 (v>=9). To stay forgiving we scan a small window
+	// looking for a u32 in the plausible range [1, 100000].
+	const ptrBase = recOff + (major >= 9 ? 0x08 : 0x10);
+	const flags =
+		major >= 9
+			? v.getUint32(recOff + 4, true)
+			: 0;
+	let frameCount = 0;
+	for (let off = ptrBase + 0x30; off < ptrBase + 0x60; off += 4) {
+		if (off + 4 > data.length) break;
+		const cand = v.getInt32(off, true);
+		if (cand > 0 && cand < 100000) {
+			frameCount = cand;
+			break;
+		}
+	}
+	return { flags, frameCount };
+}
+
+function readMaterialAnim(
+	data: Uint8Array,
+	v: DataView,
+	recOff: number,
+	name: string,
+	major: number,
+): BfresMaterialAnimFile | null {
+	const { flags, frameCount } = readSimpleAnimHeader(data, v, recOff, major);
+	return {
+		name,
+		frameCount,
+		loop: (flags & 0x4) !== 0,
+		baked: (flags & 0x1) !== 0,
+		materialAnims: [],
+		textureNames: [],
+	};
+}
+
+function readBoneVisAnim(
+	data: Uint8Array,
+	v: DataView,
+	recOff: number,
+	name: string,
+	major: number,
+): BfresBoneVisAnim | null {
+	const { flags, frameCount } = readSimpleAnimHeader(data, v, recOff, major);
+	return {
+		name,
+		frameCount,
+		loop: (flags & 0x4) !== 0,
+		baked: (flags & 0x1) !== 0,
+		curves: [],
+		boneNames: [],
+	};
+}
+
+function readShapeAnim(
+	data: Uint8Array,
+	v: DataView,
+	recOff: number,
+	name: string,
+	major: number,
+): BfresShapeAnim | null {
+	const { flags, frameCount } = readSimpleAnimHeader(data, v, recOff, major);
+	return {
+		name,
+		frameCount,
+		loop: (flags & 0x4) !== 0,
+		baked: (flags & 0x1) !== 0,
+		curves: [],
+		shapeNames: [],
+	};
+}
+
+function readSceneAnim(
+	data: Uint8Array,
+	v: DataView,
+	recOff: number,
+	name: string,
+	major: number,
+): BfresSceneAnim | null {
+	const { flags, frameCount } = readSimpleAnimHeader(data, v, recOff, major);
+	return {
+		name,
+		frameCount,
+		loop: (flags & 0x4) !== 0,
+		baked: (flags & 0x1) !== 0,
+		curves: [],
+	};
+}
+
+// ===== Curve evaluation =====
+
+/**
+ * Sample {@link BfresAnimCurve} at frame `t`. The returned value is
+ * in the post-scale/post-offset domain — i.e. ready to use as an
+ * animated S/R/T component, material parameter, etc.
+ *
+ * Pre/post-wrap modes map out-of-range frames:
+ *   - `clamp` — clamps to the curve's [startFrame, endFrame] range.
+ *   - `repeat` — wraps modulo (endFrame − startFrame).
+ *   - `mirror` — wraps with alternating reversal.
+ */
+export function evaluateCurve(c: BfresAnimCurve, t: number): number {
+	if (c.frames.length === 0) return c.offset;
+	const span = c.endFrame - c.startFrame;
+	let frame = t;
+	if (frame < c.startFrame) {
+		if (c.preWrap === 'repeat' && span > 0) {
+			frame = c.startFrame + ((((t - c.startFrame) % span) + span) % span);
+		} else if (c.preWrap === 'mirror' && span > 0) {
+			const m = Math.floor((c.startFrame - t) / span);
+			const rem = (c.startFrame - t) - m * span;
+			frame = m % 2 === 0 ? c.startFrame + rem : c.endFrame - rem;
+		} else {
+			frame = c.startFrame;
+		}
+	} else if (frame > c.endFrame) {
+		if (c.postWrap === 'repeat' && span > 0) {
+			frame = c.startFrame + ((t - c.startFrame) % span);
+		} else if (c.postWrap === 'mirror' && span > 0) {
+			const m = Math.floor((t - c.startFrame) / span);
+			const rem = (t - c.startFrame) - m * span;
+			frame = m % 2 === 0 ? c.startFrame + rem : c.endFrame - rem;
+		} else {
+			frame = c.endFrame;
+		}
+	}
+
+	// Find the keyframe segment containing `frame`.
+	let i = 0;
+	const n = c.frames.length;
+	if (frame >= c.frames[n - 1]!) i = n - 1;
+	else {
+		// Linear scan — keyframe counts are typically small (< 100).
+		// Switch to binary search if profiling shows hot.
+		while (i + 1 < n && c.frames[i + 1]! <= frame) i++;
+	}
+
+	let value = 0;
+	switch (c.curveType) {
+		case 'cubic': {
+			// Hermite-style: each key has (P0, P1, P2, P3) which
+			// BfresLibrary expands to a piecewise cubic. Bake follows
+			// `P0 + P1·t + P2·t² + P3·t³` over the [frame_i, frame_{i+1}]
+			// segment with t normalised to [0, 1].
+			if (i + 1 >= n) {
+				value = c.keys[i * 4]!;
+			} else {
+				const f0 = c.frames[i]!;
+				const f1 = c.frames[i + 1]!;
+				const denom = f1 - f0;
+				const u = denom > 0 ? (frame - f0) / denom : 0;
+				const p0 = c.keys[i * 4 + 0]!;
+				const p1 = c.keys[i * 4 + 1]!;
+				const p2 = c.keys[i * 4 + 2]!;
+				const p3 = c.keys[i * 4 + 3]!;
+				value = p0 + u * (p1 + u * (p2 + u * p3));
+			}
+			break;
+		}
+		case 'linear': {
+			if (i + 1 >= n) {
+				value = c.keys[i * 2]!;
+			} else {
+				const f0 = c.frames[i]!;
+				const f1 = c.frames[i + 1]!;
+				const denom = f1 - f0;
+				const u = denom > 0 ? (frame - f0) / denom : 0;
+				// Standard linear interpolation between this
+				// segment's value and the next. The second element
+				// of each key (index `i*2 + 1`) is a "delta" hint
+				// that BfresLibrary keeps but doesn't use during
+				// playback; the GPU pipeline lerps endpoints, which
+				// is what we do here.
+				const a = c.keys[i * 2]!;
+				const b = c.keys[(i + 1) * 2]!;
+				value = a + (b - a) * u;
+			}
+			break;
+		}
+		case 'stepInt':
+		case 'bakedInt':
+		case 'stepBool':
+		case 'bakedBool':
+		case 'bakedFloat':
+		default:
+			value = c.keys[i] ?? 0;
+			break;
+	}
+
+	// Integer-encoded curves: keys are stored as int16/int8 ints
+	// and need to be brought back to float by `value * scale + offset`.
+	// `scale` is 0 (sentinel) for non-quantised curves; in that case
+	// just return the raw value.
+	if (c.scale !== 0 && c.scale !== 1) {
+		value = value * c.scale + c.offset;
+	}
+	return value;
 }
 
 function readShapeGeometry(
@@ -1501,6 +2595,33 @@ function readShapeGeometry(
 	const normals = decodeNormals(fvtx);
 	const uvs = decodeUvs(fvtx);
 	const colors = decodeColors(fvtx);
+	const skinIndices = decodeSkinIndices(fvtx);
+	let skinWeights = decodeSkinWeights(fvtx);
+	// `vertexSkinCount === 1` shapes commonly omit the `_w0`
+	// attribute since the single weight is implicitly 1.0. Synthesise
+	// `(1, 0, 0, 0)` per vertex so downstream skinning code can treat
+	// every shape uniformly as a 4-weight Vec4.
+	if (skinIndices && !skinWeights) {
+		skinWeights = new Float32Array(fvtx.vertexCount * 4);
+		for (let i = 0; i < fvtx.vertexCount; i++) skinWeights[i * 4] = 1;
+	}
+	// BFRES vertex buffers always store 4 components for `_i0`/`_w0`
+	// (it's a `Format_8_8_8_8_*` packed into 4 bytes), but the
+	// shader only reads the first `vertexSkinCount` components. The
+	// remaining slots are uninitialised garbage in the source file —
+	// e.g. Peach's body has `vertexSkinCount === 3` and her vertex
+	// 0 weights `[1, 0, 0, 1]` sum to 2.0 because the trailing 4th
+	// weight is never used by the engine. Zero out the unused slots
+	// here so Three.js's standard 4-influence skinning shader gets
+	// a normalised input.
+	if (skinIndices && skinWeights && vertexSkinCount > 0 && vertexSkinCount < 4) {
+		for (let i = 0; i < fvtx.vertexCount; i++) {
+			for (let k = vertexSkinCount; k < 4; k++) {
+				skinIndices[i * 4 + k] = 0;
+				skinWeights[i * 4 + k] = 0;
+			}
+		}
+	}
 
 	// Bounding box from positions
 	let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -1542,6 +2663,8 @@ function readShapeGeometry(
 		boneIndex,
 		vertexSkinCount,
 		skinBoneIndexList,
+		skinIndices,
+		skinWeights,
 	};
 }
 
@@ -1697,6 +2820,70 @@ function decodeUvs(fvtx: FvtxData): Float32Array | null {
 		if (!v) return null;
 		out[i * 2] = v[0] ?? 0;
 		out[i * 2 + 1] = v[1] ?? 0;
+	}
+	return out;
+}
+
+/**
+ * Decode the per-vertex bone-index attribute `_i0`. BFRES stores
+ * indices into the FSHP's `skinBoneIndexList`, NOT directly into
+ * the skeleton — callers must remap. Returns `null` if the shape
+ * has no skin indices.
+ *
+ * The output is always `vertexCount × 4` (Three.js skinIndex
+ * convention). Shapes with `vertexSkinCount < 4` are zero-padded.
+ *
+ * Storage format on disk varies: typically `Format_8_UInt`
+ * (4 × u8 = 4 bytes per vertex) for skin=4; `Format_16_UInt` for
+ * skin counts that need >8-bit indices.
+ */
+function decodeSkinIndices(fvtx: FvtxData): Float32Array | null {
+	const a = findAttribute(fvtx, ['_i0']);
+	if (!a) return null;
+	const out = new Float32Array(fvtx.vertexCount * 4);
+	const start = fvtx.bufferStarts[a.bufferIndex];
+	const stride = fvtx.bufferStrides[a.bufferIndex];
+	for (let i = 0; i < fvtx.vertexCount; i++) {
+		const v = decodeAttribValue(
+			fvtx.view,
+			start + i * stride + a.offsetInBuffer,
+			a.format,
+		);
+		if (!v) return null;
+		out[i * 4]     = v[0] ?? 0;
+		out[i * 4 + 1] = v[1] ?? 0;
+		out[i * 4 + 2] = v[2] ?? 0;
+		out[i * 4 + 3] = v[3] ?? 0;
+	}
+	return out;
+}
+
+/**
+ * Decode the per-vertex bone-weight attribute `_w0`. Weights are
+ * typically 8-bit unorm and sum to 1.0 across the (up-to-4)
+ * influences. Returns `vertexCount × 4` with zero-padding.
+ *
+ * For `vertexSkinCount === 1`, the on-disk format may omit the
+ * weight entirely (the single weight is implicitly 1). In that
+ * case we synthesise `(1, 0, 0, 0)` per vertex.
+ */
+function decodeSkinWeights(fvtx: FvtxData): Float32Array | null {
+	const a = findAttribute(fvtx, ['_w0']);
+	if (!a) return null;
+	const out = new Float32Array(fvtx.vertexCount * 4);
+	const start = fvtx.bufferStarts[a.bufferIndex];
+	const stride = fvtx.bufferStrides[a.bufferIndex];
+	for (let i = 0; i < fvtx.vertexCount; i++) {
+		const v = decodeAttribValue(
+			fvtx.view,
+			start + i * stride + a.offsetInBuffer,
+			a.format,
+		);
+		if (!v) return null;
+		out[i * 4]     = v[0] ?? 0;
+		out[i * 4 + 1] = v[1] ?? 0;
+		out[i * 4 + 2] = v[2] ?? 0;
+		out[i * 4 + 3] = v[3] ?? 0;
 	}
 	return out;
 }
