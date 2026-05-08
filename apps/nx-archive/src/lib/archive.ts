@@ -191,6 +191,25 @@ function bytesToHex(bytes: Uint8Array): string {
 }
 
 /**
+ * Locale-aware "natural" string comparator used to sort tree entries.
+ *
+ * The default `localeCompare` treats the digits in `level10` as
+ * coming before `level2`, which is wrong for the way humans (and
+ * file managers) read filenames with embedded numbers. Setting
+ * `numeric: true` makes runs of digits compare as numbers, so the
+ * order becomes `level1 < level2 < level10 < level11 …`. We also
+ * pin `sensitivity: 'base'` so case differences don't reorder
+ * neighbours unpredictably.
+ */
+const collator = new Intl.Collator(undefined, {
+	numeric: true,
+	sensitivity: 'base',
+});
+function humanCompare(a: string, b: string): number {
+	return collator.compare(a, b);
+}
+
+/**
  * Extract a `rightsId → encryptedTitleKey` map from any `.tik` entries
  * inside a PFS0/HFS0 file map. Tickets that fail to parse are silently
  * skipped (we don't want one bad ticket to stop the whole archive).
@@ -614,11 +633,13 @@ function directoryChildrenFromMerged(
 		else dirs.set(head, [childMerged]);
 	}
 
-	// Resolve directories + files into Node[] in alphabetical order with
-	// directories first (mirrors how the rest of the app sorts romfs).
-	const dirNames = [...dirs.keys()].sort((a, b) => a.localeCompare(b));
+	// Resolve directories + files into Node[] in natural-sort order
+	// with directories first (mirrors how the rest of the app sorts
+	// romfs). `humanCompare` orders `level1 < level2 < level10`
+	// instead of the default lexicographic `level1 < level10 < level2`.
+	const dirNames = [...dirs.keys()].sort(humanCompare);
 	const fileNames = files.sort((a, b) =>
-		a.relativePath.localeCompare(b.relativePath),
+		humanCompare(a.relativePath, b.relativePath),
 	);
 
 	const out: Promise<Node>[] = [];
@@ -1214,11 +1235,11 @@ async function romfsEntriesToNodes(
 	ctx: ArchiveContext,
 ): Promise<Node[]> {
 	const names = Object.keys(dir).sort((a, b) => {
-		// Directories first, then files; alphabetical within each group.
+		// Directories first, then files; natural-sort within each group.
 		const aIsDir = !isBlobLike(dir[a]);
 		const bIsDir = !isBlobLike(dir[b]);
 		if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
-		return a.localeCompare(b);
+		return humanCompare(a, b);
 	});
 	// Resolve children in parallel — `childNodeFor` is sync object
 	// construction for typical leaves, but for unknown extensions it
@@ -1338,7 +1359,7 @@ async function zipEntriesToNodes(
 			const aIsDir = !!t.get(a)!.dir;
 			const bIsDir = !!t.get(b)!.dir;
 			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
-			return a.localeCompare(b);
+			return humanCompare(a, b);
 		});
 		// `childNodeFor` is sync object construction for typical
 		// leaves; the actual blob read only happens when the user
@@ -1541,7 +1562,7 @@ async function sarcEntriesToNodes(
 			const aIsDir = !!t.get(a)!.dir;
 			const bIsDir = !!t.get(b)!.dir;
 			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
-			return a.localeCompare(b);
+			return humanCompare(a, b);
 		});
 		return Promise.all(
 			names.map(async (name): Promise<Node> => {
@@ -2286,7 +2307,7 @@ async function unityFsEntriesToNodes(
 			const aIsDir = !!t.get(a)!.dir;
 			const bIsDir = !!t.get(b)!.dir;
 			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
-			return a.localeCompare(b);
+			return humanCompare(a, b);
 		});
 		return Promise.all(
 			names.map(async (name): Promise<Node> => {
