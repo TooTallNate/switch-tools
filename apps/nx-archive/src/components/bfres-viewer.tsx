@@ -1671,19 +1671,32 @@ function BfresViewerInner({ node }: { node: Node }) {
       return
     }
 
+    // Bail out completely while paused: the manual-scrub effect
+    // above is the sole driver of the displayed pose, so the rAF
+    // loop has nothing useful to do, and if it kept running it
+    // would call `setFrame(localFrame)` every tick — clobbering
+    // whatever the user just dragged the scrubber to.
+    if (!playing) return
+
     let cancelled = false
     let lastTimestamp = 0
-    let localFrame = frame
+    // Pick up the React-state frame as the playback cursor's
+    // starting point. If the user scrubbed while paused, this is
+    // where they parked it; if they hit Play at the end of a non-
+    // looping clip we restart from 0 so they always get *some*
+    // playback.
     const fps = 30 // BFRES convention
     const totalFrames = Math.max(1, anim.frameCount)
+    let localFrame = frame
+    if (!anim.loop && localFrame >= totalFrames - 1) localFrame = 0
     const tick = (timestamp: number) => {
       if (cancelled) return
-      if (lastTimestamp > 0 && playing) {
+      if (lastTimestamp > 0) {
         const dt = (timestamp - lastTimestamp) / 1000
         localFrame += dt * fps
         if (localFrame >= totalFrames) {
           if (anim.loop) localFrame %= totalFrames
-          else localFrame = totalFrames
+          else localFrame = totalFrames - 1
         }
       }
       lastTimestamp = timestamp
@@ -1696,10 +1709,11 @@ function BfresViewerInner({ node }: { node: Node }) {
       for (const ss of sceneSkeletons) {
         applySkeletalAnim(ss, anim, localFrame)
       }
-      // Push the rounded frame number to React state at most
-      // ~10×/sec so the UI scrubber updates without flooding.
+      // Push the rounded frame number to React state for UI
+      // display only. Suppressed when unchanged to avoid
+      // re-renders 60×/sec.
       const rounded = Math.floor(localFrame)
-      if (rounded !== frame) setFrame(rounded)
+      setFrame((cur) => (cur === rounded ? cur : rounded))
 
       requestAnimationFrame(tick)
     }
@@ -1744,14 +1758,21 @@ function BfresViewerInner({ node }: { node: Node }) {
   }, [showSkeleton, shapes])
 
   // ---- Toggle visibility of a single shape ----
+  // We deliberately mutate the existing `ShapeRecord` array in
+  // place (rather than allocating a new one) and then nudge a
+  // small counter to force a re-render. Replacing the array
+  // would change its referential identity, which would re-fire
+  // every effect that depends on `[shapes]` — including the
+  // scene-creation effect, which would tear down the renderer
+  // and dispose the very meshes we just toggled.
+  const [, setVisibilityTick] = useState(0)
   const toggleShape = (index: number) => {
-    setShapes((cur) => {
-      if (!cur) return cur
-      const next = cur.slice()
-      next[index] = { ...next[index], visible: !next[index].visible }
-      next[index].mesh.visible = next[index].visible
-      return next
-    })
+    if (!shapes) return
+    const r = shapes[index]
+    if (!r) return
+    r.visible = !r.visible
+    r.mesh.visible = r.visible
+    setVisibilityTick((t) => t + 1)
   }
 
   if (error) return <ViewerError error={error} />
