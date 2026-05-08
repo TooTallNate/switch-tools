@@ -14,6 +14,7 @@
  * render.
  */
 import { Component, useEffect, useRef, useState, type ReactNode } from "react"
+import { PauseIcon, PlayIcon } from "lucide-react"
 import * as THREE from "three"
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
 import {
@@ -2227,12 +2228,22 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
     if (!anim.loop && localFrame >= totalFrames - 1) localFrame = 0
     const tick = (timestamp: number) => {
       if (cancelled) return
+      // Whether this tick is the *last* one for the current
+      // playback — set when a non-looping clip's playhead just
+      // crossed the final frame. We still apply the final pose
+      // once below, then flip `playing` to false so the rAF
+      // loop tears down on the cleanup pass.
+      let endReached = false
       if (lastTimestamp > 0) {
         const dt = (timestamp - lastTimestamp) / 1000
         localFrame += dt * fps
         if (localFrame >= totalFrames) {
-          if (anim.loop) localFrame %= totalFrames
-          else localFrame = totalFrames - 1
+          if (anim.loop) {
+            localFrame %= totalFrames
+          } else {
+            localFrame = totalFrames - 1
+            endReached = true
+          }
         }
       }
       lastTimestamp = timestamp
@@ -2251,6 +2262,15 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
       const rounded = Math.floor(localFrame)
       setFrame((cur) => (cur === rounded ? cur : rounded))
 
+      if (endReached) {
+        // Stop the rAF loop and flip the React-state `playing`
+        // flag so the play/pause button reads "Play" again.
+        // Setting `playing` to false also re-fires this effect
+        // (it's in the dep list), which tears down via the
+        // cleanup return below.
+        setPlaying(false)
+        return
+      }
       requestAnimationFrame(tick)
     }
     const id = requestAnimationFrame(tick)
@@ -2342,6 +2362,13 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
               const idx = Number(e.target.value)
               setCurrentAnim(idx)
               setFrame(0)
+              // Picking a real clip from the dropdown should
+              // start playback immediately — otherwise the user
+              // has to chase a separate Play click after every
+              // selection. Switching to the bind-pose entry
+              // (idx -1) leaves `playing` alone since there's
+              // nothing to play in that state.
+              if (idx >= 0) setPlaying(true)
             }}
             className="rounded-md border bg-card px-2 py-1"
           >
@@ -2356,9 +2383,15 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
             type="button"
             onClick={() => setPlaying((p) => !p)}
             disabled={currentAnim < 0}
-            className="rounded-md border bg-card px-2 py-1 disabled:opacity-50"
+            aria-label={playing ? "Pause animation" : "Play animation"}
+            title={playing ? "Pause" : "Play"}
+            className="inline-flex items-center justify-center rounded-md border bg-card p-1.5 disabled:opacity-50"
           >
-            {playing ? "Pause" : "Play"}
+            {playing ? (
+              <PauseIcon className="size-4" />
+            ) : (
+              <PlayIcon className="size-4" />
+            )}
           </button>
           <input
             type="range"
