@@ -871,16 +871,46 @@ function BfresViewerInner({ node }: { node: Node }) {
               new THREE.BufferAttribute(g.skinWeights, 4),
             )
             const skinned = new THREE.SkinnedMesh(geometry, material)
+            // Pick the right `THREE.Skeleton` instance to bind
+            // against. The bone array is shared across all
+            // SkinnedMeshes in the same FMDL (so animation drives
+            // them in lockstep), but the *inverse-bind matrices*
+            // depend on what space the shape's vertices live in:
+            //
+            //   - Smooth-skinned shapes (`vertexSkinCount >= 2`)
+            //     have vertices in model bind-pose space; the
+            //     inverse-bind matrices from the FSKL
+            //     (`inv(world_bind)`) are correct, because the
+            //     shader does `world_current * inv(world_bind) * v`
+            //     which is identity in bind pose.
+            //
+            //   - Rigid-skinned shapes (`vertexSkinCount === 1`)
+            //     in BFRES store vertices in *bone-local* space
+            //     (e.g. Yoshi's eye is authored at Y≈0..1.5,
+            //     not Y≈8 where the Head bone lives). For these
+            //     the shader needs `world_current * v_bone_local`
+            //     directly, so the inverse-bind matrix must be
+            //     **identity**. Otherwise the eye lands at bone-
+            //     local origin in bind pose, on the floor.
+            //
+            // Build a separate `THREE.Skeleton` for the rigid
+            // case, sharing the same bones but with identity
+            // inverses, so this override doesn't leak into
+            // smooth-skinned meshes that use the same skeleton.
+            const bindSkel =
+              g.vertexSkinCount === 1
+                ? new THREE.Skeleton(
+                    sceneSkel.bones,
+                    sceneSkel.bones.map(() => new THREE.Matrix4()),
+                  )
+                : sceneSkel.skeleton
             // CRITICAL: pass an explicit bindMatrix (identity here)
             // so Three.js's `bind()` does NOT call
             // `skeleton.calculateInverses()` — that would recompute
             // the inverse-bind matrices from the current bone
-            // matrixWorlds, throwing away the FSKL-authored values
-            // we so carefully read. Identity is correct because
-            // mesh vertices live in model space (which equals world
-            // space when the SkinnedMesh has no transform of its
-            // own).
-            skinned.bind(sceneSkel.skeleton, new THREE.Matrix4())
+            // matrixWorlds, throwing away whichever bind matrices
+            // we just chose.
+            skinned.bind(bindSkel, new THREE.Matrix4())
             // SkinnedMeshes are typically frustum-culled by their
             // *static* AABB which doesn't account for animation —
             // disable to avoid pop-out when bones move.
