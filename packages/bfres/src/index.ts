@@ -359,6 +359,60 @@ export async function parseBfres(blob: Blob): Promise<ParsedBfres> {
  * idxLeft, u16 idxRight, u64 keyOffset). The key string is at
  * keyOffset + 2 (skipping the u16 length prefix).
  */
+/**
+ * Locate the offsets of all FMDL records in declaration order,
+ * starting from `fmdlArrayOffset`. The exact stride between FMDL
+ * records depends on the BFRES version (and minor padding details
+ * that vary across SDK builds), so rather than maintain a brittle
+ * version-keyed stride table we scan forward from each record's
+ * offset for the next `"FMDL"` magic.
+ *
+ * Cap the scan distance to a sane upper bound (`maxStride`) so a
+ * truncated / corrupt file doesn't make us walk to EOF.
+ */
+function locateFmdls(
+	data: Uint8Array,
+	fmdlArrayOffset: number,
+	count: number,
+): number[] {
+	const out: number[] = [];
+	const maxStride = 0x200; // Conservative upper bound for FMDL record size
+	let cursor = fmdlArrayOffset;
+	for (let i = 0; i < count; i++) {
+		// First record is exactly at `fmdlArrayOffset`.
+		if (i === 0) {
+			if (
+				data[cursor] !== 0x46 ||
+				data[cursor + 1] !== 0x4d ||
+				data[cursor + 2] !== 0x44 ||
+				data[cursor + 3] !== 0x4c
+			) {
+				return out; // not even the first FMDL has the magic
+			}
+			out.push(cursor);
+			continue;
+		}
+		// Scan forward in 4-byte increments for the next "FMDL".
+		let found = -1;
+		const stop = Math.min(cursor + maxStride, data.length - 4);
+		for (let p = cursor + 4; p <= stop; p += 4) {
+			if (
+				data[p] === 0x46 &&
+				data[p + 1] === 0x4d &&
+				data[p + 2] === 0x44 &&
+				data[p + 3] === 0x4c
+			) {
+				found = p;
+				break;
+			}
+		}
+		if (found < 0) break;
+		out.push(found);
+		cursor = found;
+	}
+	return out;
+}
+
 function readDict(data: Uint8Array, v: DataView, dictOffset: number): string[] {
 	if (!dictOffset || dictOffset + 8 > data.length) return [];
 	const numEntries = v.getInt32(dictOffset + 4, true);
@@ -412,27 +466,16 @@ function readModels(
 	version: BfresVersion,
 ): BfresModel[] {
 	if (!fmdlArrayOffset || names.length === 0) return [];
-	// FMDL stride is version-dependent. v5–v8 use a 12-byte
-	// HeaderBlock plus 9 × u64 pointers + various u16 counts +
-	// padding = ~0x80 bytes. v9+ replaces the HeaderBlock with a
-	// u32 flags. The numbers below are derived from
-	// BfresLibrary's `Model.Read`.
-	const stride = version.major >= 9 ? 0x78 : 0x80;
+	// FMDL records sit back-to-back in the values array, but the
+	// exact byte-stride between them varies by BFRES version (and
+	// can include padding that's hard to predict). We scan forward
+	// from each record's offset for the next `"FMDL"` magic instead
+	// of guessing — see {@link locateFmdls}.
+	const fmdlOffsets = locateFmdls(data, fmdlArrayOffset, names.length);
 
 	const out: BfresModel[] = [];
-	for (let i = 0; i < names.length; i++) {
-		const fmdlOff = fmdlArrayOffset + i * stride;
-		if (fmdlOff + 16 > data.length) break;
-		// Sanity: FMDL records start with `"FMDL"`. If we don't see
-		// it, our stride guess is off — bail with what we have.
-		if (
-			data[fmdlOff] !== 0x46 ||
-			data[fmdlOff + 1] !== 0x4d ||
-			data[fmdlOff + 2] !== 0x44 ||
-			data[fmdlOff + 3] !== 0x4c
-		) {
-			break;
-		}
+	for (let i = 0; i < fmdlOffsets.length; i++) {
+		const fmdlOff = fmdlOffsets[i];
 		// Pointer block starts at +0x08 for v9+ (flags u32) or +0x10
 		// for v5–v8 (HeaderBlock = u32 offset + u64 size).
 		const ptrBase = fmdlOff + (version.major >= 9 ? 0x08 : 0x10);
@@ -776,18 +819,10 @@ export async function extractGeometry(blob: Blob): Promise<BfresGeometry[]> {
 	// array of fixed-size FMDL records).
 	const fmdlDictOffset = Number(v.getBigInt64(0x30, true));
 	const fmdlNames = readDict(data, v, fmdlDictOffset);
-	const fmdlStride = major >= 9 ? 0x78 : 0x80;
+	const fmdlOffsets = locateFmdls(data, fmdlArrayOffset, fmdlNames.length);
 
-	for (let mi = 0; mi < fmdlNames.length; mi++) {
-		const fmdlOff = fmdlArrayOffset + mi * fmdlStride;
-		if (
-			data[fmdlOff] !== 0x46 ||
-			data[fmdlOff + 1] !== 0x4d ||
-			data[fmdlOff + 2] !== 0x44 ||
-			data[fmdlOff + 3] !== 0x4c
-		) {
-			break;
-		}
+	for (let mi = 0; mi < fmdlOffsets.length; mi++) {
+		const fmdlOff = fmdlOffsets[mi];
 		const ptrBase = fmdlOff + (major >= 9 ? 0x08 : 0x10);
 		const shapeValuesOffset = Number(v.getBigUint64(ptrBase + 0x20, true));
 		const countsBase = ptrBase + (major >= 9 ? 0x48 : 0x58);
@@ -883,19 +918,11 @@ export async function extractMaterials(blob: Blob): Promise<BfresMaterial[][]> {
 	const fmdlNames = readDict(data, v, fmdlDictOffset);
 	if (!fmdlArrayOffset) return fmdlNames.map(() => []);
 
-	const fmdlStride = major >= 9 ? 0x78 : 0x80;
+	const fmdlOffsets = locateFmdls(data, fmdlArrayOffset, fmdlNames.length);
 	const out: BfresMaterial[][] = [];
 
-	for (let mi = 0; mi < fmdlNames.length; mi++) {
-		const fmdlOff = fmdlArrayOffset + mi * fmdlStride;
-		if (
-			data[fmdlOff] !== 0x46 ||
-			data[fmdlOff + 1] !== 0x4d ||
-			data[fmdlOff + 2] !== 0x44 ||
-			data[fmdlOff + 3] !== 0x4c
-		) {
-			break;
-		}
+	for (let mi = 0; mi < fmdlOffsets.length; mi++) {
+		const fmdlOff = fmdlOffsets[mi];
 		const ptrBase = fmdlOff + (major >= 9 ? 0x08 : 0x10);
 
 		// pointer block layout (relative to ptrBase):
@@ -1262,14 +1289,7 @@ function decodeUvs(fvtx: FvtxData): Float32Array | null {
 		);
 		if (!v) return null;
 		out[i * 2] = v[0] ?? 0;
-		// Switch / Tegra ships UVs with V=0 at the top of the
-		// texture (DirectX convention). Three.js samples textures
-		// with V=0 at the bottom (OpenGL convention) and its
-		// `texture.flipY` flag is a no-op for DataTexture inputs,
-		// so we flip V here at extraction time. Without this,
-		// textures show up vertically mirrored — most visibly on
-		// faces (e.g. Peach's eyes appear on her chin).
-		out[i * 2 + 1] = 1 - (v[1] ?? 0);
+		out[i * 2 + 1] = v[1] ?? 0;
 	}
 	return out;
 }
