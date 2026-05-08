@@ -106,8 +106,17 @@ export interface ParsedBfres {
  * decoded JS-typed arrays rather than raw buffers so callers can
  * drop them straight into Three.js / WebGPU / glTF.
  *
- * Skeletal weights and material binding are NOT included yet — this
- * struct can be extended.
+ * Per-vertex skin weights are NOT pre-blended — see
+ * {@link vertexSkinCount} and {@link boneIndex} for how to position
+ * the geometry. For shapes with `vertexSkinCount === 0`, vertices
+ * are stored in the bone-local space of `boneIndex` and the caller
+ * should multiply them by `skeleton.bones[boneIndex].worldMatrix`.
+ * For `vertexSkinCount === 1`, vertices are stored in the local
+ * space of the single bone in {@link skinBoneIndexList}. For
+ * `vertexSkinCount >= 2`, vertices are in model bind-pose space and
+ * the result already looks correct without any bone transform — full
+ * linear-blend skinning is only needed if you want to play
+ * animations.
  */
 export interface BfresGeometry {
 	/** Friendly shape name (e.g. `"Body_BodyMat"`). */
@@ -132,6 +141,71 @@ export interface BfresGeometry {
 	vertexCount: number;
 	/** Axis-aligned bounding box of the positions, in model space. */
 	boundingBox: { min: [number, number, number]; max: [number, number, number] };
+	/**
+	 * For rigid-skinned shapes (`vertexSkinCount === 0`), the
+	 * skeleton bone whose local space this shape's vertices are
+	 * stored in. Default 0 (root bone).
+	 */
+	boneIndex: number;
+	/**
+	 * Number of bone weights per vertex. `0` = rigid skin (single
+	 * fixed bone, see `boneIndex`). `1` = single-bone smooth skin
+	 * (the bone is the first entry of {@link skinBoneIndexList}).
+	 * `2`/`4`/`8` = multi-bone smooth skin (vertices already in
+	 * model bind-pose space).
+	 */
+	vertexSkinCount: number;
+	/**
+	 * Bone-index lookup table for smooth-skinned shapes. The
+	 * per-vertex `_i0` byte attribute indexes into this list, not
+	 * directly into the skeleton. Empty for rigid-skinned shapes.
+	 */
+	skinBoneIndexList: Uint16Array;
+}
+
+/**
+ * One bone in an FSKL skeleton. Local SRT (scale, rotation,
+ * translation) describe the bone's transform relative to its
+ * parent. Use {@link extractSkeletons} to get a flat array of
+ * bones with parent indices, and `worldMatrix` already composed
+ * via the parent chain.
+ */
+export interface BfresBone {
+	name: string;
+	/** Parent bone index, or `-1` for root bones. */
+	parentIndex: number;
+	/** Local scale. */
+	scale: [number, number, number];
+	/**
+	 * Local rotation. If `rotationMode === 'eulerXYZ'`, the values
+	 * are radians (X, Y, Z) and the W component is `1.0` (unused).
+	 * If `rotationMode === 'quaternion'`, the values are a unit
+	 * quaternion in (x, y, z, w) order.
+	 */
+	rotation: [number, number, number, number];
+	/** Local translation. */
+	position: [number, number, number];
+	/** How {@link rotation} should be interpreted. */
+	rotationMode: 'eulerXYZ' | 'quaternion';
+	/**
+	 * 4×4 column-major **local** matrix (relative to parent),
+	 * computed from S/R/T. Length 16. Column-major means
+	 * `m[col*4 + row]` — the same layout as Three.js / glTF / WebGL.
+	 */
+	localMatrix: Float32Array;
+	/**
+	 * 4×4 column-major **world** matrix (relative to model root),
+	 * computed by walking the parent chain. Length 16. Use this to
+	 * transform geometry that's stored in this bone's local space.
+	 */
+	worldMatrix: Float32Array;
+}
+
+export interface BfresSkeleton {
+	/** Bones in declaration order. */
+	bones: BfresBone[];
+	/** Default rotation mode for the skeleton (per-bone may differ). */
+	rotationMode: 'eulerXYZ' | 'quaternion';
 }
 
 /**
@@ -1032,6 +1106,327 @@ export async function extractMaterials(blob: Blob): Promise<BfresMaterial[][]> {
 	return out;
 }
 
+/**
+ * Walk the parsed BFRES and surface each FMDL's FSKL skeleton —
+ * one {@link BfresSkeleton} per FMDL, in declaration order. Each
+ * skeleton's bones come back already laid out flat with parent
+ * indices and pre-computed `localMatrix` / `worldMatrix` (4×4
+ * column-major, length 16) so callers can directly multiply
+ * vertex positions by `bone.worldMatrix` to push bone-local
+ * geometry into model space.
+ *
+ * Returned bone fields cover the rigid-skinning case (the only
+ * case our viewer needs to position correctly): pure local SRT
+ * with parent-chain composition. We do **not** read the inverse
+ * model matrices, mirror tables, or per-bone user data — those
+ * matter for animation playback / mirroring, not for static
+ * preview rendering.
+ *
+ * Throws if the BFRES isn't a Switch v5+ build.
+ */
+export async function extractSkeletons(blob: Blob): Promise<BfresSkeleton[]> {
+	if (blob.size < HEADER_MIN_SIZE) {
+		throw new Error('Blob too small to be a BFRES');
+	}
+	const data = new Uint8Array(await blob.arrayBuffer());
+	const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+	if (
+		data[0] !== 0x46 ||
+		data[1] !== 0x52 ||
+		data[2] !== 0x45 ||
+		data[3] !== 0x53
+	) {
+		throw new Error('Bad BFRES magic');
+	}
+	if (
+		data[4] !== 0x20 ||
+		data[5] !== 0x20 ||
+		data[6] !== 0x20 ||
+		data[7] !== 0x20
+	) {
+		throw new Error('Wii U BFRES is not supported (Switch only)');
+	}
+	const versionRaw = v.getUint32(0x08, true);
+	const major = (versionRaw >> 16) & 0xff;
+	if (major < 5) throw new Error(`BFRES version ${major} is too old (need v5+)`);
+
+	const fmdlArrayOffset = Number(v.getBigInt64(0x28, true));
+	const fmdlDictOffset = Number(v.getBigInt64(0x30, true));
+	const fmdlNames = readDict(data, v, fmdlDictOffset);
+	if (!fmdlArrayOffset) return fmdlNames.map(() => emptySkeleton());
+
+	const fmdlOffsets = locateFmdls(data, fmdlArrayOffset, fmdlNames.length);
+	const out: BfresSkeleton[] = [];
+	for (let mi = 0; mi < fmdlOffsets.length; mi++) {
+		const fmdlOff = fmdlOffsets[mi];
+		const ptrBase = fmdlOff + (major >= 9 ? 0x08 : 0x10);
+		const skeletonOff = Number(v.getBigUint64(ptrBase + 0x10, true));
+		out.push(readSkeleton(data, v, skeletonOff, major));
+	}
+	// Pad with empty skeletons if we couldn't locate every FMDL.
+	while (out.length < fmdlNames.length) out.push(emptySkeleton());
+	return out;
+}
+
+function emptySkeleton(): BfresSkeleton {
+	return { bones: [], rotationMode: 'eulerXYZ' };
+}
+
+/**
+ * Parse a single FSKL section.
+ *
+ * Layout (Switch v5–v8) per BfresLibrary's `Skeleton.cs`:
+ *
+ *   "FSKL" magic (4)
+ *   HeaderBlock (12)              -- ptrBase = +0x10
+ *   ptrBase + 0x00 BoneDictOffset (u64)
+ *   ptrBase + 0x08 BoneArrayOffset (u64)
+ *   ptrBase + 0x10 MatrixToBoneListOffset (u64)
+ *   ptrBase + 0x18 InverseModelMatricesOffset (u64)
+ *   ptrBase + 0x20 userPointer (u64)
+ *   ptrBase + 0x28 _flags (u32)   -- skip 16 bytes for v8
+ *   ptrBase + 0x2C numBone (u16)
+ *   ptrBase + 0x2E NumSmoothMatrices (u16)
+ *   ptrBase + 0x30 NumRigidMatrices (u16)
+ *
+ * For v9+, `_flags` moves up before the pointer block, and there's a
+ * mirror-table u64 between userPointer and numBone.
+ *
+ * Each bone (Switch v5–v7), 80 bytes:
+ *   0x00 nameOffset (u64)
+ *   0x08 userDataValuesOffset (u64)
+ *   0x10 userDataDictOffset (u64)
+ *   0x18 idx (u16)
+ *   0x1A parentIndex (i16)
+ *   0x1C smoothMatrixIndex (i16)
+ *   0x1E rigidMatrixIndex (i16)
+ *   0x20 billboardIndex (i16)
+ *   0x22 numUserData (u16)
+ *   0x24 flags (u32)
+ *   0x28 scale (3 × f32)
+ *   0x34 rotation (4 × f32)       -- vec4; W = 1.0 for Euler
+ *   0x44 position (3 × f32)
+ *   = 0x50 bytes total
+ *
+ * v8 / v9 stride includes 16 bytes of extra padding right after the
+ * user-data dict pointer.
+ */
+function readSkeleton(
+	data: Uint8Array,
+	v: DataView,
+	skeletonOff: number,
+	major: number,
+): BfresSkeleton {
+	if (
+		!skeletonOff ||
+		skeletonOff + 0x40 > data.length ||
+		data[skeletonOff] !== 0x46 ||
+		data[skeletonOff + 1] !== 0x53 ||
+		data[skeletonOff + 2] !== 0x4b ||
+		data[skeletonOff + 3] !== 0x4c
+	) {
+		return emptySkeleton();
+	}
+	const fsklPtrBase = skeletonOff + (major >= 9 ? 0x08 : 0x10);
+	const boneArrayOff = Number(v.getBigUint64(fsklPtrBase + 0x08, true));
+
+	// Locate `_flags` and `numBone`. v5–v7 has flags at +0x28,
+	// numBone at +0x2C. v8 inserts 16 bytes of padding before the
+	// flags / count region. v9+ moves flags before the pointer
+	// block (read up at the top of the FSKL record) and inserts
+	// a mirror-table pointer.
+	let flags = 0;
+	let numBone = 0;
+	if (major < 8) {
+		flags = v.getUint32(fsklPtrBase + 0x28, true);
+		numBone = v.getUint16(fsklPtrBase + 0x2c, true);
+	} else if (major === 8) {
+		// userPointer (8) + 16 bytes seek + flags (4) + numBone (2)
+		flags = v.getUint32(fsklPtrBase + 0x38, true);
+		numBone = v.getUint16(fsklPtrBase + 0x3c, true);
+	} else {
+		// v9+: flags is the first 4 bytes of the FSKL record
+		// (replacing HeaderBlock); mirrorTable u64 sits at offset
+		// 0x28 of the pointer block. numBone is right after.
+		flags = v.getUint32(skeletonOff + 4, true);
+		numBone = v.getUint16(fsklPtrBase + 0x30, true);
+	}
+
+	// Sanity bound the bone count to avoid runaway loops on a
+	// corrupt / unexpected layout.
+	if (numBone > 4096) numBone = 0;
+
+	// Skeleton's `FlagsRotation` lives in bits 12–14 of `_flags`
+	// (mask 0x7000): 0 = quaternion, 1 = EulerXYZ. Per BfresLibrary's
+	// `Skeleton.SkeletonFlagsRotation` enum.
+	const skelRotMode: 'eulerXYZ' | 'quaternion' =
+		(flags & 0x7000) === 0x1000 ? 'eulerXYZ' : 'quaternion';
+
+	// Bone stride: 80 bytes for v5–v7. v8/v9 add 16 bytes of
+	// padding right after the userData dict pointer.
+	const boneStride = major <= 7 ? 0x50 : 0x60;
+	const boneFieldsExtraOffset = major <= 7 ? 0 : 16;
+
+	const bones: BfresBone[] = [];
+	for (let b = 0; b < numBone; b++) {
+		const off = boneArrayOff + b * boneStride;
+		if (off + boneStride > data.length) break;
+		const nameOff = Number(v.getBigUint64(off + 0x00, true));
+		const fieldBase = off + 0x18 + boneFieldsExtraOffset;
+		const parentIndex = v.getInt16(fieldBase + 0x02, true);
+		const bFlags = v.getUint32(fieldBase + 0x0c, true);
+		const sx = v.getFloat32(fieldBase + 0x10, true);
+		const sy = v.getFloat32(fieldBase + 0x14, true);
+		const sz = v.getFloat32(fieldBase + 0x18, true);
+		const rx = v.getFloat32(fieldBase + 0x1c, true);
+		const ry = v.getFloat32(fieldBase + 0x20, true);
+		const rz = v.getFloat32(fieldBase + 0x24, true);
+		const rw = v.getFloat32(fieldBase + 0x28, true);
+		const px = v.getFloat32(fieldBase + 0x2c, true);
+		const py = v.getFloat32(fieldBase + 0x30, true);
+		const pz = v.getFloat32(fieldBase + 0x34, true);
+		// Per-bone rotation mode override. Same mask as the
+		// skeleton-level flag (bits 12–14, mask 0x7000); 0x1000
+		// means EulerXYZ. Falls back to the skeleton default if
+		// the bone's bits are zero.
+		const boneRotMode: 'eulerXYZ' | 'quaternion' =
+			(bFlags & 0x7000) === 0x1000 ? 'eulerXYZ' :
+			(bFlags & 0x7000) === 0x0000 ? skelRotMode : 'quaternion';
+
+		const localMatrix = new Float32Array(16);
+		composeSrtMatrix(
+			localMatrix,
+			sx, sy, sz,
+			rx, ry, rz, rw,
+			px, py, pz,
+			boneRotMode,
+		);
+
+		bones.push({
+			name: readPoolString(data, nameOff),
+			parentIndex,
+			scale: [sx, sy, sz],
+			rotation: [rx, ry, rz, rw],
+			position: [px, py, pz],
+			rotationMode: boneRotMode,
+			localMatrix,
+			// Filled in below after the loop, once we have all locals.
+			worldMatrix: new Float32Array(16),
+		});
+	}
+
+	// Compose world matrices via the parent chain. Bones are stored
+	// in topological order (a child's parentIndex always points to
+	// an earlier index), so a single forward pass works.
+	for (let i = 0; i < bones.length; i++) {
+		const b = bones[i];
+		if (b.parentIndex < 0 || b.parentIndex >= bones.length) {
+			// Root bone — world = local
+			b.worldMatrix.set(b.localMatrix);
+		} else {
+			multiplyMat4(b.worldMatrix, bones[b.parentIndex].worldMatrix, b.localMatrix);
+		}
+	}
+
+	return { bones, rotationMode: skelRotMode };
+}
+
+/**
+ * Compose a 4×4 column-major transform from scale, rotation,
+ * translation. The result is `T · R · S` applied as `M · v` (column
+ * vectors), matching Three.js / glTF / WebGL conventions.
+ *
+ * For Euler XYZ, the rotation order is X then Y then Z (i.e.
+ * `R = Rx · Ry · Rz`), per BfresLibrary.
+ */
+function composeSrtMatrix(
+	out: Float32Array,
+	sx: number, sy: number, sz: number,
+	rx: number, ry: number, rz: number, rw: number,
+	px: number, py: number, pz: number,
+	rotationMode: 'eulerXYZ' | 'quaternion',
+): void {
+	// Build a 3×3 rotation matrix `R` (column-major in `r[]`).
+	const r = new Float32Array(9);
+	if (rotationMode === 'quaternion') {
+		// Standard quaternion → matrix.
+		const x = rx, y = ry, z = rz, w = rw;
+		const x2 = x + x, y2 = y + y, z2 = z + z;
+		const xx = x * x2, xy = x * y2, xz = x * z2;
+		const yy = y * y2, yz = y * z2, zz = z * z2;
+		const wx = w * x2, wy = w * y2, wz = w * z2;
+		r[0] = 1 - (yy + zz); r[1] = xy + wz;       r[2] = xz - wy;
+		r[3] = xy - wz;       r[4] = 1 - (xx + zz); r[5] = yz + wx;
+		r[6] = xz + wy;       r[7] = yz - wx;       r[8] = 1 - (xx + yy);
+	} else {
+		// Euler XYZ per BfresLibrary's `STMath.FromEulerAngles`,
+		// which builds the quaternion as `Qz · Qy · Qx` — meaning:
+		// when applied to a vector, **rotate about X first, then
+		// Y, then Z**. As a matrix, that's `R = Rz · Ry · Rx`
+		// (column-major, applied as `M · v`). The naming is
+		// confusing because "EulerXYZ" can mean either intrinsic
+		// XYZ or extrinsic XYZ in different DCC tools; for BFRES
+		// the answer is **intrinsic XYZ = extrinsic ZYX**, which
+		// corresponds to the matrix below. Verified against
+		// real Yoshi/Peach FSKL data — getting this backwards
+		// puts every bone with rotation in the wrong place.
+		const cx = Math.cos(rx), sxv = Math.sin(rx);
+		const cy = Math.cos(ry), syv = Math.sin(ry);
+		const cz = Math.cos(rz), szv = Math.sin(rz);
+		// Standard Tait-Bryan ZYX rotation matrix.
+		const m00 = cz * cy;
+		const m01 = cz * syv * sxv - szv * cx;
+		const m02 = cz * syv * cx + szv * sxv;
+		const m10 = szv * cy;
+		const m11 = szv * syv * sxv + cz * cx;
+		const m12 = szv * syv * cx - cz * sxv;
+		const m20 = -syv;
+		const m21 = cy * sxv;
+		const m22 = cy * cx;
+		// column-major
+		r[0] = m00; r[1] = m10; r[2] = m20;
+		r[3] = m01; r[4] = m11; r[5] = m21;
+		r[6] = m02; r[7] = m12; r[8] = m22;
+	}
+	// out = T · R · S, column-major. Each column is `R · S_col + T`
+	// where the translation only applies to the last column.
+	out[0]  = r[0] * sx; out[1]  = r[1] * sx; out[2]  = r[2] * sx; out[3]  = 0;
+	out[4]  = r[3] * sy; out[5]  = r[4] * sy; out[6]  = r[5] * sy; out[7]  = 0;
+	out[8]  = r[6] * sz; out[9]  = r[7] * sz; out[10] = r[8] * sz; out[11] = 0;
+	out[12] = px;        out[13] = py;        out[14] = pz;        out[15] = 1;
+}
+
+/**
+ * `out = a · b` for 4×4 column-major matrices. Safe when `out`
+ * aliases `a` or `b` because we read into temporaries first.
+ */
+function multiplyMat4(out: Float32Array, a: Float32Array, b: Float32Array): void {
+	const a00 = a[0],  a01 = a[4],  a02 = a[8],  a03 = a[12];
+	const a10 = a[1],  a11 = a[5],  a12 = a[9],  a13 = a[13];
+	const a20 = a[2],  a21 = a[6],  a22 = a[10], a23 = a[14];
+	const a30 = a[3],  a31 = a[7],  a32 = a[11], a33 = a[15];
+	const b00 = b[0],  b01 = b[4],  b02 = b[8],  b03 = b[12];
+	const b10 = b[1],  b11 = b[5],  b12 = b[9],  b13 = b[13];
+	const b20 = b[2],  b21 = b[6],  b22 = b[10], b23 = b[14];
+	const b30 = b[3],  b31 = b[7],  b32 = b[11], b33 = b[15];
+	out[0]  = a00 * b00 + a01 * b10 + a02 * b20 + a03 * b30;
+	out[1]  = a10 * b00 + a11 * b10 + a12 * b20 + a13 * b30;
+	out[2]  = a20 * b00 + a21 * b10 + a22 * b20 + a23 * b30;
+	out[3]  = a30 * b00 + a31 * b10 + a32 * b20 + a33 * b30;
+	out[4]  = a00 * b01 + a01 * b11 + a02 * b21 + a03 * b31;
+	out[5]  = a10 * b01 + a11 * b11 + a12 * b21 + a13 * b31;
+	out[6]  = a20 * b01 + a21 * b11 + a22 * b21 + a23 * b31;
+	out[7]  = a30 * b01 + a31 * b11 + a32 * b21 + a33 * b31;
+	out[8]  = a00 * b02 + a01 * b12 + a02 * b22 + a03 * b32;
+	out[9]  = a10 * b02 + a11 * b12 + a12 * b22 + a13 * b32;
+	out[10] = a20 * b02 + a21 * b12 + a22 * b22 + a23 * b32;
+	out[11] = a30 * b02 + a31 * b12 + a32 * b22 + a33 * b32;
+	out[12] = a00 * b03 + a01 * b13 + a02 * b23 + a03 * b33;
+	out[13] = a10 * b03 + a11 * b13 + a12 * b23 + a13 * b33;
+	out[14] = a20 * b03 + a21 * b13 + a22 * b23 + a23 * b33;
+	out[15] = a30 * b03 + a31 * b13 + a32 * b23 + a33 * b33;
+}
+
 function readShapeGeometry(
 	data: Uint8Array,
 	v: DataView,
@@ -1047,7 +1442,7 @@ function readShapeGeometry(
 	const nameOff = Number(v.getBigInt64(p, true)); p += 8;
 	const fvtxOff = Number(v.getBigInt64(p, true)); p += 8;
 	const meshArrayOff = Number(v.getBigInt64(p, true)); p += 8;
-	p += 8; // skinBoneIndexListOffset
+	const skinBoneIndexListOff = Number(v.getBigInt64(p, true)); p += 8;
 	p += 8; // keyShapeValuesOffset
 	p += 8; // keyShapeDictOffset
 	p += 8; // boundingBoxArrayOffset
@@ -1061,20 +1456,29 @@ function readShapeGeometry(
 	if (major < 9) p += 4; // legacy ShapeFlags
 	p += 2; // idx
 	const materialIndex = v.getUint16(p, true); p += 2;
-	p += 2; // boneIndex
+	const boneIndex = v.getUint16(p, true); p += 2;
 	const vertexBufferIndex = v.getUint16(p, true); p += 2;
-	p += 2; // numSkinBoneIndex
-	p += 1; // vertexSkinCount
-	p += 1; // numKeys (read below)
-	// Actually the next byte is numMesh per the C# code; let me re-walk:
-	// The bytes after the u16 padding here (per BfresLibrary's Shape.Read switch path):
-	//   ushort numSkinBoneIndex; byte vertexSkinCount; byte numMesh; byte numKeys; byte targetAttribCount;
-	// I overshot by 1 byte above — fix by stepping back and reading correctly.
-	p -= 2;
+	void vertexBufferIndex; // currently unused; kept for clarity
+	const numSkinBoneIndex = v.getUint16(p, true); p += 2;
+	// Per BfresLibrary Shape.Read (Switch v5–v8):
+	//   ushort numSkinBoneIndex; byte vertexSkinCount;
+	//   byte numMesh; byte numKeys; byte targetAttribCount;
 	const vertexSkinCount = v.getUint8(p++);
 	const numMesh = v.getUint8(p++);
 
 	if (numMesh === 0) return null;
+
+	// Read the skin-bone-index list — `numSkinBoneIndex` u16s
+	// pointing into the skeleton. For rigid shapes this is empty
+	// (numSkinBoneIndex === 0).
+	const skinBoneIndexList = new Uint16Array(numSkinBoneIndex);
+	if (numSkinBoneIndex > 0 && skinBoneIndexListOff > 0) {
+		for (let i = 0; i < numSkinBoneIndex; i++) {
+			const off = skinBoneIndexListOff + i * 2;
+			if (off + 2 > data.length) break;
+			skinBoneIndexList[i] = v.getUint16(off, true);
+		}
+	}
 
 	// Read FVTX
 	if (
@@ -1135,6 +1539,9 @@ function readShapeGeometry(
 			min: [minX, minY, minZ],
 			max: [maxX, maxY, maxZ],
 		},
+		boneIndex,
+		vertexSkinCount,
+		skinBoneIndexList,
 	};
 }
 

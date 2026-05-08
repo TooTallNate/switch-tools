@@ -5,6 +5,7 @@ import {
 	BFRES_MAGIC,
 	extractGeometry,
 	extractMaterials,
+	extractSkeletons,
 } from '../src/index.js';
 
 /**
@@ -143,5 +144,28 @@ describe('extractMaterials', () => {
 		await expect(
 			extractMaterials(new Blob([buf as BlobPart])),
 		).rejects.toThrow(/Wii U/);
+	});
+});
+
+describe('extractSkeletons', () => {
+	// Same caveat as the other extract* tests — full FSKL parsing is
+	// exercised against real captured game data via Node debug
+	// scripts. Smoke + error-path coverage here.
+	it('returns [] for a header-only BFRES with no FMDLs', async () => {
+		const buf = buildSmokeHeader();
+		const skels = await extractSkeletons(new Blob([buf as BlobPart]));
+		expect(skels).toEqual([]);
+	});
+
+	it('rejects a Wii U BFRES', async () => {
+		const buf = buildSmokeHeader();
+		buf[4] = 0;
+		await expect(
+			extractSkeletons(new Blob([buf as BlobPart])),
+		).rejects.toThrow(/Wii U/);
+	});
+
+	it('rejects a too-small blob', async () => {
+		await expect(extractSkeletons(new Blob([]))).rejects.toThrow(/too small/);
 	});
 });
