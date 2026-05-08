@@ -123,9 +123,18 @@ const MEDIA_PREVIEW_LIMIT = 200 * 1024 * 1024
 
 interface PreviewPaneProps {
   node: Node | null
+  /**
+   * Root of the archive tree the selected node belongs to. Passed
+   * down to previews that need to discover sibling nodes — e.g.
+   * the BFRES viewer scans for companion `*.Tex.*` and
+   * `*_Animation.*` BFRES files in the same directory (BotW /
+   * Splatoon / Odyssey split layouts) so the model picks up its
+   * textures and animations even when they live separately.
+   */
+  root?: Node | null
 }
 
-export function PreviewPane({ node }: PreviewPaneProps) {
+export function PreviewPane({ node, root }: PreviewPaneProps) {
   if (!node) {
     return (
       <div className="flex h-full items-center justify-center p-8">
@@ -145,10 +154,10 @@ export function PreviewPane({ node }: PreviewPaneProps) {
     )
   }
 
-  return <PreviewContent key={node.id} node={node} />
+  return <PreviewContent key={node.id} node={node} root={root ?? null} />
 }
 
-function PreviewContent({ node }: { node: Node }) {
+function PreviewContent({ node, root }: { node: Node; root: Node | null }) {
   const isFile = !node.isContainer
   const kind = useMemo<PreviewKind | null>(
     () => {
@@ -181,7 +190,7 @@ function PreviewContent({ node }: { node: Node }) {
         ) : isBfsar ? (
           <BfsarPreview node={node} />
         ) : isBfres ? (
-          <BfresPreview node={node} />
+          <BfresPreview node={node} root={root} />
         ) : node.isContainer ? (
           <ContainerSummary node={node} />
         ) : (
@@ -2776,7 +2785,13 @@ function BfsarFileTableSection({ view }: { view: BfsarView }) {
 // BNTX info) as a sidebar. The container itself is browsable in
 // the tree (external files, typically `textures.bntx`).
 
-function BfresPreview({ node }: { node: Node }) {
+function BfresPreview({
+  node,
+  root,
+}: {
+  node: Node
+  root?: Node | null
+}) {
   const { loading, data, error } = useAsync(async () => {
     return parseBfresForView(await node.blob!())
   }, [node.id])
@@ -2798,7 +2813,7 @@ function BfresPreview({ node }: { node: Node }) {
               3D viewer
             </h3>
             <div className="h-[420px]">
-              <BfresViewer node={node} />
+              <BfresViewer node={node} root={root} />
             </div>
           </section>
         )}

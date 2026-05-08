@@ -129,26 +129,47 @@ type DecodedRgba = {
   srgb: boolean
 }
 
-type BntxTextureCache = {
-  /** All decodable textures in the bank, keyed by name. */
+/** A single source of decodable textures (one BNTX bank). */
+interface BntxBank {
   byName: Map<string, BntxTexture>
-  /** Memoised pixel buffers per texture name. */
-  decoded: Map<string, DecodedRgba | null>
-  /** Memoised `THREE.DataTexture`s keyed by `name|wrapMode`. */
-  textures: Map<string, THREE.Texture | null>
   /** Source BNTX bytes — needed to deswizzle on demand. */
   bytes: Uint8Array
 }
 
+type BntxTextureCache = {
+  /**
+   * Lookup-priority-ordered list of banks. Texture names are
+   * resolved against each bank in order, returning the first hit.
+   * The model's own embedded BNTX is index 0; companion `.Tex.*`
+   * BFRES files (e.g. BotW's split layout) are appended afterwards
+   * so their textures fill in for any binding the model can't
+   * resolve internally.
+   */
+  banks: BntxBank[]
+  /** Memoised pixel buffers per texture name. */
+  decoded: Map<string, DecodedRgba | null>
+  /** Memoised `THREE.DataTexture`s keyed by `name|wrapMode`. */
+  textures: Map<string, THREE.Texture | null>
+}
+
+/** Locate `name` across `banks`; return its `BntxTexture` + raw bytes, or null. */
+function findInBanks(
+  banks: BntxBank[],
+  name: string,
+): { tex: BntxTexture; bytes: Uint8Array } | null {
+  for (const b of banks) {
+    const tex = b.byName.get(name)
+    if (tex) return { tex, bytes: b.bytes }
+  }
+  return null
+}
+
 /**
- * Read the embedded `textures.bntx` (or equivalent) from a BFRES
- * blob and return a name-indexed cache. Returns `null` if there's
- * no embedded BNTX, or if it fails to parse — callers fall back to
- * normal-vis shading.
+ * Parse a BFRES blob and pull its embedded BNTX bank into a
+ * lookup-friendly form. Returns `null` if there's no embedded
+ * BNTX, or if it fails to parse.
  */
-async function loadEmbeddedBntxTextures(
-  blob: Blob,
-): Promise<BntxTextureCache | null> {
+async function loadBntxBankFromBfres(blob: Blob): Promise<BntxBank | null> {
   try {
     const parsed = await parseBfres(blob)
     const ext = parsed.embeddedBntx
@@ -159,10 +180,404 @@ async function loadEmbeddedBntxTextures(
     for (const tex of bntx.textures) {
       if (tex.name) byName.set(tex.name, tex)
     }
-    return { byName, decoded: new Map(), textures: new Map(), bytes }
+    return { byName, bytes }
   } catch {
     return null
   }
+}
+
+/**
+ * Read the embedded `textures.bntx` (or equivalent) from a BFRES
+ * blob and return a name-indexed cache with a single bank.
+ * Companion BNTX banks (e.g. from a BotW-style `*.Tex.sbfres`)
+ * can be appended later via `cache.banks.push(...)`.
+ */
+async function loadEmbeddedBntxTextures(
+  blob: Blob,
+): Promise<BntxTextureCache | null> {
+  const bank = await loadBntxBankFromBfres(blob)
+  if (!bank) return null
+  return { banks: [bank], decoded: new Map(), textures: new Map() }
+}
+
+/**
+ * Resolve a node by its hierarchical id, walking from `root` and
+ * expanding lazy `getChildren()` along the way. Caches expanded
+ * children on the parent (`node._children`) so subsequent walks
+ * don't re-expand the same containers.
+ *
+ * Node ids are slash-delimited paths assembled from each level's
+ * stable name; segments are matched against direct children's
+ * `id` (NOT against `name`, since some containers — Yaz0 + SARC
+ * wrappers, IoStore — emit children whose name is the same as
+ * their parent but whose id differs by a `/` suffix).
+ */
+async function findNodeById(root: Node, targetId: string): Promise<Node | null> {
+  if (root.id === targetId) return root
+  // The id of any descendant must start with the root's id +
+  // separator. Bail early if not.
+  if (!targetId.startsWith(root.id + "/") && root.id !== "") return null
+  let cur: Node = root
+  while (cur.id !== targetId) {
+    if (!cur.getChildren) return null
+    let kids = cur._children
+    if (!kids) {
+      try {
+        kids = await cur.getChildren()
+        cur._children = kids
+      } catch {
+        return null
+      }
+    }
+    // Pick the longest-prefix-matching child. Children's ids are
+    // always prefixed with the parent's id + "/" + something, but
+    // there may be siblings whose ids are themselves prefixes of
+    // each other (rare, but possible) so we pick the most
+    // specific match.
+    let best: Node | null = null
+    for (const k of kids) {
+      if (k.id === targetId || targetId.startsWith(k.id + "/")) {
+        if (!best || k.id.length > best.id.length) best = k
+      }
+    }
+    if (!best) return null
+    cur = best
+  }
+  return cur
+}
+
+/**
+ * Walk up a node's id to the BFRES file's logical "directory" —
+ * the first ancestor that contains plain BFRES siblings. The
+ * subtle bit: the user typically selects the *inner* BFRES inside
+ * a Yaz0+SARC wrapper, so the immediate parent is the wrapper
+ * file (`Foo.sbfres` / `Foo.szs`), and the wrapper's parent is
+ * the actual model directory containing all the sibling wrappers
+ * we want to scan.
+ *
+ * Returns the directory node, or `null` if we can't get there
+ * (e.g. selected a top-level BFRES with no surrounding archive).
+ */
+async function findBfresSiblingDirectory(
+  root: Node,
+  selected: Node,
+): Promise<Node | null> {
+  // Build the chain of ancestors by trimming id suffixes one
+  // segment at a time. Note: we can't just split on "/" because
+  // ids contain literal "/" inside container names (e.g.
+  // `archive/path/with/slashes`). The convention in this codebase
+  // is that each level's id IS the parent's id plus "/" plus one
+  // segment, so trimming the last "/foo" tail walks to the
+  // parent.
+  const ids: string[] = []
+  let cur = selected.id
+  while (cur && cur !== root.id) {
+    const slash = cur.lastIndexOf("/")
+    if (slash <= 0) break
+    cur = cur.slice(0, slash)
+    ids.push(cur)
+  }
+  // Try each ancestor in order (closest first). The first one
+  // that has at least one BFRES-like sibling is our model dir.
+  for (const id of ids) {
+    const node = await findNodeById(root, id)
+    if (!node || !node.getChildren) continue
+    let kids = node._children
+    if (!kids) {
+      try {
+        kids = await node.getChildren()
+        node._children = kids
+      } catch {
+        continue
+      }
+    }
+    let bfresLike = 0
+    for (const k of kids) {
+      if (/\.s?bfres(\.zs)?$/i.test(k.name)) bfresLike++
+    }
+    if (bfresLike >= 2) return node
+  }
+  return null
+}
+
+/**
+ * Companion BFRES blobs sharing a name stem with the model file —
+ * BotW / Splatoon / Odyssey split layouts where textures and
+ * animations live next to the model rather than embedded.
+ */
+interface CompanionBlobs {
+  textures: Blob[]
+  animations: Blob[]
+}
+
+/**
+ * Strip the BFRES extension chain from a filename to compare
+ * stems: `Animal_Bear.sbfres` → `Animal_Bear`,
+ * `Animal_Bear.Tex.sbfres` → `Animal_Bear.Tex`,
+ * `Animal_Bear_Animation.bfres.zs` → `Animal_Bear_Animation`.
+ */
+function stripBfresExt(name: string): string {
+  return name.replace(/\.s?bfres(\.zs)?$/i, "")
+}
+
+/**
+ * Walk an `.sbfres` SARC wrapper down to the inner BFRES blob.
+ * Most wrappers contain exactly one nested BFRES file (named
+ * identically to the wrapper); some have a sibling `TexInfo.txt`
+ * but no other BFRES. Returns the inner BFRES blob, or `null` if
+ * the wrapper is shaped unexpectedly.
+ *
+ * If the node IS already a plain BFRES (no SARC wrap), we just
+ * return its own blob.
+ */
+async function unwrapInnerBfresBlob(node: Node): Promise<Blob | null> {
+  if (!node.getChildren) {
+    // Leaf BFRES — its own blob is what we want.
+    return node.blob ? node.blob() : null
+  }
+  let kids = node._children
+  if (!kids) {
+    try {
+      kids = await node.getChildren()
+      node._children = kids
+    } catch {
+      return null
+    }
+  }
+  // Look for a single BFRES child (the convention).
+  const inner = kids.find((k) => /\.s?bfres(\.zs)?$/i.test(k.name))
+  if (!inner || !inner.blob) return null
+  return inner.blob()
+}
+
+/**
+ * Find companion `*.Tex.*` and `*_Animation.*` BFRES blobs that
+ * match `selected`'s name stem in the same directory.
+ *
+ * The matchers are deliberately permissive — different titles use
+ * slightly different conventions:
+ *
+ *   - BotW: `Foo.sbfres` ↔ `Foo.Tex.sbfres` ↔ `Foo_Animation.sbfres`.
+ *   - Splatoon: `Foo.bfres` ↔ `Foo.Tex.bfres`, animations in
+ *     `Foo_Anim.bfres` or grouped under a sibling directory.
+ *   - Odyssey / 3D World: `Foo.szs` ↔ `Foo.Tex.szs` ↔
+ *     `Foo_Animation.szs`.
+ *
+ * We accept any sibling whose stem starts with the model's stem
+ * AND whose remaining suffix matches one of `.Tex` / `_Animation`
+ * / `_Anim` / `.Animation` patterns. False positives in this
+ * heuristic only cost us a parse + drop on the merge side, so
+ * we err generous.
+ */
+async function findCompanionBfresBlobs(
+  root: Node | null,
+  selected: Node,
+): Promise<CompanionBlobs> {
+  const empty: CompanionBlobs = { textures: [], animations: [] }
+  if (!root) return empty
+  const dir = await findBfresSiblingDirectory(root, selected)
+  if (!dir || !dir.getChildren) return empty
+  let kids = dir._children
+  if (!kids) {
+    try {
+      kids = await dir.getChildren()
+      dir._children = kids
+    } catch {
+      return empty
+    }
+  }
+
+  // Find the entry that corresponds to `selected` so we can take
+  // its stem. We can't just use `selected.name` directly because
+  // `selected` is the *inner* BFRES; the sibling we're scanning
+  // is the *outer* SARC wrapper (same name + extension though).
+  const selectedStem = stripBfresExt(selected.name)
+
+  const textures: Blob[] = []
+  const animations: Blob[] = []
+  await Promise.all(
+    kids.map(async (k) => {
+      if (!/\.s?bfres(\.zs)?$/i.test(k.name)) return
+      const stem = stripBfresExt(k.name)
+      if (stem === selectedStem) return // skip self
+      // Texture-companion suffixes.
+      const isTexture = /^(.*?)(\.Tex|\.Texture)$/i.exec(stem)
+      // Animation-companion suffixes.
+      const isAnim = /^(.*?)(_Animation|_Anim|\.Animation)$/i.exec(stem)
+      const matched = isTexture ?? isAnim
+      if (!matched) return
+      // The captured stem must match `selectedStem` exactly —
+      // otherwise we'd pick up unrelated siblings that happen to
+      // end in `.Tex` (e.g. `OtherModel.Tex.sbfres` when we're
+      // viewing `MyModel.sbfres`).
+      if (matched[1] !== selectedStem) return
+      const blob = await unwrapInnerBfresBlob(k)
+      if (!blob) return
+      if (isTexture) textures.push(blob)
+      else animations.push(blob)
+    }),
+  )
+
+  return { textures, animations }
+}
+
+/**
+ * Cap on how many sibling `.Tex.sbfres` archives we'll lazily
+ * parse looking for missing texture names. Stops the scan from
+ * running away on huge BotW-style directories with thousands of
+ * Tex archives — the heuristic-prefix ranking below should land
+ * the answer in the first few attempts in practice.
+ */
+const MAX_LAZY_TEX_SCAN = 24
+
+/**
+ * After companion-merge, BotW-style models sometimes still have
+ * unresolved texture bindings that point to *shared* texture
+ * archives (e.g. the Mannequin model uses `Link_Belt_A_*`
+ * textures which live in a separate Link archive, not in the
+ * mannequin's own `*.Tex.sbfres`). The game knows where to find
+ * them via the parent actor pack's BYAML manifest, which we
+ * don't load — but we can recover most cases with a heuristic
+ * prefix scan.
+ *
+ * Approach:
+ *   1. Walk every shape's material and collect the set of
+ *      texture names that the model wants but the cache doesn't
+ *      yet have.
+ *   2. For each missing name, take its leading underscore-
+ *      delimited word(s) as a prefix hint
+ *      (`Link_Belt_A_Alb` → `Link`, `Link_Belt`, `Link_Belt_A`).
+ *   3. Score every sibling `.Tex.sbfres` by how well its file
+ *      stem matches one of those prefixes. Higher = more
+ *      specific match.
+ *   4. Walk the candidates in score order, parsing each BNTX
+ *      header (cheap relative to full decode), and when one
+ *      contains any of the still-missing names, append its bank
+ *      to the cache. Stop when all names are resolved or the
+ *      scan limit is hit.
+ *
+ * This costs at most {@link MAX_LAZY_TEX_SCAN} extra Yaz0+SARC+
+ * BFRES+BNTX-header parses, all gated on at least one missing
+ * texture remaining. For models where the direct companion
+ * already supplies everything (most cases), no extra work runs.
+ */
+async function resolveSharedTextureBanks(
+  root: Node | null,
+  selected: Node,
+  materials: BfresMaterial[][],
+  cache: BntxTextureCache | null,
+): Promise<BntxBank[]> {
+  if (!root) return []
+  // Collect missing albedo names. We only chase `_a0` (and
+  // fallback `_a1`/`_a2`) bindings — normal/specular maps are
+  // ignored because we don't render with them yet, so resolving
+  // them would just inflate the scan budget.
+  const albedoSamplers = new Set(["_a0", "_a1", "_a2"])
+  const wanted = new Set<string>()
+  for (const matsForModel of materials) {
+    for (const m of matsForModel) {
+      for (const b of m.bindings) {
+        if (albedoSamplers.has(b.samplerName)) wanted.add(b.textureName)
+      }
+    }
+  }
+  // Subtract names already provided by the existing cache banks.
+  if (cache) {
+    for (const bank of cache.banks) {
+      for (const name of wanted) {
+        if (bank.byName.has(name)) wanted.delete(name)
+      }
+    }
+  }
+  if (wanted.size === 0) return []
+
+  const dir = await findBfresSiblingDirectory(root, selected)
+  if (!dir || !dir.getChildren) return []
+  let kids = dir._children
+  if (!kids) {
+    try {
+      kids = await dir.getChildren()
+      dir._children = kids
+    } catch {
+      return []
+    }
+  }
+
+  // Build the set of prefixes to score against. For each missing
+  // name, take every possible underscore-delimited prefix in
+  // descending specificity (longest first). E.g.
+  // `Link_Belt_A_Alb` → [`Link_Belt_A_Alb`, `Link_Belt_A`,
+  // `Link_Belt`, `Link`].
+  const prefixes = new Set<string>()
+  for (const name of wanted) {
+    const parts = name.split("_")
+    for (let i = parts.length; i >= 1; i--) {
+      prefixes.add(parts.slice(0, i).join("_"))
+    }
+  }
+
+  // Score each sibling .Tex archive. Score = length of the
+  // longest prefix that matches the archive's stem (case-
+  // insensitive, prefix match against the part of the stem
+  // before `.Tex`). Skip the model's own companion (already
+  // merged) and non-Tex files.
+  const selectedStem = stripBfresExt(selected.name)
+  type Candidate = { node: Node; score: number }
+  const candidates: Candidate[] = []
+  for (const k of kids) {
+    if (!/\.s?bfres(\.zs)?$/i.test(k.name)) continue
+    const stem = stripBfresExt(k.name)
+    if (stem === selectedStem) continue
+    const isTexture = /^(.*?)(\.Tex|\.Texture)$/i.exec(stem)
+    if (!isTexture) continue
+    const archiveStem = isTexture[1]!
+    if (archiveStem === selectedStem) continue // already-merged direct companion
+    let bestScore = 0
+    const stemLower = archiveStem.toLowerCase()
+    for (const p of prefixes) {
+      const pLower = p.toLowerCase()
+      // Match if archive stem starts with the prefix AND the
+      // following character is either end-of-string or `_`
+      // (so `Link_*.Tex.*` matches prefix `Link` but
+      // `LinkTime.Tex.*` doesn't).
+      if (
+        stemLower === pLower ||
+        (stemLower.startsWith(pLower) &&
+          stemLower[pLower.length] === "_")
+      ) {
+        if (p.length > bestScore) bestScore = p.length
+      }
+    }
+    if (bestScore > 0) candidates.push({ node: k, score: bestScore })
+  }
+  // Most-specific match first.
+  candidates.sort((a, b) => b.score - a.score)
+
+  const found: BntxBank[] = []
+  const remaining = new Set(wanted)
+  let scanned = 0
+  for (const c of candidates) {
+    if (remaining.size === 0) break
+    if (scanned >= MAX_LAZY_TEX_SCAN) break
+    scanned++
+    const blob = await unwrapInnerBfresBlob(c.node).catch(() => null)
+    if (!blob) continue
+    const bank = await loadBntxBankFromBfres(blob)
+    if (!bank) continue
+    let hits = 0
+    for (const name of remaining) {
+      if (bank.byName.has(name)) {
+        remaining.delete(name)
+        hits++
+      }
+    }
+    // Only keep banks that actually contributed at least one
+    // missing texture — otherwise we'd bloat the cache (and the
+    // first-hit lookup loop) with archives that just happen to
+    // share a name prefix.
+    if (hits > 0) found.push(bank)
+  }
+  return found
 }
 
 /**
@@ -665,12 +1080,15 @@ function pickAlbedo(
   }
 
   // Decode the raw RGBA pixels once per texture name (memoised).
+  // Search every bank in priority order so companion `.Tex.sbfres`
+  // banks (BotW-style split layout) fill in for textures the
+  // model's own embedded BNTX doesn't carry.
   let decoded = cache.decoded.get(textureName) ?? null
   if (!cache.decoded.has(textureName)) {
-    const bntxTex = cache.byName.get(textureName)
-    if (bntxTex) {
+    const found = findInBanks(cache.banks, textureName)
+    if (found) {
       try {
-        const d = decodeBntxLayer(cache.bytes, bntxTex, 0)
+        const d = decodeBntxLayer(found.bytes, found.tex, 0)
         decoded = {
           pixels: new Uint8ClampedArray(
             d.pixels.buffer,
@@ -679,7 +1097,7 @@ function pickAlbedo(
           ),
           width: d.width,
           height: d.height,
-          srgb: bntxTex.srgb,
+          srgb: found.tex.srgb,
         }
       } catch {
         decoded = null
@@ -1189,15 +1607,28 @@ function exportPosedSTL(
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-export function BfresViewer({ node }: { node: Node }) {
+/**
+ * Props for {@link BfresViewer}. `root` is the archive's root
+ * `Node` and is used to discover companion BFRES siblings (BotW-
+ * style split layouts where textures and animations live in
+ * `*.Tex.sbfres` / `*_Animation.sbfres` next to the model). When
+ * `root` is omitted (or no companions are found), the viewer
+ * still works on a single self-contained BFRES file.
+ */
+interface BfresViewerProps {
+  node: Node
+  root?: Node | null
+}
+
+export function BfresViewer({ node, root }: BfresViewerProps) {
   return (
     <BfresViewerErrorBoundary>
-      <BfresViewerInner node={node} />
+      <BfresViewerInner node={node} root={root ?? null} />
     </BfresViewerErrorBoundary>
   )
 }
 
-function BfresViewerInner({ node }: { node: Node }) {
+function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [error, setError] = useState<Error | null>(null)
   const [shapes, setShapes] = useState<ShapeRecord[] | null>(null)
@@ -1242,12 +1673,27 @@ function BfresViewerInner({ node }: { node: Node }) {
     void (async () => {
       try {
         const blob = await node.blob!()
-        const [geoms, materials, skeletons, animations, textureCache] = await Promise.all([
+        // Run primary extraction + companion search in parallel.
+        // Companion search can be slow on huge archives because
+        // it has to expand every sibling's lazy `getChildren()`
+        // tree, but it only blocks the spinner if the model
+        // itself happens to parse instantly.
+        const [
+          geoms,
+          materials,
+          skeletons,
+          animations,
+          textureCache,
+          companions,
+        ] = await Promise.all([
           extractGeometry(blob),
           extractMaterials(blob),
           extractSkeletons(blob),
           extractAnimations(blob),
           loadEmbeddedBntxTextures(blob),
+          findCompanionBfresBlobs(root, node).catch(
+            (): CompanionBlobs => ({ textures: [], animations: [] }),
+          ),
         ])
         if (cancelled) return
         if (geoms.length === 0) {
@@ -1259,8 +1705,98 @@ function BfresViewerInner({ node }: { node: Node }) {
           return
         }
 
+        // Merge companion textures into the cache (or create a
+        // cache from scratch if the model itself had no embedded
+        // BNTX, which is the common case for BotW-style splits).
+        let mergedTextures = textureCache
+        if (companions.textures.length > 0) {
+          const companionBanks = (
+            await Promise.all(companions.textures.map(loadBntxBankFromBfres))
+          ).filter((b): b is BntxBank => b !== null)
+          if (companionBanks.length > 0) {
+            if (!mergedTextures) {
+              mergedTextures = {
+                banks: companionBanks,
+                decoded: new Map(),
+                textures: new Map(),
+              }
+            } else {
+              mergedTextures.banks.push(...companionBanks)
+            }
+          }
+        }
+        // Second-pass: if any albedo bindings still aren't
+        // satisfied, look for shared texture archives in sibling
+        // `.Tex.sbfres` files (BotW Mannequin → `Link.Tex.sbfres`,
+        // etc.). Cheap when nothing's missing; bounded scan when
+        // it is.
+        const sharedBanks = await resolveSharedTextureBanks(
+          root,
+          node,
+          materials,
+          mergedTextures,
+        ).catch(() => [])
+        if (sharedBanks.length > 0) {
+          if (!mergedTextures) {
+            mergedTextures = {
+              banks: sharedBanks,
+              decoded: new Map(),
+              textures: new Map(),
+            }
+          } else {
+            mergedTextures.banks.push(...sharedBanks)
+          }
+        }
+        // Same idea for animations: append every clip pulled from
+        // companion `*_Animation.*` BFRES files to the model's own
+        // animations list. The viewer drives bones by *name*, so
+        // a clip from a companion file will animate the model's
+        // skeleton just fine as long as the bone names match (they
+        // do for Nintendo first-party titles — the artists use a
+        // single canonical skeleton across all assets for a given
+        // character).
+        let mergedAnimations = animations
+        if (companions.animations.length > 0) {
+          const companionAnims = await Promise.all(
+            companions.animations.map((b) =>
+              extractAnimations(b).catch(
+                (): BfresAnimations => ({
+                  skeletal: [],
+                  material: [],
+                  boneVis: [],
+                  shape: [],
+                  scene: [],
+                }),
+              ),
+            ),
+          )
+          mergedAnimations = {
+            skeletal: [
+              ...animations.skeletal,
+              ...companionAnims.flatMap((a) => a.skeletal),
+            ],
+            material: [
+              ...animations.material,
+              ...companionAnims.flatMap((a) => a.material),
+            ],
+            boneVis: [
+              ...animations.boneVis,
+              ...companionAnims.flatMap((a) => a.boneVis),
+            ],
+            shape: [
+              ...animations.shape,
+              ...companionAnims.flatMap((a) => a.shape),
+            ],
+            scene: [
+              ...animations.scene,
+              ...companionAnims.flatMap((a) => a.scene),
+            ],
+          }
+        }
+        if (cancelled) return
+
         skeletonsRef.current = skeletons
-        animationsRef.current = animations
+        animationsRef.current = mergedAnimations
 
         // Build a Three.js scene-graph skeleton per FMDL — array of
         // `THREE.Bone`s parented in a hierarchy, plus an `Skeleton`
@@ -1307,7 +1843,7 @@ function BfresViewerInner({ node }: { node: Node }) {
 
           // Pick a material: prefer the resolved albedo texture,
           // fall back to flat-shaded normal-vis if there isn't one.
-          const albedo = pickAlbedo(g, materials, textureCache)
+          const albedo = pickAlbedo(g, materials, mergedTextures)
           // Many Switch albedo textures (BC3 specifically) carry
           // meaningful alpha — pupil textures are a clear example,
           // with ~57% of pixels alpha=0 to make the eye visible

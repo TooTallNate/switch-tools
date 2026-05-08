@@ -299,7 +299,7 @@ function ArchiveApp() {
               minSize="30%"
               className="min-h-0 min-w-0 overflow-hidden bg-background"
             >
-              <PreviewPane node={selected} />
+              <PreviewPane node={selected} root={opened.root} />
             </ResizablePanel>
           </ResizablePanelGroup>
         )}
