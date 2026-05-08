@@ -3555,12 +3555,20 @@ function UnityAssetPreview({
   if (error) return <ErrorFiller error={error} />
   const v = data!
   const tmpFontObj = findTmpFontObject(v.decoded)
+  const unityFontObjs = findUnityFontObjects(v)
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-5 p-5">
         <SectionHeader title="Unity asset (SerializedFile)" />
 
         {tmpFontObj && <TmpFontBookPreview view={v} fontObj={tmpFontObj} />}
+        {unityFontObjs.map((fontObj, i) => (
+          <UnityFontPreview
+            key={i}
+            fontObj={fontObj}
+            sourceName={node.name}
+          />
+        ))}
 
         <KvBlock title="Header">
           <KvRow k="Unity version" v={v.parsed.header.unityVersion} />
@@ -3731,6 +3739,31 @@ function findTmpFontObject(decoded: UnityDecodedObject[]): UnityDecodedObject | 
     }
   }
   return null
+}
+
+/**
+ * Find every Unity `Font` (class 128) object in the asset. These
+ * carry a `m_FontData` array of TTF / OTF bytes — i.e. an
+ * embedded source font file. Most TMPro assets ship in static
+ * mode (no Font object); dynamic-mode TMPro assets and legacy
+ * uGUI fonts both ship one.
+ */
+function findUnityFontObjects(view: UnityAssetView): UnityDecodedObject[] {
+  const out: UnityDecodedObject[] = []
+  for (const d of view.decoded) {
+    const ty = view.parsed.types[d.obj.typeIndex]
+    if (ty?.classId !== UnityClassId.Font) continue
+    const val = d.value as Record<string, unknown> | null
+    if (!val) continue
+    // Only surface fonts that ship actual TTF/OTF bytes — there
+    // are pure-metrics fonts (TextAsset-shaped) that don't have
+    // anything to render natively.
+    const fd = val.m_FontData as
+      | { size: number; data: Uint8Array }
+      | undefined
+    if (fd && fd.size > 0) out.push(d)
+  }
+  return out
 }
 
 function asNumber(v: unknown): number {
@@ -4182,7 +4215,187 @@ function TmpFontBookCanvas({
   )
 }
 
+// -------- Unity `Font` (class 128) embedded TTF / OTF preview --------
 
+/**
+ * Render a sample of a Unity `Font` object's embedded TTF/OTF
+ * via the browser's CSS Font Loading API, plus offer the bytes
+ * as a downloadable `.ttf` / `.otf`. Used both for legacy uGUI
+ * fonts and for dynamic-mode TMPro fonts that ship the source
+ * font alongside the SDF atlas.
+ *
+ * The font bytes come from the `Font` object's `m_FontData`
+ * field — a `TypelessData` blob whose first 4 bytes identify
+ * the format (`OTTO` for OpenType / CFF, `00 01 00 00` or
+ * `true` for TrueType). We sniff that to label the UI and pick
+ * the right file extension.
+ */
+function UnityFontPreview({
+  fontObj,
+  sourceName,
+}: {
+  fontObj: UnityDecodedObject
+  sourceName: string
+}) {
+  const v = fontObj.value as Record<string, unknown>
+  const fontData = v.m_FontData as
+    | { size: number; data: Uint8Array }
+    | undefined
+  const fontBytes = fontData?.data ?? null
+  const displayName =
+    asString(v.m_Name) || sourceName.replace(/\.bundle$/i, "")
+  const format = sniffFontFormat(fontBytes)
+
+  // CSS Font Loading registration. Same pattern as `FontPreview`
+  // for `.bfttf` / `.ttf` / `.otf` files: assign a unique family
+  // name, await `FontFace.load()`, hand the family to the
+  // sample text via `style.fontFamily`.
+  const [fontFamily, setFontFamily] = useState<string | null>(null)
+  const [fontError, setFontError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!fontBytes || fontBytes.length === 0) {
+      setFontFamily(null)
+      setFontError(null)
+      return
+    }
+    let cancelled = false
+    let registered: FontFace | null = null
+    const family = `nx-archive-unity-font-${Math.random().toString(36).slice(2, 10)}`
+    ;(async () => {
+      try {
+        // Slice off the buffer to a fresh ArrayBuffer (FontFace
+        // doesn't accept Uint8Array views with non-zero byte
+        // offset reliably across browsers, plus TS narrows
+        // `Uint8Array.buffer` to `ArrayBuffer | SharedArrayBuffer`
+        // and FontFace only takes plain ArrayBuffer).
+        const ab = new ArrayBuffer(fontBytes.byteLength)
+        new Uint8Array(ab).set(fontBytes)
+        const face = new FontFace(family, ab)
+        await face.load()
+        if (cancelled) return
+        document.fonts.add(face)
+        registered = face
+        setFontFamily(family)
+      } catch (err) {
+        if (!cancelled) {
+          setFontError(err instanceof Error ? err.message : String(err))
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+      if (registered) document.fonts.delete(registered)
+    }
+  }, [fontBytes])
+
+  // Build a download URL for the embedded font bytes. We do this
+  // synchronously since the bytes are already in memory; the
+  // browser handles the download via a transient `<a download>`.
+  const downloadUrl = useMemo(() => {
+    if (!fontBytes || fontBytes.length === 0) return null
+    return URL.createObjectURL(
+      new Blob([fontBytes as BlobPart], {
+        type: format === "otf" ? "font/otf" : "font/ttf",
+      }),
+    )
+  }, [fontBytes, format])
+  useEffect(() => {
+    if (!downloadUrl) return
+    return () => URL.revokeObjectURL(downloadUrl)
+  }, [downloadUrl])
+
+  const formatLabel =
+    format === "otf"
+      ? "OpenType (CFF)"
+      : format === "ttf"
+        ? "TrueType"
+        : "Unknown sfnt"
+  const downloadName = useMemo(() => {
+    const stem = (asString(v.m_Name) || displayName)
+      .replace(/[^A-Za-z0-9._-]+/g, "_")
+    return `${stem || "font"}.${format ?? "ttf"}`
+  }, [v.m_Name, displayName, format])
+
+  if (!fontBytes || fontBytes.length === 0) return null
+
+  return (
+    <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs text-muted-foreground">
+        <div>
+          <span className="text-sm font-medium text-foreground">
+            {displayName}
+          </span>
+          <span className="ml-2 text-muted-foreground">
+            (embedded {formatLabel})
+          </span>
+        </div>
+        <div>{formatBytes(fontBytes.length)}</div>
+      </div>
+      {fontError && (
+        <div className="text-xs text-destructive">{fontError}</div>
+      )}
+      {!fontFamily && !fontError && (
+        <div className="text-xs text-muted-foreground">Loading font…</div>
+      )}
+      {fontFamily && (
+        <div
+          className="overflow-x-auto rounded-md border bg-background p-3 leading-relaxed"
+          style={{ fontFamily: `"${fontFamily}", sans-serif` }}
+        >
+          <div className="text-2xl">{displayName}</div>
+          <div
+            className="mt-2 text-base"
+            style={{ fontFamily: `"${fontFamily}", sans-serif` }}
+          >
+            {FONT_SAMPLE_PANGRAM}
+          </div>
+          <div
+            className="mt-2 text-base"
+            style={{ fontFamily: `"${fontFamily}", sans-serif` }}
+          >
+            {FONT_SAMPLE_PUNCTUATION}
+          </div>
+          <div
+            className="mt-2 text-xl"
+            style={{ fontFamily: `"${fontFamily}", sans-serif` }}
+          >
+            {FONT_SAMPLE_CJK}
+          </div>
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>Embedded source font from `m_FontData`</span>
+        {downloadUrl && (
+          <a
+            href={downloadUrl}
+            download={downloadName}
+            className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+          >
+            Save .{format ?? "ttf"}
+          </a>
+        )}
+      </div>
+    </section>
+  )
+}
+
+/**
+ * Identify the on-disk font format by peeking at the first 4
+ * bytes (the sfnt magic). Returns `"ttf"`, `"otf"`, or `null`
+ * if the bytes don't look like an sfnt at all (in which case
+ * we still surface the raw bytes via download but skip the
+ * live preview).
+ */
+function sniffFontFormat(bytes: Uint8Array | null): "ttf" | "otf" | null {
+  if (!bytes || bytes.length < 4) return null
+  const m = (bytes[0]! << 24) | (bytes[1]! << 16) | (bytes[2]! << 8) | bytes[3]!
+  if (m === 0x4f54544f /* OTTO */) return "otf"
+  if (m === 0x00010000) return "ttf"
+  if (m === 0x74727565 /* true */) return "ttf"
+  if (m === 0x74797031 /* typ1 */) return "ttf"
+  if (m === 0x74746366 /* ttcf */) return "ttf" // TrueType collection
+  return null
+}
 
 function WemAudioPreview({ node }: { node: Node }) {
   const { loading, data, error } = useAsync(async () => {
