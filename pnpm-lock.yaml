@@ -310,6 +310,9 @@ importers:
       '@tootallnate/sarc':
         specifier: workspace:*
         version: link:../../packages/sarc
+      '@tootallnate/usm':
+        specifier: workspace:*
+        version: link:../../packages/usm
       '@tootallnate/wem':
         specifier: workspace:*
         version: link:../../packages/wem

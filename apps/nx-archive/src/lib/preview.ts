@@ -99,6 +99,8 @@ export type PreviewKind =
 	| 'byaml-tree'
 	/** Nintendo texture format (BC1/3/4/5/7, RGBA8, etc.). */
 	| 'bntx-image'
+	/** CRI Sofdec2 USM video container (VP9 / H.264 + HCA / ADX / PCM). */
+	| 'usm-video'
 	| 'hex';
 
 export const TEXT_EXTS = new Set([
@@ -223,6 +225,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.bnvib')) return 'bnvib-audio';
 	if (lower.endsWith('.byaml') || lower.endsWith('.byml')) return 'byaml-tree';
 	if (lower.endsWith('.bntx')) return 'bntx-image';
+	if (lower.endsWith('.usm')) return 'usm-video';
 	// Switch app icons (in Control NCA RomFS) are JPEGs with a `.dat` ext.
 	if (/^icon_.*\.dat$/.test(lower)) return 'image';
 	const ext = extOf(name);

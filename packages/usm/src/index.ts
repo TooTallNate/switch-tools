@@ -1,3 +1,11 @@
+// Re-exports from the IVF + WebM helpers — placed at the top
+// of the module so callers don't have to navigate to a
+// different file for them.
+export { demuxIvf, isVp9Keyframe } from "./ivf.js"
+export type { DemuxedIvf, IvfHeader, IvfFrame } from "./ivf.js"
+export { muxVp9Webm, muxVp9WebmBlob } from "./webm.js"
+export type { WebmFrame, WebmMuxOptions } from "./webm.js"
+
 /**
  * Parser for CRI Sofdec2 USM video container files. USM ("CRI
  * Universal Streaming Media") is the format CRI Middleware ships
@@ -662,10 +670,24 @@ function numField(row: UtfRow, name: string): number {
 
 /**
  * Build a lazy Blob representing the concatenation of every
- * `dataType=0` chunk payload for `fourcc` on `channel`. Uses
- * `Blob` constructor with a list of `blob.slice()` ranges —
- * each slice is itself lazy, so concatenation is essentially
- * free until the caller pulls bytes.
+ * `dataType=0` chunk payload for `fourcc` on `channel`.
+ *
+ * Implementation note: we can't just do `new Blob([slice1,
+ * slice2, …])` here. The native `Blob` constructor only knows
+ * about real `Blob` instances; if we pass it Blob-shaped
+ * facades (the lazy AES-CTR-decrypting object that
+ * `@tootallnate/nca` returns for inside-NSP files), it
+ * stringifies them via `toString()` and you end up with the
+ * literal text `[object Object][object Object]…` as the Blob's
+ * contents. We learned that the hard way.
+ *
+ * Instead, this returns a Blob-shaped facade of our own that
+ * tracks the source blob plus per-chunk `[start, end)` ranges
+ * and reads through to the source on demand. The result still
+ * `slice()`s lazily, still streams in chunks, and still
+ * `arrayBuffer()`s on demand — but all I/O goes through the
+ * source's own `slice().arrayBuffer()`, so any decryption /
+ * decompression in the source's lazy path is preserved.
  */
 function makeStreamPayloadBlob(
   blob: Blob,
@@ -673,16 +695,129 @@ function makeStreamPayloadBlob(
   fourcc: string,
   channel: number,
 ): { data: Blob; dataSize: number } {
-  const parts: BlobPart[] = []
+  const ranges: { start: number; end: number }[] = []
   let totalSize = 0
   for (const c of chunks) {
     if (c.fourcc !== fourcc) continue
     if (c.channel !== channel) continue
     if (c.dataType !== DataType.STREAM) continue
-    parts.push(blob.slice(c.payloadStart, c.payloadEnd))
+    ranges.push({ start: c.payloadStart, end: c.payloadEnd })
     totalSize += c.payloadEnd - c.payloadStart
   }
-  return { data: new Blob(parts), dataSize: totalSize }
+  return { data: makeConcatBlob(blob, ranges), dataSize: totalSize }
+}
+
+/**
+ * Construct a Blob-shaped object whose logical bytes are the
+ * concatenation of `source.slice(r.start, r.end)` for every
+ * `r` in `ranges`. Lazy: nothing is read until the caller
+ * invokes `arrayBuffer()` / `bytes()` / `text()` / `stream()`,
+ * and `slice()` returns another (lazier) facade rather than
+ * triggering a read.
+ *
+ * Behaves like a `Blob` for every consumer in this package
+ * (the WebM muxer, IVF demuxer, downstream `<video>` element
+ * via `URL.createObjectURL` after a final materialisation).
+ * A real Blob is *not* required at the consumer boundary —
+ * we materialise to a real Blob via `new Blob([uint8Array])`
+ * whenever we need to hand off to the browser's media stack.
+ */
+function makeConcatBlob(
+  source: Blob,
+  ranges: { start: number; end: number }[],
+): Blob {
+  // Cumulative offsets so `slice(s, e)` can quickly find which
+  // ranges overlap `[s, e)` via binary search (linear here is
+  // also fine — typical USM has < 10k chunks).
+  const cumulative: number[] = new Array(ranges.length + 1)
+  cumulative[0] = 0
+  for (let i = 0; i < ranges.length; i++) {
+    cumulative[i + 1] = cumulative[i]! + (ranges[i]!.end - ranges[i]!.start)
+  }
+  const totalSize = cumulative[ranges.length]!
+
+  /** Read `[logicalStart, logicalEnd)` of the concatenated view. */
+  const readRange = async (logicalStart: number, logicalEnd: number): Promise<Uint8Array> => {
+    const length = logicalEnd - logicalStart
+    if (length <= 0) return new Uint8Array(0)
+    const out = new Uint8Array(length)
+    let written = 0
+    for (let i = 0; i < ranges.length; i++) {
+      const rStart = cumulative[i]!
+      const rEnd = cumulative[i + 1]!
+      if (rEnd <= logicalStart) continue
+      if (rStart >= logicalEnd) break
+      const rangeOff = ranges[i]!.start
+      const localStart = Math.max(0, logicalStart - rStart)
+      const localEnd = Math.min(rEnd - rStart, logicalEnd - rStart)
+      const physStart = rangeOff + localStart
+      const physEnd = rangeOff + localEnd
+      const bytes = new Uint8Array(
+        await source.slice(physStart, physEnd).arrayBuffer(),
+      )
+      out.set(bytes, written)
+      written += bytes.byteLength
+    }
+    return out
+  }
+
+  // Build a sub-facade for `slice(start, end)` that just adjusts
+  // the logical [windowStart, windowEnd) without copying the
+  // ranges array.
+  const makeFacade = (windowStart: number, windowEnd: number): Blob => {
+    const length = windowEnd - windowStart
+    const facade = {
+      get size() {
+        return length
+      },
+      get type() {
+        return ""
+      },
+      async arrayBuffer(): Promise<ArrayBuffer> {
+        const bytes = await readRange(windowStart, windowEnd)
+        // Return a fresh ArrayBuffer (DataView consumers don't
+        // like sub-views with non-zero byteOffset).
+        const ab = new ArrayBuffer(bytes.byteLength)
+        new Uint8Array(ab).set(bytes)
+        return ab
+      },
+      async bytes(): Promise<Uint8Array> {
+        return readRange(windowStart, windowEnd)
+      },
+      async text(): Promise<string> {
+        const bytes = await readRange(windowStart, windowEnd)
+        return new TextDecoder().decode(bytes)
+      },
+      slice(s = 0, e = length, _contentType?: string): Blob {
+        const ss = Math.max(0, Math.min(length, s))
+        const ee = Math.max(ss, Math.min(length, e))
+        return makeFacade(windowStart + ss, windowStart + ee)
+      },
+      stream(): ReadableStream<Uint8Array> {
+        const CHUNK = 1024 * 1024
+        let pos = windowStart
+        return new ReadableStream<Uint8Array>({
+          async pull(controller) {
+            if (pos >= windowEnd) {
+              controller.close()
+              return
+            }
+            const next = Math.min(pos + CHUNK, windowEnd)
+            const bytes = await readRange(pos, next)
+            controller.enqueue(bytes)
+            pos = next
+          },
+        })
+      },
+    }
+    // Cast to `Blob`: every consumer in this codebase only
+    // touches the methods we implement above. The real Blob
+    // class has a few obscure methods (e.g. the experimental
+    // `Blob.prototype.bytes()` was added in 2023) we don't need.
+    return facade as unknown as Blob
+  }
+
+  return makeFacade(0, totalSize)
 }
 
 function identifyVideoCodec(rawId: number): VideoCodecInfo {

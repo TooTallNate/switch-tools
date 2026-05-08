@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { parseUsm, parseUtfTable, readUsmChunkIndex } from "../src/index.js"
+import {
+  isVp9Keyframe,
+  muxVp9Webm,
+  parseUsm,
+  parseUtfTable,
+  readUsmChunkIndex,
+} from "../src/index.js"
 
 // Minimal hand-built @UTF table for round-trip testing without
 // needing real USM files in the repo. We include this so we
@@ -123,5 +129,139 @@ describe("parseUsm", () => {
   it("rejects non-USM input", async () => {
     const blob = new Blob([new Uint8Array(64)])
     await expect(parseUsm(blob)).rejects.toThrow(/bad magic/)
+  })
+
+  it("walks chunk index through a Blob-shaped facade (not a real Blob)", async () => {
+    // Simulates the lazy AES-CTR-decrypting facade returned by
+    // `@tootallnate/nca` for files inside an NSP. The facade
+    // walks like a Blob but isn't `instanceof Blob` — which
+    // historically broke `new Blob([facade])` constructions
+    // inside the parser, because the native Blob constructor
+    // stringifies non-Blob entries via `toString()` and the
+    // result was a literal "[object Object]…" payload.
+    //
+    // The fix was to back the per-stream payload Blobs with our
+    // own concat-facade rather than the native Blob constructor.
+    // This test exercises that path by walking `readUsmChunkIndex`
+    // against a facade input — chunk-index walking goes through
+    // the same `slice().arrayBuffer()` chain that a real-world
+    // inside-NSP USM would.
+    const realUsmBytes = buildMinimalCridUsm()
+    const facade: Blob = makeFacade(realUsmBytes.buffer, 0, realUsmBytes.byteLength)
+    const chunks = await readUsmChunkIndex(facade)
+    expect(chunks).toHaveLength(1)
+    expect(chunks[0]!.fourcc).toBe("CRID")
+  })
+})
+
+/** Build a minimal CRID-only USM whose payload is empty. */
+function buildMinimalCridUsm(): Uint8Array {
+  const buf = new Uint8Array(0x40)
+  buf.set(new TextEncoder().encode("CRID"), 0)
+  new DataView(buf.buffer).setUint32(4, 0x38, false) // chunkSize = total - 8
+  buf[9] = 0x18 // headerOffset
+  return buf
+}
+
+/**
+ * Minimal Blob-shaped facade for testing — backs onto an
+ * `ArrayBuffer` window and supports the methods our parser
+ * uses (`size`, `slice`, `arrayBuffer`). Critically this is
+ * NOT `instanceof Blob`.
+ */
+function makeFacade(buffer: ArrayBuffer, start: number, end: number): Blob {
+  const length = end - start
+  const facade = {
+    get size() {
+      return length
+    },
+    get type() {
+      return ""
+    },
+    async arrayBuffer(): Promise<ArrayBuffer> {
+      return buffer.slice(start, end)
+    },
+    async bytes(): Promise<Uint8Array> {
+      return new Uint8Array(buffer.slice(start, end))
+    },
+    async text(): Promise<string> {
+      return new TextDecoder().decode(new Uint8Array(buffer, start, length))
+    },
+    slice(s = 0, e = length): Blob {
+      const ss = Math.max(0, Math.min(length, s))
+      const ee = Math.max(ss, Math.min(length, e))
+      return makeFacade(buffer, start + ss, start + ee)
+    },
+    stream(): ReadableStream<Uint8Array> {
+      let done = false
+      return new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (done) {
+            controller.close()
+            return
+          }
+          done = true
+          controller.enqueue(new Uint8Array(buffer, start, length))
+        },
+      })
+    },
+  }
+  return facade as unknown as Blob
+}
+
+describe("isVp9Keyframe", () => {
+  it("flags byte-0 frame_type=0 as keyframe", () => {
+    // bit 2 of byte 0 is 0 → keyframe per VP9 spec.
+    expect(isVp9Keyframe(new Uint8Array([0x80]))).toBe(true)
+    expect(isVp9Keyframe(new Uint8Array([0x82]))).toBe(true) // bit 1 is something else
+    // bit 2 set → non-key.
+    expect(isVp9Keyframe(new Uint8Array([0x84]))).toBe(false)
+  })
+  it("treats empty input as non-key (defensive)", () => {
+    expect(isVp9Keyframe(new Uint8Array(0))).toBe(false)
+  })
+})
+
+describe("muxVp9Webm", () => {
+  it("emits a WebM document with valid EBML structure", () => {
+    // Two synthetic VP9 frames — bytes don't have to be real VP9
+    // for the muxer's structural correctness.
+    const frame0 = new Uint8Array([0x80, 0x49, 0x83, 0x42])
+    const frame1 = new Uint8Array([0x84, 0x49, 0x83, 0x42])
+    const webm = muxVp9Webm(
+      [
+        { data: frame0, timestampMs: 0, isKeyframe: true },
+        { data: frame1, timestampMs: 16, isKeyframe: false },
+      ],
+      { width: 1920, height: 1080, frameDurationMs: 16, durationMs: 32 },
+    )
+    // EBML header magic.
+    expect(webm[0]).toBe(0x1a)
+    expect(webm[1]).toBe(0x45)
+    expect(webm[2]).toBe(0xdf)
+    expect(webm[3]).toBe(0xa3)
+    // The "webm" docType string should appear somewhere early.
+    const head = new TextDecoder().decode(webm.subarray(0, 64))
+    expect(head).toContain("webm")
+    // The V_VP9 codec id should appear.
+    const all = new TextDecoder().decode(webm)
+    expect(all).toContain("V_VP9")
+  })
+  it("rejects clusters longer than the s16 SimpleBlock timestamp can encode", () => {
+    // Two keyframes 40 s apart in one cluster would push the
+    // relative timestamp past 32 767 ms. We start a new cluster
+    // on each keyframe, so this only triggers for non-key frames
+    // very late in a single cluster — synthesise that.
+    const a = new Uint8Array([0x80])
+    const b = new Uint8Array([0x84])
+    expect(() =>
+      muxVp9Webm(
+        [
+          { data: a, timestampMs: 0, isKeyframe: true },
+          { data: b, timestampMs: 40_000, isKeyframe: false }, // delta 40 s
+        ],
+        { width: 64, height: 64 },
+      ),
+    ).toThrow(/cluster too long/)
   })
 })

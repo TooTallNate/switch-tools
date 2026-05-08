@@ -37,6 +37,15 @@ import { Skeleton } from "~/components/ui/skeleton"
 import { Spinner } from "~/components/ui/spinner"
 import { BfresViewer } from "./bfres-viewer"
 import {
+  demuxIvf,
+  isVp9Keyframe,
+  muxVp9WebmBlob,
+  parseUsm,
+  type UsmFile,
+  type UsmStream,
+  type UsmVideoStream,
+} from "@tootallnate/usm"
+import {
   parseNcaForNode,
   type NcaSource,
   type Node,
@@ -1070,6 +1079,8 @@ function FilePreview({ node, kind }: { node: Node; kind: PreviewKind }) {
       return <ByamlPreview node={node} />
     case "bntx-image":
       return <BntxPreview node={node} />
+    case "usm-video":
+      return <UsmPreview node={node} />
     case "hex":
     default:
       return <HexPreview node={node} />
@@ -3111,6 +3122,271 @@ function formatDuration(seconds: number): string {
   if (m === 0) return `${s.toFixed(1)}s`
   const ss = s.toFixed(1).padStart(4, "0")
   return `${m}:${ss}`
+}
+
+// ====================================================================
+// USM — CRI Sofdec2 video container preview
+// ====================================================================
+//
+// Parses the USM, demuxes its embedded VP9 IVF video stream, and
+// remuxes it into a tiny WebM document so the browser's native
+// `<video>` element plays it directly. The VP9 bitstream itself
+// is not re-encoded — only the surrounding container changes.
+// Audio inside USMs is HCA, which browsers don't speak; we list
+// audio streams in the metadata table but don't attempt playback
+// until we ship an HCA decoder.
+
+interface UsmView {
+  /** Full parsed USM (chunks, streams). */
+  usm: UsmFile
+  /** Selected video stream (currently always the first one). */
+  video: UsmVideoStream | null
+  /**
+   * Non-null when the video stream was successfully remuxed to
+   * WebM. Object URL lifetime is managed by `UsmPreview` so
+   * the cleanup runs once per node. Still-frame metadata is
+   * displayed even when this is null (e.g. unsupported codec).
+   */
+  webmBlob: Blob | null
+  /** Why we couldn't produce a WebM — surfaced inline. */
+  remuxError: string | null
+}
+
+async function buildUsmView(blob: Blob): Promise<UsmView> {
+  const usm = await parseUsm(blob)
+  const video = usm.streams.find(
+    (s): s is UsmVideoStream => s.type === "video",
+  ) ?? null
+  if (!video) return { usm, video: null, webmBlob: null, remuxError: null }
+  if (video.codec.codec !== "vp9") {
+    return {
+      usm,
+      video,
+      webmBlob: null,
+      remuxError: `In-browser playback only supports VP9 USMs; this stream is "${video.codec.codec}" (codec id ${video.codec.rawId}).`,
+    }
+  }
+  // Demux IVF → tag keyframes → mux WebM. The VP9 bytes pass
+  // through unchanged; only the container envelopes change.
+  try {
+    const ivf = await demuxIvf(video.data)
+    const fps = video.fps || 30
+    const frameDurationMs = 1000 / fps
+    const frames = ivf.frames.map((f, i) => ({
+      data: f.data,
+      timestampMs: Math.round(i * frameDurationMs),
+      // First frame must be a keyframe per VP9/WebM rules; also
+      // honour the bitstream's own keyframe flag thereafter.
+      isKeyframe: i === 0 || isVp9Keyframe(f.data),
+    }))
+    const webmBlob = muxVp9WebmBlob(frames, {
+      width: video.width,
+      height: video.height,
+      frameDurationMs,
+      durationMs: frames.length * frameDurationMs,
+    })
+    return { usm, video, webmBlob, remuxError: null }
+  } catch (e) {
+    return {
+      usm,
+      video,
+      webmBlob: null,
+      remuxError: e instanceof Error ? e.message : String(e),
+    }
+  }
+}
+
+function UsmPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return buildUsmView(await node.blob!())
+  }, [node.id])
+
+  // Object URL lifetime tied to the loaded view — recreated each
+  // time the user picks a different USM, revoked on unmount.
+  const [webmUrl, setWebmUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!data?.webmBlob) {
+      setWebmUrl(null)
+      return
+    }
+    const url = URL.createObjectURL(data.webmBlob)
+    setWebmUrl(url)
+    return () => {
+      URL.revokeObjectURL(url)
+      setWebmUrl(null)
+    }
+  }, [data?.webmBlob])
+
+  if (loading) return <LoadingFiller label="Demuxing USM…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="USM — CRI Sofdec2 video container" />
+
+        {v.video && (
+          <UsmPlayer
+            video={v.video}
+            webmUrl={webmUrl}
+            remuxError={v.remuxError}
+            sourceName={node.name}
+          />
+        )}
+
+        <KvBlock title="Container">
+          <KvRow k="File size" v={formatBytes(v.usm.fileSize)} />
+          <KvRow k="Total chunks" v={v.usm.chunks.length.toLocaleString()} />
+          <KvRow
+            k="Streams"
+            v={`${v.usm.streams.length} (${v.usm.streams.filter((s) => s.type === "video").length} video, ${v.usm.streams.filter((s) => s.type === "audio").length} audio)`}
+          />
+        </KvBlock>
+
+        {v.video && (
+          <KvBlock title="Video">
+            <KvRow
+              k="Codec"
+              v={v.video.codec.codec.toUpperCase()}
+              hint={`raw id ${v.video.codec.rawId}`}
+            />
+            <KvRow
+              k="Resolution"
+              v={`${v.video.width}×${v.video.height}`}
+              hint={
+                v.video.displayWidth !== v.video.width ||
+                v.video.displayHeight !== v.video.height
+                  ? `display ${v.video.displayWidth}×${v.video.displayHeight}`
+                  : undefined
+              }
+            />
+            <KvRow k="Frame rate" v={`${v.video.fps.toFixed(2)} fps`} />
+            <KvRow k="Frames" v={v.video.totalFrames.toLocaleString()} />
+            <KvRow
+              k="Duration"
+              v={
+                v.video.fps > 0
+                  ? formatDuration(v.video.totalFrames / v.video.fps)
+                  : "—"
+              }
+            />
+            <KvRow k="Stream size" v={formatBytes(v.video.dataSize)} />
+          </KvBlock>
+        )}
+
+        <UsmStreamsTable streams={v.usm.streams} />
+      </div>
+    </ScrollArea>
+  )
+}
+
+function UsmPlayer({
+  video,
+  webmUrl,
+  remuxError,
+  sourceName,
+}: {
+  video: UsmVideoStream
+  webmUrl: string | null
+  remuxError: string | null
+  sourceName: string
+}) {
+  // `<video.bin>.usm` → `video.bin.webm`. We don't strip extension
+  // since some games name files like `movie_007.usm` and the
+  // user expects to recognise the stem.
+  const downloadName = useMemo(() => {
+    const stem = sourceName.replace(/\.usm$/i, "")
+    return `${stem}.webm`
+  }, [sourceName])
+  return (
+    <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+      {webmUrl ? (
+        <video
+          src={webmUrl}
+          controls
+          autoPlay
+          className="w-full rounded-md bg-black"
+          style={{ aspectRatio: `${video.width} / ${video.height}` }}
+        />
+      ) : remuxError ? (
+        <div className="flex items-center justify-center rounded-md border border-dashed border-destructive/40 bg-destructive/5 p-6 text-center text-sm text-destructive">
+          {remuxError}
+        </div>
+      ) : (
+        <Skeleton
+          className="w-full"
+          style={{ aspectRatio: `${video.width} / ${video.height}` }}
+        />
+      )}
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span>
+          Remuxed VP9 → WebM ({video.width}×{video.height} ·{" "}
+          {video.fps.toFixed(2)} fps ·{" "}
+          {video.fps > 0
+            ? formatDuration(video.totalFrames / video.fps)
+            : "—"}
+          )
+        </span>
+        {webmUrl && (
+          <a
+            href={webmUrl}
+            download={downloadName}
+            className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+          >
+            Save .webm
+          </a>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function UsmStreamsTable({ streams }: { streams: UsmStream[] }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Streams ({streams.length})
+      </h3>
+      {streams.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          No streams in this USM.
+        </p>
+      ) : (
+        <div className="overflow-x-auto rounded-md border bg-card">
+          <table className="w-full border-collapse text-xs">
+            <thead className="border-b bg-muted/40 text-left text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 font-medium">Type</th>
+                <th className="px-3 py-2 font-medium">Channel</th>
+                <th className="px-3 py-2 font-medium">Codec</th>
+                <th className="px-3 py-2 font-medium">Details</th>
+                <th className="px-3 py-2 font-medium text-right">Size</th>
+              </tr>
+            </thead>
+            <tbody>
+              {streams.map((s, i) => (
+                <tr key={i} className="border-b border-border/40 last:border-0">
+                  <td className="px-3 py-1.5 font-mono uppercase">{s.type}</td>
+                  <td className="px-3 py-1.5">{s.channel}</td>
+                  <td className="px-3 py-1.5 font-mono uppercase">
+                    {s.type === "video" ? s.codec.codec : s.codec}
+                  </td>
+                  <td className="px-3 py-1.5 text-muted-foreground">
+                    {s.type === "video"
+                      ? `${s.width}×${s.height} · ${s.fps.toFixed(2)} fps · ${s.totalFrames.toLocaleString()} frames`
+                      : `${s.channelCount} ch · ${s.sampleRate} Hz · ${s.totalSamples.toLocaleString()} samples`}
+                  </td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">
+                    {formatBytes(s.dataSize)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
 }
 
 // ====================================================================
