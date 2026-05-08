@@ -174,7 +174,9 @@ function pickAlbedo(
       THREE.UnsignedByteType,
     )
     tex.colorSpace = bntxTex.srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
-    tex.flipY = true
+    // We flip V on the BFRES UV side (Tegra/DirectX convention →
+    // OpenGL/Three.js convention), so leave `flipY` off here.
+    tex.flipY = false
     tex.wrapS = THREE.RepeatWrapping
     tex.wrapT = THREE.RepeatWrapping
     tex.minFilter = THREE.LinearMipMapLinearFilter

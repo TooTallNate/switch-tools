@@ -1262,10 +1262,14 @@ function decodeUvs(fvtx: FvtxData): Float32Array | null {
 		);
 		if (!v) return null;
 		out[i * 2] = v[0] ?? 0;
-		// Unity / OpenGL flip Y compared to Unreal / DirectX. Three.js
-		// follows OpenGL conventions, so we leave this as-is and let
-		// the renderer flip if needed via texture wrapping.
-		out[i * 2 + 1] = v[1] ?? 0;
+		// Switch / Tegra ships UVs with V=0 at the top of the
+		// texture (DirectX convention). Three.js samples textures
+		// with V=0 at the bottom (OpenGL convention) and its
+		// `texture.flipY` flag is a no-op for DataTexture inputs,
+		// so we flip V here at extraction time. Without this,
+		// textures show up vertically mirrored — most visibly on
+		// faces (e.g. Peach's eyes appear on her chin).
+		out[i * 2 + 1] = 1 - (v[1] ?? 0);
 	}
 	return out;
 }
