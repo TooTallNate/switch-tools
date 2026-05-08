@@ -252,7 +252,16 @@ function ArchiveApp() {
                   onChange={setSearchState}
                 />
               </div>
-              <ScrollArea className="min-h-0 flex-1">
+              {/*
+                Override Radix's `display: table` on the inner viewport
+                wrapper so the file-tree rows stay constrained to the
+                visible viewport width. Without this, badges and file
+                sizes get clipped on the right when the tree pane is
+                narrow — `display: table` makes the wrapper size to
+                its content's intrinsic width, defeating each row's
+                `flex-1 truncate` on the filename.
+              */}
+              <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
                 <div className="p-2">
                   <FileTree
                     key={`tree-${reloadCounter}`}
