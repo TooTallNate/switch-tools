@@ -1371,6 +1371,100 @@ function HexPreview({ node }: { node: Node }) {
   )
 }
 
+// ---- NACP enum/bitfield decoders ----
+//
+// These mirror the names used in libpietendo / libnx / switchbrew so an
+// "Author note" reading our UI can cross-reference upstream docs without
+// guessing what each magic number means.
+//
+// Refs:
+//   https://switchbrew.org/wiki/NACP
+//   https://switchbrew.github.io/libnx/nacp_8h_source.html
+
+const STARTUP_USER_ACCOUNT: Record<number, string> = {
+  0: "None",
+  1: "Required",
+  2: "RequiredWithNetworkServiceAccountAvailable",
+}
+const HDCP: Record<number, string> = { 0: "None", 1: "Required" }
+const SCREENSHOT: Record<number, string> = { 0: "Allow", 1: "Deny" }
+const VIDEO_CAPTURE: Record<number, string> = {
+  0: "Disabled",
+  1: "Manual",
+  2: "Enabled",
+}
+const LOGO_TYPE: Record<number, string> = {
+  0: "LicensedByNintendo",
+  1: "DistributedByNintendo",
+  2: "Nintendo",
+}
+const LOGO_HANDLING: Record<number, string> = { 0: "Auto", 1: "Manual" }
+
+/**
+ * Bit names for the SupportedLanguageFlag bitfield. Each set bit at
+ * position N means the title ships content for `Language(N)`.
+ */
+const LANGUAGE_NAMES = [
+  "AmericanEnglish",
+  "BritishEnglish",
+  "Japanese",
+  "French",
+  "German",
+  "LatinAmericanSpanish",
+  "Spanish",
+  "Italian",
+  "Dutch",
+  "CanadianFrench",
+  "Portuguese",
+  "Russian",
+  "Korean",
+  "TraditionalChinese",
+  "SimplifiedChinese",
+  "BrazilianPortuguese",
+  "Polish", // [21.0.0+]
+  "Thai",   // [21.0.0+]
+]
+
+/**
+ * Bit names for the AttributeFlag bitfield. Each bit corresponds to a
+ * named flag from libpietendo's `AttributeFlag` enum.
+ */
+const ATTRIBUTE_FLAG_NAMES = ["Demo", "RetailInteractiveDisplay"]
+
+/**
+ * Bit names for the ParentalControlFlag bitfield. Only one bit
+ * (`FreeCommunication`) is currently documented — the rest decode
+ * as `Unknown(bit N)` so we don't silently hide future additions.
+ */
+const PARENTAL_CONTROL_FLAG_NAMES = ["FreeCommunication"]
+
+/** Decode an enum value to its name, or `Unknown(N)` if unmapped. */
+function enumHint(map: Record<number, string>, v: number): string {
+  return map[v] ?? `Unknown(${v})`
+}
+
+/**
+ * Decode a 32-bit bitfield into a comma-separated list of set-bit
+ * names. Returns "(none)" when zero, and "(all)" when every named
+ * bit is set (saves space on language flags for fully-localised
+ * titles).
+ */
+function bitfieldHint(names: readonly string[], v: number): string {
+  if (v === 0) return "(none)"
+  const labels: string[] = []
+  for (let i = 0; i < 32; i++) {
+    if ((v >>> i) & 1) labels.push(names[i] ?? `bit${i}`)
+  }
+  if (
+    names.length > 0 &&
+    labels.length === names.length &&
+    labels.every((l, i) => l === names[i])
+  ) {
+    return `(all ${names.length})`
+  }
+  return labels.join(", ")
+}
+
 function NacpPreview({ node }: { node: Node }) {
   const { loading, data, error } = useAsync(async () => {
     return parseNacpForView(await node.blob!())
@@ -1391,25 +1485,55 @@ function NacpPreview({ node }: { node: Node }) {
           <KvRow k="Presence Group ID" v={data!.presenceGroupId} mono />
         </KvBlock>
         <KvBlock title="Behavior flags">
-          <KvRow k="Startup user account" v={String(data!.startupUserAccount)} />
-          <KvRow k="HDCP" v={String(data!.hdcp)} />
-          <KvRow k="Screenshot" v={String(data!.screenshot)} />
-          <KvRow k="Video capture" v={String(data!.videoCapture)} />
-          <KvRow k="Logo type" v={String(data!.logoType)} />
-          <KvRow k="Logo handling" v={String(data!.logoHandling)} />
+          <KvRow
+            k="Startup user account"
+            v={String(data!.startupUserAccount)}
+            hint={enumHint(STARTUP_USER_ACCOUNT, data!.startupUserAccount)}
+          />
+          <KvRow
+            k="HDCP"
+            v={String(data!.hdcp)}
+            hint={enumHint(HDCP, data!.hdcp)}
+          />
+          <KvRow
+            k="Screenshot"
+            v={String(data!.screenshot)}
+            hint={enumHint(SCREENSHOT, data!.screenshot)}
+          />
+          <KvRow
+            k="Video capture"
+            v={String(data!.videoCapture)}
+            hint={enumHint(VIDEO_CAPTURE, data!.videoCapture)}
+          />
+          <KvRow
+            k="Logo type"
+            v={String(data!.logoType)}
+            hint={enumHint(LOGO_TYPE, data!.logoType)}
+          />
+          <KvRow
+            k="Logo handling"
+            v={String(data!.logoHandling)}
+            hint={enumHint(LOGO_HANDLING, data!.logoHandling)}
+          />
           <KvRow
             k="Supported language flag"
             v={"0x" + data!.supportedLanguageFlag.toString(16)}
+            hint={bitfieldHint(LANGUAGE_NAMES, data!.supportedLanguageFlag)}
             mono
           />
           <KvRow
             k="Parental control flag"
             v={"0x" + data!.parentalControlFlag.toString(16)}
+            hint={bitfieldHint(
+              PARENTAL_CONTROL_FLAG_NAMES,
+              data!.parentalControlFlag,
+            )}
             mono
           />
           <KvRow
             k="Attribute flag"
             v={"0x" + data!.attributeFlag.toString(16)}
+            hint={bitfieldHint(ATTRIBUTE_FLAG_NAMES, data!.attributeFlag)}
             mono
           />
         </KvBlock>
@@ -3707,11 +3831,31 @@ function KvBlock({
   )
 }
 
-function KvRow({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
+function KvRow({
+  k,
+  v,
+  hint,
+  mono,
+}: {
+  k: string
+  v: string
+  /**
+   * Optional human-readable description shown after the value, e.g.
+   * for enum decode (`1` → `Required`) or bitfield names. Rendered in
+   * muted color so the raw value still reads first.
+   */
+  hint?: string
+  mono?: boolean
+}) {
   return (
     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-b border-border/50 py-1.5 text-sm last:border-0">
       <dt className="min-w-[180px] text-muted-foreground">{k}</dt>
-      <dd className={cn("flex-1 break-all", mono && "font-mono text-xs")}>{v}</dd>
+      <dd className={cn("flex-1 break-all", mono && "font-mono text-xs")}>
+        {v}
+        {hint ? (
+          <span className="ml-2 text-muted-foreground">— {hint}</span>
+        ) : null}
+      </dd>
     </div>
   )
 }
