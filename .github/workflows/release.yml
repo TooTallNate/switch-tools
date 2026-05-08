@@ -38,6 +38,9 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Setup wasi-sdk
+        run: cd packages/zstd-wasm && make setup
+
       - name: Build Packages
         run: pnpm build
 
