@@ -134,6 +134,37 @@ export interface BfresGeometry {
 	boundingBox: { min: [number, number, number]; max: [number, number, number] };
 }
 
+/**
+ * One sampler-to-texture binding inside a material. The sampler's
+ * **name** (the dict key) tells you what kind of texture it is by
+ * convention: `_a0` / `_a1` are albedo (diffuse), `_n0` is normal,
+ * `_s0` is specular, `_b0` / `_b1` are baked AO/lighting, `_e0` is
+ * emissive, `_x0` is "extra" (often a detail / mask map). The
+ * **texture name** points into the embedded BNTX bank.
+ */
+export interface BfresTextureBinding {
+	/** Sampler name (e.g. `"_a0"`). Bind kind by convention. */
+	samplerName: string;
+	/** Texture name as stored in BFRES; matches a name inside the BNTX bank. */
+	textureName: string;
+}
+
+/**
+ * One FMAT record per shape. We only surface the fields that drive
+ * texture binding — the full FMAT has render-state dictionaries,
+ * shader-parameter blobs, and per-stage uniform overrides, which
+ * are renderer-specific and not needed for a basic preview.
+ */
+export interface BfresMaterial {
+	name: string;
+	/** Texture-name list, parallel to `samplers`. */
+	textureRefs: string[];
+	/** Sampler names (dict keys), parallel to `textureRefs`. */
+	samplers: string[];
+	/** Convenience: sampler-to-texture pairings. */
+	bindings: BfresTextureBinding[];
+}
+
 const HEADER_MIN_SIZE = 0x40;
 
 /** Cheap (8-byte) check for "FRES" + 4 spaces (Switch BFRES). */
@@ -671,7 +702,9 @@ function decodeAttribValue(
  *   - Only the first LOD of each shape is read.
  *   - Skeletal-skinning weights are not extracted (good enough for
  *     T-pose rendering).
- *   - Materials, textures, and shader bindings are not resolved.
+ *   - Shader-parameter overrides aren't resolved (use
+ *     `extractMaterials` for the texture-binding list, which is
+ *     enough for basic albedo rendering).
  *   - Shapes whose primitive type isn't `triangles` come back with
  *     `primitiveType: 'unsupported'` so callers can skip them.
  *
@@ -799,6 +832,176 @@ export async function extractGeometry(blob: Blob): Promise<BfresGeometry[]> {
 		}
 	}
 
+	return out;
+}
+
+/**
+ * Walk the parsed BFRES and surface each FMAT material with its
+ * texture-name list and sampler bindings. The result's outer index
+ * matches the FMDL's material index (so a Shape's `materialIndex`
+ * directly indexes into the `BfresMaterial[]` for that model).
+ *
+ * The list is grouped per-FMDL: `result[modelIndex][materialIndex]`.
+ * Empty FMDLs (no materials) come back as empty inner arrays.
+ *
+ * We deliberately don't read render-state, shader params, or user
+ * data here — just the texture binding info needed to wire albedo
+ * textures into a renderer.
+ *
+ * Throws if the BFRES isn't a Switch v5+ build.
+ */
+export async function extractMaterials(blob: Blob): Promise<BfresMaterial[][]> {
+	if (blob.size < HEADER_MIN_SIZE) {
+		throw new Error('Blob too small to be a BFRES');
+	}
+	const data = new Uint8Array(await blob.arrayBuffer());
+	const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+	if (
+		data[0] !== 0x46 ||
+		data[1] !== 0x52 ||
+		data[2] !== 0x45 ||
+		data[3] !== 0x53
+	) {
+		throw new Error('Bad BFRES magic');
+	}
+	if (
+		data[4] !== 0x20 ||
+		data[5] !== 0x20 ||
+		data[6] !== 0x20 ||
+		data[7] !== 0x20
+	) {
+		throw new Error('Wii U BFRES is not supported (Switch only)');
+	}
+	const versionRaw = v.getUint32(0x08, true);
+	const major = (versionRaw >> 16) & 0xff;
+	if (major < 5) {
+		throw new Error(`BFRES version ${major} is too old (need v5+)`);
+	}
+
+	const fmdlArrayOffset = Number(v.getBigInt64(0x28, true));
+	const fmdlDictOffset = Number(v.getBigInt64(0x30, true));
+	const fmdlNames = readDict(data, v, fmdlDictOffset);
+	if (!fmdlArrayOffset) return fmdlNames.map(() => []);
+
+	const fmdlStride = major >= 9 ? 0x78 : 0x80;
+	const out: BfresMaterial[][] = [];
+
+	for (let mi = 0; mi < fmdlNames.length; mi++) {
+		const fmdlOff = fmdlArrayOffset + mi * fmdlStride;
+		if (
+			data[fmdlOff] !== 0x46 ||
+			data[fmdlOff + 1] !== 0x4d ||
+			data[fmdlOff + 2] !== 0x44 ||
+			data[fmdlOff + 3] !== 0x4c
+		) {
+			break;
+		}
+		const ptrBase = fmdlOff + (major >= 9 ? 0x08 : 0x10);
+
+		// pointer block layout (relative to ptrBase):
+		//   0x00 nameOffset, 0x08 pathOffset, 0x10 skeletonOffset,
+		//   0x18 vertexBufferArrayOffset, 0x20 shapeValuesOffset,
+		//   0x28 shapeDictOffset, 0x30 materialValuesOffset,
+		//   0x38 materialDictOffset, ...
+		const matValuesOffset = Number(v.getBigUint64(ptrBase + 0x30, true));
+		const matDictOffset = Number(v.getBigUint64(ptrBase + 0x38, true));
+		const matNames = readDict(data, v, matDictOffset);
+		const countsBase = ptrBase + (major >= 9 ? 0x48 : 0x58);
+		const numMaterial = v.getUint16(countsBase + 4, true);
+
+		const matsForFmdl: BfresMaterial[] = [];
+		// The actual record stride is decided by the on-disk FMAT layout
+		// (0xb8 for v5–v8, smaller for v9+). We sniff by checking the
+		// FMAT magic at successive candidate strides on the first
+		// material, then commit to that stride for the rest.
+		let stride = 0;
+		const candidateStrides = major >= 9 ? [0xa0, 0xb0, 0xb8] : [0xb8, 0xc0];
+		for (const cand of candidateStrides) {
+			const off = matValuesOffset + 0 * cand;
+			if (off + 4 > data.length) continue;
+			if (
+				data[off] === 0x46 &&
+				data[off + 1] === 0x4d &&
+				data[off + 2] === 0x41 &&
+				data[off + 3] === 0x54
+			) {
+				stride = cand;
+				break;
+			}
+		}
+		if (stride === 0) {
+			// FMAT magic missing — bail with empty materials
+			while (matsForFmdl.length < numMaterial) {
+				matsForFmdl.push({
+					name: matNames[matsForFmdl.length] ?? '',
+					textureRefs: [],
+					samplers: [],
+					bindings: [],
+				});
+			}
+			out.push(matsForFmdl);
+			continue;
+		}
+
+		for (let i = 0; i < numMaterial; i++) {
+			const off = matValuesOffset + i * stride;
+			if (
+				data[off] !== 0x46 ||
+				data[off + 1] !== 0x4d ||
+				data[off + 2] !== 0x41 ||
+				data[off + 3] !== 0x54
+			) {
+				break;
+			}
+			// Parse FMAT record. v9+ replaces the leading 12-byte
+			// HeaderBlock with a u32 flags field, which shifts every
+			// subsequent offset by 8 bytes.
+			const baseShift = major >= 9 ? -8 : 0;
+			const matNameOff = Number(
+				v.getBigInt64(off + 0x10 + baseShift, true),
+			);
+			const textureNameArrayOff = Number(
+				v.getBigInt64(off + 0x38 + baseShift, true),
+			);
+			const samplerDictOff = Number(
+				v.getBigInt64(off + 0x50 + baseShift, true),
+			);
+			const numTextureRef = data[off + 0xa8 + baseShift];
+			const numSampler = data[off + 0xa9 + baseShift];
+
+			const name = matNames[i] ?? readPoolString(data, matNameOff);
+			const textureRefs: string[] = [];
+			if (textureNameArrayOff && numTextureRef > 0) {
+				for (let t = 0; t < numTextureRef; t++) {
+					const strPtr = Number(
+						v.getBigInt64(textureNameArrayOff + t * 8, true),
+					);
+					textureRefs.push(readPoolString(data, strPtr));
+				}
+			}
+			const samplers: string[] =
+				numSampler > 0 ? readDict(data, v, samplerDictOff) : [];
+			const bindings: BfresTextureBinding[] = [];
+			const pairs = Math.min(textureRefs.length, samplers.length);
+			for (let p = 0; p < pairs; p++) {
+				bindings.push({
+					samplerName: samplers[p],
+					textureName: textureRefs[p],
+				});
+			}
+			matsForFmdl.push({ name, textureRefs, samplers, bindings });
+		}
+		// Pad to numMaterial in case of early break.
+		while (matsForFmdl.length < numMaterial) {
+			matsForFmdl.push({
+				name: matNames[matsForFmdl.length] ?? '',
+				textureRefs: [],
+				samplers: [],
+				bindings: [],
+			});
+		}
+		out.push(matsForFmdl);
+	}
 	return out;
 }
 

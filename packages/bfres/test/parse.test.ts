@@ -4,6 +4,7 @@ import {
 	parseBfres,
 	BFRES_MAGIC,
 	extractGeometry,
+	extractMaterials,
 } from '../src/index.js';
 
 /**
@@ -123,5 +124,24 @@ describe('extractGeometry', () => {
 		await expect(
 			extractGeometry(new Blob([buf as BlobPart])),
 		).rejects.toThrow(/too old/);
+	});
+});
+
+describe('extractMaterials', () => {
+	// Same caveat as `extractGeometry`: synthesizing a full FMAT
+	// record-by-record isn't worth it. Smoke tests for the error
+	// paths only.
+	it('returns [] for a header-only BFRES with no FMDLs', async () => {
+		const buf = buildSmokeHeader();
+		const mats = await extractMaterials(new Blob([buf as BlobPart]));
+		expect(mats).toEqual([]);
+	});
+
+	it('rejects a Wii U BFRES', async () => {
+		const buf = buildSmokeHeader();
+		buf[4] = 0;
+		await expect(
+			extractMaterials(new Blob([buf as BlobPart])),
+		).rejects.toThrow(/Wii U/);
 	});
 });

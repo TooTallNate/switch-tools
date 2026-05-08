@@ -5,15 +5,25 @@
  * bounding box of all shapes and provides orbit controls (drag to
  * rotate, scroll to zoom, right-drag to pan).
  *
- * Materials are deliberately simple: a flat-shaded `MeshNormalMaterial`
- * that visualises surface direction with RGB tinting. Texture binding
- * + PBR shading would require parsing FMAT material records and
- * resolving the embedded BNTX, which is a larger effort.
+ * Material handling: each shape's FMAT lists a sampler-to-texture
+ * binding (e.g. `_a0` → `Bird`). We resolve the `_a0` (albedo)
+ * binding against the BFRES's embedded BNTX bank, decode that
+ * texture to RGBA8 via `@tootallnate/bntx`, and apply it as a
+ * `MeshBasicMaterial.map`. Shapes with no albedo (or whose texture
+ * isn't decodable) fall back to `MeshNormalMaterial` so they still
+ * render.
  */
 import { Component, useEffect, useRef, useState, type ReactNode } from "react"
 import * as THREE from "three"
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
-import { extractGeometry, type BfresGeometry } from "@tootallnate/bfres"
+import {
+  extractGeometry,
+  extractMaterials,
+  parseBfres,
+  type BfresGeometry,
+  type BfresMaterial,
+} from "@tootallnate/bfres"
+import { parseBntx, decodeBntxLayer, type BntxTexture } from "@tootallnate/bntx"
 
 import type { Node } from "~/lib/archive"
 
@@ -60,6 +70,122 @@ interface ShapeRecord {
   mesh: THREE.Mesh
   /** True iff the user has toggled this shape on. Drives renderer visibility. */
   visible: boolean
+  /** Whether we successfully bound an albedo texture from the BNTX. */
+  hasAlbedo: boolean
+}
+
+/**
+ * Lazy cache: texture name → decoded Three.js Texture for one BNTX
+ * bank. Built on first lookup and reused across shapes that
+ * reference the same texture (very common — many shapes share the
+ * same albedo or bake map).
+ */
+type BntxTextureCache = {
+  /** All decodable textures in the bank, keyed by name. */
+  byName: Map<string, BntxTexture>
+  /** Memoised Three.js textures (decoded lazily on demand). */
+  decoded: Map<string, THREE.Texture | null>
+  /** Source BNTX bytes — needed to deswizzle on demand. */
+  bytes: Uint8Array
+}
+
+/**
+ * Read the embedded `textures.bntx` (or equivalent) from a BFRES
+ * blob and return a name-indexed cache. Returns `null` if there's
+ * no embedded BNTX, or if it fails to parse — callers fall back to
+ * normal-vis shading.
+ */
+async function loadEmbeddedBntxTextures(
+  blob: Blob,
+): Promise<BntxTextureCache | null> {
+  try {
+    const parsed = await parseBfres(blob)
+    const ext = parsed.embeddedBntx
+    if (!ext) return null
+    const bytes = new Uint8Array(await ext.data.arrayBuffer())
+    const bntx = parseBntx(bytes)
+    const byName = new Map<string, BntxTexture>()
+    for (const tex of bntx.textures) {
+      if (tex.name) byName.set(tex.name, tex)
+    }
+    return { byName, decoded: new Map(), bytes }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Resolve the albedo texture for a single shape: walk the parent
+ * model's material list, find the `_a0` sampler binding (or
+ * `_a1` / `_a2` as a fallback for shapes that put their main map
+ * in a different slot), and decode it via `@tootallnate/bntx`.
+ *
+ * Returns `null` if no albedo binding exists, or if the texture
+ * format isn't decodable yet (the BNTX decoder only covers the
+ * common subset of BC1/3/4/5/7 + uncompressed RGBA8).
+ */
+function pickAlbedo(
+  geom: BfresGeometry,
+  materials: BfresMaterial[][],
+  cache: BntxTextureCache | null,
+): THREE.Texture | null {
+  if (!cache) return null
+  const mat = materials[geom.modelIndex]?.[geom.materialIndex]
+  if (!mat) return null
+  // Switch BFRES samplers use a leading-underscore naming
+  // convention: `_a0`/`_a1`/`_a2` are albedo, `_n0` normal,
+  // `_s0` specular, etc. We try each albedo slot in order.
+  const albedoSamplers = ["_a0", "_a1", "_a2"]
+  let textureName: string | null = null
+  for (const want of albedoSamplers) {
+    const b = mat.bindings.find((bb) => bb.samplerName === want)
+    if (b) {
+      textureName = b.textureName
+      break
+    }
+  }
+  if (!textureName) return null
+
+  // Memoised decode — many shapes share textures.
+  if (cache.decoded.has(textureName)) {
+    return cache.decoded.get(textureName) ?? null
+  }
+  const bntxTex = cache.byName.get(textureName)
+  if (!bntxTex) {
+    cache.decoded.set(textureName, null)
+    return null
+  }
+  let tex: THREE.Texture | null = null
+  try {
+    const decoded = decodeBntxLayer(cache.bytes, bntxTex, 0)
+    // `decodeBntxLayer` returns RGBA8 in `pixels`. Wrap it in a
+    // Three.js DataTexture so the renderer can sample from it
+    // directly without going through an HTMLImageElement.
+    const data = new Uint8ClampedArray(
+      decoded.pixels.buffer,
+      decoded.pixels.byteOffset,
+      decoded.pixels.byteLength,
+    )
+    tex = new THREE.DataTexture(
+      data,
+      decoded.width,
+      decoded.height,
+      THREE.RGBAFormat,
+      THREE.UnsignedByteType,
+    )
+    tex.colorSpace = bntxTex.srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
+    tex.flipY = true
+    tex.wrapS = THREE.RepeatWrapping
+    tex.wrapT = THREE.RepeatWrapping
+    tex.minFilter = THREE.LinearMipMapLinearFilter
+    tex.magFilter = THREE.LinearFilter
+    tex.generateMipmaps = true
+    tex.needsUpdate = true
+  } catch {
+    tex = null
+  }
+  cache.decoded.set(textureName, tex)
+  return tex
 }
 
 export function BfresViewer({ node }: { node: Node }) {
@@ -93,7 +219,11 @@ function BfresViewerInner({ node }: { node: Node }) {
     void (async () => {
       try {
         const blob = await node.blob!()
-        const geoms = await extractGeometry(blob)
+        const [geoms, materials, textureCache] = await Promise.all([
+          extractGeometry(blob),
+          extractMaterials(blob),
+          loadEmbeddedBntxTextures(blob),
+        ])
         if (cancelled) return
         if (geoms.length === 0) {
           setError(
@@ -121,17 +251,27 @@ function BfresViewerInner({ node }: { node: Node }) {
           }
           geometry.setIndex(new THREE.BufferAttribute(g.indices, 1))
           if (!g.normals) geometry.computeVertexNormals()
-          // Flat-shaded normal material — visualises the surface
-          // direction as colour, no textures needed. Looks
-          // meaningfully different per-shape and surfaces back-face
-          // / shading errors immediately if our extraction is buggy.
-          const material = new THREE.MeshNormalMaterial({
-            flatShading: false,
-            side: THREE.DoubleSide,
-          })
+
+          // Pick a material: prefer the resolved albedo texture,
+          // fall back to flat-shaded normal-vis if there isn't one.
+          const albedo = pickAlbedo(g, materials, textureCache)
+          const material: THREE.Material = albedo
+            ? new THREE.MeshBasicMaterial({
+                map: albedo,
+                side: THREE.DoubleSide,
+                // The Tegra block-linear deswizzler we ported
+                // produces sRGB-encoded RGBA already; tell Three.js
+                // to treat the texture's bytes as sRGB so its
+                // linear-light pipeline does the right thing.
+                color: 0xffffff,
+              })
+            : new THREE.MeshNormalMaterial({
+                flatShading: false,
+                side: THREE.DoubleSide,
+              })
           const mesh = new THREE.Mesh(geometry, material)
           mesh.name = g.name
-          return { geom: g, mesh, visible: true }
+          return { geom: g, mesh, visible: true, hasAlbedo: !!albedo }
         })
         setShapes(records)
       } catch (err) {
@@ -169,6 +309,10 @@ function BfresViewerInner({ node }: { node: Node }) {
       return
     }
     renderer.setPixelRatio(window.devicePixelRatio)
+    // sRGB output so albedo textures (which we tag as sRGB) display
+    // with correct gamma. Three.js tone-maps linearly through this
+    // pipeline by default since r152.
+    renderer.outputColorSpace = THREE.SRGBColorSpace
 
     const updateSize = () => {
       const { clientWidth, clientHeight } = container
@@ -265,10 +409,16 @@ function BfresViewerInner({ node }: { node: Node }) {
       ro.disconnect()
       cancelAnimationFrame(animationId)
       controls.dispose()
-      // Dispose every geometry / material we created.
+      // Dispose every geometry / material / texture we created.
       for (const r of shapes) {
         r.mesh.geometry.dispose()
-        if (r.mesh.material instanceof THREE.Material) r.mesh.material.dispose()
+        if (r.mesh.material instanceof THREE.Material) {
+          // MeshBasicMaterial.map may carry a DataTexture we owned —
+          // dispose it too so its GPU memory comes back.
+          const m = r.mesh.material as THREE.Material & { map?: THREE.Texture }
+          if (m.map) m.map.dispose()
+          r.mesh.material.dispose()
+        }
       }
       renderer.dispose()
       renderer.domElement.remove()
@@ -319,6 +469,14 @@ function BfresViewerInner({ node }: { node: Node }) {
               <span className="truncate" title={r.geom.name}>
                 {r.geom.name || `(unnamed shape ${i})`}
               </span>
+              {r.hasAlbedo ? (
+                <span
+                  className="shrink-0 rounded-sm bg-primary/15 px-1 text-[9px] font-medium uppercase tracking-wider text-primary"
+                  title="Albedo texture bound from embedded BNTX"
+                >
+                  Tex
+                </span>
+              ) : null}
               <span className="ml-auto shrink-0 font-mono text-muted-foreground">
                 {r.geom.vertexCount}v / {tris}t
               </span>
