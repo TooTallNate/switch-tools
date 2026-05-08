@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { isBfres, parseBfres, BFRES_MAGIC } from '../src/index.js';
+import {
+	isBfres,
+	parseBfres,
+	BFRES_MAGIC,
+	extractGeometry,
+} from '../src/index.js';
 
 /**
  * BFRES is a 600+ field format that's hard to fully synthesise in
@@ -86,5 +91,37 @@ describe('parseBfres — smoke header', () => {
 describe('BFRES_MAGIC export', () => {
 	it('matches the on-disk value', () => {
 		expect(BFRES_MAGIC).toBe('FRES');
+	});
+});
+
+describe('extractGeometry', () => {
+	// We can't reasonably synthesize a full BFRES with valid FMDL +
+	// FSHP + FVTX records (the format has hundreds of fields with
+	// cross-references), so these are smoke tests for the error
+	// paths. Real geometry is exercised end-to-end via the Node
+	// debug script `dump-bfres-mesh.mjs` against captured game data.
+	it('returns [] for a header-only BFRES with no FMDLs', async () => {
+		const buf = buildSmokeHeader();
+		const geoms = await extractGeometry(new Blob([buf as BlobPart]));
+		expect(geoms).toEqual([]);
+	});
+
+	it('rejects a Wii U BFRES (non-space padding at offset 4)', async () => {
+		const buf = buildSmokeHeader();
+		buf[4] = 0;
+		await expect(
+			extractGeometry(new Blob([buf as BlobPart])),
+		).rejects.toThrow(/Wii U/);
+	});
+
+	it('rejects a too-small blob', async () => {
+		await expect(extractGeometry(new Blob([]))).rejects.toThrow(/too small/);
+	});
+
+	it('rejects a too-old version (< v5)', async () => {
+		const buf = buildSmokeHeader(0x00040003);
+		await expect(
+			extractGeometry(new Blob([buf as BlobPart])),
+		).rejects.toThrow(/too old/);
 	});
 });

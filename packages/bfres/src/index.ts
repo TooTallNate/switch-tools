@@ -96,6 +96,44 @@ export interface ParsedBfres {
 	embeddedBntx: BfresExternalFile | null;
 }
 
+// ----- Geometry types (returned by `extractGeometry`) -----
+
+/**
+ * Decoded geometry for a single `Shape`. A shape's surface mesh is
+ * indexed triangles (or another primitive type — see `primitiveType`)
+ * stored as `Float32Array` for the position attribute and a
+ * `Uint16Array` / `Uint32Array` for the index list. We hand back
+ * decoded JS-typed arrays rather than raw buffers so callers can
+ * drop them straight into Three.js / WebGPU / glTF.
+ *
+ * Skeletal weights and material binding are NOT included yet — this
+ * struct can be extended.
+ */
+export interface BfresGeometry {
+	/** Friendly shape name (e.g. `"Body_BodyMat"`). */
+	name: string;
+	/** FMDL index this shape belongs to. */
+	modelIndex: number;
+	/** Material index inside the parent FMDL. */
+	materialIndex: number;
+	/** Primitive type — almost always `'triangles'`. */
+	primitiveType: 'triangles' | 'lines' | 'points' | 'unsupported';
+	/** Flat `Float32Array` of length `vertexCount * 3` (XYZ XYZ …). */
+	positions: Float32Array;
+	/** Optional normals: `Float32Array` of length `vertexCount * 3`. */
+	normals: Float32Array | null;
+	/** Optional UVs: `Float32Array` of length `vertexCount * 2`. */
+	uvs: Float32Array | null;
+	/** Optional vertex colors: `Float32Array` of length `vertexCount * 4` (RGBA, 0..1). */
+	colors: Float32Array | null;
+	/** Triangle indices. The width matches the on-disk format (u16 vs u32). */
+	indices: Uint16Array | Uint32Array;
+	/** Vertex count of the parent FVTX (for sanity checks). */
+	vertexCount: number;
+	/** Axis-aligned bounding box of the positions, in model space. */
+	boundingBox: { min: [number, number, number]; max: [number, number, number] };
+}
+
 const HEADER_MIN_SIZE = 0x40;
 
 /** Cheap (8-byte) check for "FRES" + 4 spaces (Switch BFRES). */
@@ -441,4 +479,670 @@ function readModels(
 		});
 	}
 	return out;
+}
+
+// ----- Geometry extraction -----
+
+// Switch attribute format codes (low 16 bits of the on-disk u32 BE).
+// Sourced from BfresLibrary's `SwitchAttribFormat` enum.
+const ATTRIB_FORMAT = {
+	Format_8_UNorm: 0x0102,
+	Format_8_SNorm: 0x0202,
+	Format_8_UInt: 0x0302,
+	Format_8_SInt: 0x0402,
+	Format_8_8_UNorm: 0x0109,
+	Format_8_8_SNorm: 0x0209,
+	Format_8_8_8_8_UNorm: 0x010b,
+	Format_8_8_8_8_SNorm: 0x020b,
+	Format_8_8_8_8_UInt: 0x030b,
+	Format_8_8_8_8_SInt: 0x040b,
+	Format_10_10_10_2_SNorm: 0x020e,
+	Format_10_10_10_2_UNorm: 0x000b,
+	Format_16_UNorm: 0x010a,
+	Format_16_SNorm: 0x030a,
+	Format_16_Single: 0x050a,
+	Format_16_16_UNorm: 0x0112,
+	Format_16_16_SNorm: 0x0212,
+	Format_16_16_Single: 0x0512,
+	Format_16_16_16_16_UNorm: 0x0115,
+	Format_16_16_16_16_SNorm: 0x0215,
+	Format_16_16_16_16_Single: 0x0515,
+	Format_32_Single: 0x0516,
+	Format_32_32_Single: 0x0517,
+	Format_32_32_32_Single: 0x0518,
+	Format_32_32_32_32_Single: 0x0519,
+} as const;
+
+interface VertexAttribute {
+	name: string;
+	format: number;
+	bufferIndex: number;
+	offsetInBuffer: number;
+}
+
+/**
+ * Decode an IEEE 754 half-precision (16-bit) float into a 32-bit
+ * float. We do this manually rather than relying on
+ * `DataView.getFloat16` because that's only available in very recent
+ * Node / browsers (May 2025+).
+ */
+function decodeHalf(h: number): number {
+	const sign = (h & 0x8000) >> 15;
+	const exp = (h & 0x7c00) >> 10;
+	const frac = h & 0x03ff;
+	if (exp === 0) {
+		return (sign ? -1 : 1) * Math.pow(2, -14) * (frac / 1024);
+	}
+	if (exp === 31) {
+		return frac ? NaN : (sign ? -Infinity : Infinity);
+	}
+	return (sign ? -1 : 1) * Math.pow(2, exp - 15) * (1 + frac / 1024);
+}
+
+/**
+ * Decode `componentCount` components from a single attribute slot
+ * starting at `offset` in `bytes`, treating the format code as
+ * one of the entries in {@link ATTRIB_FORMAT}.
+ *
+ * Returns a normalized `number[]` (typically with values already
+ * scaled into a sensible range — e.g. SNorm bytes become floats in
+ * `[-1, 1]`). Returns `null` if the format isn't supported, so
+ * the caller can either fall back to "no normals" or skip the
+ * attribute.
+ */
+function decodeAttribValue(
+	view: DataView,
+	offset: number,
+	format: number,
+): number[] | null {
+	switch (format) {
+		// Float32 family
+		case ATTRIB_FORMAT.Format_32_Single:
+			return [view.getFloat32(offset, true)];
+		case ATTRIB_FORMAT.Format_32_32_Single:
+			return [view.getFloat32(offset, true), view.getFloat32(offset + 4, true)];
+		case ATTRIB_FORMAT.Format_32_32_32_Single:
+			return [
+				view.getFloat32(offset, true),
+				view.getFloat32(offset + 4, true),
+				view.getFloat32(offset + 8, true),
+			];
+		case ATTRIB_FORMAT.Format_32_32_32_32_Single:
+			return [
+				view.getFloat32(offset, true),
+				view.getFloat32(offset + 4, true),
+				view.getFloat32(offset + 8, true),
+				view.getFloat32(offset + 12, true),
+			];
+		// Half-float family (16 bits each component, 2-byte aligned)
+		case ATTRIB_FORMAT.Format_16_Single:
+			return [decodeHalf(view.getUint16(offset, true))];
+		case ATTRIB_FORMAT.Format_16_16_Single:
+			return [
+				decodeHalf(view.getUint16(offset, true)),
+				decodeHalf(view.getUint16(offset + 2, true)),
+			];
+		case ATTRIB_FORMAT.Format_16_16_16_16_Single:
+			return [
+				decodeHalf(view.getUint16(offset, true)),
+				decodeHalf(view.getUint16(offset + 2, true)),
+				decodeHalf(view.getUint16(offset + 4, true)),
+				decodeHalf(view.getUint16(offset + 6, true)),
+			];
+		// SNorm family — fixed-point in [-1, 1]
+		case ATTRIB_FORMAT.Format_8_SNorm:
+			return [Math.max((view.getInt8(offset)) / 127, -1)];
+		case ATTRIB_FORMAT.Format_8_8_SNorm:
+			return [
+				Math.max(view.getInt8(offset) / 127, -1),
+				Math.max(view.getInt8(offset + 1) / 127, -1),
+			];
+		case ATTRIB_FORMAT.Format_8_8_8_8_SNorm:
+			return [
+				Math.max(view.getInt8(offset) / 127, -1),
+				Math.max(view.getInt8(offset + 1) / 127, -1),
+				Math.max(view.getInt8(offset + 2) / 127, -1),
+				Math.max(view.getInt8(offset + 3) / 127, -1),
+			];
+		case ATTRIB_FORMAT.Format_16_SNorm:
+			return [Math.max(view.getInt16(offset, true) / 32767, -1)];
+		case ATTRIB_FORMAT.Format_16_16_SNorm:
+			return [
+				Math.max(view.getInt16(offset, true) / 32767, -1),
+				Math.max(view.getInt16(offset + 2, true) / 32767, -1),
+			];
+		case ATTRIB_FORMAT.Format_16_16_16_16_SNorm:
+			return [
+				Math.max(view.getInt16(offset, true) / 32767, -1),
+				Math.max(view.getInt16(offset + 2, true) / 32767, -1),
+				Math.max(view.getInt16(offset + 4, true) / 32767, -1),
+				Math.max(view.getInt16(offset + 6, true) / 32767, -1),
+			];
+		case ATTRIB_FORMAT.Format_10_10_10_2_SNorm: {
+			// 10-10-10-2 packed in a u32, components stored low-to-high.
+			// The 2-bit "alpha" component is unsigned (used for handedness).
+			const w = view.getUint32(offset, true);
+			const sext10 = (n: number) => (n & 0x200 ? n - 1024 : n) / 511;
+			return [
+				Math.max(sext10(w & 0x3ff), -1),
+				Math.max(sext10((w >> 10) & 0x3ff), -1),
+				Math.max(sext10((w >> 20) & 0x3ff), -1),
+				((w >> 30) & 0x3) / 3,
+			];
+		}
+		// UNorm family — fixed-point in [0, 1]
+		case ATTRIB_FORMAT.Format_8_UNorm:
+			return [view.getUint8(offset) / 255];
+		case ATTRIB_FORMAT.Format_8_8_UNorm:
+			return [view.getUint8(offset) / 255, view.getUint8(offset + 1) / 255];
+		case ATTRIB_FORMAT.Format_8_8_8_8_UNorm:
+			return [
+				view.getUint8(offset) / 255,
+				view.getUint8(offset + 1) / 255,
+				view.getUint8(offset + 2) / 255,
+				view.getUint8(offset + 3) / 255,
+			];
+		case ATTRIB_FORMAT.Format_16_UNorm:
+			return [view.getUint16(offset, true) / 65535];
+		case ATTRIB_FORMAT.Format_16_16_UNorm:
+			return [
+				view.getUint16(offset, true) / 65535,
+				view.getUint16(offset + 2, true) / 65535,
+			];
+		case ATTRIB_FORMAT.Format_16_16_16_16_UNorm:
+			return [
+				view.getUint16(offset, true) / 65535,
+				view.getUint16(offset + 2, true) / 65535,
+				view.getUint16(offset + 4, true) / 65535,
+				view.getUint16(offset + 6, true) / 65535,
+			];
+		default:
+			return null;
+	}
+}
+
+/**
+ * Walk the parsed BFRES and extract triangle geometry for every
+ * `Shape` inside every `Model`. Each shape's first LOD ("Mesh[0]")
+ * is decoded into `BfresGeometry` with positions / optional normals
+ * / optional UVs / optional colors plus an index buffer.
+ *
+ * Limitations:
+ *   - Only the first LOD of each shape is read.
+ *   - Skeletal-skinning weights are not extracted (good enough for
+ *     T-pose rendering).
+ *   - Materials, textures, and shader bindings are not resolved.
+ *   - Shapes whose primitive type isn't `triangles` come back with
+ *     `primitiveType: 'unsupported'` so callers can skip them.
+ *
+ * Throws if the BFRES isn't a Switch v5+ build (we don't parse the
+ * Wii U variant).
+ */
+export async function extractGeometry(blob: Blob): Promise<BfresGeometry[]> {
+	if (blob.size < HEADER_MIN_SIZE) {
+		throw new Error('Blob too small to be a BFRES');
+	}
+	const data = new Uint8Array(await blob.arrayBuffer());
+	const v = new DataView(data.buffer, data.byteOffset, data.byteLength);
+
+	if (
+		data[0] !== 0x46 ||
+		data[1] !== 0x52 ||
+		data[2] !== 0x45 ||
+		data[3] !== 0x53
+	) {
+		throw new Error('Bad BFRES magic');
+	}
+	if (
+		data[4] !== 0x20 ||
+		data[5] !== 0x20 ||
+		data[6] !== 0x20 ||
+		data[7] !== 0x20
+	) {
+		throw new Error('Wii U BFRES is not supported (Switch only)');
+	}
+
+	const versionRaw = v.getUint32(0x08, true);
+	const major = (versionRaw >> 16) & 0xff;
+	if (major < 5) {
+		throw new Error(`BFRES version ${major} is too old (need v5+)`);
+	}
+
+	// Walk header to find the BufferInfo (so we know where vertex /
+	// index bytes live). The header layout matches the description
+	// in `parseBfres` above; we re-walk here to keep this function
+	// self-contained.
+	const fmdlArrayOffset = Number(v.getBigInt64(0x28, true));
+	if (!fmdlArrayOffset) return [];
+
+	let pos = 0x38;
+	if (major >= 9) pos += 32; // reserved block
+
+	// Skip 5 sub-file groups (skeletalAnim, materialAnim, etc.) —
+	// each is 16 bytes (i64 array + i64 dict).
+	pos += 5 * 16;
+
+	// MemoryPool ptr (8 bytes) + BufferInfo ptr (8 bytes).
+	pos += 8;
+	const bufferInfoOffset = Number(v.getBigInt64(pos, true));
+	if (!bufferInfoOffset || bufferInfoOffset + 24 > data.length) {
+		throw new Error('BFRES has no BufferInfo block — cannot extract geometry');
+	}
+	// BufferInfo layout: u32 unk + u32 size + i64 baseBufferOffset +
+	// 16 bytes padding.
+	const baseBufferOffset = Number(v.getBigInt64(bufferInfoOffset + 8, true));
+	if (!baseBufferOffset || baseBufferOffset >= data.length) {
+		throw new Error(
+			`BFRES BufferInfo.bufferOffset is out of range (0x${baseBufferOffset.toString(16)})`,
+		);
+	}
+
+	const out: BfresGeometry[] = [];
+
+	// Walk all FMDLs by name (we use the dict to count, then the
+	// array of fixed-size FMDL records).
+	const fmdlDictOffset = Number(v.getBigInt64(0x30, true));
+	const fmdlNames = readDict(data, v, fmdlDictOffset);
+	const fmdlStride = major >= 9 ? 0x78 : 0x80;
+
+	for (let mi = 0; mi < fmdlNames.length; mi++) {
+		const fmdlOff = fmdlArrayOffset + mi * fmdlStride;
+		if (
+			data[fmdlOff] !== 0x46 ||
+			data[fmdlOff + 1] !== 0x4d ||
+			data[fmdlOff + 2] !== 0x44 ||
+			data[fmdlOff + 3] !== 0x4c
+		) {
+			break;
+		}
+		const ptrBase = fmdlOff + (major >= 9 ? 0x08 : 0x10);
+		const shapeValuesOffset = Number(v.getBigUint64(ptrBase + 0x20, true));
+		const countsBase = ptrBase + (major >= 9 ? 0x48 : 0x58);
+		const numShape = v.getUint16(countsBase + 2, true);
+
+		// Each FSHP value is a pointer to its FSHP record. v9+ FSHPs
+		// are inline (the pointer is the FSHP itself), and earlier
+		// versions store a u64 ptr per entry — but in practice for
+		// the Switch builds we care about, FSHP records sit at
+		// `shapeValuesOffset + i * shapeStride`. The stride in v5
+		// is 0x70; in v9+ it's 0x68.
+		const fshpStride = major >= 9 ? 0x68 : 0x70;
+		for (let si = 0; si < numShape; si++) {
+			const fshpOff = shapeValuesOffset + si * fshpStride;
+			if (fshpOff + 16 > data.length) break;
+			if (
+				data[fshpOff] !== 0x46 ||
+				data[fshpOff + 1] !== 0x53 ||
+				data[fshpOff + 2] !== 0x48 ||
+				data[fshpOff + 3] !== 0x50
+			) {
+				// FSHP magic missing — bail out of this model's shapes.
+				break;
+			}
+			try {
+				const geom = readShapeGeometry(
+					data,
+					v,
+					fshpOff,
+					mi,
+					major,
+					baseBufferOffset,
+				);
+				if (geom) out.push(geom);
+			} catch (err) {
+				// One bad shape shouldn't kill the whole extraction;
+				// log and continue.
+				if (typeof console !== 'undefined') {
+					console.warn(`BFRES: failed to read shape #${si}: ${(err as Error).message}`);
+				}
+			}
+		}
+	}
+
+	return out;
+}
+
+function readShapeGeometry(
+	data: Uint8Array,
+	v: DataView,
+	fshpOff: number,
+	modelIndex: number,
+	major: number,
+	baseBufferOffset: number,
+): BfresGeometry | null {
+	let p = fshpOff + 4; // skip "FSHP"
+	if (major >= 9) p += 4; // flags u32
+	else p += 12; // header block
+
+	const nameOff = Number(v.getBigInt64(p, true)); p += 8;
+	const fvtxOff = Number(v.getBigInt64(p, true)); p += 8;
+	const meshArrayOff = Number(v.getBigInt64(p, true)); p += 8;
+	p += 8; // skinBoneIndexListOffset
+	p += 8; // keyShapeValuesOffset
+	p += 8; // keyShapeDictOffset
+	p += 8; // boundingBoxArrayOffset
+	if (major > 2) {
+		p += 8; // radiusOffset
+		p += 8; // userPointer
+	} else {
+		p += 8; // userPointer
+		p += 4; // single radius
+	}
+	if (major < 9) p += 4; // legacy ShapeFlags
+	p += 2; // idx
+	const materialIndex = v.getUint16(p, true); p += 2;
+	p += 2; // boneIndex
+	const vertexBufferIndex = v.getUint16(p, true); p += 2;
+	p += 2; // numSkinBoneIndex
+	p += 1; // vertexSkinCount
+	p += 1; // numKeys (read below)
+	// Actually the next byte is numMesh per the C# code; let me re-walk:
+	// The bytes after the u16 padding here (per BfresLibrary's Shape.Read switch path):
+	//   ushort numSkinBoneIndex; byte vertexSkinCount; byte numMesh; byte numKeys; byte targetAttribCount;
+	// I overshot by 1 byte above — fix by stepping back and reading correctly.
+	p -= 2;
+	const vertexSkinCount = v.getUint8(p++);
+	const numMesh = v.getUint8(p++);
+
+	if (numMesh === 0) return null;
+
+	// Read FVTX
+	if (
+		data[fvtxOff] !== 0x46 ||
+		data[fvtxOff + 1] !== 0x56 ||
+		data[fvtxOff + 2] !== 0x54 ||
+		data[fvtxOff + 3] !== 0x58
+	) {
+		return null;
+	}
+	const fvtx = readFvtx(data, v, fvtxOff, major, baseBufferOffset);
+	if (!fvtx) return null;
+
+	// Read Mesh[0]
+	const mesh = readMesh(data, v, meshArrayOff, baseBufferOffset);
+	if (!mesh) return null;
+
+	const positions = decodePositions(fvtx);
+	if (!positions) return null;
+	const normals = decodeNormals(fvtx);
+	const uvs = decodeUvs(fvtx);
+	const colors = decodeColors(fvtx);
+
+	// Bounding box from positions
+	let minX = Infinity, minY = Infinity, minZ = Infinity;
+	let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+	for (let i = 0; i < positions.length; i += 3) {
+		const x = positions[i], y = positions[i + 1], z = positions[i + 2];
+		if (x < minX) minX = x;
+		if (y < minY) minY = y;
+		if (z < minZ) minZ = z;
+		if (x > maxX) maxX = x;
+		if (y > maxY) maxY = y;
+		if (z > maxZ) maxZ = z;
+	}
+
+	// Adjust indices for `firstVertex` if non-zero — mesh indices
+	// are zero-based against `firstVertex` into the FVTX.
+	if (mesh.firstVertex !== 0) {
+		for (let i = 0; i < mesh.indices.length; i++) {
+			mesh.indices[i] += mesh.firstVertex;
+		}
+	}
+
+	const name = readPoolString(data, nameOff);
+	return {
+		name,
+		modelIndex,
+		materialIndex,
+		primitiveType: mesh.primitiveType,
+		positions,
+		normals,
+		uvs,
+		colors,
+		indices: mesh.indices,
+		vertexCount: fvtx.vertexCount,
+		boundingBox: {
+			min: [minX, minY, minZ],
+			max: [maxX, maxY, maxZ],
+		},
+	};
+}
+
+interface FvtxData {
+	vertexCount: number;
+	attributes: VertexAttribute[];
+	/**
+	 * Per-buffer file-offset where the buffer's vertex bytes start.
+	 * `attribute.bufferIndex` is an index into this array.
+	 */
+	bufferStarts: number[];
+	bufferStrides: number[];
+	view: DataView;
+}
+
+function readFvtx(
+	data: Uint8Array,
+	v: DataView,
+	fvtxOff: number,
+	major: number,
+	baseBufferOffset: number,
+): FvtxData | null {
+	let p = fvtxOff + 4; // skip "FVTX"
+	if (major >= 9) p += 4; // flags u32
+	else p += 12; // header block
+
+	const attribValuesOff = Number(v.getBigInt64(p, true)); p += 8;
+	p += 8; // attribDictOff
+	p += 8; // memoryPoolOff
+	p += 8; // unkOff
+	if (major > 2) p += 8; // unk2
+	const vertexBufferSizeArrayOff = Number(v.getBigInt64(p, true)); p += 8;
+	const vertexStrideArrayOff = Number(v.getBigInt64(p, true)); p += 8;
+	p += 8; // padding
+	const fvtxBufferOffset = v.getUint32(p, true); p += 4;
+	const numVertexAttrib = v.getUint8(p++);
+	const numBuffer = v.getUint8(p++);
+	p += 2; // idx
+	const vertexCount = v.getUint32(p, true); p += 4;
+	p += 2; // vertexSkinCount
+	let gpuBufferAlignment = 8;
+	if (major >= 10) {
+		gpuBufferAlignment = v.getUint16(p, true);
+	}
+
+	// Read attributes (16-byte stride: name i64 + format u16 BE + pad u16 + offset u16 + bufIdx u16)
+	const attributes: VertexAttribute[] = [];
+	for (let i = 0; i < numVertexAttrib; i++) {
+		const recOff = attribValuesOff + i * 16;
+		const aNameOff = Number(v.getBigInt64(recOff, true));
+		const formatBE = (data[recOff + 8] << 8) | data[recOff + 9];
+		const offsetInBuf = v.getUint16(recOff + 12, true);
+		const bufIdx = v.getUint16(recOff + 14, true);
+		attributes.push({
+			name: readPoolString(data, aNameOff),
+			format: formatBE,
+			offsetInBuffer: offsetInBuf,
+			bufferIndex: bufIdx,
+		});
+	}
+
+	// Per-buffer strides + sizes (each entry is a 16-byte struct).
+	const bufferStrides: number[] = [];
+	const bufferSizes: number[] = [];
+	for (let i = 0; i < numBuffer; i++) {
+		bufferStrides.push(v.getUint32(vertexStrideArrayOff + i * 16, true));
+		bufferSizes.push(v.getUint32(vertexBufferSizeArrayOff + i * 16, true));
+	}
+
+	// Each buffer's bytes start at `baseBufferOffset + fvtxBufferOffset
+	// + sum(prev buffer sizes, aligned to gpuBufferAlignment)`.
+	const bufferStarts: number[] = [];
+	let cursor = baseBufferOffset + fvtxBufferOffset;
+	for (let i = 0; i < numBuffer; i++) {
+		bufferStarts.push(cursor);
+		let advance = bufferSizes[i];
+		if (advance % gpuBufferAlignment !== 0) {
+			advance += gpuBufferAlignment - (advance % gpuBufferAlignment);
+		}
+		cursor += advance;
+	}
+
+	return {
+		vertexCount,
+		attributes,
+		bufferStarts,
+		bufferStrides,
+		view: v,
+	};
+}
+
+function findAttribute(fvtx: FvtxData, names: string[]): VertexAttribute | null {
+	for (const want of names) {
+		for (const a of fvtx.attributes) {
+			if (a.name === want) return a;
+		}
+	}
+	return null;
+}
+
+function decodePositions(fvtx: FvtxData): Float32Array | null {
+	const a = findAttribute(fvtx, ['_p0']);
+	if (!a) return null;
+	const out = new Float32Array(fvtx.vertexCount * 3);
+	const start = fvtx.bufferStarts[a.bufferIndex];
+	const stride = fvtx.bufferStrides[a.bufferIndex];
+	for (let i = 0; i < fvtx.vertexCount; i++) {
+		const v = decodeAttribValue(
+			fvtx.view,
+			start + i * stride + a.offsetInBuffer,
+			a.format,
+		);
+		if (!v) return null;
+		out[i * 3] = v[0] ?? 0;
+		out[i * 3 + 1] = v[1] ?? 0;
+		out[i * 3 + 2] = v[2] ?? 0;
+	}
+	return out;
+}
+
+function decodeNormals(fvtx: FvtxData): Float32Array | null {
+	const a = findAttribute(fvtx, ['_n0']);
+	if (!a) return null;
+	const out = new Float32Array(fvtx.vertexCount * 3);
+	const start = fvtx.bufferStarts[a.bufferIndex];
+	const stride = fvtx.bufferStrides[a.bufferIndex];
+	for (let i = 0; i < fvtx.vertexCount; i++) {
+		const v = decodeAttribValue(
+			fvtx.view,
+			start + i * stride + a.offsetInBuffer,
+			a.format,
+		);
+		if (!v) return null;
+		out[i * 3] = v[0] ?? 0;
+		out[i * 3 + 1] = v[1] ?? 0;
+		out[i * 3 + 2] = v[2] ?? 0;
+	}
+	return out;
+}
+
+function decodeUvs(fvtx: FvtxData): Float32Array | null {
+	const a = findAttribute(fvtx, ['_u0']);
+	if (!a) return null;
+	const out = new Float32Array(fvtx.vertexCount * 2);
+	const start = fvtx.bufferStarts[a.bufferIndex];
+	const stride = fvtx.bufferStrides[a.bufferIndex];
+	for (let i = 0; i < fvtx.vertexCount; i++) {
+		const v = decodeAttribValue(
+			fvtx.view,
+			start + i * stride + a.offsetInBuffer,
+			a.format,
+		);
+		if (!v) return null;
+		out[i * 2] = v[0] ?? 0;
+		// Unity / OpenGL flip Y compared to Unreal / DirectX. Three.js
+		// follows OpenGL conventions, so we leave this as-is and let
+		// the renderer flip if needed via texture wrapping.
+		out[i * 2 + 1] = v[1] ?? 0;
+	}
+	return out;
+}
+
+function decodeColors(fvtx: FvtxData): Float32Array | null {
+	const a = findAttribute(fvtx, ['_c0']);
+	if (!a) return null;
+	const out = new Float32Array(fvtx.vertexCount * 4);
+	const start = fvtx.bufferStarts[a.bufferIndex];
+	const stride = fvtx.bufferStrides[a.bufferIndex];
+	for (let i = 0; i < fvtx.vertexCount; i++) {
+		const v = decodeAttribValue(
+			fvtx.view,
+			start + i * stride + a.offsetInBuffer,
+			a.format,
+		);
+		if (!v) return null;
+		out[i * 4] = v[0] ?? 1;
+		out[i * 4 + 1] = v[1] ?? 1;
+		out[i * 4 + 2] = v[2] ?? 1;
+		out[i * 4 + 3] = v[3] ?? 1;
+	}
+	return out;
+}
+
+interface MeshData {
+	primitiveType: 'triangles' | 'lines' | 'points' | 'unsupported';
+	indices: Uint16Array | Uint32Array;
+	firstVertex: number;
+}
+
+function readMesh(
+	data: Uint8Array,
+	v: DataView,
+	meshArrayOff: number,
+	baseBufferOffset: number,
+): MeshData | null {
+	let p = meshArrayOff;
+	p += 8; // subMeshArrayOff
+	p += 8; // memoryPoolOff
+	p += 8; // bufferOff
+	p += 8; // bufferSizeOff
+	const faceBufferOffset = v.getUint32(p, true); p += 4;
+	const primTypeRaw = v.getUint32(p, true); p += 4;
+	const idxFmtRaw = v.getUint32(p, true); p += 4;
+	const indexCount = v.getUint32(p, true); p += 4;
+	const firstVertex = v.getUint32(p, true); p += 4;
+
+	let primitiveType: MeshData['primitiveType'];
+	switch (primTypeRaw) {
+		case 0x00:
+			primitiveType = 'points';
+			break;
+		case 0x01:
+		case 0x02:
+			primitiveType = 'lines';
+			break;
+		case 0x03:
+			primitiveType = 'triangles';
+			break;
+		default:
+			primitiveType = 'unsupported';
+			break;
+	}
+	if (primitiveType !== 'triangles') {
+		// Still report so caller can render points/lines if desired.
+	}
+
+	const idxStart = baseBufferOffset + faceBufferOffset;
+	if (idxFmtRaw === 2) {
+		const idx = new Uint32Array(indexCount);
+		for (let i = 0; i < indexCount; i++) {
+			idx[i] = v.getUint32(idxStart + i * 4, true);
+		}
+		return { primitiveType, indices: idx, firstVertex };
+	}
+	// Default: u16 (covers idxFmtRaw === 0 [unsigned byte → u16] and 1)
+	const idx = new Uint16Array(indexCount);
+	for (let i = 0; i < indexCount; i++) {
+		idx[i] = v.getUint16(idxStart + i * 2, true);
+	}
+	return { primitiveType, indices: idx, firstVertex };
 }

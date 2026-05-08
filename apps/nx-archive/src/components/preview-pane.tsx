@@ -35,6 +35,7 @@ import { ScrollArea } from "~/components/ui/scroll-area"
 import { Separator } from "~/components/ui/separator"
 import { Skeleton } from "~/components/ui/skeleton"
 import { Spinner } from "~/components/ui/spinner"
+import { BfresViewer } from "./bfres-viewer"
 import {
   parseNcaForNode,
   type NcaSource,
@@ -2782,10 +2783,25 @@ function BfresPreview({ node }: { node: Node }) {
   if (loading) return <LoadingFiller label="Decoding BFRES…" />
   if (error) return <ErrorFiller error={error} />
   const v = data!
+  // BFRES files come in two flavours: model containers (numShape > 0
+  // somewhere) and pure-animation/data containers. Only mount the 3D
+  // viewer for the former — the viewer would render an empty scene
+  // and confuse users for the latter.
+  const hasModels = v.parsed.models.some((m) => m.numShape > 0)
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-5 p-5">
         <SectionHeader title="BFRES — Nintendo 3D resource container" />
+        {hasModels && (
+          <section className="flex flex-col gap-2">
+            <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+              3D viewer
+            </h3>
+            <div className="h-[420px]">
+              <BfresViewer node={node} />
+            </div>
+          </section>
+        )}
         <KvBlock title="Header">
           <KvRow k="Name" v={v.parsed.name || "(unnamed)"} />
           <KvRow
