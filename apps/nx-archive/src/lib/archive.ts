@@ -35,6 +35,11 @@ import { parseFsb5 } from '@tootallnate/fsb5';
 import { parseZip, type ZipEntry } from './zip';
 import { parseUnityFs, type UnityFsNode } from './unityfs';
 import {
+	parseIoStoreToc,
+	type IoStoreToc,
+	type IoChunkEntry,
+} from '@tootallnate/iostore';
+import {
 	parseNca,
 	NCA_FS_TYPE_PFS0,
 	NCA_FS_TYPE_ROMFS,
@@ -71,6 +76,7 @@ export type NodeKind =
 	| 'wwise-pck'
 	| 'wwise-bnk'
 	| 'fmod-bank'
+	| 'iostore'
 	/**
 	 * A user-selected directory from the local filesystem. Functions
 	 * like an "ad-hoc PFS0" — its children are the files inside, with
@@ -271,6 +277,15 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	bundle: 'UnityFS', // Unity Addressables: `*.bundle`
 	unity3d: 'UnityFS', // Legacy Unity AssetBundle extension
 	ab: 'UnityFS', // Common Unity AssetBundle extension (Detective Pikachu, etc.)
+	utoc: 'UE-TOC', // Unreal Engine IoStore: Table of Contents
+	ucas: 'UE-CAS', // Unreal Engine IoStore: Container ASsets (raw)
+	pak: 'UE-PAK', // Unreal Engine classic PAK container
+	uasset: 'UASSET', // Unreal Engine asset package
+	uexp: 'UEXP', // Unreal Engine export-data sidecar
+	ubulk: 'UBULK', // Unreal Engine bulk-data sidecar
+	umap: 'UMAP', // Unreal Engine map / level
+	uplugin: 'UPLUGIN', // Unreal Engine plugin descriptor (JSON)
+	uproject: 'UPROJECT', // Unreal Engine project descriptor (JSON)
 	bars: 'BARS', // Nintendo audio resource archive
 	bfsar: 'BFSAR', // Nintendo sound archive (NintendoWare; magic FSAR)
 	bfwar: 'BFWAR', // Wave archive (collection of BFWAVs)
@@ -1251,6 +1266,17 @@ async function romfsEntriesToNodes(
 			const value = dir[name];
 			const id = `${parentId}/${name}`;
 			if (isBlobLike(value)) {
+				// IoStore: a `.utoc` is paired with a sibling `.ucas`
+				// of the same base name; we resolve the pairing here
+				// so the IoStore node can read inner files lazily.
+				if (extOf(name) === 'utoc') {
+					const base = name.slice(0, -'.utoc'.length);
+					const sibling = dir[`${base}.ucas`];
+					const ucasBlob = isBlobLike(sibling)
+						? (sibling as Blob)
+						: null;
+					return makeIoStoreNode(id, name, value, ucasBlob, ctx);
+				}
 				// Route through childNodeFor so nested archives —
 				// SARC, Yaz0+SARC under bizarre extensions like
 				// `.sbfarc` / `.shksc` / `.sbactorpack`, ZIP, etc. —
@@ -2225,6 +2251,209 @@ function makeLz4Node(
 	};
 }
 
+// ----- IoStore (Unreal Engine 4/5 .utoc + .ucas) -----
+
+/**
+ * Build a tree node for an Unreal Engine IoStore container. The
+ * directory index lives in the `.utoc`; the actual file payload
+ * lives in the matching `.ucas` (which we may or may not have on
+ * hand). We list the inner files based on the `.utoc` alone — that
+ * unlocks browsing without paying the cost of reading the (often
+ * multi-GB) `.ucas`. Inner-file `blob()` getters either pull bytes
+ * from `.ucas` (if a sibling resolver supplied one) or surface a
+ * "needs companion .ucas" error.
+ *
+ * Decompression of the inner blocks is intentionally NOT
+ * implemented: the bulk of UE games on Switch use Oodle, which has
+ * no open-source decoder. Block-mode `None` (uncompressed) blocks
+ * pass through fine; `Zlib` blocks could be added later.
+ */
+function makeIoStoreNode(
+	id: string,
+	name: string,
+	utocBlob: Blob,
+	ucasBlob: Blob | null,
+	ctx: ArchiveContext,
+): Node {
+	let parsed: Promise<IoStoreToc> | null = null;
+	const parse = (): Promise<IoStoreToc> => {
+		if (!parsed) parsed = parseIoStoreToc(utocBlob);
+		return parsed;
+	};
+	return {
+		id,
+		name,
+		kind: 'iostore',
+		isContainer: true,
+		size: utocBlob.size,
+		format: 'UE-TOC',
+		blob: async () => utocBlob,
+		getChildren: async () => {
+			const toc = await parse();
+			return ioStoreEntriesToNodes(id, toc, ucasBlob, ctx);
+		},
+	};
+}
+
+/**
+ * Convert an IoStore TOC's flat path → entry map into a nested
+ * tree of Node objects, mirroring how RomFS / SARC / ZIP
+ * directory trees are built. Inner files become leaves whose
+ * `blob()` reads the corresponding chunk from the `.ucas` if
+ * available — or throws a descriptive error if not.
+ */
+async function ioStoreEntriesToNodes(
+	parentId: string,
+	toc: IoStoreToc,
+	ucasBlob: Blob | null,
+	ctx: ArchiveContext,
+): Promise<Node[]> {
+	type Tree = Map<string, { dir?: Tree; file?: IoChunkEntry }>;
+	const root: Tree = new Map();
+	for (const entry of toc.entries.values()) {
+		const parts = entry.path.split('/').filter((p) => p.length > 0);
+		if (parts.length === 0) continue;
+		let cur = root;
+		for (let i = 0; i < parts.length; i++) {
+			const part = parts[i];
+			const isLast = i === parts.length - 1;
+			let node = cur.get(part);
+			if (!node) {
+				node = {};
+				cur.set(part, node);
+			}
+			if (isLast) {
+				node.file = entry;
+			} else {
+				if (!node.dir) node.dir = new Map();
+				cur = node.dir;
+			}
+		}
+	}
+
+	const treeToNodes = async (
+		treeId: string,
+		t: Tree,
+	): Promise<Node[]> => {
+		const names = [...t.keys()].sort((a, b) => {
+			const aIsDir = !!t.get(a)!.dir;
+			const bIsDir = !!t.get(b)!.dir;
+			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+			return humanCompare(a, b);
+		});
+		return Promise.all(
+			names.map(async (n): Promise<Node> => {
+				const child = t.get(n)!;
+				const childId = `${treeId}/${n}`;
+				if (child.dir) {
+					const subNodes = await treeToNodes(childId, child.dir);
+					return {
+						id: childId,
+						name: n,
+						kind: 'directory',
+						isContainer: true,
+						format: 'directory',
+						getChildren: async () => subNodes,
+					};
+				}
+				const file = child.file!;
+				return makeIoStoreLeaf(childId, n, file, toc, ucasBlob, ctx);
+			}),
+		);
+	};
+
+	return treeToNodes(parentId, root);
+}
+
+/**
+ * Leaf node for a single file inside an IoStore container. The
+ * `blob()` getter reconstructs the file's bytes by reading the
+ * relevant compression blocks from the `.ucas` and (for now) only
+ * supports the `None` compression method — i.e. blocks the build
+ * tool chose not to compress. Any block that uses a compression
+ * method (Oodle, Zlib, Gzip, Zstd, …) yields an "unsupported"
+ * error so users can still see the file in the tree even if its
+ * bytes aren't accessible.
+ */
+function makeIoStoreLeaf(
+	id: string,
+	name: string,
+	entry: IoChunkEntry,
+	toc: IoStoreToc,
+	ucasBlob: Blob | null,
+	_ctx: ArchiveContext,
+): Node {
+	const ext = extOf(name);
+	const format = detectFormat(name) || ext.toUpperCase() || 'BIN';
+	return {
+		id,
+		name,
+		kind: 'file',
+		isContainer: false,
+		size: Number(entry.length),
+		format,
+		blob: async () => {
+			if (!ucasBlob) {
+				throw new Error(
+					`Reading IoStore entries requires the matching ".ucas" file alongside this ".utoc". Open the parent directory to make both files available.`,
+				);
+			}
+			return readIoStoreChunk(toc, ucasBlob, entry);
+		},
+	};
+}
+
+/**
+ * Reconstruct an IoStore entry's bytes by stitching together the
+ * compression blocks that cover its `[offset, offset + length)`
+ * range. Each block's compression method is checked against our
+ * supported list (`None` only, for now) so the user gets a clear
+ * error instead of garbage bytes when the build uses Oodle / Zlib.
+ */
+async function readIoStoreChunk(
+	toc: IoStoreToc,
+	ucasBlob: Blob,
+	entry: IoChunkEntry,
+): Promise<Blob> {
+	const blockSize = BigInt(toc.header.compressionBlockSize);
+	const firstBlock = Number(entry.offset / blockSize);
+	const offsetInFirstBlock = Number(entry.offset % blockSize);
+	const lastBlockExclusive = Number(
+		(entry.offset + entry.length + blockSize - 1n) / blockSize,
+	);
+	const totalLength = Number(entry.length);
+
+	const out = new Uint8Array(totalLength);
+	let written = 0;
+	let skip = offsetInFirstBlock;
+	for (let i = firstBlock; i < lastBlockExclusive; i++) {
+		const b = toc.compressionBlocks[i];
+		const methodName = toc.compressionMethods[b.compressionMethodIndex];
+		if (methodName !== 'None') {
+			throw new Error(
+				`IoStore block #${i} uses compression "${methodName}", which is not supported. ` +
+					`Open-source decoders for Oodle/Zlib/etc. inside IoStore are out of scope of this viewer; ` +
+					`use FModel or CUE4Parse to extract this entry.`,
+			);
+		}
+		const blockStart = Number(b.offset);
+		const blockEnd = blockStart + b.compressedSize;
+		const slice = new Uint8Array(
+			await ucasBlob.slice(blockStart, blockEnd).arrayBuffer(),
+		);
+		const take = Math.min(slice.length - skip, totalLength - written);
+		out.set(slice.subarray(skip, skip + take), written);
+		written += take;
+		skip = 0;
+	}
+	if (written !== totalLength) {
+		throw new Error(
+			`IoStore reconstruction short: expected ${totalLength} bytes, got ${written}`,
+		);
+	}
+	return new Blob([out]);
+}
+
 // ----- UnityFS (Unity AssetBundle) -----
 
 /**
@@ -2436,6 +2665,12 @@ async function childNodeFor(
 	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob, ctx);
 	if (ext === 'szs') return makeSzsNode(id, name, blob, ctx);
 	if (ext === 'lz4') return makeLz4Node(id, name, blob, ctx);
+	// `.utoc` standalone (no `.ucas` sibling): we can still browse
+	// the file listing via the directory index, but inner-file
+	// reads will surface a clear error. The "right" path \u2014
+	// pairing with the sibling `.ucas` \u2014 lives in
+	// `romfsEntriesToNodes` where the parent directory is in scope.
+	if (ext === 'utoc') return makeIoStoreNode(id, name, blob, null, ctx);
 	if (ext === 'bundle' || ext === 'unity3d' || ext === 'ab') {
 		// Sniff the magic before committing to UnityFS parsing. Some
 		// Switch ports wrap their AssetBundles in a custom encryption

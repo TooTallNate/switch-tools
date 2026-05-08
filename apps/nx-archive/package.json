@@ -36,6 +36,7 @@
     "@tootallnate/dsp-adpcm": "workspace:*",
     "@tootallnate/gfpak": "workspace:*",
     "@tootallnate/hfs0": "workspace:*",
+    "@tootallnate/iostore": "workspace:*",
     "@tootallnate/lz4": "workspace:^",
     "@tootallnate/nacp": "workspace:*",
     "@tootallnate/nca": "workspace:*",
