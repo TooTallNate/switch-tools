@@ -17,7 +17,7 @@
   "scripts": {
     "build:wasm": "make",
     "build:ts": "tsc",
-    "build": "make && tsc && cp src/zstd.wasm dist/zstd.wasm",
+    "build": "if [ -x /tmp/wasi-sdk/bin/clang ]; then make; fi && tsc && cp src/zstd.wasm dist/zstd.wasm",
     "test": "vitest run"
   },
   "license": "MIT",
