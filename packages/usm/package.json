@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/usm",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for CRI Sofdec2 USM video container files. Walks the chunked structure (CRID / @SFV / @SFA / @SBT / @CUE), decodes the embedded @UTF metadata tables, and exposes per-stream codec info plus payload Blobs ready to hand off to a video / audio decoder. Supports VP9, H.264, ADX, HCA, and uncompressed PCM streams.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/usm"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
