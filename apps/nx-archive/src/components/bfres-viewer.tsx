@@ -713,6 +713,482 @@ function pickAlbedo(
   return tex
 }
 
+/** Indexed mesh in flat arrays — convenient for processing. */
+interface IndexedMesh {
+  /** Packed `[x, y, z, x, y, z, …]` positions. Length is 3 × vertex count. */
+  positions: Float32Array
+  /** Packed triangle indices. Length is 3 × triangle count. */
+  indices: Uint32Array
+}
+
+/**
+ * Sample every vertex of a single shape into world space, taking
+ * skeletal-animation deformation into account. Returns an indexed
+ * mesh so subsequent processing (welding, subdivision) can stay
+ * O(triangles) without re-walking the skin.
+ *
+ * SkinnedMeshes use `applyBoneTransform()` so the result reflects
+ * the *current* bone poses (i.e. whatever frame of whatever
+ * animation the viewer is currently sitting on). Plain Meshes
+ * (e.g. Pupil sub-FMDLs parented to a Head bone) inherit the
+ * bone's world transform via the scene-graph; we just apply
+ * `matrixWorld` directly.
+ */
+function bakeShapeToWorld(record: ShapeRecord): IndexedMesh | null {
+  const geom = record.mesh.geometry
+  const pos = geom.getAttribute("position") as THREE.BufferAttribute | undefined
+  const idx = geom.getIndex()
+  if (!pos || !idx) return null
+
+  const vertexCount = pos.count
+  const positions = new Float32Array(vertexCount * 3)
+  const tmp = new THREE.Vector3()
+  const isSkinned = (record.mesh as THREE.SkinnedMesh).isSkinnedMesh
+  for (let v = 0; v < vertexCount; v++) {
+    tmp.fromBufferAttribute(pos, v)
+    if (isSkinned) {
+      // `applyBoneTransform` reads skinIndex/skinWeight from the
+      // geometry, looks up matrices on the bound skeleton, and
+      // writes the skinned position back into `tmp`. With our
+      // identity bindMatrix/bindMatrixInverse the bind transform
+      // is a no-op, leaving us with `world_current * inv_bind *
+      // v_model_bind` (or `world_current * v_bone_local` for
+      // rigid-skin shapes that use identity inverses).
+      ;(record.mesh as THREE.SkinnedMesh).applyBoneTransform(v, tmp)
+    } else {
+      tmp.applyMatrix4(record.mesh.matrixWorld)
+    }
+    positions[v * 3 + 0] = tmp.x
+    positions[v * 3 + 1] = tmp.y
+    positions[v * 3 + 2] = tmp.z
+  }
+
+  // Copy the index buffer to a Uint32Array up front so subsequent
+  // passes have a uniform integer type to work with regardless of
+  // whether Three.js gave us 16- or 32-bit indices.
+  const idxArr = idx.array as ArrayLike<number>
+  const indices = new Uint32Array(idxArr.length)
+  for (let i = 0; i < idxArr.length; i++) indices[i] = idxArr[i]!
+
+  return { positions, indices }
+}
+
+/**
+ * Weld vertices that share the same world-space position. BFRES
+ * authoring often duplicates a position at material / UV / normal
+ * seams; without welding, those duplicates look like cracks to
+ * the subdivision algorithm and prevent it from smoothing across
+ * the seam (each side becomes a "boundary" edge with no neighbor
+ * triangle, halving its smoothing weight).
+ *
+ * We bin vertices by quantised `(x, y, z)` — coordinates rounded
+ * to `1 / WELD_SCALE` units. The original BFRES verts at a seam
+ * are bit-exact duplicates so any reasonable scale catches them;
+ * `WELD_SCALE = 1e5` (= 0.00001 unit tolerance, sub-millimetre
+ * for typical model scales) is conservative.
+ *
+ * Triangles that collapse to <3 unique vertices after welding
+ * are dropped (they were degenerate even before welding).
+ */
+function weldByPosition(mesh: IndexedMesh): IndexedMesh {
+  const WELD_SCALE = 1e5
+  const remap = new Uint32Array(mesh.positions.length / 3)
+  const seen = new Map<string, number>()
+  const out: number[] = []
+  for (let i = 0; i < mesh.positions.length; i += 3) {
+    const x = mesh.positions[i]!
+    const y = mesh.positions[i + 1]!
+    const z = mesh.positions[i + 2]!
+    const key =
+      Math.round(x * WELD_SCALE) +
+      "_" +
+      Math.round(y * WELD_SCALE) +
+      "_" +
+      Math.round(z * WELD_SCALE)
+    let idx = seen.get(key)
+    if (idx === undefined) {
+      idx = out.length / 3
+      seen.set(key, idx)
+      out.push(x, y, z)
+    }
+    remap[i / 3] = idx
+  }
+  // Apply the remap to the index buffer, dropping degenerate tris.
+  const triOut: number[] = []
+  for (let i = 0; i < mesh.indices.length; i += 3) {
+    const a = remap[mesh.indices[i]!]!
+    const b = remap[mesh.indices[i + 1]!]!
+    const c = remap[mesh.indices[i + 2]!]!
+    if (a === b || b === c || a === c) continue
+    triOut.push(a, b, c)
+  }
+  return {
+    positions: new Float32Array(out),
+    indices: new Uint32Array(triOut),
+  }
+}
+
+/**
+ * One pass of Loop subdivision. For every existing triangle we
+ * emit four new ones by inserting a midpoint vertex on each edge:
+ *
+ *        a                    a
+ *       / \                  /|\
+ *      /   \      →         m─┼─n
+ *     /     \              /\ | /\
+ *    b───────c            b──p────c
+ *
+ * (m = midpoint of a–b, n = midpoint of a–c, p = midpoint of b–c.)
+ * Both the new "odd" (edge-midpoint) vertices and the existing
+ * "even" vertices are repositioned with smoothing weights so the
+ * surface approaches a C² limit surface as passes accumulate.
+ *
+ * Smoothing rules (Loop, with Warren's β):
+ *
+ *   - Interior odd vertex (edge a–b shared by two tris with
+ *     opposite vertices c, d): `3/8 (a+b) + 1/8 (c+d)`.
+ *   - Boundary odd vertex (edge a–b shared by exactly one tri):
+ *     `1/2 (a+b)`.
+ *   - Interior even vertex of valence n: `(1 - n β) v + β Σ neighbours`,
+ *     where β = `n == 3 ? 3/16 : 3/(8 n)`.
+ *   - Boundary even vertex (lies on at least one boundary edge):
+ *     `3/4 v + 1/8 (n1 + n2)` where n1, n2 are the two boundary
+ *     neighbours.
+ *
+ * Boundary edges occur naturally on open surfaces (the underside
+ * of a flat cape, the rim of a chalice, a hand's fingernail) —
+ * they're real features of the source mesh, not authoring bugs.
+ * Treating them with the boundary rules preserves crease lines
+ * rather than smearing them inward.
+ */
+function loopSubdivide(mesh: IndexedMesh): IndexedMesh {
+  const oldVerts = mesh.positions.length / 3
+  const triCount = mesh.indices.length / 3
+
+  // Build edge → (triCount, opposite-vertex-1, opposite-vertex-2)
+  // and vertex → set(neighbour vertex) tables in one pass over
+  // triangles. Edge keys are sorted-pair "min_max" strings.
+  const edgeKey = (a: number, b: number) =>
+    a < b ? a + "_" + b : b + "_" + a
+  // For each edge: count of triangles sharing it (1 = boundary,
+  // 2 = interior, >2 = non-manifold which we treat like interior
+  // by only remembering two opposite verts), plus the two
+  // opposite vertices.
+  interface EdgeInfo {
+    count: number
+    opp1: number
+    opp2: number
+    /** Lower-indexed endpoint of the edge. */
+    a: number
+    /** Higher-indexed endpoint of the edge. */
+    b: number
+  }
+  const edges = new Map<string, EdgeInfo>()
+  // Per-vertex neighbour list (deduped via Set).
+  const neighbours: Set<number>[] = new Array(oldVerts)
+  for (let i = 0; i < oldVerts; i++) neighbours[i] = new Set()
+
+  const recordEdge = (a: number, b: number, opp: number) => {
+    const k = edgeKey(a, b)
+    const e = edges.get(k)
+    if (e) {
+      e.count++
+      if (e.count === 2) e.opp2 = opp
+    } else {
+      const lo = Math.min(a, b), hi = Math.max(a, b)
+      edges.set(k, { count: 1, opp1: opp, opp2: -1, a: lo, b: hi })
+    }
+    neighbours[a]!.add(b)
+    neighbours[b]!.add(a)
+  }
+
+  for (let t = 0; t < triCount; t++) {
+    const a = mesh.indices[t * 3]!
+    const b = mesh.indices[t * 3 + 1]!
+    const c = mesh.indices[t * 3 + 2]!
+    recordEdge(a, b, c)
+    recordEdge(b, c, a)
+    recordEdge(c, a, b)
+  }
+
+  // Identify boundary status per vertex (vertex lies on a
+  // boundary if any incident edge has count === 1) and remember
+  // its two boundary neighbours for the boundary-vertex rule.
+  const isBoundaryVert = new Uint8Array(oldVerts)
+  const boundaryNeighbours: [number, number][] = new Array(oldVerts)
+  for (let i = 0; i < oldVerts; i++) boundaryNeighbours[i] = [-1, -1]
+  for (const e of edges.values()) {
+    if (e.count !== 1) continue
+    isBoundaryVert[e.a] = 1
+    isBoundaryVert[e.b] = 1
+    const ba = boundaryNeighbours[e.a]!
+    if (ba[0] === -1) ba[0] = e.b
+    else if (ba[1] === -1 && ba[0] !== e.b) ba[1] = e.b
+    const bb = boundaryNeighbours[e.b]!
+    if (bb[0] === -1) bb[0] = e.a
+    else if (bb[1] === -1 && bb[0] !== e.a) bb[1] = e.a
+  }
+
+  // Allocate the new position array: old vertices + one new
+  // midpoint per unique edge.
+  const newVertCount = oldVerts + edges.size
+  const newPositions = new Float32Array(newVertCount * 3)
+  // Indices into `newPositions` for each edge's odd vertex.
+  const edgeMidIndex = new Map<string, number>()
+
+  // 1. Compute repositioned even (existing) vertices.
+  for (let i = 0; i < oldVerts; i++) {
+    const px = mesh.positions[i * 3]!
+    const py = mesh.positions[i * 3 + 1]!
+    const pz = mesh.positions[i * 3 + 2]!
+    if (isBoundaryVert[i]) {
+      const [n1, n2] = boundaryNeighbours[i]!
+      if (n1 >= 0 && n2 >= 0) {
+        const ax = mesh.positions[n1 * 3]!, ay = mesh.positions[n1 * 3 + 1]!, az = mesh.positions[n1 * 3 + 2]!
+        const bx = mesh.positions[n2 * 3]!, by = mesh.positions[n2 * 3 + 1]!, bz = mesh.positions[n2 * 3 + 2]!
+        newPositions[i * 3 + 0] = 0.75 * px + 0.125 * (ax + bx)
+        newPositions[i * 3 + 1] = 0.75 * py + 0.125 * (ay + by)
+        newPositions[i * 3 + 2] = 0.75 * pz + 0.125 * (az + bz)
+      } else {
+        // Corner vertex (only one boundary neighbour in this
+        // mesh component) — leave in place.
+        newPositions[i * 3 + 0] = px
+        newPositions[i * 3 + 1] = py
+        newPositions[i * 3 + 2] = pz
+      }
+    } else {
+      const nbs = neighbours[i]!
+      const n = nbs.size
+      // Warren's β: β = n == 3 ? 3/16 : 3/(8n).
+      const beta = n === 3 ? 3 / 16 : 3 / (8 * n)
+      let sx = 0, sy = 0, sz = 0
+      for (const nb of nbs) {
+        sx += mesh.positions[nb * 3]!
+        sy += mesh.positions[nb * 3 + 1]!
+        sz += mesh.positions[nb * 3 + 2]!
+      }
+      newPositions[i * 3 + 0] = (1 - n * beta) * px + beta * sx
+      newPositions[i * 3 + 1] = (1 - n * beta) * py + beta * sy
+      newPositions[i * 3 + 2] = (1 - n * beta) * pz + beta * sz
+    }
+  }
+
+  // 2. Compute new odd (edge-midpoint) vertices.
+  let nextIdx = oldVerts
+  for (const [k, e] of edges) {
+    const ax = mesh.positions[e.a * 3]!, ay = mesh.positions[e.a * 3 + 1]!, az = mesh.positions[e.a * 3 + 2]!
+    const bx = mesh.positions[e.b * 3]!, by = mesh.positions[e.b * 3 + 1]!, bz = mesh.positions[e.b * 3 + 2]!
+    let nx: number, ny: number, nz: number
+    if (e.count >= 2 && e.opp2 >= 0) {
+      const cx = mesh.positions[e.opp1 * 3]!, cy = mesh.positions[e.opp1 * 3 + 1]!, cz = mesh.positions[e.opp1 * 3 + 2]!
+      const dx = mesh.positions[e.opp2 * 3]!, dy = mesh.positions[e.opp2 * 3 + 1]!, dz = mesh.positions[e.opp2 * 3 + 2]!
+      nx = 0.375 * (ax + bx) + 0.125 * (cx + dx)
+      ny = 0.375 * (ay + by) + 0.125 * (cy + dy)
+      nz = 0.375 * (az + bz) + 0.125 * (cz + dz)
+    } else {
+      nx = 0.5 * (ax + bx)
+      ny = 0.5 * (ay + by)
+      nz = 0.5 * (az + bz)
+    }
+    newPositions[nextIdx * 3 + 0] = nx
+    newPositions[nextIdx * 3 + 1] = ny
+    newPositions[nextIdx * 3 + 2] = nz
+    edgeMidIndex.set(k, nextIdx)
+    nextIdx++
+  }
+
+  // 3. Emit four sub-triangles per old triangle. Winding stays
+  //    consistent with the original (counter-clockwise viewed
+  //    from the same side) because each new tri keeps the
+  //    parent's orientation.
+  const newIndices = new Uint32Array(triCount * 12)
+  for (let t = 0; t < triCount; t++) {
+    const a = mesh.indices[t * 3]!
+    const b = mesh.indices[t * 3 + 1]!
+    const c = mesh.indices[t * 3 + 2]!
+    const ab = edgeMidIndex.get(edgeKey(a, b))!
+    const bc = edgeMidIndex.get(edgeKey(b, c))!
+    const ca = edgeMidIndex.get(edgeKey(c, a))!
+    const o = t * 12
+    // Corners.
+    newIndices[o + 0] = a; newIndices[o + 1] = ab; newIndices[o + 2] = ca
+    newIndices[o + 3] = b; newIndices[o + 4] = bc; newIndices[o + 5] = ab
+    newIndices[o + 6] = c; newIndices[o + 7] = ca; newIndices[o + 8] = bc
+    // Center (winding matches the parent triangle).
+    newIndices[o + 9] = ab; newIndices[o + 10] = bc; newIndices[o + 11] = ca
+  }
+
+  return { positions: newPositions, indices: newIndices }
+}
+
+/**
+ * Bake all currently-visible meshes — including any skeletal-
+ * animation deformation applied for the active frame — into a
+ * binary STL file and trigger a browser download.
+ *
+ * Pipeline:
+ *
+ *   1. For each visible shape, sample posed world-space
+ *      positions ({@link bakeShapeToWorld}).
+ *   2. Weld duplicate-position vertices ({@link weldByPosition})
+ *      so seams don't masquerade as boundary edges in the next
+ *      step.
+ *   3. Optionally apply N passes of Loop subdivision
+ *      ({@link loopSubdivide}); each pass quadruples the triangle
+ *      count and smooths corners.
+ *   4. Convert from BFRES Y-up to slicer Z-up by rotating −90°
+ *      about the X axis.
+ *   5. Compute flat per-triangle normals (cross product of two
+ *      edges) and emit a binary STL: 80-byte free-form header,
+ *      uint32 triangle count, then 50 bytes per triangle.
+ *
+ * Triangles whose vertices contain non-finite components after
+ * baking (rare, but defensive — a malformed skin weight could
+ * produce this) are dropped rather than written with garbage
+ * values that might crash the slicer.
+ */
+function exportPosedSTL(
+  shapes: ShapeRecord[],
+  scene: THREE.Scene,
+  baseName: string,
+  suffix: string,
+  subdivisionPasses: number,
+): void {
+  // Make sure every mesh's `matrixWorld` and every Skeleton's
+  // `boneMatrices` reflect the current pose. The render loop
+  // does this once per frame, but the user could in principle
+  // hit "Download" before the first render — call explicitly to
+  // be safe.
+  scene.updateMatrixWorld(true)
+  for (const r of shapes) {
+    if (!r.visible) continue
+    if ((r.mesh as THREE.SkinnedMesh).isSkinnedMesh) {
+      ;(r.mesh as THREE.SkinnedMesh).skeleton.update()
+    }
+  }
+
+  // Per-shape: bake → weld → subdivide. We keep meshes separate
+  // through these steps because cross-shape vertex sharing isn't
+  // meaningful for BFRES (different shapes have different
+  // materials and topologies that happen to coincide spatially).
+  const cooked: IndexedMesh[] = []
+  for (const r of shapes) {
+    if (!r.visible) continue
+    const baked = bakeShapeToWorld(r)
+    if (!baked) continue
+    let m = weldByPosition(baked)
+    for (let p = 0; p < subdivisionPasses; p++) {
+      m = loopSubdivide(m)
+    }
+    cooked.push(m)
+  }
+
+  // Total triangle count for the STL header.
+  let totalTris = 0
+  for (const m of cooked) totalTris += m.indices.length / 3
+  if (totalTris === 0) return
+
+  // Allocate the binary STL buffer up front. 80B header +
+  // uint32 count + 50B per triangle.
+  const bufSize = 84 + 50 * totalTris
+  const buf = new ArrayBuffer(bufSize)
+  const view = new DataView(buf)
+  const headerBytes = new Uint8Array(buf, 0, 80)
+  // STL spec: don't start with "solid" (some readers heuristic-
+  // ally treat that as ASCII STL). Anything else is fine.
+  const header =
+    `nx-archive BFRES export ${baseName}${suffix}` +
+    (subdivisionPasses > 0 ? ` sub${subdivisionPasses}` : "")
+  const headerTrimmed = header.slice(0, 79)
+  for (let i = 0; i < headerTrimmed.length; i++) {
+    headerBytes[i] = headerTrimmed.charCodeAt(i)
+  }
+  view.setUint32(80, totalTris, true)
+
+  let off = 84
+  let written = 0
+  const ax = new Float32Array(3)
+  const bx = new Float32Array(3)
+  const cx = new Float32Array(3)
+  for (const m of cooked) {
+    const positions = m.positions
+    const indices = m.indices
+    for (let i = 0; i < indices.length; i += 3) {
+      const ia = indices[i]! * 3
+      const ib = indices[i + 1]! * 3
+      const ic = indices[i + 2]! * 3
+      // Pull vertex positions and apply Y-up → Z-up rotation
+      // (x, y, z) ← (x, −z, y) inline.
+      ax[0] = positions[ia]!; ax[1] = -positions[ia + 2]!; ax[2] = positions[ia + 1]!
+      bx[0] = positions[ib]!; bx[1] = -positions[ib + 2]!; bx[2] = positions[ib + 1]!
+      cx[0] = positions[ic]!; cx[1] = -positions[ic + 2]!; cx[2] = positions[ic + 1]!
+      // Skip triangles whose vertices have non-finite components.
+      if (
+        !Number.isFinite(ax[0]! + ax[1]! + ax[2]!) ||
+        !Number.isFinite(bx[0]! + bx[1]! + bx[2]!) ||
+        !Number.isFinite(cx[0]! + cx[1]! + cx[2]!)
+      ) {
+        continue
+      }
+      // Flat per-triangle normal via cross product. Degenerate
+      // triangles (zero-length cross) get a default `(0, 0, 1)`.
+      const e1x = bx[0]! - ax[0]!, e1y = bx[1]! - ax[1]!, e1z = bx[2]! - ax[2]!
+      const e2x = cx[0]! - ax[0]!, e2y = cx[1]! - ax[1]!, e2z = cx[2]! - ax[2]!
+      let nx = e1y * e2z - e1z * e2y
+      let ny = e1z * e2x - e1x * e2z
+      let nz = e1x * e2y - e1y * e2x
+      const len = Math.hypot(nx, ny, nz)
+      if (len > 0) { nx /= len; ny /= len; nz /= len }
+      else { nx = 0; ny = 0; nz = 1 }
+      view.setFloat32(off, nx, true); off += 4
+      view.setFloat32(off, ny, true); off += 4
+      view.setFloat32(off, nz, true); off += 4
+      view.setFloat32(off, ax[0]!, true); off += 4
+      view.setFloat32(off, ax[1]!, true); off += 4
+      view.setFloat32(off, ax[2]!, true); off += 4
+      view.setFloat32(off, bx[0]!, true); off += 4
+      view.setFloat32(off, bx[1]!, true); off += 4
+      view.setFloat32(off, bx[2]!, true); off += 4
+      view.setFloat32(off, cx[0]!, true); off += 4
+      view.setFloat32(off, cx[1]!, true); off += 4
+      view.setFloat32(off, cx[2]!, true); off += 4
+      view.setUint16(off, 0, true); off += 2 // attribute byte count
+      written++
+    }
+  }
+
+  // If we dropped any non-finite triangles, patch the header's
+  // count to match what we actually wrote so the file's still
+  // valid.
+  if (written !== totalTris) {
+    view.setUint32(80, written, true)
+  }
+
+  // Sanitise the BFRES base name into a filesystem-safe stem.
+  // We strip any extension (`.bfres`, `.szs`, etc.) and replace
+  // path-hostile characters; the suffix already encodes anim +
+  // frame and is provided by the caller in safe form.
+  const stem = baseName.replace(/\.[^./\\]+$/, "").replace(/[^A-Za-z0-9._-]+/g, "_")
+  const subSuffix = subdivisionPasses > 0 ? `_sub${subdivisionPasses}` : ""
+  const fileName = `${stem || "model"}${suffix}${subSuffix}.stl`
+
+  // Trigger download via a transient anchor + object URL.
+  // Slice the buffer to the actually-written length when we
+  // dropped non-finite triangles; otherwise the slicer sees
+  // trailing zero-bytes after the declared triangle count.
+  const finalBytes = written === totalTris ? buf : buf.slice(0, 84 + 50 * written)
+  const blob = new Blob([finalBytes], { type: "model/stl" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  // Defer revocation so Safari has time to start the download.
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 export function BfresViewer({ node }: { node: Node }) {
   return (
     <BfresViewerErrorBoundary>
@@ -729,6 +1205,12 @@ function BfresViewerInner({ node }: { node: Node }) {
   const sceneSkeletonsRef = useRef<FsklSceneSkeleton[] | null>(null)
   const animationsRef = useRef<BfresAnimations | null>(null)
   const [showSkeleton, setShowSkeleton] = useState(false)
+  // STL export options. `stlSubdivision` is the number of Loop
+  // subdivision passes applied before STL emit — 0 = raw mesh
+  // (fastest, smallest file, blocky look on low-poly characters);
+  // 1 = ~4× tris (recommended for Switch character meshes); 2 =
+  // ~16× tris (overkill for most prints, but available).
+  const [stlSubdivision, setStlSubdivision] = useState<number>(1)
   // Animation playback state. `currentAnim` indexes into
   // `animations.skeletal` (or -1 for "no animation, bind pose").
   const [currentAnim, setCurrentAnim] = useState<number>(-1)
@@ -1340,6 +1822,48 @@ function BfresViewerInner({ node }: { node: Node }) {
         </div>
       ) : null}
       <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
+        <label className="flex items-center gap-1.5">
+          <span>Smooth</span>
+          <select
+            value={stlSubdivision}
+            onChange={(e) => setStlSubdivision(Number(e.target.value))}
+            title="Loop subdivision passes applied before STL export. Each pass quadruples the triangle count and rounds out corners."
+            className="rounded-md border bg-card px-1.5 py-0.5"
+          >
+            <option value={0}>None</option>
+            <option value={1}>1× (4× tris)</option>
+            <option value={2}>2× (16× tris)</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() => {
+            const ctx = sceneRef.current
+            if (!ctx || !shapes) return
+            // Encode the active animation + frame into the STL
+            // file name so a sequence of exports stays orderable
+            // by name. Bind pose gets a clean "_bind" suffix.
+            const safeName = (s: string) =>
+              s.replace(/[^A-Za-z0-9._-]+/g, "_")
+            const suffix = activeAnim
+              ? `_${safeName(activeAnim.name)}_f${String(
+                  Math.min(frame, totalFrames),
+                ).padStart(4, "0")}`
+              : "_bind"
+            exportPosedSTL(
+              shapes,
+              ctx.scene,
+              node.name,
+              suffix,
+              stlSubdivision,
+            )
+          }}
+          disabled={!shapes || shapes.length === 0}
+          title="Download the current pose as a binary STL (Z-up, slicer-ready)"
+          className="rounded-md border bg-card px-2 py-1 disabled:opacity-50"
+        >
+          Download STL
+        </button>
         <label className="flex items-center gap-1.5">
           <input
             type="checkbox"
