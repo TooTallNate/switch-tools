@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/unity-asset",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for Unity SerializedFile assets (the `CAB-…` files inside an AssetBundle / UnityFS bundle). Decodes the on-disk header, the type table, and \u2014 when the bundle ships a TypeTree \u2014 the per-object payload into a typed JSON-shaped value. Surfaces Texture2D objects with a streaming pixel-data accessor pointing at the matching `.resS` resource stream so callers can hand the bytes off to a texture decoder.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/unity-asset"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

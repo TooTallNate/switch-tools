@@ -695,6 +695,12 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/unity-asset:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/usm:
     devDependencies:
       typescript:
