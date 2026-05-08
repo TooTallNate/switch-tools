@@ -46,6 +46,16 @@ import {
   type UsmVideoStream,
 } from "@tootallnate/usm"
 import {
+  ClassId as UnityClassId,
+  decodeUnityTexture2D,
+  parseObject as parseUnityObject,
+  parseSerializedFile,
+  TextureFormatName as UnityTextureFormatName,
+  type DecodedTexture as UnityDecodedTexture,
+  type ParsedSerializedFile,
+  type SerializedObject,
+} from "@tootallnate/unity-asset"
+import {
   parseNcaForNode,
   type NcaSource,
   type Node,
@@ -173,9 +183,14 @@ function PreviewContent({ node, root }: { node: Node; root: Node | null }) {
       if (!isFile) return null
       // FMOD bank samples carry their bank+sample-index in `meta`.
       if (node.meta?.fmodSampleIndex !== undefined) return 'fmod-sample-audio'
+      // Unity SerializedFiles (the `CAB-…` files inside a UnityFS
+      // bundle) don't have a meaningful filename pattern that
+      // detectPreviewKind would recognise — they're tagged by
+      // `node.kind` upstream in `archive.ts` instead.
+      if (node.kind === "unity-asset") return "unity-asset"
       return detectPreviewKind(node.name)
     },
-    [isFile, node.name, node.meta],
+    [isFile, node.name, node.meta, node.kind],
   )
 
   // Container nodes that have a dedicated structured preview instead
@@ -203,7 +218,7 @@ function PreviewContent({ node, root }: { node: Node; root: Node | null }) {
         ) : node.isContainer ? (
           <ContainerSummary node={node} />
         ) : (
-          <FilePreview node={node} kind={kind!} />
+          <FilePreview node={node} kind={kind!} root={root} />
         )}
       </div>
     </div>
@@ -1037,7 +1052,15 @@ function hexBytesToString(bytes: Uint8Array): string {
   return s
 }
 
-function FilePreview({ node, kind }: { node: Node; kind: PreviewKind }) {
+function FilePreview({
+  node,
+  kind,
+  root,
+}: {
+  node: Node
+  kind: PreviewKind
+  root: Node | null
+}) {
   switch (kind) {
     case "image":
       return <ImagePreview node={node} />
@@ -1081,6 +1104,8 @@ function FilePreview({ node, kind }: { node: Node; kind: PreviewKind }) {
       return <BntxPreview node={node} />
     case "usm-video":
       return <UsmPreview node={node} />
+    case "unity-asset":
+      return <UnityAssetPreview node={node} root={root} />
     case "hex":
     default:
       return <HexPreview node={node} />
@@ -3390,8 +3415,774 @@ function UsmStreamsTable({ streams }: { streams: UsmStream[] }) {
 }
 
 // ====================================================================
-// WEM — Wwise Encoded Media (audio asset, browser playback)
+// Unity SerializedFile preview (CAB-… inside a UnityFS bundle)
 // ====================================================================
+//
+// Walks the asset's TypeTree-driven object table and surfaces a
+// structured view: header, types, objects, plus format-specific
+// previews (font book for TMPro fonts; pixels for Texture2D).
+
+interface UnityAssetView {
+  parsed: ParsedSerializedFile
+  /** Map of resource-stream basename → Blob, keyed by lowercase path. */
+  externalsByName: Map<string, Blob>
+  /** Decoded objects for the ones we know how to interpret. */
+  decoded: UnityDecodedObject[]
+}
+
+interface UnityDecodedObject {
+  obj: SerializedObject
+  /** Walked-tree value, or `null` if the object lacks a TypeTree. */
+  value: unknown
+  /** Cached top-level name field if present. */
+  name: string | null
+}
+
+async function buildUnityAssetView(
+  node: Node,
+  root: Node | null,
+): Promise<UnityAssetView> {
+  const blob = await node.blob!()
+  const parsed = await parseSerializedFile(blob)
+  // Resolve external references — typically a sibling
+  // `<basename>.resS` containing texture / audio pixel data
+  // referenced via `m_StreamData`. We look up siblings by
+  // walking `node`'s parent in the archive tree.
+  const externalsByName = await resolveUnityExternals(node, root, parsed)
+  // Decode every object whose type ships a TypeTree. Objects
+  // without a TypeTree still appear in the table but we don't
+  // try to render them.
+  const decoded: UnityDecodedObject[] = []
+  for (const obj of parsed.objects) {
+    const ty = parsed.types[obj.typeIndex]
+    if (!ty || !ty.typeTree) {
+      decoded.push({ obj, value: null, name: null })
+      continue
+    }
+    try {
+      const value = await parseUnityObject(obj, ty.typeTree)
+      const name =
+        value && typeof value === "object" && "m_Name" in value
+          ? String((value as { m_Name?: unknown }).m_Name ?? "") || null
+          : null
+      decoded.push({ obj, value, name })
+    } catch {
+      decoded.push({ obj, value: null, name: null })
+    }
+  }
+  return { parsed, externalsByName, decoded }
+}
+
+/**
+ * Walk to `node`'s parent in the archive tree and pick out
+ * sibling Blobs whose names are referenced by the asset's
+ * `externals` table. Most relevant in practice for `.resS`
+ * resource streams that hold large texture / audio pixel data.
+ */
+async function resolveUnityExternals(
+  node: Node,
+  root: Node | null,
+  parsed: ParsedSerializedFile,
+): Promise<Map<string, Blob>> {
+  const out = new Map<string, Blob>()
+  if (!root) return out
+  const slash = node.id.lastIndexOf("/")
+  if (slash <= 0) return out
+  const parentId = node.id.slice(0, slash)
+  // Walk root by id segments to find the parent. (Helper
+  // kept inline to avoid a cross-file dependency.)
+  const findById = async (n: Node, target: string): Promise<Node | null> => {
+    if (n.id === target) return n
+    if (!target.startsWith(n.id + "/") && n.id !== "") return null
+    let cur: Node = n
+    while (cur.id !== target) {
+      if (!cur.getChildren) return null
+      const kids = cur._children ?? (cur._children = await cur.getChildren())
+      let next: Node | null = null
+      for (const k of kids) {
+        if (k.id === target || target.startsWith(k.id + "/")) {
+          if (!next || k.id.length > next.id.length) next = k
+        }
+      }
+      if (!next) return null
+      cur = next
+    }
+    return cur
+  }
+  const parent = await findById(root, parentId)
+  if (!parent || !parent.getChildren) return out
+  const siblings =
+    parent._children ?? (parent._children = await parent.getChildren())
+  // Collect every basename mentioned in the asset (externals
+  // table + each object's `m_StreamData.path`). The basenames
+  // we care about all live in the same UnityFS bundle, which
+  // is `parent` here.
+  const wantedBasenames = new Set<string>()
+  for (const e of parsed.externals) {
+    if (e.basename) wantedBasenames.add(e.basename.toLowerCase())
+  }
+  // Texture2D objects often reference .resS via m_StreamData
+  // even when the externals table doesn't list them — scan
+  // sibling names that look like .resS files too.
+  for (const k of siblings) {
+    if (/\.ress$/i.test(k.name) && k.blob) {
+      wantedBasenames.add(k.name.toLowerCase())
+    }
+  }
+  for (const k of siblings) {
+    if (k.blob && wantedBasenames.has(k.name.toLowerCase())) {
+      try {
+        out.set(k.name.toLowerCase(), await k.blob())
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return out
+}
+
+function UnityAssetPreview({
+  node,
+  root,
+}: {
+  node: Node
+  root: Node | null
+}) {
+  const { loading, data, error } = useAsync(async () => {
+    return buildUnityAssetView(node, root)
+  }, [node.id])
+  if (loading) return <LoadingFiller label="Decoding Unity asset…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const tmpFontObj = findTmpFontObject(v.decoded)
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="Unity asset (SerializedFile)" />
+
+        {tmpFontObj && <TmpFontBookPreview view={v} fontObj={tmpFontObj} />}
+
+        <KvBlock title="Header">
+          <KvRow k="Unity version" v={v.parsed.header.unityVersion} />
+          <KvRow
+            k="Format version"
+            v={String(v.parsed.header.version)}
+            hint={
+              v.parsed.header.version >= 22
+                ? "Unity 2020+ layout"
+                : "legacy layout"
+            }
+          />
+          <KvRow
+            k="Platform"
+            v={`${v.parsed.header.platform}`}
+            hint={unityPlatformName(v.parsed.header.platform)}
+          />
+          <KvRow k="File size" v={formatBytes(v.parsed.header.fileSize)} />
+          <KvRow
+            k="TypeTree"
+            v={v.parsed.header.enableTypeTree ? "embedded" : "stripped"}
+          />
+        </KvBlock>
+
+        <UnityObjectsTable view={v} />
+
+        {v.parsed.externals.length > 0 && (
+          <KvBlock title="Externals">
+            {v.parsed.externals.map((e, i) => (
+              <KvRow
+                key={i}
+                k={e.basename || `external ${i}`}
+                v={e.pathName}
+                mono
+              />
+            ))}
+          </KvBlock>
+        )}
+      </div>
+    </ScrollArea>
+  )
+}
+
+function unityPlatformName(code: number): string | undefined {
+  // Subset of Unity's `BuildTarget` enum.
+  switch (code) {
+    case 1: return "StandaloneOSX"
+    case 5: return "StandaloneWindows"
+    case 7: return "WebPlayer"
+    case 9: return "iOS"
+    case 13: return "Xbox360"
+    case 19: return "PSVita"
+    case 23: return "PS4"
+    case 24: return "PSP2"
+    case 25: return "XboxOne"
+    case 27: return "Switch"
+    case 38: return "StandaloneLinux64"
+    default: return undefined
+  }
+}
+
+function UnityObjectsTable({ view }: { view: UnityAssetView }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Objects ({view.decoded.length})
+      </h3>
+      <div className="overflow-x-auto rounded-md border bg-card">
+        <table className="w-full border-collapse text-xs">
+          <thead className="border-b bg-muted/40 text-left text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">Class</th>
+              <th className="px-3 py-2 font-medium">Path ID</th>
+              <th className="px-3 py-2 font-medium">Name</th>
+              <th className="px-3 py-2 font-medium text-right">Size</th>
+            </tr>
+          </thead>
+          <tbody>
+            {view.decoded.map((d, i) => {
+              const ty = view.parsed.types[d.obj.typeIndex]
+              const className =
+                Object.entries(UnityClassId).find(
+                  ([, cid]) => cid === ty?.classId,
+                )?.[0] ?? `class ${ty?.classId}`
+              return (
+                <tr key={i} className="border-b border-border/40 last:border-0">
+                  <td className="px-3 py-1.5">{className}</td>
+                  <td className="px-3 py-1.5 font-mono text-muted-foreground">
+                    {d.obj.pathId.toString()}
+                  </td>
+                  <td className="px-3 py-1.5">{d.name ?? "—"}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">
+                    {formatBytes(d.obj.size)}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+// -------- TextMeshPro font book --------
+
+interface TmpFontFaceInfo {
+  familyName: string
+  styleName: string
+  pointSize: number
+  lineHeight: number
+  ascentLine: number
+  descentLine: number
+}
+
+interface TmpGlyph {
+  index: number
+  metrics: {
+    width: number
+    height: number
+    horizontalBearingX: number
+    horizontalBearingY: number
+    horizontalAdvance: number
+  }
+  rect: { x: number; y: number; width: number; height: number }
+  scale: number
+  atlasIndex: number
+}
+
+interface TmpCharacter {
+  unicode: number
+  glyphIndex: number
+}
+
+interface TmpAtlasInfo {
+  width: number
+  height: number
+  /** Unity `TextureFormat` enum value. */
+  textureFormat: number
+  /**
+   * Where to find the **encoded, GPU-swizzled** atlas bytes.
+   * Either inline (small fonts, usually English-only) or out-
+   * of-band in a `.resS` resource stream (most CJK fonts).
+   *
+   * `null` when the model has no atlas at all (extremely rare;
+   * means it's a metrics-only TMP_FontAsset).
+   */
+  encoded: TmpAtlasEncoded | null
+}
+
+type TmpAtlasEncoded =
+  | { kind: "inline"; data: Uint8Array }
+  | { kind: "stream"; blob: Blob; offset: number; size: number }
+
+interface TmpFontData {
+  face: TmpFontFaceInfo
+  glyphs: Map<number, TmpGlyph>
+  characters: TmpCharacter[]
+  atlas: TmpAtlasInfo
+}
+
+function findTmpFontObject(decoded: UnityDecodedObject[]): UnityDecodedObject | null {
+  for (const d of decoded) {
+    const v = d.value as Record<string, unknown> | null
+    if (!v) continue
+    if ("m_GlyphTable" in v && "m_CharacterTable" in v && "m_FaceInfo" in v) {
+      return d
+    }
+  }
+  return null
+}
+
+function asNumber(v: unknown): number {
+  if (typeof v === "number") return v
+  if (typeof v === "bigint") return Number(v)
+  return 0
+}
+function asString(v: unknown): string {
+  return typeof v === "string" ? v : ""
+}
+
+/**
+ * Pull the structured font data out of a TMP_FontAsset's
+ * walked-tree value. Defensive about missing fields — older
+ * TMPro asset versions ship a slightly different schema, but
+ * the fields we read here have been stable since TMPro 1.0.
+ */
+function buildTmpFontData(
+  view: UnityAssetView,
+  fontObj: UnityDecodedObject,
+): TmpFontData | null {
+  const v = fontObj.value as Record<string, unknown> | null
+  if (!v) return null
+
+  const fi = v.m_FaceInfo as Record<string, unknown>
+  const face: TmpFontFaceInfo = {
+    familyName: asString(fi.m_FamilyName),
+    styleName: asString(fi.m_StyleName),
+    pointSize: asNumber(fi.m_PointSize),
+    lineHeight: asNumber(fi.m_LineHeight),
+    ascentLine: asNumber(fi.m_AscentLine),
+    descentLine: asNumber(fi.m_DescentLine),
+  }
+
+  const glyphs = new Map<number, TmpGlyph>()
+  for (const raw of (v.m_GlyphTable as Record<string, unknown>[]) ?? []) {
+    const m = raw.m_Metrics as Record<string, unknown>
+    const r = raw.m_GlyphRect as Record<string, unknown>
+    const g: TmpGlyph = {
+      index: asNumber(raw.m_Index),
+      metrics: {
+        width: asNumber(m.m_Width),
+        height: asNumber(m.m_Height),
+        horizontalBearingX: asNumber(m.m_HorizontalBearingX),
+        horizontalBearingY: asNumber(m.m_HorizontalBearingY),
+        horizontalAdvance: asNumber(m.m_HorizontalAdvance),
+      },
+      rect: {
+        x: asNumber(r.m_X),
+        y: asNumber(r.m_Y),
+        width: asNumber(r.m_Width),
+        height: asNumber(r.m_Height),
+      },
+      scale: asNumber(raw.m_Scale) || 1,
+      atlasIndex: asNumber(raw.m_AtlasIndex),
+    }
+    glyphs.set(g.index, g)
+  }
+
+  const characters: TmpCharacter[] = []
+  for (const raw of (v.m_CharacterTable as Record<string, unknown>[]) ?? []) {
+    characters.push({
+      unicode: asNumber(raw.m_Unicode),
+      glyphIndex: asNumber(raw.m_GlyphIndex),
+    })
+  }
+
+  // Resolve atlas. TMP fonts attach the atlas as a Texture2D
+  // in the same SerializedFile (`m_AtlasTextures` is a list of
+  // PPtrs to Texture2D objects, but in practice it has exactly
+  // one entry, which is also the only Texture2D in the file).
+  // Take the first Texture2D and surface its dimensions +
+  // format + an encoded-bytes locator. Actual decode happens
+  // later, in {@link TmpFontBookPreview}, since the resS bytes
+  // can be hundreds of KB and we want that to run lazily.
+  const texDecoded = view.decoded.find(
+    (d) => view.parsed.types[d.obj.typeIndex]?.classId === UnityClassId.Texture2D,
+  )
+  const atlas: TmpAtlasInfo = {
+    width: 0,
+    height: 0,
+    textureFormat: 0,
+    encoded: null,
+  }
+  if (texDecoded && texDecoded.value) {
+    const tv = texDecoded.value as Record<string, unknown>
+    atlas.width = asNumber(tv.m_Width)
+    atlas.height = asNumber(tv.m_Height)
+    atlas.textureFormat = asNumber(tv.m_TextureFormat)
+    // Encoded pixels can live inline (`image data.data`) or in
+    // a resS via `m_StreamData`. TMPro fonts in modern Unity
+    // ship via resS; check there first.
+    const sd = tv.m_StreamData as Record<string, unknown> | undefined
+    if (sd && asNumber(sd.size) > 0) {
+      const path = asString(sd.path)
+      // Path is `archive:/CAB-…/CAB-….resS` — pluck the
+      // basename UnityFS exposes (last segment after the
+      // final slash, minus a stray NUL byte the serializer
+      // tends to append).
+      const basenameMatch = /([^/\\]+)$/.exec(path.replace(/\0+$/, ""))
+      const basename = basenameMatch ? basenameMatch[1]!.toLowerCase() : ""
+      const resBlob = view.externalsByName.get(basename)
+      if (resBlob) {
+        atlas.encoded = {
+          kind: "stream",
+          blob: resBlob,
+          offset: asNumber(sd.offset),
+          size: asNumber(sd.size),
+        }
+      }
+    }
+    if (!atlas.encoded) {
+      const inline = tv["image data"] as
+        | { size: number; data: Uint8Array }
+        | undefined
+      if (inline && inline.size > 0) {
+        atlas.encoded = { kind: "inline", data: inline.data }
+      }
+    }
+  }
+
+  return { face, glyphs, characters, atlas }
+}
+
+function TmpFontBookPreview({
+  view,
+  fontObj,
+}: {
+  view: UnityAssetView
+  fontObj: UnityDecodedObject
+}) {
+  // First-pass load: structured font data + plan for fetching
+  // atlas pixels from the resS.
+  const data = useMemo(() => buildTmpFontData(view, fontObj), [view, fontObj])
+
+  // Read + decode the atlas lazily. The resS slice can be
+  // hundreds of KB and the deswizzle + RGBA expand is non-
+  // trivial, so we hide both behind a `useAsync` so the rest
+  // of the preview (face metrics, glyph table summary) renders
+  // immediately.
+  const {
+    loading: atlasLoading,
+    data: atlasDecoded,
+    error: atlasError,
+  } = useAsync(
+    async () => {
+      if (!data || !data.atlas.encoded) return null
+      let encoded: Uint8Array
+      if (data.atlas.encoded.kind === "inline") {
+        encoded = data.atlas.encoded.data
+      } else {
+        const slice = data.atlas.encoded.blob.slice(
+          data.atlas.encoded.offset,
+          data.atlas.encoded.offset + data.atlas.encoded.size,
+        )
+        encoded = new Uint8Array(await slice.arrayBuffer())
+      }
+      return decodeUnityTexture2D(
+        data.atlas.width,
+        data.atlas.height,
+        data.atlas.textureFormat,
+        encoded,
+      )
+    },
+    [data],
+  )
+
+  // Sample text the user can edit. Default to the first 96
+  // printable codepoints from the character table so the
+  // preview always shows real glyphs.
+  const defaultSample = useMemo(() => {
+    if (!data) return ""
+    const chars = data.characters
+      .filter((c) => c.unicode >= 0x21 && c.unicode <= 0x7e)
+      .slice(0, 96)
+    return chars.map((c) => String.fromCodePoint(c.unicode)).join("")
+  }, [data])
+  const [sampleText, setSampleText] = useState("")
+  useEffect(() => {
+    setSampleText(defaultSample)
+  }, [defaultSample])
+
+  if (!data) return null
+
+  return (
+    <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs text-muted-foreground">
+        <div>
+          <span className="text-sm font-medium text-foreground">
+            {data.face.familyName}
+          </span>
+          {data.face.styleName && (
+            <span className="ml-2 text-muted-foreground">
+              {data.face.styleName}
+            </span>
+          )}
+        </div>
+        <div>
+          {data.glyphs.size} glyphs · {data.atlas.width}×{data.atlas.height} SDF
+          atlas
+        </div>
+      </div>
+      <textarea
+        value={sampleText}
+        onChange={(e) => setSampleText(e.target.value)}
+        placeholder="Type to preview…"
+        className="h-20 resize-y rounded-md border bg-background p-2 font-mono text-xs"
+        spellCheck={false}
+      />
+      <div className="overflow-auto rounded-md border bg-background">
+        {atlasLoading ? (
+          <div className="flex h-32 items-center justify-center text-xs text-muted-foreground">
+            Loading atlas…
+          </div>
+        ) : atlasError ? (
+          <div className="p-3 text-xs text-destructive">
+            {atlasError.message}
+          </div>
+        ) : (
+          <TmpFontBookCanvas
+            data={data}
+            atlas={atlasDecoded ?? null}
+            text={sampleText}
+          />
+        )}
+      </div>
+      <details className="text-xs text-muted-foreground">
+        <summary className="cursor-pointer select-none">
+          Show raw SDF atlas
+        </summary>
+        <div className="mt-2 max-h-[600px] overflow-auto rounded-md border bg-background p-2">
+          <TmpFontAtlasPreview atlas={atlasDecoded ?? null} />
+        </div>
+      </details>
+      <div className="text-xs text-muted-foreground">
+        SDF atlas (face point size {data.face.pointSize.toFixed(0)}, line height{" "}
+        {data.face.lineHeight.toFixed(0)},{" "}
+        {UnityTextureFormatName(data.atlas.textureFormat) ??
+          `format ${data.atlas.textureFormat}`}
+        )
+      </div>
+    </section>
+  )
+}
+
+/**
+ * Render `text` onto a canvas by composing glyphs from the
+ * SDF atlas. The atlas is stored bottom-up (Unity convention)
+ * with one byte per pixel (Alpha8). We:
+ *
+ *   1. Decode the atlas to RGBA8 in memory once per atlas blob.
+ *   2. For each character in `text`, look up its glyph index,
+ *      then draw the corresponding atlas region at the right
+ *      position using the per-glyph horizontal advance and
+ *      bearing values.
+ *   3. Pen advances one glyph at a time on a single line; line
+ *      breaks (ASCII 10) reset the X position and bump Y by
+ *      `face.lineHeight`.
+ *
+ * The atlas is SDF, so we threshold around 0.5 to get a crisp
+ * outline rather than the soft greyscale edge. That mimics
+ * what TMPro's runtime shader does when rendering text on top
+ * of an opaque material.
+ */
+/**
+ * Render the raw SDF atlas to a canvas at native resolution.
+ * Used as a debug / inspection aid — handy for confirming the
+ * deswizzle + Y-flip is right before glyph layout enters the
+ * picture.
+ */
+function TmpFontAtlasPreview({
+  atlas,
+}: {
+  atlas: UnityDecodedTexture | null
+}) {
+  const ref = useRef<HTMLCanvasElement | null>(null)
+  useEffect(() => {
+    const canvas = ref.current
+    if (!canvas) return
+    const ctx = canvas.getContext("2d")
+    if (!ctx || !atlas) return
+    const { width, height, pixels } = atlas
+    canvas.width = width
+    canvas.height = height
+    // Flip Y from Unity bottom-up to canvas top-down. Pixels
+    // are already RGBA8 (deswizzler + format expander did the
+    // hard work); we just rearrange rows.
+    const flipped = new Uint8ClampedArray(pixels.length)
+    const rowBytes = width * 4
+    for (let y = 0; y < height; y++) {
+      const srcRow = (height - 1 - y) * rowBytes
+      const dstRow = y * rowBytes
+      flipped.set(pixels.subarray(srcRow, srcRow + rowBytes), dstRow)
+    }
+    ctx.putImageData(new ImageData(flipped, width, height), 0, 0)
+  }, [atlas])
+  return <canvas ref={ref} className="block" style={{ imageRendering: "pixelated" }} />
+}
+
+function TmpFontBookCanvas({
+  data,
+  atlas,
+  text,
+}: {
+  data: TmpFontData
+  atlas: UnityDecodedTexture | null
+  text: string
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  // Render scale: TMP atlases store glyphs at their authored
+  // point size, often 32 px tall. At 2× we get 64-px-tall
+  // glyphs which reads well on hi-DPI displays.
+  const RENDER_SCALE = 2.0
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    if (!atlas) {
+      canvas.width = 1
+      canvas.height = 1
+      return
+    }
+
+    // 1. Build an RGBA atlas, flipping Y from Unity bottom-up
+    //    to canvas top-down and re-thresholding the SDF
+    //    distance field. The decoder gave us pixels in the
+    //    source format already converted to RGBA8 (so for an
+    //    Alpha8 / R8 SDF that's `(v, v, v, v)` — but we want
+    //    *opaque white text with alpha = SDF coverage* for
+    //    rendering on a dark background, so we recompute the
+    //    alpha here via a smoothstep around 128.
+    const aw = atlas.width
+    const ah = atlas.height
+    const src = atlas.pixels
+    const atlasRgba = new Uint8ClampedArray(aw * ah * 4)
+    for (let y = 0; y < ah; y++) {
+      const srcRow = (ah - 1 - y) * aw * 4
+      const dstRow = y * aw * 4
+      for (let x = 0; x < aw; x++) {
+        const v = src[srcRow + x * 4]! // R == G == B == A for SDF
+        const t = Math.max(0, Math.min(1, (v - 96) / 64))
+        const alpha = Math.round(t * 255)
+        atlasRgba[dstRow + x * 4] = 255
+        atlasRgba[dstRow + x * 4 + 1] = 255
+        atlasRgba[dstRow + x * 4 + 2] = 255
+        atlasRgba[dstRow + x * 4 + 3] = alpha
+      }
+    }
+    const atlasImg = new ImageData(atlasRgba, aw, ah)
+
+    // 2. Lay out glyphs. Compute pen positions first so we know
+    //    the canvas size before drawing. Pen Y is the baseline
+    //    of the current line; pen X advances by the glyph's
+    //    horizontal advance after each character.
+    interface PlacedGlyph {
+      glyph: TmpGlyph
+      x: number
+      y: number
+    }
+    const placed: PlacedGlyph[] = []
+    let penX = 0
+    const lineHeight = data.face.lineHeight || data.face.pointSize * 1.2
+    // Baseline of the first line. We pad a bit at the top so
+    // ascenders aren't clipped — `lineHeight` is generous
+    // enough to hold an entire line including descenders below.
+    let penY = lineHeight * 0.85
+    let maxX = 0
+    const charByCode = new Map<number, number>()
+    for (const c of data.characters) charByCode.set(c.unicode, c.glyphIndex)
+
+    for (const ch of [...text]) {
+      const cp = ch.codePointAt(0)!
+      if (cp === 10 /* LF */) {
+        if (penX > maxX) maxX = penX
+        penX = 0
+        penY += lineHeight
+        continue
+      }
+      const glyphIdx = charByCode.get(cp)
+      if (glyphIdx === undefined) continue
+      const glyph = data.glyphs.get(glyphIdx)
+      if (!glyph) continue
+      placed.push({ glyph, x: penX, y: penY })
+      penX += glyph.metrics.horizontalAdvance
+    }
+    if (penX > maxX) maxX = penX
+
+    // Canvas dimensions. Width = furthest pen advance; height =
+    // baseline of last line + descent room. We render at 2× to
+    // counter the atlas's slight blurriness when the browser
+    // downscales for retina displays.
+    const W = Math.max(64, Math.ceil(maxX * RENDER_SCALE))
+    const H = Math.max(64, Math.ceil((penY + lineHeight * 0.4) * RENDER_SCALE))
+    canvas.width = W
+    canvas.height = H
+
+    // 3. Paint background + glyphs. We use putImageData on a
+    //    temporary canvas to load the atlas pixels, then
+    //    drawImage with src/dst rects to blit each glyph.
+    ctx.fillStyle = "#0c0c10" // matches the app's background
+    ctx.fillRect(0, 0, W, H)
+
+    const atlasCanvas = document.createElement("canvas")
+    atlasCanvas.width = aw
+    atlasCanvas.height = ah
+    const atlasCtx = atlasCanvas.getContext("2d")!
+    atlasCtx.putImageData(atlasImg, 0, 0)
+
+    for (const p of placed) {
+      const g = p.glyph
+      // Skip glyphs whose atlas rect has zero area. TMP packs
+      // a "blank" entry as glyph 1 (space, etc.) with rect
+      // 0×0 — drawing those would throw or do nothing useful.
+      if (g.rect.width === 0 || g.rect.height === 0) continue
+      // Atlas coordinates: m_X / m_Y are the bottom-left of the
+      // glyph rectangle in atlas space; m_Width / m_Height are
+      // the pixel dimensions. Unity's atlas origin is bottom-
+      // left, so we flipped Y above when building `atlasRgba`
+      // (which is now top-down). To find the rect in the
+      // top-down image: y_top_down = ah - rect.y - rect.height.
+      const sx = g.rect.x
+      const sy = ah - g.rect.y - g.rect.height
+      const sw = g.rect.width
+      const sh = g.rect.height
+      // Use the rect's pixel dimensions for the destination
+      // too. Glyph metrics' `width` / `height` are the SDF-
+      // padding-stripped logical sizes and would shrink the
+      // glyph; the SDF padding belongs at draw time so colors
+      // bleed correctly through the threshold.
+      // bearingY is "ascent above baseline" measured in pixels
+      // matching the rect's coordinate system, so subtracting
+      // it from the pen Y baseline gives the glyph rect's top.
+      const dx = (p.x + g.metrics.horizontalBearingX) * RENDER_SCALE
+      const dy = (p.y - g.metrics.horizontalBearingY) * RENDER_SCALE
+      const dw = sw * RENDER_SCALE
+      const dh = sh * RENDER_SCALE
+      ctx.drawImage(atlasCanvas, sx, sy, sw, sh, dx, dy, dw, dh)
+    }
+  }, [data, atlas, text])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="block max-w-full"
+      style={{ imageRendering: "auto" }}
+    />
+  )
+}
+
+
 
 function WemAudioPreview({ node }: { node: Node }) {
   const { loading, data, error } = useAsync(async () => {

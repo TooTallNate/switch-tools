@@ -50,6 +50,7 @@
     "@tootallnate/pfs0": "workspace:*",
     "@tootallnate/romfs": "workspace:*",
     "@tootallnate/sarc": "workspace:*",
+    "@tootallnate/unity-asset": "workspace:*",
     "@tootallnate/usm": "workspace:*",
     "@tootallnate/wem": "workspace:*",
     "@tootallnate/wem-vorbis": "workspace:*",

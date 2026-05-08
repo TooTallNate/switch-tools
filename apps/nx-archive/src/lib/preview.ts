@@ -101,6 +101,8 @@ export type PreviewKind =
 	| 'bntx-image'
 	/** CRI Sofdec2 USM video container (VP9 / H.264 + HCA / ADX / PCM). */
 	| 'usm-video'
+	/** Unity SerializedFile (`CAB-…` inside an AssetBundle). */
+	| 'unity-asset'
 	| 'hex';
 
 export const TEXT_EXTS = new Set([

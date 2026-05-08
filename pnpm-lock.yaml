@@ -310,6 +310,9 @@ importers:
       '@tootallnate/sarc':
         specifier: workspace:*
         version: link:../../packages/sarc
+      '@tootallnate/unity-asset':
+        specifier: workspace:*
+        version: link:../../packages/unity-asset
       '@tootallnate/usm':
         specifier: workspace:*
         version: link:../../packages/usm
@@ -696,6 +699,10 @@ importers:
         version: 5.9.3
 
   packages/unity-asset:
+    dependencies:
+      '@tootallnate/bntx':
+        specifier: workspace:*
+        version: link:../bntx
     devDependencies:
       typescript:
         specifier: ^5.3.3

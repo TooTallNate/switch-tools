@@ -16,6 +16,9 @@
     "url": "https://github.com/TooTallNate/switch-tools",
     "directory": "packages/unity-asset"
   },
+  "dependencies": {
+    "@tootallnate/bntx": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.3.3"
   }

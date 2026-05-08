@@ -68,6 +68,7 @@ export type NodeKind =
 	| 'sarc'
 	| 'lz4'
 	| 'unityfs'
+	| 'unity-asset'
 	| 'bars'
 	| 'bfsar'
 	| 'bfwar'
@@ -2554,12 +2555,54 @@ async function unityFsEntriesToNodes(
 					};
 				}
 				const file = child.file!;
+				// CAB-* (no extension) files inside a UnityFS bundle
+				// are Unity SerializedFiles — the actual asset records
+				// live in those, alongside their `.resS` siblings
+				// (large texture / audio pixel data referenced via
+				// `m_StreamData`). Hand them a dedicated node kind so
+				// the preview pane can mount the SerializedFile parser
+				// + viewer instead of just dumping hex.
+				if (
+					/^cab-[0-9a-f]+$/i.test(name) &&
+					!name.toLowerCase().endsWith('.ress')
+				) {
+					return makeUnitySerializedFileNode(
+						childId,
+						name,
+						file.data,
+						ctx,
+					);
+				}
 				return childNodeFor(childId, name, file.data, ctx);
 			}),
 		);
 	};
 
 	return treeToNodes(parentId, root);
+}
+
+/**
+ * Wrap a Unity SerializedFile (`CAB-…` inside a UnityFS bundle)
+ * as a viewer-friendly node. We don't expand it as a directory
+ * — its contents are typed objects rather than files — but the
+ * preview pane recognises `kind === 'unity-asset'` and mounts
+ * the right parser.
+ */
+function makeUnitySerializedFileNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	_ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'unity-asset',
+		isContainer: false,
+		size: blob.size,
+		format: 'Unity Asset',
+		blob: async () => blob,
+	};
 }
 
 // ----- Bundle wrapper detection -----

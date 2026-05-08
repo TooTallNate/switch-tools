@@ -1,3 +1,12 @@
+// Texture decoding helpers (deswizzle + format → RGBA8) live in
+// a separate file. Re-export at the top so callers get one
+// import surface.
+export {
+  decodeUnityTexture2D,
+  TextureFormatName,
+  type DecodedTexture,
+} from "./texture.js"
+
 /**
  * Parser for Unity SerializedFile assets. A SerializedFile is
  * the on-disk representation of one Unity scene's worth of

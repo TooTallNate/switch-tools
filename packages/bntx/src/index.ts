@@ -53,6 +53,7 @@ import {
 import { decodeBC7 } from './decode-bc7.js';
 
 export { formatName, type FormatInfo } from './format.js';
+export { deswizzle, type DeswizzleOptions, pickBlockHeight } from './swizzle.js';
 
 export type Endian = 'big' | 'little';
 
