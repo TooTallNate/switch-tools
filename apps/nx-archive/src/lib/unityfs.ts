@@ -154,8 +154,16 @@ export async function parseUnityFs(blob: Blob): Promise<ParsedUnityFs> {
 	const headerReader = new BigEndianReader(headBuf);
 	const signature = headerReader.readCString();
 	if (signature !== 'UnityFS') {
+		// The signature is a NUL-terminated string from arbitrary file
+		// bytes — for non-UnityFS inputs (e.g. encrypted/wrapped
+		// AssetBundles) it's full of high-byte garbage that Unicode-
+		// renders as replacement characters. Show the first few bytes
+		// in hex so the error stays readable.
+		const previewHex = [...headBuf.subarray(0, 16)]
+			.map((b) => b.toString(16).padStart(2, '0'))
+			.join(' ');
 		throw new Error(
-			`Unsupported bundle signature "${signature}" (only "UnityFS" is supported)`,
+			`Not a UnityFS bundle (expected "UnityFS\\0" magic at offset 0, got bytes ${previewHex})`,
 		);
 	}
 	const version = headerReader.readU32();

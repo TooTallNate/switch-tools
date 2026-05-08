@@ -2312,6 +2312,88 @@ async function unityFsEntriesToNodes(
 	return treeToNodes(parentId, root);
 }
 
+// ----- Bundle wrapper detection -----
+
+/**
+ * Read the first 32 bytes of a blob for magic-byte sniffing. 32
+ * bytes is enough to distinguish raw UnityFS (`UnityFS\0` at offset
+ * 0) from Square Enix's Pixel Remaster wrapper (a fixed 32-byte
+ * encrypted preamble that's identical across every `*.bundle` in
+ * every FFPR Switch title).
+ */
+async function sniffHead(blob: Blob): Promise<Uint8Array> {
+	const len = Math.min(blob.size, 32);
+	if (len === 0) return new Uint8Array(0);
+	return new Uint8Array(await blob.slice(0, len).arrayBuffer());
+}
+
+function isUnityFsHead(head: Uint8Array): boolean {
+	return (
+		head.length >= 8 &&
+		head[0] === 0x55 && // 'U'
+		head[1] === 0x6e && // 'n'
+		head[2] === 0x69 && // 'i'
+		head[3] === 0x74 && // 't'
+		head[4] === 0x79 && // 'y'
+		head[5] === 0x46 && // 'F'
+		head[6] === 0x53 && // 'S'
+		head[7] === 0x00
+	);
+}
+
+/**
+ * The Final Fantasy Pixel Remaster Switch ports wrap each Unity
+ * AssetBundle in a custom encryption layer. The same fixed 32-byte
+ * preamble appears at the start of every `*.bundle` in every FFPR
+ * Switch title (FF1 / FF2 / FF3 / FF4 / FF5 / FF6 — verified on
+ * `font_en.bundle` from all six). The encryption itself is a
+ * proprietary Square Enix scheme and isn't decoded here; we just
+ * detect the wrapper so the UI can avoid spamming an "Unsupported
+ * bundle signature" error full of garbage bytes.
+ *
+ * If you have a working decoder for this format, please open an
+ * issue or PR — see the `@tootallnate/ffpr-bundle` package
+ * placeholder in the repo for prior-art links.
+ */
+const FFPR_BUNDLE_MAGIC = new Uint8Array([
+	0x7e, 0x10, 0xd8, 0x12, 0x10, 0xc7, 0x3e, 0xb8,
+	0xdd, 0xe3, 0x7f, 0x40, 0xdb, 0xf6, 0xa1, 0x8d,
+	0x9a, 0xf3, 0x49, 0xa5, 0x78, 0x02, 0x45, 0x11,
+	0x80, 0x2d, 0x2b, 0x89, 0x7b, 0xae, 0x97, 0x9c,
+]);
+
+function isFfprBundle(head: Uint8Array): boolean {
+	if (head.length < FFPR_BUNDLE_MAGIC.length) return false;
+	for (let i = 0; i < FFPR_BUNDLE_MAGIC.length; i++) {
+		if (head[i] !== FFPR_BUNDLE_MAGIC[i]) return false;
+	}
+	return true;
+}
+
+/**
+ * Leaf node for an FFPR-wrapped Unity AssetBundle. We don't (yet)
+ * decrypt the contents, so this exposes the file as a non-container
+ * with a clear `Encrypted Unity AssetBundle (Square Enix)` format
+ * label. Users can still download the raw bytes for offline analysis
+ * with their own tools.
+ */
+function makeFfprBundleNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	_ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'file',
+		isContainer: false,
+		size: blob.size,
+		format: 'SQEX-AB',
+		blob: async () => blob,
+	};
+}
+
 // ----- Generic dispatcher for nested children whose container type is determined by name/sniff -----
 
 async function childNodeFor(
@@ -2333,8 +2415,18 @@ async function childNodeFor(
 	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob, ctx);
 	if (ext === 'szs') return makeSzsNode(id, name, blob, ctx);
 	if (ext === 'lz4') return makeLz4Node(id, name, blob, ctx);
-	if (ext === 'bundle' || ext === 'unity3d' || ext === 'ab')
-		return makeUnityFsNode(id, name, blob, ctx);
+	if (ext === 'bundle' || ext === 'unity3d' || ext === 'ab') {
+		// Sniff the magic before committing to UnityFS parsing. Some
+		// Switch ports wrap their AssetBundles in a custom encryption
+		// envelope (notably the Final Fantasy Pixel Remasters: see
+		// `isFfprBundle` below). Without this guard the UnityFS parser
+		// would surface a noisy "Unsupported bundle signature" error
+		// containing raw garbage bytes from the encrypted prefix.
+		const head = await sniffHead(blob);
+		if (isUnityFsHead(head)) return makeUnityFsNode(id, name, blob, ctx);
+		if (isFfprBundle(head)) return makeFfprBundleNode(id, name, blob, ctx);
+		// Unknown wrapper — fall through to generic.
+	}
 	if (ext === 'bars') return makeBarsNode(id, name, blob, ctx);
 	if (ext === 'bfsar') return makeBfsarNode(id, name, blob, ctx);
 	if (ext === 'bfwar') return makeBfwarNode(id, name, blob, ctx);
