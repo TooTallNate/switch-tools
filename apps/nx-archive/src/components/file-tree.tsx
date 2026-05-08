@@ -509,7 +509,19 @@ function TreeRow({
         }
       })
       .catch((err: Error) => {
-        node._childrenError = err instanceof Error ? err : new Error(String(err))
+        // Some lower-level decoders / browser stream APIs can reject
+        // with non-Error values (notably `undefined` from a native
+        // TransformStream when an upstream operation runs out of
+        // memory). Always coerce to a real Error so the UI doesn't
+        // render the literal word "undefined".
+        node._childrenError =
+          err instanceof Error
+            ? err
+            : err === undefined || err === null
+              ? new Error(
+                  'Operation failed without a specific error. This sometimes happens when the browser runs out of memory on multi-GB inputs.',
+                )
+              : new Error(String(err))
         if (!cancelled) {
           setProgress(null)
           onLoaded()

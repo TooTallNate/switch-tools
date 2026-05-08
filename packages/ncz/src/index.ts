@@ -67,7 +67,12 @@ export interface NczResult {
  *
  * This is used for block-mode NCZ, where each block is independently compressed.
  */
-export type ZstdDecompressBlob = (blob: Blob) => Promise<Uint8Array>;
+/**
+ * Decompresses a single zstd-compressed buffer into a `Uint8Array`.
+ * Used by block-mode NCZ, where each block is independently
+ * compressed and decompressed in one shot.
+ */
+export type ZstdDecompressBytes = (compressed: Uint8Array) => Promise<Uint8Array>;
 
 /**
  * A function that creates a `ReadableStream<Uint8Array>` of decompressed data
@@ -111,12 +116,13 @@ export interface NczOptions {
 	crypto?: Crypto;
 
 	/**
-	 * Decompresses a zstd-compressed `Blob` into a `Uint8Array`.
-	 * Required for block-mode NCZ files.
+	 * Decompresses a single zstd-compressed buffer into a `Uint8Array`.
+	 * Required for block-mode NCZ files (each block is decompressed in
+	 * one shot).
 	 *
 	 * If not provided and a block-mode NCZ is encountered, an error is thrown.
 	 */
-	decompressBlob?: ZstdDecompressBlob;
+	decompressBytes?: ZstdDecompressBytes;
 
 	/**
 	 * Creates a decompressed `ReadableStream` from a zstd-compressed input stream.
@@ -405,9 +411,9 @@ export async function decompressNcz(
 
 	if (blocks.length > 0 && blockHeader) {
 		// Block mode: decompress each block individually
-		if (!options.decompressBlob) {
+		if (!options.decompressBytes) {
 			throw new Error(
-				'NCZ block mode requires a `decompressBlob` function in options',
+				'NCZ block mode requires a `decompressBytes` function in options',
 			);
 		}
 
@@ -431,14 +437,18 @@ export async function decompressNcz(
 			// Is this block actually compressed?
 			const isCompressed = block.size < expectedSize;
 
-			const blockBlob = blob.slice(block.offset, block.offset + block.size);
+			const blockBytes = new Uint8Array(
+				await blob
+					.slice(block.offset, block.offset + block.size)
+					.arrayBuffer(),
+			);
 
 			let decompressed: Uint8Array;
 			if (isCompressed) {
-				decompressed = await options.decompressBlob(blockBlob);
+				decompressed = await options.decompressBytes(blockBytes);
 			} else {
 				// Block is stored uncompressed
-				decompressed = new Uint8Array(await blockBlob.arrayBuffer());
+				decompressed = blockBytes;
 			}
 
 			// Re-encrypt in-place and write with backpressure
@@ -449,106 +459,63 @@ export async function decompressNcz(
 			reportProgress(Number(written));
 		}
 	} else {
-		// Stream mode: the compressed body may contain multiple zstd frames.
-		// DecompressionStream typically handles a single frame, so we loop:
-		// decompress one frame, then find the next frame in the remaining
-		// compressed data and decompress that, until all data is consumed.
+		// Stream mode: the entire compressed body is a single zstd
+		// stream. We open one decompression stream and process each
+		// chunk it produces directly — re-encrypt in-place and write
+		// to the sink. The decoder produces ~128 KB chunks which is
+		// already a good size for AES-CTR + writer back-pressure, so
+		// we skip the additional accumulator buffer that an earlier
+		// version used.
+		//
+		// Earlier versions of this code attempted a "find the next
+		// frame magic" loop because some browsers' DecompressionStream
+		// terminate at the first frame boundary. That approach is
+		// wrong for NCZ — there is exactly ONE zstd frame for the
+		// whole body, and false-positive 0xFD2FB528 sequences in the
+		// compressed bytes would silently produce garbage.
+		// The reference implementation (python-nsz) uses a single
+		// ZstdDecompressor.stream_reader() over the whole compressed
+		// region and just calls .read(chunkSz) until it returns 0.
 		if (!options.decompressStream) {
 			throw new Error(
 				'NCZ stream mode requires a `decompressStream` function in options',
 			);
 		}
 
-		const FLUSH_SIZE = 512 * 1024; // 512KB
-		const accumulator = new Uint8Array(FLUSH_SIZE);
-		let accOffset = 0;
-		let compressedPos = compressedDataOffset;
 		const compressedEnd = Number(blob.size);
+		const compressedBlob = blob.slice(compressedDataOffset, compressedEnd);
+		const decompressedStream = options.decompressStream(compressedBlob.stream());
+		const reader = decompressedStream.getReader();
 
-		while (compressedPos < compressedEnd && written < ncaSize) {
-			const compressedBlob = blob.slice(compressedPos, compressedEnd);
-			const decompressedStream = options.decompressStream(
-				compressedBlob.stream(),
-			);
+		// Throttle progress reports to ~1 per FLUSH_SIZE-worth of output
+		// so we don't over-call the callback for every 128 KB chunk.
+		const PROGRESS_INTERVAL = 4 * 1024 * 1024; // 4 MB
+		let nextProgressAt = 0n;
 
-			const reader = decompressedStream.getReader();
-			let frameDecompressedBytes = 0;
+		while (written < ncaSize) {
+			const { done, value } = await reader.read();
+			if (done) break;
 
-			for (;;) {
-				const { done, value } = await reader.read();
-				if (done) break;
+			await reencrypt(value, written);
+			await writer.write(value);
+			written += BigInt(value.length);
 
-				let srcOff = 0;
-				while (srcOff < value.length) {
-					const copyLen = Math.min(
-						value.length - srcOff,
-						FLUSH_SIZE - accOffset,
-					);
-					accumulator.set(value.subarray(srcOff, srcOff + copyLen), accOffset);
-					accOffset += copyLen;
-					srcOff += copyLen;
-
-					if (accOffset >= FLUSH_SIZE) {
-						const chunk = accumulator.slice(0, accOffset);
-						await reencrypt(chunk, written);
-						await writer.write(chunk);
-						written += BigInt(accOffset);
-						accOffset = 0;
-						// Track input progress as the current frame's
-						// position within the compressed data. We don't
-						// know exactly how many compressed bytes have
-						// been consumed inside the zstd decoder, but
-						// the next-frame scan boundary is a useful
-						// proxy: we update bytesIn each time we move
-						// `compressedPos` (after each frame). For
-						// mid-frame chunks we just advance bytesOut.
-						reportProgress(Number(written));
-					}
-				}
-				frameDecompressedBytes += value.length;
+			if (written >= nextProgressAt) {
+				// Estimate input progress proportionally — we don't
+				// know exactly how many compressed bytes were
+				// consumed by the zstd decoder, but we can scale
+				// the input total by output progress so the bar
+				// keeps moving. Cap at the input total to avoid
+				// overshooting.
+				const ratio = ncaSize > 0n ? Number(written) / Number(ncaSize) : 0;
+				bytesIn = Math.min(
+					compressedDataOffset +
+						Math.round((compressedEnd - compressedDataOffset) * ratio),
+					bytesInTotal,
+				);
+				reportProgress(Number(written));
+				nextProgressAt = written + BigInt(PROGRESS_INTERVAL);
 			}
-
-			if (frameDecompressedBytes === 0) break;
-
-			// Find the next zstd frame magic (0xFD2FB528) in the
-			// remaining compressed data to continue decompression.
-			// Read a small window to scan for the magic.
-			const ZSTD_MAGIC = 0xfd2fb528;
-			let nextFrameFound = false;
-			// Start scanning after at least 4 bytes past current position
-			let scanPos = compressedPos + 4;
-			const SCAN_CHUNK = 64 * 1024;
-
-			while (scanPos < compressedEnd - 3) {
-				const scanEnd = Math.min(scanPos + SCAN_CHUNK, compressedEnd);
-				const scanBuf = await blob.slice(scanPos, scanEnd).arrayBuffer();
-				const scanView = new DataView(scanBuf);
-
-				for (let i = 0; i <= scanBuf.byteLength - 4; i++) {
-					if (scanView.getUint32(i, true) === ZSTD_MAGIC) {
-						compressedPos = scanPos + i;
-						nextFrameFound = true;
-						break;
-					}
-				}
-
-				if (nextFrameFound) break;
-				// Overlap by 3 bytes in case magic straddles chunks
-				scanPos = scanEnd - 3;
-			}
-
-			if (!nextFrameFound) break;
-			// Advance input progress to the start of the next frame.
-			bytesIn = compressedPos;
-			reportProgress(Number(written));
-		}
-
-		// Flush remaining accumulated data
-		if (accOffset > 0) {
-			const chunk = accumulator.slice(0, accOffset);
-			await reencrypt(chunk, written);
-			await writer.write(chunk);
-			written += BigInt(accOffset);
 		}
 	}
 

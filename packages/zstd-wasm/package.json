@@ -1,0 +1,28 @@
+{
+  "name": "@tootallnate/zstd-wasm",
+  "version": "0.0.1",
+  "description": "Zstandard decoder for browser and Node.js, with a streaming TransformStream API.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./zstd.wasm": "./dist/zstd.wasm"
+  },
+  "files": [
+    "dist",
+    "c/ZSTD-LICENSE"
+  ],
+  "scripts": {
+    "build:wasm": "make",
+    "build:ts": "tsc",
+    "build": "make && tsc && cp src/zstd.wasm dist/zstd.wasm",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

@@ -45,7 +45,7 @@ import {
 } from '@tootallnate/nca';
 import type { WalkedDirectory } from './directory';
 import { mergeSplitFiles, type MergedFile } from './split-file';
-import { zstdDecompressBlob, zstdDecompressStream } from './zstd';
+import { zstdDecompressBytes, zstdDecompressStream } from './zstd';
 
 // ----- Node types -----
 
@@ -1157,7 +1157,7 @@ async function decompressNczToBlob(
 	const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
 	const finish = new Response(readable).blob();
 	await decompressNcz(blob, () => writable, {
-		decompressBlob: zstdDecompressBlob,
+		decompressBytes: zstdDecompressBytes,
 		decompressStream: zstdDecompressStream,
 		onProgress,
 	});
