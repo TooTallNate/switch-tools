@@ -28,6 +28,7 @@ import {
   type BfresAnimations,
   type BfresGeometry,
   type BfresMaterial,
+  type BfresMaterialAnimFile,
   type BfresSkeletalAnim,
   type BfresSkeleton,
 } from "@tootallnate/bfres"
@@ -81,6 +82,13 @@ interface ShapeRecord {
   visible: boolean
   /** Whether we successfully bound an albedo texture from the BNTX. */
   hasAlbedo: boolean
+  /**
+   * Original bind-pose albedo for this shape. Captured at mount
+   * time so the FMAA driver can restore it when material
+   * animation stops or when the user picks "(no material anim)".
+   * `null` for shapes that fell back to MeshNormalMaterial.
+   */
+  bindAlbedo: THREE.Texture | null
 }
 
 /**
@@ -1132,6 +1140,248 @@ function pickAlbedo(
   return tex
 }
 
+/**
+ * Resolve a texture by name through the bank cache, with the
+ * given wrap mode. Returns the Three.js `DataTexture` or `null`
+ * if the name doesn't exist in any bank, or its bytes can't be
+ * decoded. The result is memoised inside the cache so repeat
+ * lookups for the same `(name, wrap)` pair don't re-decode.
+ *
+ * Used by the FMAA driver to swap in flipbook textures on the
+ * fly. Identical decode pipeline as `pickAlbedo`'s tail half;
+ * factored out so we don't repeat ourselves.
+ */
+function getTextureByName(
+  cache: BntxTextureCache,
+  textureName: string,
+  wrap: THREE.Wrapping,
+): THREE.Texture | null {
+  const wrapKey = wrap === THREE.ClampToEdgeWrapping ? "clamp" : "repeat"
+  const cacheKey = `${textureName}|${wrapKey}`
+  if (cache.textures.has(cacheKey)) return cache.textures.get(cacheKey) ?? null
+  let decoded = cache.decoded.get(textureName) ?? null
+  if (!cache.decoded.has(textureName)) {
+    const found = findInBanks(cache.banks, textureName)
+    if (found) {
+      try {
+        const d = decodeBntxLayer(found.bytes, found.tex, 0)
+        decoded = {
+          pixels: new Uint8ClampedArray(
+            d.pixels.buffer,
+            d.pixels.byteOffset,
+            d.pixels.byteLength,
+          ),
+          width: d.width,
+          height: d.height,
+          srgb: found.tex.srgb,
+        }
+      } catch {
+        decoded = null
+      }
+    }
+    cache.decoded.set(textureName, decoded)
+  }
+  if (!decoded) {
+    cache.textures.set(cacheKey, null)
+    return null
+  }
+  const tex = new THREE.DataTexture(
+    decoded.pixels,
+    decoded.width,
+    decoded.height,
+    THREE.RGBAFormat,
+    THREE.UnsignedByteType,
+  )
+  tex.colorSpace = decoded.srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
+  tex.flipY = false
+  tex.wrapS = wrap
+  tex.wrapT = wrap
+  tex.minFilter = THREE.LinearMipMapLinearFilter
+  tex.magFilter = THREE.LinearFilter
+  tex.generateMipmaps = true
+  tex.needsUpdate = true
+  cache.textures.set(cacheKey, tex)
+  return tex
+}
+
+/**
+ * Walk a texture-pattern animation's keyframe list and return
+ * the `textureIndex` active at frame `t`. Texture-pattern
+ * curves are stepwise: the index at frame `t` is whatever the
+ * latest keyframe at-or-before `t` says.
+ */
+function lookupTexturePatternIndex(
+  entries: { frame: number; textureIndex: number }[],
+  t: number,
+): number {
+  if (entries.length === 0) return 0
+  // Binary-search would be marginally faster but typical FMAA
+  // tracks have <30 keyframes so a linear scan is fine.
+  let chosen = entries[0]!.textureIndex
+  for (const e of entries) {
+    if (e.frame <= t) chosen = e.textureIndex
+    else break
+  }
+  return chosen
+}
+
+/**
+ * Restore each shape's bind-pose albedo. Used when no FMAA is
+ * active — without this the last FMAA-driven texture would
+ * stick around forever.
+ */
+function resetMaterialAnim(shapes: ShapeRecord[]): void {
+  for (const shape of shapes) {
+    if (!(shape.mesh.material instanceof THREE.Material)) continue
+    const m = shape.mesh.material as THREE.Material & {
+      map?: THREE.Texture | null
+    }
+    if (m.map !== shape.bindAlbedo) {
+      m.map = shape.bindAlbedo ?? null
+      m.needsUpdate = true
+    }
+  }
+}
+
+/**
+ * Apply one FMAA's material-animation state to the rendered
+ * shapes for the given frame. For each `materialAnim` in the
+ * file:
+ *
+ *   1. Find the shape(s) whose FMAT material name matches
+ *      the materialAnim's name (e.g. `m_Eye`).
+ *   2. For each `(samplerName, entries)` texture-pattern in
+ *      that materialAnim, look up the active `textureIndex`
+ *      at frame `t`.
+ *   3. Resolve `textureNames[textureIndex]` to a Three.js
+ *      texture via {@link getTextureByName} and assign it as
+ *      the matching mesh's `material.map`.
+ *
+ * We only drive the `_a0` / `_a1` (albedo) samplers — those
+ * are the ones we already use for rendering. The other
+ * samplers' patterns are decoded but ignored here.
+ */
+function applyMaterialAnim(
+  shapes: ShapeRecord[],
+  materials: BfresMaterial[][],
+  cache: BntxTextureCache,
+  fmaa: BfresMaterialAnimFile,
+  t: number,
+): void {
+  // Track stats so we can spot which path didn't fire when no
+  // visible change happens. `console.log`s a one-line summary
+  // per call (gated on a window-scoped flag so we can flip it
+  // off after debugging).
+  const dbg = (window as unknown as { __FMAA_DEBUG?: boolean }).__FMAA_DEBUG
+  let stats = {
+    matAnims: 0,
+    shapesMatched: 0,
+    samplersMatched: 0,
+    texturesSwapped: 0,
+    sampledTextures: [] as string[],
+  }
+  // One-shot detail dump on first call, gated on debug flag.
+  const dbgDetailed = (window as unknown as { __FMAA_DUMP?: boolean }).__FMAA_DUMP
+  if (dbgDetailed) {
+    ;(window as unknown as { __FMAA_DUMP?: boolean }).__FMAA_DUMP = false
+    // eslint-disable-next-line no-console
+    console.log(`[FMAA] DUMP ${fmaa.name}:`, {
+      frameCount: fmaa.frameCount,
+      loop: fmaa.loop,
+      baked: fmaa.baked,
+      materialAnimsCount: fmaa.materialAnims.length,
+      textureNamesCount: fmaa.textureNames.length,
+      textureNames: fmaa.textureNames,
+      materialAnims: fmaa.materialAnims.map((ma) => ({
+        name: ma.name,
+        curvesCount: ma.curves.length,
+        texturePatternsSize: ma.texturePatterns.size,
+        texturePatternsKeys: Array.from(ma.texturePatterns.keys()),
+        firstPatternEntries: Array.from(ma.texturePatterns.entries()).map(
+          ([s, e]) => ({ sampler: s, count: e.length, first8: e.slice(0, 8) }),
+        ),
+      })),
+    })
+    // Also dump the live shapes' material names so we can see
+    // why the name match fails.
+    // eslint-disable-next-line no-console
+    console.log(`[FMAA] DUMP shapes:`, shapes.map((s) => {
+      const mat = materials[s.geom.modelIndex]?.[s.geom.materialIndex]
+      return {
+        modelIndex: s.geom.modelIndex,
+        materialIndex: s.geom.materialIndex,
+        materialName: mat?.name,
+        bindings: mat?.bindings.map((b) => `${b.samplerName}=${b.textureName}`),
+      }
+    }))
+  }
+  for (const ma of fmaa.materialAnims) {
+    if (ma.texturePatterns.size === 0) continue
+    stats.matAnims++
+    // Find every shape whose material matches `ma.name`. A
+    // given material can be shared across multiple shapes
+    // (e.g. Yoshi's two pupil shapes share `m_PupilL` /
+    // `m_PupilR` accordingly) so we don't `break` after the
+    // first hit.
+    for (const shape of shapes) {
+      const mat = materials[shape.geom.modelIndex]?.[shape.geom.materialIndex]
+      if (!mat || mat.name !== ma.name) continue
+      stats.shapesMatched++
+      const mesh = shape.mesh
+      if (!(mesh.material instanceof THREE.Material)) continue
+      // We only have one texture slot in our renderer — the
+      // material's `.map` — and `pickAlbedo` filled it from
+      // the FIRST albedo sampler the material binds (`_a0`
+      // first, `_a1` if absent, …). Only animate THAT slot.
+      // Yoshi's pupil materials, for example, bind both
+      // `_a0` (eyeball) and `_a1` (pupil overlay); the FMAA
+      // animates `_a1` but we render via `_a0`. Writing the
+      // pupil-overlay texture into our single slot would
+      // overwrite the eyeball with a tiled-grid pupil sheet.
+      // For multi-texture materials that needs a real shader
+      // with `_a0` + `_a1` compositing — out of scope here.
+      const albedoSamplers = ["_a0", "_a1", "_a2"]
+      let activeSampler: string | null = null
+      for (const s of albedoSamplers) {
+        if (mat.bindings.find((b) => b.samplerName === s)) {
+          activeSampler = s
+          break
+        }
+      }
+      if (!activeSampler) continue
+      const entries = ma.texturePatterns.get(activeSampler)
+      if (!entries || entries.length === 0) continue
+      stats.samplersMatched++
+      const idx = lookupTexturePatternIndex(entries, t)
+      const newTexName = fmaa.textureNames[idx]
+      if (!newTexName) continue
+      stats.sampledTextures.push(`${ma.name}.${activeSampler}=${newTexName}`)
+      const wrap = pickWrapMode(shape.geom)
+      const newTex = getTextureByName(cache, newTexName, wrap)
+      if (!newTex) continue
+      const m = mesh.material as THREE.Material & {
+        map?: THREE.Texture | null
+      }
+      if (m.map !== newTex) {
+        m.map = newTex
+        m.needsUpdate = true
+        stats.texturesSwapped++
+      }
+    }
+  }
+  if (dbg) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `[FMAA] t=${t.toFixed(1)} ${fmaa.name}: ` +
+        `matAnims=${stats.matAnims} shapesMatched=${stats.shapesMatched} ` +
+        `samplersMatched=${stats.samplersMatched} swapped=${stats.texturesSwapped}` +
+        (stats.sampledTextures.length
+          ? ` [${stats.sampledTextures.slice(0, 3).join(", ")}${stats.sampledTextures.length > 3 ? ", ..." : ""}]`
+          : ""),
+    )
+  }
+}
+
 /** Indexed mesh in flat arrays — convenient for processing. */
 interface IndexedMesh {
   /** Packed `[x, y, z, x, y, z, …]` positions. Length is 3 × vertex count. */
@@ -1636,6 +1886,14 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
   const skeletonsRef = useRef<BfresSkeleton[] | null>(null)
   const sceneSkeletonsRef = useRef<FsklSceneSkeleton[] | null>(null)
   const animationsRef = useRef<BfresAnimations | null>(null)
+  // Texture cache + materials kept in refs so the FMAA driver
+  // can look up textures by name and find the right material on
+  // the right shape. The shapes themselves live in React state
+  // (toggled visibility), but the supporting metadata that the
+  // animation driver needs is too noisy to put in state — we'd
+  // rebuild every effect on every frame tick.
+  const textureCacheRef = useRef<BntxTextureCache | null>(null)
+  const materialsRef = useRef<BfresMaterial[][] | null>(null)
   const [showSkeleton, setShowSkeleton] = useState(false)
   // STL export options. `stlSubdivision` is the number of Loop
   // subdivision passes applied before STL emit — 0 = raw mesh
@@ -1646,6 +1904,12 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
   // Animation playback state. `currentAnim` indexes into
   // `animations.skeletal` (or -1 for "no animation, bind pose").
   const [currentAnim, setCurrentAnim] = useState<number>(-1)
+  // Active FMAA (material animation) index, parallel to
+  // `currentAnim` for FSKAs. `-1` means "no material anim" —
+  // textures stay at the bind-pose albedo. FMAA is decoupled
+  // from FSKA: the user picks each independently and they tick
+  // together on the same frame counter.
+  const [currentMatAnim, setCurrentMatAnim] = useState<number>(-1)
   const [playing, setPlaying] = useState<boolean>(true)
   const [frame, setFrame] = useState<number>(0)
   // Animation timing — lives in a ref so the rAF loop can read it
@@ -1798,6 +2062,8 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
 
         skeletonsRef.current = skeletons
         animationsRef.current = mergedAnimations
+        textureCacheRef.current = mergedTextures
+        materialsRef.current = materials
 
         // Build a Three.js scene-graph skeleton per FMDL — array of
         // `THREE.Bone`s parented in a hierarchy, plus an `Skeleton`
@@ -1970,7 +2236,13 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
             }
           }
           mesh.name = g.name
-          return { geom: g, mesh, visible: true, hasAlbedo: !!albedo }
+          return {
+            geom: g,
+            mesh,
+            visible: true,
+            hasAlbedo: !!albedo,
+            bindAlbedo: albedo,
+          }
         })
         setShapes(records)
       } catch (err) {
@@ -2169,13 +2441,27 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
     if (playing) return
     const sceneSkeletons = sceneSkeletonsRef.current
     const animations = animationsRef.current
-    if (!sceneSkeletons || !animations) return
-    const anim = currentAnim >= 0 ? animations.skeletal[currentAnim] : null
-    if (!anim) return
-    for (const ss of sceneSkeletons) {
-      applySkeletalAnim(ss, anim, frame)
+    if (!sceneSkeletons || !animations || !shapes) return
+    const skelAnim =
+      currentAnim >= 0 ? animations.skeletal[currentAnim] : null
+    if (skelAnim) {
+      for (const ss of sceneSkeletons) {
+        applySkeletalAnim(ss, skelAnim, frame)
+      }
     }
-  }, [playing, frame, currentAnim, shapes])
+    // FMAA at the same frame, decoupled from FSKA. The two
+    // are independently selected — the user can scrub through
+    // a skeletal pose while a face flipbook continues to tick.
+    const matAnim =
+      currentMatAnim >= 0 ? animations.material[currentMatAnim] : null
+    const cache = textureCacheRef.current
+    const materials = materialsRef.current
+    if (matAnim && cache && materials) {
+      applyMaterialAnim(shapes, materials, cache, matAnim, frame)
+    } else if (shapes) {
+      resetMaterialAnim(shapes)
+    }
+  }, [playing, frame, currentAnim, currentMatAnim, shapes])
 
   // ---- Animation playback driver ----
   // When an animation is selected and playing, advance the frame
@@ -2184,18 +2470,19 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
   // FPS, the convention is `frameCount` is in 30 fps frames).
   // On every frame we re-evaluate every animated bone's curves and
   // write into the `THREE.Bone`s of the scene skeleton; the bound
-  // SkinnedMeshes deform automatically next render.
+  // SkinnedMeshes deform automatically next render. FMAA is
+  // applied alongside on the same frame counter.
   useEffect(() => {
     const sceneSkeletons = sceneSkeletonsRef.current
     const animations = animationsRef.current
-    if (!sceneSkeletons || !animations) return
-    const anim = currentAnim >= 0 ? animations.skeletal[currentAnim] : null
+    if (!sceneSkeletons || !animations || !shapes) return
+    const skelAnim =
+      currentAnim >= 0 ? animations.skeletal[currentAnim] : null
+    const matAnim =
+      currentMatAnim >= 0 ? animations.material[currentMatAnim] : null
 
-    // Reset to bind pose when no animation is selected. Decompose
-    // each bone's source `localMatrix` (BFRES convention) directly
-    // rather than feeding raw Euler angles into `THREE.Euler('XYZ')`
-    // — see {@link eulerXyzToQuaternionBfres}.
-    if (!anim) {
+    // Reset to bind pose when no skeletal animation is selected.
+    if (!skelAnim) {
       const tmpMat = new THREE.Matrix4()
       for (const ss of sceneSkeletons) {
         for (let i = 0; i < ss.bones.length; i++) {
@@ -2205,40 +2492,43 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
           tmpMat.decompose(tb.position, tb.quaternion, tb.scale)
         }
       }
-      return
     }
+    // Reset materials when no FMAA is selected.
+    if (!matAnim) resetMaterialAnim(shapes)
 
-    // Bail out completely while paused: the manual-scrub effect
-    // above is the sole driver of the displayed pose, so the rAF
-    // loop has nothing useful to do, and if it kept running it
-    // would call `setFrame(localFrame)` every tick — clobbering
-    // whatever the user just dragged the scrubber to.
-    if (!playing) return
+    // Nothing to drive in the loop if neither's selected, OR
+    // if we're paused — manual-scrub effect handles displayed
+    // pose while paused.
+    if ((!skelAnim && !matAnim) || !playing) return
 
     let cancelled = false
     let lastTimestamp = 0
-    // Pick up the React-state frame as the playback cursor's
-    // starting point. If the user scrubbed while paused, this is
-    // where they parked it; if they hit Play at the end of a non-
-    // looping clip we restart from 0 so they always get *some*
-    // playback.
+    // Drive playback off whichever animation has the longer
+    // frame count. With both selected we want the LCM to loop
+    // cleanly, but for a v1 just take the max — the shorter
+    // one will keep ticking past its end (clamped) which is
+    // visually fine for short FMAAs that loop within a long
+    // FSKA.
     const fps = 30 // BFRES convention
-    const totalFrames = Math.max(1, anim.frameCount)
+    const skelFrames = skelAnim ? Math.max(1, skelAnim.frameCount) : 1
+    const matFrames = matAnim ? Math.max(1, matAnim.frameCount) : 1
+    const totalFrames = Math.max(skelFrames, matFrames)
+    // Whether the longest-running animation loops. End-of-clip
+    // detection only triggers when the *driving* animation
+    // doesn't loop; if either loops we just keep going.
+    const drivingLoops =
+      (skelAnim?.loop ?? false) || (matAnim?.loop ?? false)
     let localFrame = frame
-    if (!anim.loop && localFrame >= totalFrames - 1) localFrame = 0
+    if (!drivingLoops && localFrame >= totalFrames - 1) localFrame = 0
+
     const tick = (timestamp: number) => {
       if (cancelled) return
-      // Whether this tick is the *last* one for the current
-      // playback — set when a non-looping clip's playhead just
-      // crossed the final frame. We still apply the final pose
-      // once below, then flip `playing` to false so the rAF
-      // loop tears down on the cleanup pass.
       let endReached = false
       if (lastTimestamp > 0) {
         const dt = (timestamp - lastTimestamp) / 1000
         localFrame += dt * fps
         if (localFrame >= totalFrames) {
-          if (anim.loop) {
+          if (drivingLoops) {
             localFrame %= totalFrames
           } else {
             localFrame = totalFrames - 1
@@ -2248,17 +2538,26 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
       }
       lastTimestamp = timestamp
 
-      // Apply the animation to each scene skeleton. (FSKA targets
-      // bones by name, and Yoshi-style multi-FMDL setups have the
-      // same bone names across both rigs only in the primary
-      // skeleton. Driving every scene skeleton is harmless: the
-      // anim's `boneAnims` only matches names that actually exist.)
-      for (const ss of sceneSkeletons) {
-        applySkeletalAnim(ss, anim, localFrame)
+      // Apply both animations at the same frame. FMAA frame
+      // counts may be smaller than FSKA's; we wrap the FMAA
+      // frame around its own length so it loops as it usually
+      // does in-game.
+      if (skelAnim) {
+        for (const ss of sceneSkeletons) {
+          applySkeletalAnim(ss, skelAnim, localFrame)
+        }
       }
-      // Push the rounded frame number to React state for UI
-      // display only. Suppressed when unchanged to avoid
-      // re-renders 60×/sec.
+      if (matAnim) {
+        const cache = textureCacheRef.current
+        const materials = materialsRef.current
+        if (cache && materials) {
+          const matFrame = matAnim.loop
+            ? localFrame % Math.max(1, matAnim.frameCount)
+            : Math.min(localFrame, matAnim.frameCount - 1)
+          applyMaterialAnim(shapes, materials, cache, matAnim, matFrame)
+        }
+      }
+
       const rounded = Math.floor(localFrame)
       setFrame((cur) => (cur === rounded ? cur : rounded))
 
@@ -2283,7 +2582,7 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
     // state for UI display. Re-running the effect on every frame
     // tick would tear down and rebuild the rAF loop unnecessarily.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shapes, currentAnim, playing])
+  }, [shapes, currentAnim, currentMatAnim, playing])
 
   // ---- Skeleton wireframe overlay ----
   // Driven by `showSkeleton`: when on, build a Group of LineSegments
@@ -2341,8 +2640,18 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
   }
 
   const skeletalAnims = animationsRef.current?.skeletal ?? []
+  const materialAnims = animationsRef.current?.material ?? []
   const activeAnim = currentAnim >= 0 ? skeletalAnims[currentAnim] : null
-  const totalFrames = activeAnim ? Math.max(0, activeAnim.frameCount - 1) : 0
+  const activeMatAnim =
+    currentMatAnim >= 0 ? materialAnims[currentMatAnim] : null
+  // Scrubber range = the longer of the two selected animations.
+  // Either being selected enables playback / scrub UI.
+  const scrubMax = Math.max(
+    activeAnim ? activeAnim.frameCount - 1 : 0,
+    activeMatAnim ? activeMatAnim.frameCount - 1 : 0,
+  )
+  const totalFrames = scrubMax
+  const anyAnimSelected = currentAnim >= 0 || currentMatAnim >= 0
 
   return (
     // Outer column lays out the canvas, control bars, and the
@@ -2357,39 +2666,57 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
         ref={containerRef}
         className="relative h-[420px] overflow-hidden rounded-md border bg-gradient-to-b from-muted/40 to-background"
       />
-      {/* Animation control bar — only renders when the BFRES has at
-          least one skeletal animation. The dropdown selects which
-          clip; the play/pause button and frame scrubber drive
-          playback. */}
-      {skeletalAnims.length > 0 ? (
+      {/* Animation control bar — renders when the BFRES has at
+          least one skeletal or material animation. The two
+          dropdowns each select one clip independently; play /
+          pause and the frame scrubber drive both at once on a
+          shared frame counter. */}
+      {(skeletalAnims.length > 0 || materialAnims.length > 0) ? (
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <select
-            value={currentAnim}
-            onChange={(e) => {
-              const idx = Number(e.target.value)
-              setCurrentAnim(idx)
-              setFrame(0)
-              // Picking a real clip from the dropdown should
-              // start playback immediately — otherwise the user
-              // has to chase a separate Play click after every
-              // selection. Switching to the bind-pose entry
-              // (idx -1) leaves `playing` alone since there's
-              // nothing to play in that state.
-              if (idx >= 0) setPlaying(true)
-            }}
-            className="rounded-md border bg-card px-2 py-1"
-          >
-            <option value={-1}>(bind pose — no animation)</option>
-            {skeletalAnims.map((a, i) => (
-              <option key={i} value={i}>
-                {a.name} ({a.frameCount}f{a.loop ? ", loop" : ""})
-              </option>
-            ))}
-          </select>
+          {skeletalAnims.length > 0 && (
+            <select
+              value={currentAnim}
+              onChange={(e) => {
+                const idx = Number(e.target.value)
+                setCurrentAnim(idx)
+                setFrame(0)
+                if (idx >= 0) setPlaying(true)
+              }}
+              title="Skeletal animation (FSKA) — drives bone movement"
+              className="rounded-md border bg-card px-2 py-1"
+            >
+              <option value={-1}>(no skeletal — bind pose)</option>
+              {skeletalAnims.map((a, i) => (
+                <option key={i} value={i}>
+                  {a.name} ({a.frameCount}f{a.loop ? ", loop" : ""})
+                </option>
+              ))}
+            </select>
+          )}
+          {materialAnims.length > 0 && (
+            <select
+              value={currentMatAnim}
+              onChange={(e) => {
+                const idx = Number(e.target.value)
+                setCurrentMatAnim(idx)
+                setFrame(0)
+                if (idx >= 0) setPlaying(true)
+              }}
+              title="Material animation (FMAA) — drives texture flips, eye blinks, glow pulses, etc."
+              className="rounded-md border bg-card px-2 py-1"
+            >
+              <option value={-1}>(no material anim)</option>
+              {materialAnims.map((a, i) => (
+                <option key={i} value={i}>
+                  {a.name} ({a.frameCount}f{a.loop ? ", loop" : ""})
+                </option>
+              ))}
+            </select>
+          )}
           <button
             type="button"
             onClick={() => setPlaying((p) => !p)}
-            disabled={currentAnim < 0}
+            disabled={!anyAnimSelected}
             aria-label={playing ? "Pause animation" : "Play animation"}
             title={playing ? "Pause" : "Play"}
             className="inline-flex items-center justify-center rounded-md border bg-card p-1.5 disabled:opacity-50"
@@ -2410,11 +2737,11 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
               setFrame(Number(e.target.value))
               setPlaying(false)
             }}
-            disabled={currentAnim < 0}
+            disabled={!anyAnimSelected}
             className="flex-1"
           />
           <span className="font-mono text-muted-foreground tabular-nums">
-            {currentAnim >= 0 ? `${Math.min(frame, totalFrames)} / ${totalFrames}` : "—"}
+            {anyAnimSelected ? `${Math.min(frame, totalFrames)} / ${totalFrames}` : "—"}
           </span>
         </div>
       ) : null}

@@ -732,6 +732,22 @@ function readDict(data: Uint8Array, v: DataView, dictOffset: number): string[] {
  * to terminate (matching what BfresLibrary does — the lengths in
  * the wild are sometimes stale).
  */
+/**
+ * Reinterpret a Float32's bit pattern as a signed Int32. Used
+ * for integer-typed animation curves where the `offset` field
+ * is a Float32 on disk but its bits encode an int bias.
+ *
+ * Allocates the conversion buffer once at module load — calls
+ * are cheap thereafter.
+ */
+const FLOAT_BITS_BUF = new ArrayBuffer(4);
+const FLOAT_BITS_F32 = new Float32Array(FLOAT_BITS_BUF);
+const FLOAT_BITS_I32 = new Int32Array(FLOAT_BITS_BUF);
+function floatBitsToInt32(f: number): number {
+	FLOAT_BITS_F32[0] = f;
+	return FLOAT_BITS_I32[0]!;
+}
+
 function readPoolString(data: Uint8Array, offset: number): string {
 	if (!offset || offset + 2 >= data.length) return '';
 	const length =
@@ -2340,6 +2356,60 @@ function readSimpleAnimHeader(
 	return { flags, frameCount };
 }
 
+/**
+ * Decode an FMAA (Material Animation) sub-file. Switch v5–v8
+ * layout per BfresLibrary's `MaterialAnim.cs` reference:
+ *
+ *   +0x00  4   magic ('FMAA')
+ *   +0x04  12  HeaderBlock (per-sub-file framework pointers)
+ *   +0x10  8   nameOff
+ *   +0x18  8   pathOff (rare, often 0)
+ *   +0x20  8   bindModelOff   (PPtr<Model>)
+ *   +0x28  8   bindIndexArrOff
+ *   +0x30  8   matAnimArrOff
+ *   +0x38  8   textureNamesUnkOff (runtime field, often 0)
+ *   +0x40  8   textureNameArrOff
+ *   +0x48  8   userDataOff
+ *   +0x50  8   userDataDictOff
+ *   +0x58  8   textureBindArrOff
+ *   +0x60  2   flags             (BakedCurve=1, Looping=4)
+ *   +0x62  2   numUserData
+ *   +0x64  2   numMaterial       (number of MaterialAnimData records)
+ *   +0x66  2   numCurve          (total curves across all materials)
+ *   +0x68  4   frameCount
+ *   +0x6c  4   bakedSize
+ *   +0x70  2   numShaderParamAnim
+ *   +0x72  2   numTexturePatternAnim
+ *   +0x74  2   numVisibilityAnim (FMAA's local visibility count)
+ *   +0x76  2   numTexture        (matches `textureNames.length`)
+ *
+ * Per-MaterialAnimData record (within `matAnimArrOff`),
+ * Switch layout, 0x40 bytes:
+ *
+ *   +0x00  8   nameOff               (FMAT material name)
+ *   +0x08  8   shaderParamAnimOff
+ *   +0x10  8   texturePatternAnimOff (PatternAnimInfo[])
+ *   +0x18  8   curveOff              (AnimCurve[])
+ *   +0x20  8   constantsOff          (AnimConstant[])
+ *   +0x28  2   shaderParamCurveIndex
+ *   +0x2A  2   texturePatternCurveIndex
+ *   +0x2C  2   visualConstantIndex
+ *   +0x2E  2   visualCurveIndex
+ *   +0x30  2   beginVisualConstantIndex
+ *   +0x32  2   numShaderParamAnim
+ *   +0x34  2   numTexturePatternAnim
+ *   +0x36  2   numConstantAnim
+ *   +0x38  2   numCurve
+ *   +0x3A  6   reserved
+ *
+ * Per-PatternAnimInfo (within `texturePatternAnimOff[]`):
+ *   +0x00  8   sampler-name string offset (e.g. `_a0`)
+ *   +0x08  2   curveIndex (-1 if no curve)
+ *   +0x0A  2   beginConstant (0xFFFF if none)
+ *   +0x0C  1   subBindIndex (often -1)
+ *   +0x0D  3   reserved
+ *   total: 16 bytes
+ */
 function readMaterialAnim(
 	data: Uint8Array,
 	v: DataView,
@@ -2347,14 +2417,127 @@ function readMaterialAnim(
 	name: string,
 	major: number,
 ): BfresMaterialAnimFile | null {
-	const { flags, frameCount } = readSimpleAnimHeader(data, v, recOff, major);
+	if (recOff + 0x80 > data.length) return null;
+	if (major >= 9) {
+		// Don't have a sample to verify the v9+ layout against
+		// — fall back to the header-only stub for now.
+		const { flags, frameCount } = readSimpleAnimHeader(data, v, recOff, major);
+		return {
+			name,
+			frameCount,
+			loop: (flags & 0x4) !== 0,
+			baked: (flags & 0x1) !== 0,
+			materialAnims: [],
+			textureNames: [],
+		};
+	}
+	const matAnimArrOff = Number(v.getBigUint64(recOff + 0x30, true));
+	const textureNameArrOff = Number(v.getBigUint64(recOff + 0x40, true));
+	const flags = v.getUint16(recOff + 0x60, true);
+	const numMaterial = v.getUint16(recOff + 0x64, true);
+	const frameCount = v.getInt32(recOff + 0x68, true);
+	const numTexturePatternAnim = v.getUint16(recOff + 0x72, true);
+	const numTexture = v.getUint16(recOff + 0x76, true);
+
+	// ---- Texture name list ----
+	// `textureNameArrOff` points at an array of `numTexture`
+	// 8-byte string-pool pointers. Each one resolves to a name
+	// of a texture in the shape's parent BFRES's BNTX bank.
+	const textureNames: string[] = [];
+	if (textureNameArrOff > 0 && numTexture > 0) {
+		for (let i = 0; i < numTexture; i++) {
+			const ptrOff = textureNameArrOff + i * 8;
+			if (ptrOff + 8 > data.length) break;
+			const strPtr = Number(v.getBigUint64(ptrOff, true));
+			textureNames.push(readPoolString(data, strPtr));
+		}
+	}
+
+	// ---- MaterialAnimData[] ----
+	const materialAnims: BfresMaterialAnim[] = [];
+	if (matAnimArrOff > 0 && numMaterial > 0) {
+		for (let m = 0; m < numMaterial; m++) {
+			const matOff = matAnimArrOff + m * 0x40;
+			if (matOff + 0x40 > data.length) break;
+			const matNameOff = Number(v.getBigUint64(matOff + 0x00, true));
+			const patternAnimOff = Number(v.getBigUint64(matOff + 0x10, true));
+			const curveArrOff = Number(v.getBigUint64(matOff + 0x18, true));
+			const numPatternAnimM = v.getUint16(matOff + 0x34, true);
+			const numCurveM = v.getUint16(matOff + 0x38, true);
+
+			const matName = readPoolString(data, matNameOff);
+
+			// Curves array (AnimCurve[])
+			const curves: BfresAnimCurve[] = [];
+			if (curveArrOff > 0 && numCurveM > 0) {
+				for (let c = 0; c < numCurveM; c++) {
+					const cOff = curveArrOff + c * ANIM_CURVE_STRIDE_SWITCH;
+					const curve = readAnimCurve(data, v, cOff);
+					if (curve) curves.push(curve);
+				}
+			}
+
+			// Texture-pattern animations: per-sampler flipbook
+			// driven by a curve into the texture name list.
+			const texturePatterns = new Map<
+				string,
+				{ frame: number; textureIndex: number }[]
+			>();
+			if (patternAnimOff > 0 && numPatternAnimM > 0) {
+				for (let p = 0; p < numPatternAnimM; p++) {
+					const pOff = patternAnimOff + p * 16;
+					if (pOff + 16 > data.length) break;
+					const samplerNameOff = Number(
+						v.getBigUint64(pOff + 0, true),
+					);
+					const curveIndex = v.getInt16(pOff + 8, true);
+					const samplerName = readPoolString(data, samplerNameOff);
+					if (curveIndex < 0 || curveIndex >= curves.length) continue;
+					const curve = curves[curveIndex]!;
+					// Materialise per-frame keyframes in
+					// `(frame, textureIndex)` form so consumers
+					// don't need to re-implement curve sampling
+					// just to drive a texture flip. Texture-
+					// pattern curves are stepInt curves with
+					// signed-integer keys + an integer bias —
+					// the `offset` field on `BfresAnimCurve` is
+					// declared as `number` but its bit pattern
+					// for integer curves IS the integer bias
+					// (Float32 bit-reinterpretation), and `scale`
+					// is the multiplier (typically 1).
+					const offsetAsInt = floatBitsToInt32(curve.offset);
+					const scaleEffective = curve.scale === 0 ? 1 : curve.scale;
+					const entries: { frame: number; textureIndex: number }[] = [];
+					const numKey = curve.frames.length;
+					for (let k = 0; k < numKey; k++) {
+						const frame = curve.frames[k] ?? k;
+						const raw = curve.keys[k] ?? 0;
+						entries.push({
+							frame,
+							textureIndex: Math.round(
+								raw * scaleEffective + offsetAsInt,
+							),
+						});
+					}
+					texturePatterns.set(samplerName, entries);
+				}
+			}
+
+			materialAnims.push({
+				name: matName,
+				curves,
+				texturePatterns,
+			});
+		}
+	}
+
 	return {
 		name,
 		frameCount,
 		loop: (flags & 0x4) !== 0,
 		baked: (flags & 0x1) !== 0,
-		materialAnims: [],
-		textureNames: [],
+		materialAnims,
+		textureNames,
 	};
 }
 
