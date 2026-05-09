@@ -120,6 +120,16 @@
 
 export const UASSET_MAGIC = 0x9e2a83c1;
 
+// Property-tag deserialiser is implemented in `properties.ts` and
+// re-exported here so callers get a single import surface.
+export {
+	readExportProperties,
+	type NativeStruct,
+	type UExportProperties,
+	type UProperty,
+	type UValue,
+} from './properties.js';
+
 /**
  * The fixed-size summary header at the start of every UE
  * package. Field availability depends on `legacyFileVersion`;

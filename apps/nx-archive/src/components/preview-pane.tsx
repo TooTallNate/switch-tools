@@ -91,9 +91,14 @@ import {
 import {
   parseUasset,
   inferAssetClassName,
+  readExportProperties,
   resolveFName,
   resolvePackageIndex,
+  type NativeStruct,
   type ParsedUasset,
+  type UExportProperties,
+  type UProperty,
+  type UValue,
 } from "@tootallnate/uasset"
 import {
   AUDIO_MIME,
@@ -1416,7 +1421,7 @@ function FilePreview({
     case "html-preview":
       return <HtmlPreview node={node} root={root} />
     case "uasset-info":
-      return <UassetPreview node={node} />
+      return <UassetPreview node={node} root={root} />
     case "nacp":
       return <NacpPreview node={node} />
     case "cnmt":
@@ -3560,17 +3565,45 @@ function BmfontPagesSection({
 //   - The file's sub-objects (export table) and where their
 //     serialized bodies live in the file
 
-function UassetPreview({ node }: { node: Node }) {
+function UassetPreview({ node, root }: { node: Node; root: Node | null }) {
   const { loading, data, error } = useAsync(async () => {
     const blob = await node.blob!()
     const bytes = new Uint8Array(await blob.arrayBuffer())
     const parsed = parseUasset(bytes)
-    return parsed
-  }, [node.id])
+    // UE splits each asset into a `.uasset` (header tables) and a
+    // sibling `.uexp` (the actual export property bodies). When a
+    // sibling exists in the same archive we decode its properties so
+    // the user sees real values like `Looping=true` and not just the
+    // names of the properties.
+    const exports: UExportProperties[] = []
+    let uexpError: Error | null = null
+    if (root && node.id.toLowerCase().endsWith(".uasset")) {
+      const siblingId = node.id.replace(/\.uasset$/i, ".uexp")
+      try {
+        const siblingNode = await findNodeById(root, siblingId)
+        if (siblingNode?.blob) {
+          const uexpBlob = await siblingNode.blob()
+          const uexpBytes = new Uint8Array(await uexpBlob.arrayBuffer())
+          for (let i = 0; i < parsed.exports.length; i++) {
+            try {
+              exports.push(readExportProperties(parsed, uexpBytes, i))
+            } catch (err) {
+              // Per-export failure shouldn't kill the whole preview;
+              // the missing export simply won't appear in the props pane.
+              console.warn(`uasset: export ${i} property decode failed:`, err)
+            }
+          }
+        }
+      } catch (err) {
+        uexpError = err instanceof Error ? err : new Error(String(err))
+      }
+    }
+    return { parsed, exports, uexpError }
+  }, [node.id, root])
 
   if (loading) return <LoadingFiller label="Decoding .uasset header…" />
   if (error) return <ErrorFiller error={error} />
-  const v = data!
+  const { parsed: v, exports: decodedExports, uexpError } = data!
 
   const className = inferAssetClassName(v)
   const ueVersionLabel = (() => {
@@ -3606,6 +3639,21 @@ function UassetPreview({ node }: { node: Node }) {
           )}
         </KvBlock>
 
+        {decodedExports.length > 0 && (
+          <UassetPropertiesSection
+            parsed={v}
+            decodedExports={decodedExports}
+          />
+        )}
+        {uexpError && (
+          <Alert variant="destructive">
+            <AlertTitle>Could not load .uexp sibling</AlertTitle>
+            <AlertDescription>
+              {uexpError.message}
+            </AlertDescription>
+          </Alert>
+        )}
+
         <UassetExportsTable parsed={v} />
         <UassetImportsTable parsed={v} />
         <UassetNamesTable parsed={v} />
@@ -3615,6 +3663,200 @@ function UassetPreview({ node }: { node: Node }) {
         )}
       </div>
     </ScrollArea>
+  )
+}
+
+/**
+ * Convert a decoded `UProperty[]` array into a plain JSON-shaped tree
+ * suitable for `<JsonInspector>`.
+ *
+ * The shape is intentionally lossy:
+ *   - Wrapper types like `{kind:'struct', native: {...}}` collapse to
+ *     just the inner native struct fields.
+ *   - Generic structs collapse to `{[propName]: simplifyValue(prop), ...}`.
+ *   - Arrays / sets become JS arrays.
+ *   - Maps become arrays of `[key, value]` pairs (since plain JS objects
+ *     can't represent non-string keys).
+ *   - Object references become a string like `"-> Texture2D'/Game/UI/T_Foo'"`.
+ *   - Unknown values become `<unknown: NN bytes (reason)>`.
+ *
+ * The goal is at-a-glance readability in the inspector; consumers that
+ * need the full UE typing (e.g. an asset extractor) should consume the
+ * raw `UProperty` tree directly.
+ */
+function propertiesToInspectable(properties: UProperty[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const prop of properties) {
+    // Static-array properties surface as multiple tags with the same
+    // name and arrayIndex 0..N-1. We coalesce them into a JS array.
+    const key = prop.name
+    const v = simplifyValue(prop.value)
+    if (key in out) {
+      const existing = out[key]
+      if (Array.isArray(existing)) {
+        existing.push(v)
+      } else {
+        out[key] = [existing, v]
+      }
+    } else {
+      out[key] = v
+    }
+  }
+  return out
+}
+
+function simplifyValue(v: UValue): unknown {
+  switch (v.kind) {
+    case "bool":
+    case "int8":
+    case "int16":
+    case "int32":
+    case "uint16":
+    case "uint32":
+    case "float":
+    case "double":
+    case "name":
+    case "string":
+    case "text":
+      return v.value
+    case "int64":
+    case "uint64":
+      return v.value.toString()
+    case "object":
+      return v.resolved === "None" ? null : `→ ${v.resolved}`
+    case "softObject":
+      return v.subPath ? `${v.assetPath}:${v.subPath}` : v.assetPath
+    case "enum":
+      return v.value
+    case "byte":
+      return v.enumName ? `${v.enumName}::${v.value}` : v.value
+    case "array":
+    case "set":
+      return v.values.map(simplifyValue)
+    case "map":
+      return v.entries.map((e) => [simplifyValue(e.key), simplifyValue(e.value)])
+    case "struct":
+      if (v.native) return simplifyNativeStruct(v.native)
+      if (v.properties) return propertiesToInspectable(v.properties)
+      if (v.rawBytes) {
+        return `<${v.structName}: ${v.rawBytes.length} raw bytes>`
+      }
+      return `<${v.structName}>`
+    case "unknown":
+      return `<unknown: ${v.rawBytes.length} bytes (${v.reason})>`
+  }
+}
+
+function simplifyNativeStruct(s: NativeStruct): unknown {
+  switch (s.kind) {
+    case "Vector":
+      return { x: s.x, y: s.y, z: s.z }
+    case "Vector2D":
+      return { x: s.x, y: s.y }
+    case "Vector4":
+    case "Plane":
+      return { x: s.x, y: s.y, z: s.z, w: s.w }
+    case "IntPoint":
+      return { x: s.x, y: s.y }
+    case "IntVector":
+      return { x: s.x, y: s.y, z: s.z }
+    case "Rotator":
+      return { pitch: s.pitch, yaw: s.yaw, roll: s.roll }
+    case "Quat":
+      return { x: s.x, y: s.y, z: s.z, w: s.w }
+    case "Color":
+      return { r: s.r, g: s.g, b: s.b, a: s.a }
+    case "LinearColor":
+      return { r: s.r, g: s.g, b: s.b, a: s.a }
+    case "Guid":
+      return s.value
+    case "Box":
+      return {
+        min: simplifyNativeStruct(s.min),
+        max: simplifyNativeStruct(s.max),
+        isValid: s.isValid,
+      }
+    case "Box2D":
+      return {
+        min: simplifyNativeStruct(s.min),
+        max: simplifyNativeStruct(s.max),
+        isValid: s.isValid,
+      }
+    case "Transform":
+      return {
+        rotation: simplifyNativeStruct(s.rotation),
+        translation: simplifyNativeStruct(s.translation),
+        scale3D: simplifyNativeStruct(s.scale3D),
+      }
+    case "RichCurveKey":
+      return {
+        time: s.time,
+        value: s.value,
+        interpMode: s.interpMode,
+        tangentMode: s.tangentMode,
+        tangentWeightMode: s.tangentWeightMode,
+        arriveTangent: s.arriveTangent,
+        arriveTangentWeight: s.arriveTangentWeight,
+        leaveTangent: s.leaveTangent,
+        leaveTangentWeight: s.leaveTangentWeight,
+      }
+    case "SimpleCurveKey":
+      return { time: s.time, value: s.value }
+  }
+}
+
+/**
+ * Renders the decoded property tree(s) for each export with property
+ * data. For a single-export asset (the common case) we elide the
+ * outer wrapper so the user lands directly in the property keys.
+ */
+function UassetPropertiesSection({
+  parsed,
+  decodedExports,
+}: {
+  parsed: ParsedUasset
+  decodedExports: UExportProperties[]
+}) {
+  const single = decodedExports.length === 1
+  const treeData = useMemo(() => {
+    if (single) {
+      return propertiesToInspectable(decodedExports[0]!.properties)
+    }
+    const out: Record<string, unknown> = {}
+    for (const e of decodedExports) {
+      const name = resolveFName(e.export.objectName, parsed.names)
+      out[name] = propertiesToInspectable(e.properties)
+    }
+    return out
+  }, [decodedExports, parsed.names, single])
+
+  // Compute which exports had tail bytes (asset-class-specific data
+  // we deliberately don't decode at this layer).
+  const tailNotes = useMemo(() => {
+    return decodedExports
+      .filter((e) => e.tail.length > 4) // 4-byte end-of-package magic is normal
+      .map((e) => ({
+        name: resolveFName(e.export.objectName, parsed.names),
+        bytes: e.tail.length,
+      }))
+  }, [decodedExports, parsed.names])
+
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Properties
+      </h3>
+      <div className="rounded-md border bg-card p-3">
+        <JsonInspector data={treeData} expandLevel={2} />
+      </div>
+      {tailNotes.length > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {tailNotes
+            .map((t) => `${t.name}: ${formatBytes(t.bytes)} of class-specific data follows the property tags`)
+            .join(" · ")}
+        </p>
+      )}
+    </section>
   )
 }
 
