@@ -8,6 +8,7 @@ import {
 	NCA_CRYPT_CTR,
 	NCA_FS_TYPE_PFS0,
 	NCA_FS_TYPE_ROMFS,
+	NcaKeyError,
 	type KeySet,
 } from '../src/index.js';
 import { decode as pfs0Decode } from '@tootallnate/pfs0';
@@ -163,19 +164,27 @@ describe('parseNca round-trip', () => {
 			titlekeks: keys.titlekeks.map(() => new Uint8Array(0x10)),
 		};
 		const parsed = await parseNca(blob, { keys: brokenKeys });
-		expect(parsed.missingKey).toMatch(/Missing key area key/);
-		// Reading from a section throws cleanly rather than returning garbage.
+		// Structured detail is the source of truth for the cause; the
+		// `missingKey` string is a derived user-facing summary.
+		expect(parsed.missingKeyDetail).toEqual({
+			code: 'outdated-keys',
+			generation: 1,
+			kaekIndex: 0,
+			kind: 'key-area-key',
+		})
+		expect(parsed.missingKey).toMatch(/prod\.keys file is older/);
+		// Reading from a section throws an `NcaKeyError` carrying the
+		// same structured detail, rather than a plain `Error`.
 		const sec = parsed.sections[0];
 		expect(sec.pfs0Data).toBeDefined();
-		await expect(async () => sec.pfs0Data!.arrayBuffer()).rejects.toThrow(
-			/Missing key area key/,
-		);
-		// Slicing the failing blob still returns a (also-failing) blob.
+		await expect(async () => sec.pfs0Data!.arrayBuffer())
+			.rejects.toThrowError(NcaKeyError);
+		// Slicing the failing blob still returns a (also-failing) blob
+		// that throws the same structured error.
 		const sliced = sec.pfs0Data!.slice(0, 16);
 		expect(sliced.size).toBe(16);
-		await expect(async () => sliced.arrayBuffer()).rejects.toThrow(
-			/Missing key area key/,
-		);
+		await expect(async () => sliced.arrayBuffer())
+			.rejects.toThrowError(NcaKeyError);
 	});
 
 	it('handles offsets above 2 GB without int32 truncation', async () => {

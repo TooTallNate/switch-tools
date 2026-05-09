@@ -83,6 +83,8 @@ export type PreviewKind =
 	| 'bfttf-info'
 	| 'font-info'
 	| 'bffnt-info'
+	/** AngelCode BMFont (`.fnt`) bitmap font descriptor. */
+	| 'bmfont-info'
 	/** Switch / Wii U single-shot audio (BFWAV / BFSTP, also BARS-embedded FWAVs). */
 	| 'bfwav-audio'
 	/** Switch / Wii U streamed audio (BFSTM / BFSTP). */
@@ -103,6 +105,18 @@ export type PreviewKind =
 	| 'usm-video'
 	/** Unity SerializedFile (`CAB-…` inside an AssetBundle). */
 	| 'unity-asset'
+	/** A single object inside a Unity SerializedFile (Font, Texture2D, …). */
+	| 'unity-object'
+	/** JSON with a collapsible-tree view (default) plus a Source toggle. */
+	| 'json-tree'
+	/** YAML, parsed to a JS value tree, presented like `json-tree`. */
+	| 'yaml-tree'
+	/**
+	 * Standalone HTML file: rendered in a sandboxed iframe by default
+	 * (with `.htdocs` ancestor's siblings as the resource scope when
+	 * available), with a Source toggle for syntax-highlighted text.
+	 */
+	| 'html-preview'
 	| 'hex';
 
 export const TEXT_EXTS = new Set([
@@ -112,8 +126,6 @@ export const TEXT_EXTS = new Set([
 	'cfg',
 	'ini',
 	'toml',
-	'yml',
-	'yaml',
 	'csv',
 	'tsv',
 	'srt',
@@ -136,11 +148,11 @@ export const TEXT_EXTS = new Set([
 	'py',
 	'sql',
 	'css',
-	'html',
-	'htm',
 ]);
 
 export const JSON_EXTS = new Set(['json', 'webmanifest']);
+export const YAML_EXTS = new Set(['yml', 'yaml']);
+export const HTML_EXTS = new Set(['html', 'htm', 'xhtml']);
 export const XML_EXTS = new Set(['xml', 'svg', 'plist']);
 export const IMAGE_EXTS = new Set([
 	'png',
@@ -227,6 +239,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	)
 		return 'font-info';
 	if (lower.endsWith('.bffnt')) return 'bffnt-info';
+	if (lower.endsWith('.fnt')) return 'bmfont-info';
 	if (lower.endsWith('.bfwav')) return 'bfwav-audio';
 	if (lower.endsWith('.bfstm') || lower.endsWith('.bfstp')) return 'bfstm-audio';
 	if (lower.endsWith('.wem')) return 'wem-audio';
@@ -241,7 +254,9 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (IMAGE_EXTS.has(ext)) return 'image';
 	if (AUDIO_EXTS.has(ext)) return 'audio';
 	if (VIDEO_EXTS.has(ext)) return 'video';
-	if (JSON_EXTS.has(ext)) return 'json';
+	if (JSON_EXTS.has(ext)) return 'json-tree';
+	if (YAML_EXTS.has(ext)) return 'yaml-tree';
+	if (HTML_EXTS.has(ext)) return 'html-preview';
 	if (XML_EXTS.has(ext) || TEXT_EXTS.has(ext)) return 'text';
 	return 'hex';
 }

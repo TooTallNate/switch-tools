@@ -1,0 +1,28 @@
+{
+  "name": "@tootallnate/astc-wasm",
+  "version": "0.0.1",
+  "description": "Pure-Rust ASTC LDR texture decoder compiled to WebAssembly. Decodes 4x4 through 12x12 ASTC blocks to RGBA8.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./astc.wasm": "./dist/astc.wasm"
+  },
+  "files": [
+    "dist",
+    "crate/LICENSE-MIT"
+  ],
+  "scripts": {
+    "build:wasm": "cargo build --release --target wasm32-unknown-unknown --manifest-path crate/Cargo.toml && cp crate/target/wasm32-unknown-unknown/release/tootallnate_astc_wasm.wasm src/astc.wasm",
+    "build:ts": "tsc",
+    "build": "if command -v cargo > /dev/null && rustup target list --installed | grep -q wasm32-unknown-unknown; then npm run build:wasm; fi && tsc && cp src/astc.wasm dist/astc.wasm",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

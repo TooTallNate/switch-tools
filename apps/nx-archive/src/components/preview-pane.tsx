@@ -36,6 +36,7 @@ import { Separator } from "~/components/ui/separator"
 import { Skeleton } from "~/components/ui/skeleton"
 import { Spinner } from "~/components/ui/spinner"
 import { BfresViewer } from "./bfres-viewer"
+import { JsonInspector, UnityObjectInspector } from "./data-inspector"
 import {
   demuxIvf,
   isVp9Keyframe,
@@ -47,7 +48,6 @@ import {
 } from "@tootallnate/usm"
 import {
   ClassId as UnityClassId,
-  decodeUnityTexture2D,
   parseObject as parseUnityObject,
   parseSerializedFile,
   TextureFormatName as UnityTextureFormatName,
@@ -55,6 +55,13 @@ import {
   type ParsedSerializedFile,
   type SerializedObject,
 } from "@tootallnate/unity-asset"
+import { decodeTexture2D as decodeUnityTexture2D } from "~/lib/unity-texture"
+import {
+  parseFsb5,
+  decodeSampleToBlob,
+  loadFmodVorbisSetupPackets,
+  type FmodVorbisSetupPackets,
+} from "@tootallnate/fsb5"
 import {
   parseNcaForNode,
   type NcaSource,
@@ -70,12 +77,17 @@ import {
 import {
   HtdocsBundle,
   buildNxShim,
-  flattenHtdocs,
+  flattenHtdocsFromNode,
+  type HtdocsFiles,
   regionDisplayName,
   rewriteHtml,
 } from "~/lib/htdocs"
-import type { RomFsEntry } from "@tootallnate/romfs"
 import type { RenderableBffnt } from "@tootallnate/bffnt"
+import {
+  parseBmfontBinary,
+  type ParsedBmFont,
+  type BmfChar,
+} from "@tootallnate/bmfont"
 import {
   AUDIO_MIME,
   IMAGE_MIME,
@@ -139,6 +151,8 @@ const TEXT_PREVIEW_LIMIT = 1 * 1024 * 1024 // 1 MB
 const HEX_PREVIEW_LIMIT = 4 * 1024 // 4 KB hex window
 const IMAGE_PREVIEW_LIMIT = 32 * 1024 * 1024
 const MEDIA_PREVIEW_LIMIT = 200 * 1024 * 1024
+/** Above this we skip JSON/YAML parsing for the tree view and fall through to the source view. */
+const TREE_PARSE_LIMIT = 4 * 1024 * 1024 // 4 MB
 
 interface PreviewPaneProps {
   node: Node | null
@@ -184,10 +198,12 @@ function PreviewContent({ node, root }: { node: Node; root: Node | null }) {
       // FMOD bank samples carry their bank+sample-index in `meta`.
       if (node.meta?.fmodSampleIndex !== undefined) return 'fmod-sample-audio'
       // Unity SerializedFiles (the `CAB-…` files inside a UnityFS
-      // bundle) don't have a meaningful filename pattern that
-      // detectPreviewKind would recognise — they're tagged by
-      // `node.kind` upstream in `archive.ts` instead.
+      // bundle) and the per-object children inside them don't have
+      // a meaningful filename pattern that detectPreviewKind would
+      // recognise — they're tagged by `node.kind` upstream in
+      // `archive.ts` instead.
       if (node.kind === "unity-asset") return "unity-asset"
+      if (node.kind === "unity-object") return "unity-object"
       return detectPreviewKind(node.name)
     },
     [isFile, node.name, node.meta, node.kind],
@@ -200,6 +216,11 @@ function PreviewContent({ node, root }: { node: Node; root: Node | null }) {
   const isBars = node.kind === "bars"
   const isBfsar = node.kind === "bfsar"
   const isBfres = node.kind === "bfres"
+  // Unity SerializedFile nodes are now containers (each inner
+  // object becomes a child) but still benefit from the rich
+  // SerializedFile-level summary as their "landing page" — show
+  // it instead of the generic "expand me" empty state.
+  const isUnityAsset = node.kind === "unity-asset"
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -215,6 +236,8 @@ function PreviewContent({ node, root }: { node: Node; root: Node | null }) {
           <BfsarPreview node={node} />
         ) : isBfres ? (
           <BfresPreview node={node} root={root} />
+        ) : isUnityAsset ? (
+          <UnityAssetPreview node={node} root={root} />
         ) : node.isContainer ? (
           <ContainerSummary node={node} />
         ) : (
@@ -277,27 +300,73 @@ interface NxLogEntry {
 
 const NX_BRIDGE = "nx-archive:htdocs-bridge"
 
-function HtdocsPreview({ node }: { node: Node }) {
-  const htdocsRoot = node.meta?.htdocsRoot as RomFsEntry | undefined
-
-  // Build the bundle once per node. This materializes every file in the
-  // manual into a real Blob (which decrypts lazy NCA-section facades on
-  // the way through) and creates an object URL per file. The cleanup
-  // effect revokes them when the user navigates away.
+/**
+ * Live preview of a Switch offline-manual `*.htdocs/` directory.
+ *
+ * Mounts the parsed file map into an `HtdocsBundle`, picks the
+ * default entry-point HTML, rewrites resource references to
+ * point at minted blob URLs, and renders the document inside a
+ * sandboxed iframe. Navigation events from the iframe (clicks,
+ * `history.back()`, region picker) update `currentPath` and
+ * trigger a re-render against the new document.
+ *
+ * The same component backs:
+ *
+ *   - `kind: 'htdocs'` directories (clicked via the tree) — opens
+ *     at the bundle's natural entry point (`index.html` etc).
+ *   - Standalone `.html` files inside an htdocs ancestor (mounted
+ *     by {@link HtmlPreview}) — opens at that file's path within
+ *     the ancestor's bundle.
+ *   - Standalone `.html` files with no htdocs ancestor — opens
+ *     against a synthesised single-file bundle.
+ *
+ * The Rendered / Source toggle in the toolbar swaps between the
+ * iframe and a syntax-highlighted view of the *current document*'s
+ * raw bytes (so `currentPath` stays meaningful in both views).
+ */
+function HtdocsPreview({
+  node,
+  filesProvider,
+  initialPath,
+}: {
+  node: Node
+  /**
+   * Optional override for the file map. Defaults to walking
+   * `node.getChildren()` recursively, which is what every htdocs-
+   * tagged container provides. {@link HtmlPreview} uses this
+   * override to mount a synthetic single-file bundle when a
+   * standalone `.html` has no htdocs ancestor in the tree.
+   *
+   * The function is invoked once per `node` change; consumers
+   * shouldn't rely on it being called repeatedly.
+   */
+  filesProvider?: () => Promise<HtdocsFiles>
+  /**
+   * Path within the bundle to focus on at mount time. Defaults to
+   * `bundle.pickEntryPoint()` (index.html etc).
+   */
+  initialPath?: string
+}) {
+  // Build the bundle once per node. This materialises every file
+  // in the manual into a real Blob (decrypting lazy NCA-section
+  // facades on the way through) and creates an object URL per
+  // file. The cleanup effect revokes them when the user
+  // navigates away.
+  //
+  // The default file source walks `node.getChildren()`
+  // recursively. Caller-supplied `filesProvider` overrides this
+  // — the only consumer that does so today is {@link HtmlPreview}
+  // for standalone `.html` previews with no htdocs ancestor.
   const [bundle, setBundle] = useState<HtdocsBundle | null>(null)
   const [bundleError, setBundleError] = useState<Error | null>(null)
   useEffect(() => {
-    if (!htdocsRoot) {
-      setBundle(null)
-      setBundleError(null)
-      return
-    }
     let cancelled = false
     let built: HtdocsBundle | null = null
     setBundle(null)
     setBundleError(null)
-    const files = flattenHtdocs(htdocsRoot)
-    HtdocsBundle.build(files)
+    const loadFiles = filesProvider ?? (() => flattenHtdocsFromNode(node))
+    loadFiles()
+      .then((files) => HtdocsBundle.build(files))
       .then((b) => {
         if (cancelled) {
           b.dispose()
@@ -313,12 +382,24 @@ function HtdocsPreview({ node }: { node: Node }) {
       cancelled = true
       built?.dispose()
     }
-  }, [htdocsRoot])
+  }, [node, filesProvider])
 
-  const entryPoint = useMemo(() => bundle?.pickEntryPoint() ?? null, [bundle])
+  // Use the caller-supplied initial path when present (e.g. when
+  // an HtmlPreview is focusing on one .html file inside a wider
+  // htdocs scope), otherwise fall back to the bundle's natural
+  // entry point (`index.html`, `top.html`, …).
+  const entryPoint = useMemo(() => {
+    if (!bundle) return null
+    if (initialPath && bundle.hasFile(initialPath)) return initialPath
+    return bundle.pickEntryPoint()
+  }, [bundle, initialPath])
   const [currentPath, setCurrentPath] = useState<string | null>(null)
   const [history, setHistory] = useState<string[]>([])
   const [showLog, setShowLog] = useState(false)
+  // Rendered (iframe) vs Source (raw bytes of `currentPath`).
+  // Defaults to Rendered — the whole point of the htdocs preview
+  // is the live render. Source is opt-in.
+  const [view, setView] = useState<"rendered" | "source">("rendered")
   const [log, setLog] = useState<NxLogEntry[]>([])
   const logIdRef = useRef(0)
   // For Switch offline manuals that route by `?r=N` query param: the
@@ -526,23 +607,6 @@ function HtdocsPreview({ node }: { node: Node }) {
     }
   }, [bundle, currentPath, regionsTable, regionKey])
 
-  if (!htdocsRoot) {
-    return (
-      <Empty className="m-8 border">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <CircleAlertIcon />
-          </EmptyMedia>
-          <EmptyTitle>htdocs preview unavailable</EmptyTitle>
-          <EmptyDescription>
-            The directory&rsquo;s file map is missing — try collapsing this
-            entry in the tree and re-expanding it.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    )
-  }
-
   if (bundleError) {
     return (
       <Empty className="m-8 border">
@@ -654,6 +718,7 @@ function HtdocsPreview({ node }: { node: Node }) {
             }}
           />
         )}
+        <RenderedSourceToggle view={view} onChange={setView} />
         <Badge variant="secondary" className="font-mono">
           {bundle.urls.size} files
         </Badge>
@@ -673,10 +738,15 @@ function HtdocsPreview({ node }: { node: Node }) {
         </Button>
       </div>
 
-      {/* Iframe + optional debug panel */}
+      {/* Iframe / source + optional debug panel */}
       <div className="flex min-h-0 flex-1">
         <div className="min-h-0 flex-1 overflow-hidden">
-          {iframeSrcDoc ? (
+          {view === "source" ? (
+            <HtdocsSourceView
+              bundle={bundle}
+              path={currentPath}
+            />
+          ) : iframeSrcDoc ? (
             <iframe
               key={currentPath}
               srcDoc={iframeSrcDoc}
@@ -765,6 +835,268 @@ function HtdocsPreview({ node }: { node: Node }) {
  * plus the resolved file path for each so power users can see what's
  * about to load.
  */
+
+/**
+ * Two-button segmented control for the htdocs preview's
+ * Rendered / Source toggle. Mirrors the look of the JSON / YAML
+ * tree preview's toggle so the interaction feels consistent.
+ */
+function RenderedSourceToggle({
+  view,
+  onChange,
+}: {
+  view: "rendered" | "source"
+  onChange: (next: "rendered" | "source") => void
+}) {
+  return (
+    <div
+      className="inline-flex overflow-hidden rounded-md border text-xs"
+      role="tablist"
+      aria-label="View mode"
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={view === "rendered"}
+        onClick={() => onChange("rendered")}
+        className={cn(
+          "px-2.5 py-1 font-medium",
+          view === "rendered"
+            ? "bg-accent text-accent-foreground"
+            : "bg-background text-muted-foreground hover:bg-accent/50",
+        )}
+      >
+        Rendered
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={view === "source"}
+        onClick={() => onChange("source")}
+        className={cn(
+          "border-l px-2.5 py-1 font-medium",
+          view === "source"
+            ? "bg-accent text-accent-foreground"
+            : "bg-background text-muted-foreground hover:bg-accent/50",
+        )}
+      >
+        Source
+      </button>
+    </div>
+  )
+}
+
+/**
+ * Render the raw text contents of the htdocs document at `path`,
+ * fetched from the same `HtdocsBundle` the iframe view uses. The
+ * bytes have already been blob-mapped, so we just `.text()` the
+ * stored Blob and feed it to the existing syntax-highlight
+ * pipeline (HTML, CSS, JS, JSON, etc.) for a familiar look.
+ */
+function HtdocsSourceView({
+  bundle,
+  path,
+}: {
+  bundle: HtdocsBundle
+  path: string
+}) {
+  const { resolvedTheme } = useTheme()
+  const themeMode = resolvedTheme === "dark" ? "dark" : "light"
+  // Pull the bytes once per document. The bundle already holds a
+  // Blob per file from its initial build, so this is purely a
+  // `.text()` decode — fast even for sizeable HTML docs.
+  const { loading, data, error } = useAsync(async () => {
+    const blob = bundle.files.get(path)
+    if (!blob) {
+      throw new Error(`File "${path}" is not in this htdocs bundle.`)
+    }
+    const truncated = blob.size > TEXT_PREVIEW_LIMIT
+    const slice = truncated ? blob.slice(0, TEXT_PREVIEW_LIMIT) : blob
+    const text = await slice.text()
+    const lang = languageForFile(path)
+    const highlightable = !!lang && text.length <= HIGHLIGHT_LIMIT
+    return { text, truncated, fullSize: blob.size, lang, highlightable }
+  }, [bundle, path])
+
+  // Async highlight (lazy-loaded grammar). Falls back to plain
+  // text if the highlighter isn't available for the language.
+  const [highlighted, setHighlighted] = useState<string | null>(null)
+  useEffect(() => {
+    if (!data || !data.highlightable || !data.lang) {
+      setHighlighted(null)
+      return
+    }
+    let cancelled = false
+    highlightCode(data.text, data.lang, themeMode)
+      .then((html) => {
+        if (!cancelled) setHighlighted(html)
+      })
+      .catch(() => {
+        if (!cancelled) setHighlighted(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [data, themeMode])
+
+  if (loading) return <LoadingFiller label="Reading…" />
+  if (error) return <ErrorFiller error={error} />
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-3 p-4">
+        {data!.truncated && (
+          <Alert>
+            <CircleAlertIcon />
+            <AlertTitle>Source truncated</AlertTitle>
+            <AlertDescription>
+              Showing the first {formatBytes(TEXT_PREVIEW_LIMIT)} of{" "}
+              {formatBytes(data!.fullSize)}.
+            </AlertDescription>
+          </Alert>
+        )}
+        {highlighted ? (
+          <div
+            className="shiki-host overflow-x-auto rounded-md text-xs leading-relaxed [&>pre]:m-0 [&>pre]:p-3 [&_code]:font-mono [&_code]:whitespace-pre-wrap [&_code]:break-words"
+            dangerouslySetInnerHTML={{ __html: highlighted }}
+          />
+        ) : (
+          <pre className="rounded-md bg-muted p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words">
+            {data!.text}
+          </pre>
+        )}
+      </div>
+    </ScrollArea>
+  )
+}
+
+/**
+ * Standalone HTML file preview.
+ *
+ * The user picked a single `.html` from the tree (not an entire
+ * `*.htdocs/` directory). We look for an ancestor `.htdocs` node
+ * to use as the resource-resolution scope: when the HTML lives
+ * inside a Switch offline-manual subtree, references like
+ * `<img src="img/foo.png">` resolve against the manual's full
+ * file map. When there's no ancestor (e.g. the user dropped just
+ * a single `.html` from their downloads), we build a one-file
+ * synthetic bundle so the iframe still renders the document
+ * itself — relative resource refs simply 404.
+ *
+ * Either way we mount {@link HtdocsPreview} so the rendered
+ * iframe, navigation, and Rendered/Source toggle behave identical
+ * to the manual-browsing case.
+ */
+function HtmlPreview({
+  node,
+  root,
+}: {
+  node: Node
+  root: Node | null
+}) {
+  // Resolve the htdocs scope (ancestor + file path within it) on
+  // first mount. The lookup walks up `node.id` until we hit an
+  // htdocs-tagged ancestor; the synthesised single-file fallback
+  // kicks in for everything else.
+  const { loading, data, error } = useAsync(async () => {
+    const ancestor = await findHtdocsAncestor(root, node.id)
+    if (ancestor) {
+      return {
+        scopeNode: ancestor.node,
+        initialPath: ancestor.relativePath,
+        filesProvider: undefined as undefined | (() => Promise<HtdocsFiles>),
+      }
+    }
+    // No htdocs ancestor — synthesise a single-file bundle so the
+    // iframe still renders the document. Relative resource refs
+    // (img / css / js) silently 404 in this mode, which is the
+    // best we can do without sibling context.
+    const blob = await node.blob!()
+    const filesProvider = async (): Promise<HtdocsFiles> =>
+      new Map([[node.name, blob]])
+    return {
+      scopeNode: node,
+      initialPath: node.name,
+      filesProvider,
+    }
+  }, [node.id, root])
+
+  if (loading) return <LoadingFiller label="Resolving HTML scope…" />
+  if (error) return <ErrorFiller error={error} />
+  return (
+    <HtdocsPreview
+      node={data!.scopeNode}
+      filesProvider={data!.filesProvider}
+      initialPath={data!.initialPath}
+    />
+  )
+}
+
+interface HtdocsAncestorMatch {
+  /** The ancestor htdocs node (`kind: 'htdocs'`). */
+  node: Node
+  /** Path of `descendantId` relative to the ancestor's root, e.g. `index.html` or `img/foo.png`. */
+  relativePath: string
+}
+
+/**
+ * Walk up `descendantId` looking for an ancestor node whose `kind`
+ * is `'htdocs'`. Returns the ancestor + the file's path within
+ * its file map, or `null` if no htdocs ancestor exists.
+ *
+ * Implementation note: node IDs are slash-joined paths, so
+ * candidate ancestor IDs are just successively-shorter prefixes
+ * of `descendantId`. We resolve each candidate via the same
+ * tree-walk pattern used by other sibling-resolution helpers.
+ */
+async function findHtdocsAncestor(
+  root: Node | null,
+  descendantId: string,
+): Promise<HtdocsAncestorMatch | null> {
+  if (!root) return null
+  // Build the list of slash-prefixes from longest to shortest,
+  // skipping the descendant itself (we only care about ancestors).
+  const segments = descendantId.split("/")
+  for (let i = segments.length - 1; i > 0; i--) {
+    const candidateId = segments.slice(0, i).join("/")
+    const ancestor = await findNodeById(root, candidateId)
+    if (!ancestor) continue
+    if (ancestor.kind === "htdocs") {
+      const relative = descendantId.slice(candidateId.length + 1)
+      return { node: ancestor, relativePath: relative }
+    }
+  }
+  return null
+}
+
+/**
+ * Resolve a node by its slash-joined `id` by walking down from
+ * `root`. Reuses the same pattern as the other archive-tree
+ * helpers; cached children get reused on repeat lookups.
+ */
+async function findNodeById(
+  root: Node,
+  target: string,
+): Promise<Node | null> {
+  if (root.id === target) return root
+  if (target !== "" && !target.startsWith(root.id + "/") && root.id !== "") {
+    return null
+  }
+  let cur: Node = root
+  while (cur.id !== target) {
+    if (!cur.getChildren) return null
+    const kids = cur._children ?? (cur._children = await cur.getChildren())
+    let next: Node | null = null
+    for (const k of kids) {
+      if (k.id === target || target.startsWith(k.id + "/")) {
+        if (!next || k.id.length > next.id.length) next = k
+      }
+    }
+    if (!next) return null
+    cur = next
+  }
+  return cur
+}
+
 function RegionPicker({
   regions,
   selectedKey,
@@ -1069,8 +1401,13 @@ function FilePreview({
     case "video":
       return <MediaPreview node={node} kind="video" />
     case "text":
-    case "json":
-      return <TextPreview node={node} kind={kind} />
+      return <TextPreview node={node} kind="text" />
+    case "json-tree":
+      return <TreePreview node={node} kind="json" />
+    case "yaml-tree":
+      return <TreePreview node={node} kind="yaml" />
+    case "html-preview":
+      return <HtmlPreview node={node} root={root} />
     case "nacp":
       return <NacpPreview node={node} />
     case "cnmt":
@@ -1086,6 +1423,8 @@ function FilePreview({
       return <FontPreview node={node} />
     case "bffnt-info":
       return <BffntPreview node={node} />
+    case "bmfont-info":
+      return <BmfontPreview node={node} root={root} />
     case "bfwav-audio":
       return <NintendoAudioPreview node={node} kind="bfwav" />
     case "bfstm-audio":
@@ -1106,6 +1445,8 @@ function FilePreview({
       return <UsmPreview node={node} />
     case "unity-asset":
       return <UnityAssetPreview node={node} root={root} />
+    case "unity-object":
+      return <UnityObjectPreview node={node} root={root} />
     case "hex":
     default:
       return <HexPreview node={node} />
@@ -1379,6 +1720,131 @@ function TextPreview({ node, kind }: { node: Node; kind: "text" | "json" }) {
         )}
       </div>
     </ScrollArea>
+  )
+}
+
+/**
+ * Tree-or-source preview for structured data files: JSON natively,
+ * YAML through `js-yaml`. Defaults to the interactive
+ * `<JsonInspector>` tree (collapsible nodes, inline previews) and
+ * exposes a "Source" toggle that falls back to {@link TextPreview}
+ * for syntax-highlighted raw text. When the file is too large to
+ * parse comfortably, or when parsing fails, we render the source
+ * view automatically with a small hint explaining why.
+ */
+function TreePreview({
+  node,
+  kind,
+}: {
+  node: Node
+  kind: "json" | "yaml"
+}) {
+  const { loading, data, error } = useAsync(async () => {
+    const blob = await node.blob!()
+    const truncated = blob.size > TREE_PARSE_LIMIT
+    if (truncated) return { value: null, parseError: null, truncated }
+    const text = await blob.text()
+    try {
+      if (kind === "yaml") {
+        const { parseYaml } = await import("~/lib/yaml")
+        return { value: await parseYaml(text), parseError: null, truncated }
+      }
+      return { value: JSON.parse(text), parseError: null, truncated }
+    } catch (e) {
+      return {
+        value: null,
+        parseError: e instanceof Error ? e.message : String(e),
+        truncated,
+      }
+    }
+  }, [node.id, kind])
+
+  // Default to Tree view; user can flip to Source for the raw
+  // syntax-highlighted text. We force Source when parsing failed
+  // or the file is too large to parse.
+  const [view, setView] = useState<"tree" | "source">("tree")
+  const forcedSource =
+    !!data && (data.truncated || data.parseError !== null)
+  const effectiveView = forcedSource ? "source" : view
+
+  if (loading) return <LoadingFiller label="Reading…" />
+  if (error) return <ErrorFiller error={error} />
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b bg-card px-4 py-2">
+        <div className="text-xs text-muted-foreground">
+          {data!.parseError ? (
+            <span className="text-destructive">
+              {kind === "yaml" ? "YAML" : "JSON"} parse error: {data!.parseError}
+            </span>
+          ) : data!.truncated ? (
+            <span>
+              File too large for tree view (
+              {formatBytes(node.size ?? 0)}); showing source.
+            </span>
+          ) : (
+            <span>
+              {kind === "yaml" ? "YAML" : "JSON"} —{" "}
+              {effectiveView === "tree"
+                ? "click nodes to expand"
+                : "syntax-highlighted source"}
+            </span>
+          )}
+        </div>
+        {!forcedSource && (
+          <div
+            className="inline-flex overflow-hidden rounded-md border text-xs"
+            role="tablist"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={effectiveView === "tree"}
+              onClick={() => setView("tree")}
+              className={cn(
+                "px-2.5 py-1 font-medium",
+                effectiveView === "tree"
+                  ? "bg-accent text-accent-foreground"
+                  : "bg-background text-muted-foreground hover:bg-accent/50",
+              )}
+            >
+              Tree
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={effectiveView === "source"}
+              onClick={() => setView("source")}
+              className={cn(
+                "border-l px-2.5 py-1 font-medium",
+                effectiveView === "source"
+                  ? "bg-accent text-accent-foreground"
+                  : "bg-background text-muted-foreground hover:bg-accent/50",
+              )}
+            >
+              Source
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {effectiveView === "tree" ? (
+          <ScrollArea className="h-full">
+            <div className="p-4">
+              <JsonInspector data={data!.value} expandLevel={2} />
+            </div>
+          </ScrollArea>
+        ) : (
+          // Source view delegates to the existing TextPreview path
+          // so we get the same syntax-highlighting, truncation, and
+          // theming as plain text files. YAML is highlighted as
+          // text (we don't ship a YAML grammar) which still gives
+          // structural colour for keys / values.
+          <TextPreview node={node} kind={kind === "json" ? "json" : "text"} />
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -2570,6 +3036,498 @@ function BffntAtlasSheet({
 }
 
 // ====================================================================
+// AngelCode BMFont (.fnt) bitmap font preview
+// ====================================================================
+//
+// BMFont ships as a `.fnt` descriptor + one or more PNG atlas pages.
+// We parse the descriptor with `@tootallnate/bmfont` and look up the
+// page PNGs as siblings of the `.fnt` in the archive tree. Glyph
+// composition is done in the browser: we draw the page image to an
+// offscreen canvas once, then for each character in the user-typed
+// sample we copy the glyph's atlas rectangle onto a target canvas at
+// the pen position dictated by `xoffset` / `yoffset` / `xadvance`.
+//
+// Sibling resolution is the same pattern Texture2D's `m_StreamData`
+// uses for `.resS` files. When the user opens just the `.fnt` (no
+// directory) we fall back to a file picker so they can pair it with
+// the PNG manually.
+
+const BMFONT_DEFAULT_SAMPLE =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789  !@#$%&*()_+-=[]{};':\",./<>?"
+
+interface BmfontView {
+  parsed: ParsedBmFont
+  /** Loaded `<img>`-shaped pages, indexed by page number. Missing pages are `null`. */
+  pageImages: (HTMLImageElement | null)[]
+  /** Filename → blob URL of any pages we resolved automatically (cleaned up by the effect). */
+  pageBlobUrls: string[]
+  /** Map from codepoint → glyph for fast sample-text composition. */
+  glyphIndex: Map<number, BmfChar>
+}
+
+function BmfontPreview({
+  node,
+  root,
+}: {
+  node: Node
+  root: Node | null
+}) {
+  // First load: parse the .fnt + try to auto-resolve sibling page
+  // PNGs from the archive tree. We only fail hard on a parse error
+  // — missing pages just leave `pageImages[i] = null` so the
+  // sample text shows boxes for unrenderable glyphs and the user
+  // gets a "load page atlas" file picker below.
+  const { loading, data, error } = useAsync(async () => {
+    const blob = await node.blob!()
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    const parsed = parseBmfontBinary(bytes)
+    const siblings = await resolveBmfontPages(node, root, parsed)
+    const blobUrls: string[] = []
+    const images: (HTMLImageElement | null)[] = await Promise.all(
+      parsed.pages.map(async (name) => {
+        const sibling = siblings.get(name.toLowerCase())
+        if (!sibling) return null
+        const url = URL.createObjectURL(sibling)
+        blobUrls.push(url)
+        return loadImage(url)
+      }),
+    )
+    const glyphIndex = new Map<number, BmfChar>()
+    for (const ch of parsed.chars) glyphIndex.set(ch.id, ch)
+    const view: BmfontView = {
+      parsed,
+      pageImages: images,
+      pageBlobUrls: blobUrls,
+      glyphIndex,
+    }
+    return view
+  }, [node.id])
+
+  // Manually-loaded pages (when the auto-resolution misses one).
+  // Keyed by page index, layered on top of `data.pageImages`.
+  const [manualPages, setManualPages] = useState<
+    Map<number, { image: HTMLImageElement; url: string }>
+  >(new Map())
+
+  // Cleanup blob URLs on unmount.
+  useEffect(() => {
+    if (!data) return
+    return () => {
+      for (const url of data.pageBlobUrls) URL.revokeObjectURL(url)
+    }
+  }, [data])
+  useEffect(() => {
+    return () => {
+      for (const { url } of manualPages.values()) URL.revokeObjectURL(url)
+    }
+  }, [manualPages])
+
+  const [sample, setSample] = useState(BMFONT_DEFAULT_SAMPLE)
+
+  if (loading) return <LoadingFiller label="Decoding BMFont…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+
+  // Effective per-page images: manual pages override auto pages.
+  const effectiveImages = v.pageImages.map(
+    (img, i) => manualPages.get(i)?.image ?? img,
+  )
+  const missingPageIndices = effectiveImages
+    .map((img, i) => (img ? -1 : i))
+    .filter((i) => i >= 0)
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="BMFont — AngelCode bitmap font" />
+
+        <KvBlock title="Font">
+          <KvRow k="Face" v={v.parsed.info.face} />
+          <KvRow k="Size" v={`${v.parsed.info.fontSize} pt`} />
+          <KvRow k="Line height" v={`${v.parsed.common.lineHeight} px`} />
+          <KvRow k="Baseline" v={`${v.parsed.common.base} px from cell top`} />
+          <KvRow
+            k="Style"
+            v={[
+              v.parsed.info.flags.bold && "bold",
+              v.parsed.info.flags.italic && "italic",
+              v.parsed.info.flags.smooth && "smoothed",
+              v.parsed.info.flags.unicode && "unicode",
+            ]
+              .filter(Boolean)
+              .join(", ") || "regular"}
+          />
+          <KvRow k="Glyphs" v={`${v.parsed.chars.length}`} />
+          <KvRow k="Kerning pairs" v={`${v.parsed.kernings.length}`} />
+        </KvBlock>
+
+        <KvBlock title="Atlas">
+          <KvRow
+            k="Sheet size"
+            v={`${v.parsed.common.scaleW} × ${v.parsed.common.scaleH} px`}
+          />
+          <KvRow k="Pages" v={`${v.parsed.common.pages}`} />
+          <KvRow
+            k="Channels"
+            v={
+              v.parsed.common.flags.packed
+                ? "packed (per-channel glyphs)"
+                : "single-channel"
+            }
+          />
+        </KvBlock>
+
+        {missingPageIndices.length > 0 && (
+          <Alert>
+            <CircleAlertIcon />
+            <AlertTitle>
+              Page atlas
+              {missingPageIndices.length === 1 ? "" : "es"} missing
+            </AlertTitle>
+            <AlertDescription>
+              <p className="mb-2">
+                The font references the following PNG file
+                {missingPageIndices.length === 1 ? "" : "s"} which
+                {missingPageIndices.length === 1 ? " wasn't" : " weren't"} found
+                next to the `.fnt`:
+              </p>
+              <ul className="mb-2 ml-4 list-disc text-xs font-mono">
+                {missingPageIndices.map((i) => (
+                  <li key={i}>{v.parsed.pages[i]}</li>
+                ))}
+              </ul>
+              <p>
+                Drop a directory containing both files, or load each page atlas
+                manually below.
+              </p>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        <BmfontSampleSection
+          view={v}
+          effectiveImages={effectiveImages}
+          sample={sample}
+          onSampleChange={setSample}
+        />
+
+        <BmfontPagesSection
+          pages={v.parsed.pages}
+          effectiveImages={effectiveImages}
+          onManualLoad={async (pageIndex, file) => {
+            const url = URL.createObjectURL(file)
+            const image = await loadImage(url)
+            setManualPages((prev) => {
+              const next = new Map(prev)
+              const old = next.get(pageIndex)
+              if (old) URL.revokeObjectURL(old.url)
+              next.set(pageIndex, { image, url })
+              return next
+            })
+          }}
+        />
+      </div>
+    </ScrollArea>
+  )
+}
+
+/**
+ * Walk the archive tree to find sibling files of the `.fnt` whose
+ * names match the `pages[]` filenames. When the user dropped a
+ * whole directory the siblings live in the same parent node; for
+ * a standalone `.fnt` upload there are no siblings and we return
+ * an empty map (the manual-load picker handles that case).
+ */
+async function resolveBmfontPages(
+  node: Node,
+  root: Node | null,
+  parsed: ParsedBmFont,
+): Promise<Map<string, Blob>> {
+  const out = new Map<string, Blob>()
+  if (!root) return out
+  const slash = node.id.lastIndexOf("/")
+  if (slash <= 0) return out
+  const parentId = node.id.slice(0, slash)
+  const findById = async (n: Node, target: string): Promise<Node | null> => {
+    if (n.id === target) return n
+    if (!target.startsWith(n.id + "/") && n.id !== "") return null
+    let cur: Node = n
+    while (cur.id !== target) {
+      if (!cur.getChildren) return null
+      const kids = cur._children ?? (cur._children = await cur.getChildren())
+      let next: Node | null = null
+      for (const k of kids) {
+        if (k.id === target || target.startsWith(k.id + "/")) {
+          if (!next || k.id.length > next.id.length) next = k
+        }
+      }
+      if (!next) return null
+      cur = next
+    }
+    return cur
+  }
+  const parent = await findById(root, parentId)
+  if (!parent || !parent.getChildren) return out
+  const siblings =
+    parent._children ?? (parent._children = await parent.getChildren())
+  const wanted = new Set(parsed.pages.map((n) => n.toLowerCase()))
+  for (const k of siblings) {
+    if (k.blob && wanted.has(k.name.toLowerCase())) {
+      try {
+        out.set(k.name.toLowerCase(), await k.blob())
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Load an `<img>` from a URL and resolve once `decode()` finishes.
+ * Reused for both auto-resolved and manually-loaded page atlases.
+ */
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = (e) => reject(new Error(`Failed to load image: ${e}`))
+    img.src = url
+  })
+}
+
+/**
+ * Live sample-text section: a textarea bound to a canvas that
+ * composites the user-typed sample glyph-by-glyph from the atlas
+ * page images.
+ *
+ * Layout follows the BMFont spec: pen starts at `(0, 0)` for each
+ * line; for each character we draw the atlas rectangle at
+ * `(pen.x + xoffset, pen.y + yoffset)` and advance the pen by
+ * `xadvance`. Newlines wrap to the next line (`pen.y +=
+ * lineHeight`). Kerning is applied between consecutive glyphs.
+ */
+function BmfontSampleSection({
+  view,
+  effectiveImages,
+  sample,
+  onSampleChange,
+}: {
+  view: BmfontView
+  effectiveImages: (HTMLImageElement | null)[]
+  sample: string
+  onSampleChange: (value: string) => void
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  // Build a kerning lookup from `(first, second)` → amount once
+  // per font; we re-use it across every render of the sample.
+  const kerningMap = useMemo(() => {
+    const m = new Map<number, number>()
+    for (const k of view.parsed.kernings) {
+      m.set(kerningKey(k.first, k.second), k.amount)
+    }
+    return m
+  }, [view.parsed.kernings])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const text = sample.length > 0 ? sample : " "
+    const layout = layoutBmfontText(view, text, kerningMap)
+    // Make the canvas exactly the right size to hold the laid-out
+    // glyphs at 1× — CSS `max-width:100%` scales it down for the
+    // pane, and `image-rendering: pixelated` keeps it crisp.
+    canvas.width = Math.max(1, layout.width)
+    canvas.height = Math.max(1, layout.height)
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    for (const g of layout.glyphs) {
+      const img = effectiveImages[g.glyph.page]
+      if (!img) continue
+      ctx.drawImage(
+        img,
+        g.glyph.x,
+        g.glyph.y,
+        g.glyph.width,
+        g.glyph.height,
+        g.dstX,
+        g.dstY,
+        g.glyph.width,
+        g.glyph.height,
+      )
+    }
+  }, [view, sample, kerningMap, effectiveImages])
+
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Sample
+      </h3>
+      <textarea
+        value={sample}
+        onChange={(e) => onSampleChange(e.target.value)}
+        rows={3}
+        className="w-full resize-y rounded-md border bg-background p-2 font-mono text-xs"
+      />
+      <div className="overflow-auto rounded-md border bg-card p-3">
+        <canvas
+          ref={canvasRef}
+          className="block max-w-full"
+          style={{ imageRendering: "pixelated" }}
+        />
+      </div>
+    </section>
+  )
+}
+
+interface BmfontLayoutGlyph {
+  glyph: BmfChar
+  /** Top-left destination pixel for the glyph rectangle. */
+  dstX: number
+  dstY: number
+}
+
+interface BmfontLayoutResult {
+  width: number
+  height: number
+  glyphs: BmfontLayoutGlyph[]
+}
+
+/**
+ * Compute glyph destination positions for `text` using the BMFont
+ * pen-based layout. Returns the bounding canvas size + per-glyph
+ * draw commands, ready for `ctx.drawImage`.
+ *
+ * Unrecognised codepoints are simply skipped — no fallback box —
+ * so the sample text length doesn't depend on the user typing
+ * only characters present in the font.
+ */
+function layoutBmfontText(
+  view: BmfontView,
+  text: string,
+  kerning: Map<number, number>,
+): BmfontLayoutResult {
+  const lineHeight = view.parsed.common.lineHeight
+  let penX = 0
+  let penY = 0
+  let maxX = 0
+  let maxY = lineHeight // at least one line tall
+  let prevId = -1
+  const glyphs: BmfontLayoutGlyph[] = []
+  // Iterate codepoints, not UTF-16 code units, so emoji / surrogate
+  // pairs are handled correctly when the font happens to ship them.
+  for (const ch of text) {
+    if (ch === "\n") {
+      penX = 0
+      penY += lineHeight
+      maxY = penY + lineHeight
+      prevId = -1
+      continue
+    }
+    const id = ch.codePointAt(0)
+    if (id === undefined) continue
+    const glyph = view.glyphIndex.get(id)
+    if (!glyph) {
+      // Skip — keep the pen where it is. Most fonts include a
+      // space glyph but not every codepoint, and rendering a
+      // visible miss as a placeholder would distort layout.
+      continue
+    }
+    if (prevId >= 0) {
+      const k = kerning.get(kerningKey(prevId, id))
+      if (k !== undefined) penX += k
+    }
+    if (glyph.width > 0 && glyph.height > 0) {
+      glyphs.push({
+        glyph,
+        dstX: penX + glyph.xoffset,
+        dstY: penY + glyph.yoffset,
+      })
+    }
+    penX += glyph.xadvance
+    if (penX > maxX) maxX = penX
+    prevId = id
+  }
+  return { width: maxX, height: maxY, glyphs }
+}
+
+/** Pack two codepoints into a single map key for kerning lookups. */
+function kerningKey(first: number, second: number): number {
+  // Codepoints are well within u31, so shift+OR is safe.
+  return (first << 21) | (second & 0x1fffff)
+}
+
+/**
+ * Atlas viewer + per-page "load PNG" picker for cases where the
+ * sibling resolution couldn't find the page image (typical when
+ * the user dropped just the `.fnt` from their downloads folder).
+ */
+function BmfontPagesSection({
+  pages,
+  effectiveImages,
+  onManualLoad,
+}: {
+  pages: string[]
+  effectiveImages: (HTMLImageElement | null)[]
+  onManualLoad: (pageIndex: number, file: File) => void | Promise<void>
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Pages
+      </h3>
+      <div className="flex flex-col gap-3">
+        {pages.map((name, i) => {
+          const img = effectiveImages[i]
+          return (
+            <div key={i} className="flex flex-col gap-2 rounded-md border bg-card p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-mono text-muted-foreground">
+                  {name}
+                  {img ? (
+                    <span className="ml-2 text-muted-foreground">
+                      ({img.naturalWidth} × {img.naturalHeight})
+                    </span>
+                  ) : (
+                    <span className="ml-2 text-destructive">not loaded</span>
+                  )}
+                </div>
+                {!img && (
+                  <label className="cursor-pointer rounded-md border bg-background px-2 py-1 text-xs font-medium hover:bg-accent">
+                    Load PNG
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) void onManualLoad(i, file)
+                        e.target.value = ""
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+              {img && (
+                <div className="overflow-auto rounded-md border bg-[#0a0a0a] p-2">
+                  <img
+                    src={img.src}
+                    alt={name}
+                    className="block max-w-full"
+                    style={{ imageRendering: "pixelated" }}
+                  />
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+// ====================================================================
 // BARS — Switch / Wii U audio resource archive
 // ====================================================================
 //
@@ -3557,20 +4515,19 @@ function UnityAssetPreview({
   if (error) return <ErrorFiller error={error} />
   const v = data!
   const tmpFontObj = findTmpFontObject(v.decoded)
-  const unityFontObjs = findUnityFontObjects(v)
+  // Per-Font previews now live on the individual `unity-object`
+  // children of this CAB node (one font per child) — drilling in
+  // gives a dedicated preview for each. We don't stack them here.
+  // TMP_FontAsset is still rendered inline because it's a single
+  // composite asset (MonoBehaviour + Texture2D + glyph table)
+  // whose "book" view doesn't have an obvious one-to-one mapping
+  // to a child node yet.
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-5 p-5">
         <SectionHeader title="Unity asset (SerializedFile)" />
 
         {tmpFontObj && <TmpFontBookPreview view={v} fontObj={tmpFontObj} />}
-        {unityFontObjs.map((fontObj, i) => (
-          <UnityFontPreview
-            key={i}
-            fontObj={fontObj}
-            sourceName={node.name}
-          />
-        ))}
 
         <KvBlock title="Header">
           <KvRow k="Unity version" v={v.parsed.header.unityVersion} />
@@ -3760,12 +4717,37 @@ function findUnityFontObjects(view: UnityAssetView): UnityDecodedObject[] {
     // Only surface fonts that ship actual TTF/OTF bytes — there
     // are pure-metrics fonts (TextAsset-shaped) that don't have
     // anything to render natively.
-    const fd = val.m_FontData as
-      | { size: number; data: Uint8Array }
-      | undefined
-    if (fd && fd.size > 0) out.push(d)
+    const bytes = extractUnityFontBytes(val)
+    if (bytes && bytes.length > 0) out.push(d)
   }
   return out
+}
+
+/**
+ * Pull the raw font bytes out of a Unity `Font` object's
+ * decoded value, handling both shapes the TypeTree produces:
+ *
+ *   - Older bundles describe `m_FontData` as `TypelessData`,
+ *     which `parseObject` returns as `{ size, data: Uint8Array }`.
+ *   - Modern bundles (Unity 2020+) describe it as
+ *     `vector<char>`, which the array fast-path returns as a
+ *     plain `Uint8Array`.
+ *
+ * We accept either and return a single `Uint8Array` view, or
+ * `null` when the field is missing / empty.
+ */
+function extractUnityFontBytes(
+  val: Record<string, unknown> | null | undefined,
+): Uint8Array | null {
+  if (!val) return null
+  const fd = val.m_FontData
+  if (!fd) return null
+  if (fd instanceof Uint8Array) return fd.length > 0 ? fd : null
+  if (typeof fd === "object" && "data" in fd) {
+    const d = (fd as { data?: unknown }).data
+    if (d instanceof Uint8Array) return d.length > 0 ? d : null
+  }
+  return null
 }
 
 function asNumber(v: unknown): number {
@@ -4217,6 +5199,205 @@ function TmpFontBookCanvas({
   )
 }
 
+// -------- Single Unity object inside a SerializedFile --------
+
+/**
+ * Preview for a single object inside a Unity SerializedFile —
+ * one Font, Texture2D, MonoBehaviour, etc. surfaced as its own
+ * tree node by the `unity-object` archive kind.
+ *
+ * We re-parse the parent CAB (held in `meta.unitySerializedFileBlob`)
+ * to pick out the specific object by `pathId`. SerializedFile
+ * parsing is in the millisecond range, so paying the cost on each
+ * click keeps memory predictable without making the UI sluggish.
+ *
+ * Dispatch by class name:
+ *   - `Font`            → {@link UnityFontPreview} (live TTF / OTF preview)
+ *   - everything else   → generic decoded-object summary + raw-bytes hex
+ *
+ * More dedicated previews (Texture2D, AudioClip, MonoBehaviour,
+ * AssetBundle manifest, …) can be added here without touching the
+ * archive layer or the dispatch in `FilePreview`.
+ */
+function UnityObjectPreview({
+  node,
+  root,
+}: {
+  node: Node
+  root: Node | null
+}) {
+  // The CAB blob and the object's pathId are stamped onto the node
+  // by `archive.ts` when the SerializedFile children are built. If
+  // either is missing we fall back to a plain hex view of the
+  // object bytes — that path also catches future producers of
+  // `unity-object` nodes that haven't migrated to the new meta yet.
+  const cabBlob = node.meta?.unitySerializedFileBlob as Blob | undefined
+  const targetPathId = node.meta?.unityPathId as string | undefined
+  const cabId = node.meta?.unitySerializedFileNodeId as string | undefined
+
+  const { loading, data, error } = useAsync(async () => {
+    if (!cabBlob || !targetPathId) {
+      throw new Error("Unity object node missing SerializedFile metadata")
+    }
+    const parsed = await parseSerializedFile(cabBlob)
+    const wantedId = BigInt(targetPathId)
+    const obj = parsed.objects.find((o) => o.pathId === wantedId)
+    if (!obj) {
+      throw new Error(
+        `Unity object pathId=${targetPathId} not found in SerializedFile`,
+      )
+    }
+    const ty = parsed.types[obj.typeIndex]
+    let value: unknown = null
+    if (ty?.typeTree) {
+      try {
+        value = await parseUnityObject(obj, ty.typeTree)
+      } catch (e) {
+        // Decoded value is best-effort; the raw bytes are still
+        // available below for inspection.
+        value = { __error: (e as Error).message }
+      }
+    }
+    const name =
+      value && typeof value === "object" && "m_Name" in value
+        ? String((value as { m_Name?: unknown }).m_Name ?? "") || null
+        : null
+    const decoded: UnityDecodedObject = { obj, value, name }
+    return { parsed, decoded }
+  }, [node.id, cabBlob, targetPathId])
+
+  if (loading) return <LoadingFiller label="Decoding Unity object…" />
+  if (error) return <ErrorFiller error={error} />
+  const { parsed, decoded } = data!
+  const className = (node.meta?.unityClass as string | undefined) ?? "Unity object"
+
+  // Class-specific dispatch. Each preview gets the decoded object
+  // (`decoded`) plus the parsed SerializedFile (`parsed`) and the
+  // archive root + CAB id so externals (`.resS` for Texture2D,
+  // `.resource` for AudioClip) can be resolved against sibling
+  // tree nodes. Anything not handled falls through to a generic
+  // collapsible tree of the decoded value below.
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title={`Unity ${className}`} />
+        <UnityObjectClassPreview
+          className={className}
+          decoded={decoded}
+          parsed={parsed}
+          node={node}
+          root={root}
+          cabId={cabId}
+        />
+        <UnityObjectFieldsBlock decoded={decoded} className={className} />
+      </div>
+    </ScrollArea>
+  )
+}
+
+/**
+ * Header table (Class / Path ID / Size) plus a `react-inspector`
+ * collapsible tree of the decoded object's full field structure.
+ *
+ * The KV header is the at-a-glance metadata that's identical for
+ * every Unity object regardless of class — kept as a flat table
+ * because the values don't benefit from expansion.
+ *
+ * The decoded value tree below is the interactive part: nested
+ * objects expand on click, PPtr / Uint8Array values render as
+ * compact non-expandable badges (see
+ * `prepareUnityValueForInspector` in
+ * `unity-object-inspector.tsx`), and arrays show inline previews.
+ */
+function UnityObjectFieldsBlock({
+  decoded,
+  className,
+}: {
+  decoded: UnityDecodedObject
+  className: string
+}) {
+  const { obj, value } = decoded
+  return (
+    <section className="flex flex-col gap-3">
+      <KvBlock title="Object header">
+        <KvRow k="Class" v={`${className} (${obj.classId})`} />
+        <KvRow k="Path ID" v={obj.pathId.toString()} />
+        <KvRow k="Size" v={formatBytes(obj.size)} />
+      </KvBlock>
+      {value !== null && value !== undefined && (
+        <div className="flex flex-col gap-1">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Object fields
+          </div>
+          <UnityObjectInspector data={value} expandLevel={1} />
+        </div>
+      )}
+    </section>
+  )
+}
+
+/**
+ * Per-class preview body for a {@link UnityObjectPreview}. Returns
+ * a class-tailored renderer when one exists (Font, TextAsset,
+ * Texture2D, AudioClip, MonoBehaviour, AssetBundle), otherwise
+ * `null` so only the generic KV summary at the parent level shows.
+ */
+function UnityObjectClassPreview({
+  className,
+  decoded,
+  parsed,
+  node,
+  root,
+  cabId,
+}: {
+  className: string
+  decoded: UnityDecodedObject
+  parsed: ParsedSerializedFile
+  node: Node
+  root: Node | null
+  cabId: string | undefined
+}) {
+  switch (className) {
+    case "Font":
+      return (
+        <UnityFontPreview fontObj={decoded} sourceName={node.name} />
+      )
+    case "TextAsset":
+      return <UnityTextAssetPreview decoded={decoded} sourceName={node.name} />
+    case "AssetBundle":
+      return <UnityAssetBundlePreview decoded={decoded} parsed={parsed} />
+    case "MonoBehaviour":
+      return <UnityMonoBehaviourPreview decoded={decoded} parsed={parsed} />
+    case "Texture2D":
+      return (
+        <UnityTexture2DObjectPreview
+          decoded={decoded}
+          root={root}
+          cabId={cabId}
+        />
+      )
+    case "AudioClip":
+      return (
+        <UnityAudioClipPreview
+          decoded={decoded}
+          root={root}
+          cabId={cabId}
+        />
+      )
+    case "Sprite":
+      return (
+        <UnitySpritePreview
+          decoded={decoded}
+          parsed={parsed}
+          root={root}
+          cabId={cabId}
+        />
+      )
+    default:
+      return null
+  }
+}
+
 // -------- Unity `Font` (class 128) embedded TTF / OTF preview --------
 
 /**
@@ -4240,10 +5421,7 @@ function UnityFontPreview({
   sourceName: string
 }) {
   const v = fontObj.value as Record<string, unknown>
-  const fontData = v.m_FontData as
-    | { size: number; data: Uint8Array }
-    | undefined
-  const fontBytes = fontData?.data ?? null
+  const fontBytes = extractUnityFontBytes(v)
   const displayName =
     asString(v.m_Name) || sourceName.replace(/\.bundle$/i, "")
   const format = sniffFontFormat(fontBytes)
@@ -4290,21 +5468,24 @@ function UnityFontPreview({
     }
   }, [fontBytes])
 
-  // Build a download URL for the embedded font bytes. We do this
-  // synchronously since the bytes are already in memory; the
-  // browser handles the download via a transient `<a download>`.
-  const downloadUrl = useMemo(() => {
-    if (!fontBytes || fontBytes.length === 0) return null
-    return URL.createObjectURL(
-      new Blob([fontBytes as BlobPart], {
-        type: format === "otf" ? "font/otf" : "font/ttf",
-      }),
-    )
-  }, [fontBytes, format])
-  useEffect(() => {
-    if (!downloadUrl) return
-    return () => URL.revokeObjectURL(downloadUrl)
-  }, [downloadUrl])
+  // We trigger the font download imperatively (create the blob
+  // URL on click → programmatic `<a>` → remove → revoke after a
+  // short timeout) rather than declaratively binding a long-lived
+  // `URL.createObjectURL(...)` to an `<a href>`. Two reasons:
+  //
+  //   1. Firefox refuses to navigate a same-origin page to a
+  //      blob: URL whose MIME type it considers font-like
+  //      (`font/ttf` / `font/otf`) — the resulting "Security
+  //      Error: Content at <origin> may not load data from
+  //      blob:…" makes the link silently no-op.
+  //   2. React StrictMode double-invokes effect cleanups, which
+  //      revokes a useMemo-built URL between mount and re-mount
+  //      while the link still references the dead URL.
+  //
+  // Switching to `application/octet-stream` for the download blob
+  // (the MIME type only governs the download-time content
+  // disposition; the file extension comes from `download=`) sides
+  // step (1), and per-click URL lifetime sidesteps (2).
 
   const formatLabel =
     format === "otf"
@@ -4367,18 +5548,53 @@ function UnityFontPreview({
       )}
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>Embedded source font from `m_FontData`</span>
-        {downloadUrl && (
-          <a
-            href={downloadUrl}
-            download={downloadName}
-            className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
-          >
-            Save .{format ?? "ttf"}
-          </a>
-        )}
+        <button
+          type="button"
+          onClick={() => downloadBlobBytes(fontBytes, downloadName)}
+          className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+        >
+          Save .{format ?? "ttf"}
+        </button>
       </div>
     </section>
   )
+}
+
+/**
+ * Trigger a same-page download of `bytes` saved as `fileName`.
+ *
+ * Uses an imperative create-link → click → revoke cycle rather
+ * than a long-lived `<a href={blobUrl}>`:
+ *
+ *   - React StrictMode double-invokes effect cleanups, which
+ *     would revoke a useMemo-built blob URL between mount and
+ *     re-mount, leaving the rendered link pointing at a dead URL.
+ *   - Firefox refuses same-origin navigation to a `blob:` URL
+ *     whose Blob's MIME type is font-shaped (`font/ttf`,
+ *     `font/otf`) — it errors with "Security Error: Content at
+ *     <origin> may not load data from blob:…" and the link
+ *     silently no-ops.
+ *
+ * We side-step both by creating the URL on click, attaching it
+ * to a transient hidden `<a>`, calling `.click()`, and revoking
+ * after a short timeout (matches what the global `DownloadButton`
+ * does for archive-level downloads). MIME type is
+ * `application/octet-stream` so the browser treats the payload
+ * as a generic download attachment regardless of contents.
+ */
+function downloadBlobBytes(bytes: Uint8Array, fileName: string) {
+  const blob = new Blob([bytes as BlobPart], {
+    type: "application/octet-stream",
+  })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = fileName
+  a.style.display = "none"
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1500)
 }
 
 /**
@@ -4397,6 +5613,1267 @@ function sniffFontFormat(bytes: Uint8Array | null): "ttf" | "otf" | null {
   if (m === 0x74797031 /* typ1 */) return "ttf"
   if (m === 0x74746366 /* ttcf */) return "ttf" // TrueType collection
   return null
+}
+
+// -------- Unity `TextAsset` (class 49) preview --------
+
+/**
+ * Render a Unity `TextAsset` object's `m_Script` field. Unity stores
+ * arbitrary text or binary blobs in this class — common uses include
+ * level descriptors, dialog tables, JSON configs, CSV / TSV data,
+ * and the occasional shader source. The TypeTree describes
+ * `m_Script` as a `string` so `parseObject` always returns a JS
+ * `string` (UTF-8 decoded if the bytes were valid UTF-8, otherwise
+ * a string of replacement characters).
+ *
+ * Heuristics:
+ *
+ *   - Pretty-print as JSON when the content parses as JSON (covers
+ *     the most common shipping case for Unity addressables manifests
+ *     and per-bundle config files).
+ *   - Otherwise show as plain monospace text, with line-count and
+ *     byte-count badges.
+ *   - Truncate inline rendering past `TEXT_PREVIEW_LIMIT` so a 5 MB
+ *     dialog table doesn't lock the UI; the `Save` button always
+ *     downloads the full payload.
+ */
+function UnityTextAssetPreview({
+  decoded,
+  sourceName,
+}: {
+  decoded: UnityDecodedObject
+  sourceName: string
+}) {
+  const v = decoded.value as Record<string, unknown> | null
+  const rawScript = v?.m_Script
+  // `m_Script` is described as `string` in the TypeTree — but our
+  // parser also accepts `vector<char>` shipping bytes for some
+  // legacy Unity versions. Coerce both to a JS string for display.
+  let text = ""
+  let byteLength = 0
+  if (typeof rawScript === "string") {
+    text = rawScript
+    byteLength = new TextEncoder().encode(rawScript).length
+  } else if (rawScript instanceof Uint8Array) {
+    text = new TextDecoder("utf-8", { fatal: false }).decode(rawScript)
+    byteLength = rawScript.length
+  } else if (
+    rawScript &&
+    typeof rawScript === "object" &&
+    "data" in rawScript &&
+    (rawScript as { data?: unknown }).data instanceof Uint8Array
+  ) {
+    const u8 = (rawScript as { data: Uint8Array }).data
+    text = new TextDecoder("utf-8", { fatal: false }).decode(u8)
+    byteLength = u8.length
+  }
+  if (!text) {
+    return (
+      <section className="rounded-md border bg-card p-4 text-sm text-muted-foreground">
+        TextAsset is empty (no `m_Script` content).
+      </section>
+    )
+  }
+  // Try JSON pretty-printing — fall back to raw text on parse error.
+  let display = text
+  let format: "json" | "text" = "text"
+  if (text.length <= TEXT_PREVIEW_LIMIT) {
+    const trimmed = text.trim()
+    if (
+      (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+      (trimmed.startsWith("[") && trimmed.endsWith("]"))
+    ) {
+      try {
+        display = JSON.stringify(JSON.parse(trimmed), null, 2)
+        format = "json"
+      } catch {
+        /* leave raw */
+      }
+    }
+  }
+  const truncated = text.length > TEXT_PREVIEW_LIMIT
+  const lineCount = text.split("\n").length
+  const baseName = (decoded.name || sourceName).replace(/\.txt$/i, "")
+  const downloadName = `${baseName.replace(/[^A-Za-z0-9._-]+/g, "_")}.${format === "json" ? "json" : "txt"}`
+  return (
+    <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs text-muted-foreground">
+        <div className="text-sm font-medium text-foreground">
+          {decoded.name || "(unnamed)"}
+          <span className="ml-2 text-muted-foreground">
+            (TextAsset {format === "json" ? "JSON" : "text"})
+          </span>
+        </div>
+        <div>
+          {lineCount.toLocaleString()} line{lineCount === 1 ? "" : "s"} ·{" "}
+          {formatBytes(byteLength)}
+        </div>
+      </div>
+      <pre className="max-h-[60vh] overflow-auto rounded-md border bg-background p-3 font-mono text-xs leading-relaxed">
+        {truncated
+          ? `${display.slice(0, TEXT_PREVIEW_LIMIT)}\n\n… (truncated; use the Save button below for full content)`
+          : display}
+      </pre>
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>
+          {format === "json"
+            ? "Auto-formatted JSON — original bytes preserved on download."
+            : "Plain text content from `m_Script`."}
+        </span>
+        <button
+          type="button"
+          onClick={() =>
+            downloadBlobBytes(new TextEncoder().encode(text), downloadName)
+          }
+          className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+        >
+          Save .{format}
+        </button>
+      </div>
+    </section>
+  )
+}
+
+// -------- Unity `AssetBundle` (class 142) manifest preview --------
+
+/**
+ * Render the AssetBundle manifest — the per-bundle metadata record
+ * Unity emits as object pathId=1. It catalogues every asset
+ * surfaced from this bundle (m_Container) along with the bundle's
+ * declared dependencies on other bundles (m_Dependencies). Useful
+ * for navigating Addressables-style content where many bundles
+ * cross-reference each other.
+ *
+ * `m_Container` is a List<KeyValuePair<string, AssetInfo>> in the
+ * Unity source — our TypeTree walker surfaces it as an array of
+ * `{ first: string, second: { preloadIndex, preloadSize, asset:
+ * PPtr<Object> } }` entries. We normalise to a flat list of
+ * (path, pathId) for display.
+ */
+function UnityAssetBundlePreview({
+  decoded,
+  parsed,
+}: {
+  decoded: UnityDecodedObject
+  parsed: ParsedSerializedFile
+}) {
+  // Used to look up object class + name when an m_Container entry
+  // points to another asset in this same SerializedFile (the
+  // common case — most Addressables bundles bind every asset by
+  // a pathId in the same CAB).
+  const objIndex = useMemo(() => {
+    const m = new Map<bigint, { className: string; name: string }>()
+    for (const obj of parsed.objects) {
+      const ty = parsed.types[obj.typeIndex]
+      // Re-decode each object lazily would be expensive; instead
+      // we lean on the fact that the UnityObjectsTable view above
+      // already had this data. For the AssetBundle preview we
+      // only show class names from the static lookup (no per-
+      // object decode here) and let the user click into the
+      // referenced asset for details.
+      const className =
+        Object.entries(UnityClassId).find(
+          ([, v]) => v === obj.classId,
+        )?.[0] ?? `Class${obj.classId}`
+      m.set(obj.pathId, { className, name: ty?.typeTree?.name ?? "" })
+    }
+    return m
+  }, [parsed])
+  const v = decoded.value as Record<string, unknown> | null
+  if (!v) return null
+  const containerEntries = extractAssetBundleContainer(v.m_Container)
+  const dependencies = extractAssetBundleDependencies(v.m_Dependencies)
+  const bundleName =
+    typeof v.m_AssetBundleName === "string" ? v.m_AssetBundleName : ""
+  return (
+    <section className="flex flex-col gap-4 rounded-md border bg-card p-4">
+      <div className="text-sm font-medium text-foreground">
+        AssetBundle manifest
+        {bundleName && (
+          <span className="ml-2 font-mono text-xs text-muted-foreground">
+            {bundleName}
+          </span>
+        )}
+      </div>
+      <div className="text-xs text-muted-foreground">
+        {containerEntries.length} asset
+        {containerEntries.length === 1 ? "" : "s"} ·{" "}
+        {dependencies.length} dependenc
+        {dependencies.length === 1 ? "y" : "ies"}
+      </div>
+      {containerEntries.length > 0 && (
+        <div className="overflow-x-auto rounded-md border bg-background">
+          <table className="min-w-full text-xs">
+            <thead className="border-b bg-muted/50 text-left text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 font-medium">Asset path</th>
+                <th className="px-3 py-2 font-medium">PPtr</th>
+                <th className="px-3 py-2 font-medium">Class</th>
+              </tr>
+            </thead>
+            <tbody>
+              {containerEntries.map((e, i) => {
+                const pid =
+                  typeof e.pathId === "bigint"
+                    ? e.pathId
+                    : BigInt(e.pathId ?? 0)
+                const found = objIndex.get(pid)
+                const cls = e.fileId === 0 ? (found?.className ?? "—") : "external"
+                return (
+                  <tr
+                    key={i}
+                    className="border-t font-mono [&:hover]:bg-accent/40"
+                  >
+                    <td className="break-all px-3 py-1.5">{e.path}</td>
+                    <td className="px-3 py-1.5 whitespace-nowrap text-muted-foreground">
+                      {e.fileId === 0
+                        ? `pathId=${pid.toString()}`
+                        : `fileId=${e.fileId}, pathId=${pid.toString()}`}
+                    </td>
+                    <td className="px-3 py-1.5 text-muted-foreground">{cls}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {dependencies.length > 0 && (
+        <div>
+          <div className="mb-1 text-xs text-muted-foreground">Dependencies</div>
+          <ul className="rounded-md border bg-background p-2 font-mono text-xs">
+            {dependencies.map((d, i) => (
+              <li key={i} className="px-1 py-0.5">{d}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  )
+}
+
+interface AssetBundleContainerEntry {
+  path: string
+  fileId: number
+  pathId: bigint | number
+  preloadIndex: number
+  preloadSize: number
+}
+
+function extractAssetBundleContainer(
+  raw: unknown,
+): AssetBundleContainerEntry[] {
+  if (!Array.isArray(raw)) return []
+  const out: AssetBundleContainerEntry[] = []
+  for (const e of raw) {
+    if (!e || typeof e !== "object") continue
+    // KeyValuePair<string, AssetInfo> serialises as { first, second }
+    // where AssetInfo is { preloadIndex, preloadSize, asset: PPtr }.
+    const r = e as Record<string, unknown>
+    const path = typeof r.first === "string" ? r.first : ""
+    const second = r.second as Record<string, unknown> | undefined
+    if (!second) continue
+    const asset = second.asset as Record<string, unknown> | undefined
+    const fileId = asset && typeof asset.m_FileID === "number" ? asset.m_FileID : 0
+    const rawPathId = asset?.m_PathID
+    const pathId =
+      typeof rawPathId === "bigint"
+        ? rawPathId
+        : typeof rawPathId === "number"
+          ? rawPathId
+          : 0n
+    const preloadIndex =
+      typeof second.preloadIndex === "number" ? second.preloadIndex : 0
+    const preloadSize =
+      typeof second.preloadSize === "number" ? second.preloadSize : 0
+    out.push({ path, fileId, pathId, preloadIndex, preloadSize })
+  }
+  return out
+}
+
+function extractAssetBundleDependencies(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return raw.filter((d): d is string => typeof d === "string")
+}
+
+// -------- Unity `MonoBehaviour` (class 114) preview --------
+
+/**
+ * Header summary for a `MonoBehaviour` — surfaces the associated
+ * MonoScript PPtr so users can locate the script asset in the
+ * tree even when MonoScripts ship in a separate bundle. The
+ * actual user-defined fields are rendered by the inspector tree
+ * below (`UnityObjectFieldsBlock`) — no need to duplicate.
+ */
+function UnityMonoBehaviourPreview({
+  decoded,
+  parsed,
+}: {
+  decoded: UnityDecodedObject
+  parsed: ParsedSerializedFile
+}) {
+  void parsed
+  const v = decoded.value as Record<string, unknown> | null
+  if (!v) return null
+  const scriptRef = v.m_Script as
+    | { m_FileID?: number; m_PathID?: bigint | number }
+    | undefined
+  const scriptLabel = scriptRef
+    ? `fileId=${scriptRef.m_FileID ?? 0}, pathId=${(scriptRef.m_PathID ?? 0).toString()}`
+    : null
+  return (
+    <section className="flex flex-col gap-2 rounded-md border bg-card p-4">
+      <div className="text-sm font-medium text-foreground">
+        MonoBehaviour
+        <span className="ml-2 text-xs text-muted-foreground">
+          (custom script instance)
+        </span>
+      </div>
+      {scriptLabel && (
+        <div className="text-xs text-muted-foreground">
+          Script: <span className="font-mono">{scriptLabel}</span>
+        </div>
+      )}
+    </section>
+  )
+}
+
+// -------- Unity `Texture2D` (class 28) preview --------
+
+/**
+ * Render a Unity Texture2D as a PNG via the existing
+ * `decodeUnityTexture2D` decoder. Two data sources to handle:
+ *
+ *   - Inline `image data` (small textures or older Unity versions).
+ *   - Streamed via `m_StreamData` → reads `(offset, size)` from a
+ *     sibling `.resS` file inside the same bundle.
+ *
+ * Resolves siblings by walking the archive tree from `root` to the
+ * CAB's parent (the bundle), the same way the parent
+ * `UnityAssetPreview` does for its inline texture renderings.
+ */
+function UnityTexture2DObjectPreview({
+  decoded,
+  root,
+  cabId,
+}: {
+  decoded: UnityDecodedObject
+  root: Node | null
+  cabId: string | undefined
+}) {
+  const v = decoded.value as Record<string, unknown> | null
+  // Decode pixels (RGBA8). The actual PNG-encode happens on the
+  // canvas effect below, mirroring the BntxPreview pattern.
+  const { loading, data, error } = useAsync(async () => {
+    if (!v) throw new Error("Texture2D has no decoded value")
+    const width = asNumber(v.m_Width)
+    const height = asNumber(v.m_Height)
+    const textureFormat = asNumber(v.m_TextureFormat)
+    if (!width || !height || !textureFormat) {
+      throw new Error("Texture2D missing width/height/format")
+    }
+    const payload = await resolveTexture2DPayload(v, root, cabId)
+    if (!payload || payload.length === 0) {
+      throw new Error(
+        "Texture2D has no decodable pixel data (empty image data and no resolvable .resS).",
+      )
+    }
+    const decodedTex = await decodeUnityTexture2D(
+      width,
+      height,
+      textureFormat,
+      payload,
+    )
+    return decodedTex
+  }, [decoded.obj.pathId.toString(), cabId])
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [pngUrl, setPngUrl] = useState<string | null>(null)
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !data) {
+      setPngUrl(null)
+      return
+    }
+    canvas.width = data.width
+    canvas.height = data.height
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    const img = ctx.createImageData(data.width, data.height)
+    img.data.set(data.pixels)
+    ctx.putImageData(img, 0, 0)
+    canvas.toBlob((b) => {
+      if (b) setPngUrl(URL.createObjectURL(b))
+    }, "image/png")
+    return () => {
+      setPngUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+    }
+  }, [data])
+
+  if (loading) return <LoadingFiller label="Decoding texture…" />
+  if (error) {
+    return (
+      <section className="flex flex-col gap-2 rounded-md border bg-card p-4">
+        <p className="text-sm font-medium text-foreground">
+          Couldn't decode this Texture2D.
+        </p>
+        <p className="text-xs text-muted-foreground">{error.message}</p>
+      </section>
+    )
+  }
+  const tex = data!
+  const formatId = asNumber(v?.m_TextureFormat)
+  const formatName =
+    UnityTextureFormatName(formatId) ?? (formatId ? `format_${formatId}` : "?")
+  return (
+    <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs text-muted-foreground">
+        <div>
+          <span className="text-sm font-medium text-foreground">
+            {decoded.name || "(unnamed)"}
+          </span>
+          <span className="ml-2 text-muted-foreground">
+            ({tex.width}×{tex.height} {formatName})
+          </span>
+        </div>
+        <div>{tex.pixels.length.toLocaleString()} px bytes</div>
+      </div>
+      <div className="overflow-auto rounded-md border bg-[#0a0a0a] p-2">
+        <canvas
+          ref={canvasRef}
+          className="block max-h-[70vh] object-contain"
+          style={{ imageRendering: "pixelated" }}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>Decoded via `decodeUnityTexture2D` → canvas PNG.</span>
+        {pngUrl && (
+          <button
+            type="button"
+            onClick={async () => {
+              const resp = await fetch(pngUrl)
+              const buf = await resp.arrayBuffer()
+              downloadBlobBytes(
+                new Uint8Array(buf),
+                `${(decoded.name || "texture").replace(/[^A-Za-z0-9._-]+/g, "_")}.png`,
+              )
+            }}
+            className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+          >
+            Save .png
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
+/**
+ * Assemble the encoded pixel payload for a decoded Texture2D
+ * value. Walks both data sources Unity uses:
+ *
+ *   - `m_StreamData`: streamed via a sibling `.resS` file at the
+ *     given offset/size. Most modern (Unity 5.4+) bundles ship
+ *     textures this way.
+ *   - `image data` (`TypelessData` / `vector<char>`): inline
+ *     bytes embedded in the SerializedFile itself. Used for
+ *     small textures and older Unity versions.
+ *
+ * Returns the bytes for mip-0 specifically — `decodeUnityTexture2D`
+ * doesn't support deeper mip chains yet.
+ */
+async function resolveTexture2DPayload(
+  v: Record<string, unknown>,
+  root: Node | null,
+  cabId: string | undefined,
+): Promise<Uint8Array | null> {
+  const sd = v.m_StreamData as Record<string, unknown> | undefined
+  const sdSize = sd ? asNumber(sd.size) : 0
+  if (sd && sdSize > 0) {
+    const externals = await resolveTexture2DExternals(root, cabId)
+    const path = asString(sd.path).replace(/\0+$/, "")
+    const basenameMatch = /([^/\\]+)$/.exec(path)
+    const basename = basenameMatch ? basenameMatch[1]!.toLowerCase() : ""
+    const resBlob = externals.get(basename)
+    if (resBlob) {
+      const offset = asNumber(sd.offset)
+      const slice = resBlob.slice(offset, offset + sdSize)
+      return new Uint8Array(await slice.arrayBuffer())
+    }
+  }
+  // Fall back to inline bytes. `image data` may be either the
+  // legacy `{ size, data }` TypelessData shape or a raw
+  // `Uint8Array` from the modern `vector<char>` fast path.
+  const inline = v["image data"]
+  if (inline instanceof Uint8Array) return inline
+  if (
+    inline &&
+    typeof inline === "object" &&
+    "data" in inline &&
+    (inline as { data?: unknown }).data instanceof Uint8Array
+  ) {
+    return (inline as { data: Uint8Array }).data
+  }
+  return null
+}
+
+// -------- Unity `Sprite` (class 213) preview --------
+
+/**
+ * A Sprite isn't its own pixel data — it's a rectangular crop into
+ * a `Texture2D`. We:
+ *
+ *   1. Read the source-texture PPtr from `m_RD.texture`.
+ *   2. Find that Texture2D in the same SerializedFile by `pathId`.
+ *   3. Decode the full source texture (cached path through
+ *      `decodeTexture2D` so the existing format / GPU support
+ *      cascade applies).
+ *   4. Crop to `m_RD.textureRect` — Unity Y origin is bottom-left,
+ *      so we flip the Y coordinate against the source texture's
+ *      height when slicing.
+ *   5. Render the cropped region to a canvas with a checkerboard
+ *      backdrop so transparency is visible.
+ *
+ * Sprites whose source texture lives in a different bundle (the
+ * PPtr's `m_FileID` is non-zero) get a friendly fallback message.
+ * Atlas-packed sprites with `uvTransform` rotation aren't handled
+ * yet — most non-atlased Sprites in the wild use the simple crop
+ * path this implements, so we cover the common case first.
+ */
+function UnitySpritePreview({
+  decoded,
+  parsed,
+  root,
+  cabId,
+}: {
+  decoded: UnityDecodedObject
+  parsed: ParsedSerializedFile
+  root: Node | null
+  cabId: string | undefined
+}) {
+  const v = decoded.value as Record<string, unknown> | null
+
+  const { loading, data, error } = useAsync(async () => {
+    if (!v) throw new Error("Sprite has no decoded value")
+    const rd = v.m_RD as Record<string, unknown> | undefined
+    if (!rd) throw new Error("Sprite missing m_RD render data")
+    // Source texture PPtr.
+    const texRef = rd.texture as
+      | { m_FileID?: number; m_PathID?: bigint | number }
+      | undefined
+    const fileId = typeof texRef?.m_FileID === "number" ? texRef.m_FileID : 0
+    const pathIdRaw = texRef?.m_PathID
+    const pathId =
+      typeof pathIdRaw === "bigint"
+        ? pathIdRaw
+        : typeof pathIdRaw === "number"
+          ? BigInt(pathIdRaw)
+          : 0n
+    if (pathId === 0n) {
+      throw new Error("Sprite has no source-texture reference (m_RD.texture)")
+    }
+    if (fileId !== 0) {
+      throw new Error(
+        "Sprite's source texture lives in another bundle (m_FileID > 0); cross-bundle PPtr resolution isn't implemented yet.",
+      )
+    }
+    // Look up the Texture2D in the parent SerializedFile.
+    const texObj = parsed.objects.find((o) => o.pathId === pathId)
+    if (!texObj) {
+      throw new Error(
+        `Source Texture2D pathId=${pathId.toString()} not found in this SerializedFile.`,
+      )
+    }
+    const texTy = parsed.types[texObj.typeIndex]
+    if (!texTy?.typeTree) {
+      throw new Error("Source Texture2D has no TypeTree to decode against.")
+    }
+    const texVal = (await parseUnityObject(texObj, texTy.typeTree)) as Record<
+      string,
+      unknown
+    >
+    const sourceWidth = asNumber(texVal.m_Width)
+    const sourceHeight = asNumber(texVal.m_Height)
+    const sourceFormat = asNumber(texVal.m_TextureFormat)
+    if (!sourceWidth || !sourceHeight || !sourceFormat) {
+      throw new Error("Source Texture2D is missing width/height/format")
+    }
+    // Decode the full source texture (we already have all the
+    // platform-specific dispatch cascade — software / WASM ASTC /
+    // WebGL — wrapped behind decodeTexture2D).
+    const payload = await resolveTexture2DPayload(texVal, root, cabId)
+    if (!payload || payload.length === 0) {
+      throw new Error("Source Texture2D has no pixel data to decode.")
+    }
+    const sourceDecoded = await decodeUnityTexture2D(
+      sourceWidth,
+      sourceHeight,
+      sourceFormat,
+      payload,
+    )
+    // Crop to textureRect. Unity Y-axis is bottom-up, so the
+    // textureRect.y is measured from the bottom of the source
+    // texture. We flip into top-down coordinates by:
+    //   topY = sourceHeight - rect.y - rect.height
+    const rect = rd.textureRect as
+      | { x?: number; y?: number; width?: number; height?: number }
+      | undefined
+    const cropX = Math.max(0, Math.round(asNumber(rect?.x)))
+    const cropYBottom = Math.max(0, Math.round(asNumber(rect?.y)))
+    const cropW = Math.max(
+      1,
+      Math.min(sourceWidth, Math.round(asNumber(rect?.width))),
+    )
+    const cropH = Math.max(
+      1,
+      Math.min(sourceHeight, Math.round(asNumber(rect?.height))),
+    )
+    const cropYTop = sourceHeight - cropYBottom - cropH
+    const cropped = cropRgba(
+      sourceDecoded.pixels,
+      sourceDecoded.width,
+      cropX,
+      cropYTop,
+      cropW,
+      cropH,
+    )
+    return {
+      pixels: cropped,
+      width: cropW,
+      height: cropH,
+      sourceTextureName: asString(texVal.m_Name) || "(unnamed)",
+      sourceWidth,
+      sourceHeight,
+      sourceFormat,
+      cropOrigin: { x: cropX, y: cropYTop },
+    }
+  }, [decoded.obj.pathId.toString(), cabId])
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [pngUrl, setPngUrl] = useState<string | null>(null)
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !data) {
+      setPngUrl(null)
+      return
+    }
+    canvas.width = data.width
+    canvas.height = data.height
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    const img = ctx.createImageData(data.width, data.height)
+    img.data.set(data.pixels)
+    ctx.putImageData(img, 0, 0)
+    canvas.toBlob((b) => {
+      if (b) setPngUrl(URL.createObjectURL(b))
+    }, "image/png")
+    return () => {
+      setPngUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+    }
+  }, [data])
+
+  if (loading) return <LoadingFiller label="Decoding sprite…" />
+  if (error) {
+    return (
+      <section className="flex flex-col gap-2 rounded-md border bg-card p-4">
+        <p className="text-sm font-medium text-foreground">
+          Couldn't render this Sprite.
+        </p>
+        <p className="text-xs text-muted-foreground">{error.message}</p>
+      </section>
+    )
+  }
+  const view = data!
+  const pivot = (v?.m_Pivot as { x?: number; y?: number } | undefined) ?? null
+  const pixelsPerUnit = asNumber(v?.m_PixelsToUnits) || null
+  return (
+    <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs text-muted-foreground">
+        <div>
+          <span className="text-sm font-medium text-foreground">
+            {decoded.name || "(unnamed)"}
+          </span>
+          <span className="ml-2 text-muted-foreground">
+            ({view.width}×{view.height} from {view.sourceTextureName}{" "}
+            {view.sourceWidth}×{view.sourceHeight})
+          </span>
+        </div>
+        <div>
+          crop @ ({view.cropOrigin.x}, {view.cropOrigin.y})
+          {pixelsPerUnit ? ` · ${pixelsPerUnit} px/unit` : ""}
+          {pivot ? ` · pivot (${pivot.x}, ${pivot.y})` : ""}
+        </div>
+      </div>
+      <div
+        className="overflow-auto rounded-md border p-2"
+        style={{
+          // Light/dark checkerboard so transparent sprite regions
+          // are visible against the surrounding card.
+          backgroundColor: "#0a0a0a",
+          backgroundImage:
+            "linear-gradient(45deg, #1a1a1a 25%, transparent 25%), linear-gradient(-45deg, #1a1a1a 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #1a1a1a 75%), linear-gradient(-45deg, transparent 75%, #1a1a1a 75%)",
+          backgroundSize: "16px 16px",
+          backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0",
+        }}
+      >
+        <canvas
+          ref={canvasRef}
+          className="block max-h-[70vh] object-contain"
+          style={{ imageRendering: "pixelated" }}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>Cropped from `m_RD.texture` using `m_RD.textureRect`.</span>
+        {pngUrl && (
+          <button
+            type="button"
+            onClick={async () => {
+              const resp = await fetch(pngUrl)
+              const buf = await resp.arrayBuffer()
+              downloadBlobBytes(
+                new Uint8Array(buf),
+                `${(decoded.name || "sprite").replace(/[^A-Za-z0-9._-]+/g, "_")}.png`,
+              )
+            }}
+            className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+          >
+            Save .png
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
+/**
+ * Copy a sub-rectangle out of an RGBA8 source buffer.
+ *
+ * `srcRowStride` is the source's full pixel width (so we know how
+ * many bytes to skip per row). The crop rectangle is in source
+ * pixel coordinates with the origin at the top-left — the caller
+ * is responsible for any Y-axis flips before calling.
+ */
+function cropRgba(
+  src: Uint8Array,
+  srcWidth: number,
+  cropX: number,
+  cropY: number,
+  cropW: number,
+  cropH: number,
+): Uint8Array {
+  const out = new Uint8Array(cropW * cropH * 4)
+  const srcStride = srcWidth * 4
+  const dstStride = cropW * 4
+  for (let y = 0; y < cropH; y++) {
+    const srcOff = (cropY + y) * srcStride + cropX * 4
+    const dstOff = y * dstStride
+    out.set(src.subarray(srcOff, srcOff + dstStride), dstOff)
+  }
+  return out
+}
+
+/**
+ * Walk up to the SerializedFile's parent directory in the archive
+ * tree and collect any sibling `.resS` files keyed by lowercase
+ * basename. Mirrors `resolveUnityExternals` from the parent CAB
+ * preview, but scoped to the externals a Texture2D might need
+ * (`m_StreamData.path` typically references one).
+ */
+async function resolveTexture2DExternals(
+  root: Node | null,
+  cabId: string | undefined,
+): Promise<Map<string, Blob>> {
+  const out = new Map<string, Blob>()
+  if (!root || !cabId) return out
+  const slash = cabId.lastIndexOf("/")
+  if (slash <= 0) return out
+  const parentId = cabId.slice(0, slash)
+  const findById = async (n: Node, target: string): Promise<Node | null> => {
+    if (n.id === target) return n
+    if (!target.startsWith(n.id + "/") && n.id !== "") return null
+    let cur: Node = n
+    while (cur.id !== target) {
+      if (!cur.getChildren) return null
+      const kids = cur._children ?? (cur._children = await cur.getChildren())
+      let next: Node | null = null
+      for (const k of kids) {
+        if (k.id === target || target.startsWith(k.id + "/")) {
+          if (!next || k.id.length > next.id.length) next = k
+        }
+      }
+      if (!next) return null
+      cur = next
+    }
+    return cur
+  }
+  const parent = await findById(root, parentId)
+  if (!parent || !parent.getChildren) return out
+  const siblings =
+    parent._children ?? (parent._children = await parent.getChildren())
+  for (const k of siblings) {
+    if (/\.ress$/i.test(k.name) && k.blob) {
+      try {
+        out.set(k.name.toLowerCase(), await k.blob())
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return out
+}
+
+// -------- Unity `AudioClip` (class 83) preview --------
+
+/**
+ * Render and play a Unity AudioClip. The audio bytes live in one
+ * of two places:
+ *
+ *   - **Streamed** (Unity 5+ shipping default): `m_Resource` PPtr
+ *     points to a `(source, offset, size)` window inside a sibling
+ *     `.resource` file in the same bundle.
+ *   - **Inline**: older bundles embed the bytes directly in
+ *     `m_AudioData`.
+ *
+ * Once we have the bytes, the format depends on
+ * `m_CompressionFormat` (and per-platform conventions):
+ *
+ *   - `0` PCM         → wrap in a WAV container for `<audio>`.
+ *   - `1` Vorbis      → already an Ogg-Vorbis stream.
+ *   - `2` ADPCM       → FSB5-wrapped, decode via existing path.
+ *   - `3` MP3         → already an MP3 stream.
+ *   - `5/6/7` AAC/HE-AAC → already AAC.
+ *   - `9` Switch Opus → FSB5-wrapped Opus on Switch builds.
+ *   - `10` ATRAC9 / `11` XMA / `12` AAC → FSB5 again.
+ *
+ * We sniff the first 4 bytes to confirm: `FSB5`, `OggS`, `RIFF`,
+ * `ID3` / `0xFF 0xFB` (MP3). When the bytes look like raw FSB5 we
+ * parse the first sample inside, decode via `decodeSampleToBlob`,
+ * and play the resulting WAV / Ogg blob. Anything else gets
+ * served as-is to the `<audio>` element.
+ */
+function UnityAudioClipPreview({
+  decoded,
+  root,
+  cabId,
+}: {
+  decoded: UnityDecodedObject
+  root: Node | null
+  cabId: string | undefined
+}) {
+  const v = decoded.value as Record<string, unknown> | null
+  const { loading, data, error } = useAsync(async () => {
+    if (!v) throw new Error("AudioClip has no decoded value")
+    const bytes = await loadUnityAudioClipBytes(v, root, cabId)
+    if (!bytes || bytes.length === 0) {
+      throw new Error("AudioClip resource is empty or could not be located.")
+    }
+    return decodeUnityAudioClip(bytes, v)
+  }, [decoded.obj.pathId.toString(), cabId])
+
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!data?.playbackBlob) return
+    const url = URL.createObjectURL(data.playbackBlob)
+    setAudioUrl(url)
+    return () => {
+      URL.revokeObjectURL(url)
+      setAudioUrl(null)
+    }
+  }, [data])
+
+  if (loading) return <LoadingFiller label="Decoding audio clip…" />
+  if (error) {
+    return (
+      <section className="flex flex-col gap-2 rounded-md border bg-card p-4">
+        <p className="text-sm font-medium text-foreground">
+          Couldn't decode this AudioClip.
+        </p>
+        <p className="text-xs text-muted-foreground">{error.message}</p>
+      </section>
+    )
+  }
+  const view = data!
+  const channels = (v?.m_Channels as number) ?? view.channels ?? 0
+  const freq = (v?.m_Frequency as number) ?? view.sampleRate ?? 0
+  const length = (v?.m_Length as number) ?? null
+  const formatLabel = view.formatLabel
+  return (
+    <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs text-muted-foreground">
+        <div>
+          <span className="text-sm font-medium text-foreground">
+            {decoded.name || "(unnamed)"}
+          </span>
+          <span className="ml-2 text-muted-foreground">({formatLabel})</span>
+        </div>
+        <div>
+          {freq ? `${freq.toLocaleString()} Hz` : "—"} ·{" "}
+          {channels === 1 ? "mono" : channels === 2 ? "stereo" : `${channels} ch`}
+          {length !== null ? ` · ${formatDuration(length)}` : ""}
+        </div>
+      </div>
+      {audioUrl ? (
+        <audio controls src={audioUrl} className="w-full">
+          Your browser does not support the audio element.
+        </audio>
+      ) : (
+        <div className="text-xs text-muted-foreground">
+          {view.decodeError ??
+            "Browser playback isn't supported for this codec yet."}
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>{view.sourceLabel}</span>
+        <button
+          type="button"
+          onClick={async () => {
+            const buf = await (view.playbackBlob ??
+              new Blob([view.rawBytes as BlobPart])).arrayBuffer()
+            downloadBlobBytes(
+              new Uint8Array(buf),
+              `${(decoded.name || "audio").replace(/[^A-Za-z0-9._-]+/g, "_")}.${view.downloadExt}`,
+            )
+          }}
+          className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+        >
+          Save .{view.downloadExt}
+        </button>
+      </div>
+    </section>
+  )
+}
+
+interface UnityAudioClipView {
+  rawBytes: Uint8Array
+  playbackBlob: Blob | null
+  formatLabel: string
+  sourceLabel: string
+  downloadExt: string
+  channels: number | null
+  sampleRate: number | null
+  decodeError: string | null
+}
+
+/**
+ * Resolve the raw audio bytes for a Unity AudioClip. Handles both
+ * the streamed (`m_Resource` → sibling `.resource`) and inline
+ * (`m_AudioData`) layouts.
+ */
+async function loadUnityAudioClipBytes(
+  v: Record<string, unknown>,
+  root: Node | null,
+  cabId: string | undefined,
+): Promise<Uint8Array | null> {
+  // Streamed payload: m_Resource = { m_Source, m_Offset, m_Size }.
+  const res = v.m_Resource as
+    | {
+        m_Source?: string
+        m_Offset?: number | bigint
+        m_Size?: number | bigint
+      }
+    | undefined
+  if (res && typeof res.m_Source === "string" && res.m_Source.length > 0) {
+    const externals = await resolveAudioClipExternals(root, cabId)
+    // Unity stores `m_Source` as `archive:/CAB-…/<basename>.resource`.
+    // Pull off the basename and look it up in our siblings map.
+    const basename = res.m_Source.split("/").pop() ?? res.m_Source
+    const blob = externals.get(basename.toLowerCase())
+    if (blob) {
+      const offset = Number(res.m_Offset ?? 0)
+      const size = Number(res.m_Size ?? 0)
+      if (size > 0) {
+        const slice = blob.slice(offset, offset + size)
+        return new Uint8Array(await slice.arrayBuffer())
+      }
+    }
+  }
+  // Inline payload: m_AudioData (may be Uint8Array directly from the
+  // array fast-path, or `{ size, data }` from the legacy
+  // TypelessData walker).
+  const inline = v.m_AudioData
+  if (inline instanceof Uint8Array) return inline
+  if (
+    inline &&
+    typeof inline === "object" &&
+    "data" in inline &&
+    (inline as { data?: unknown }).data instanceof Uint8Array
+  ) {
+    return (inline as { data: Uint8Array }).data
+  }
+  return null
+}
+
+/**
+ * Walk the archive tree to find `.resource` siblings of the CAB.
+ * Same shape as `resolveTexture2DExternals` but matches the
+ * AudioClip extension.
+ */
+async function resolveAudioClipExternals(
+  root: Node | null,
+  cabId: string | undefined,
+): Promise<Map<string, Blob>> {
+  const out = new Map<string, Blob>()
+  if (!root || !cabId) return out
+  const slash = cabId.lastIndexOf("/")
+  if (slash <= 0) return out
+  const parentId = cabId.slice(0, slash)
+  const findById = async (n: Node, target: string): Promise<Node | null> => {
+    if (n.id === target) return n
+    if (!target.startsWith(n.id + "/") && n.id !== "") return null
+    let cur: Node = n
+    while (cur.id !== target) {
+      if (!cur.getChildren) return null
+      const kids = cur._children ?? (cur._children = await cur.getChildren())
+      let next: Node | null = null
+      for (const k of kids) {
+        if (k.id === target || target.startsWith(k.id + "/")) {
+          if (!next || k.id.length > next.id.length) next = k
+        }
+      }
+      if (!next) return null
+      cur = next
+    }
+    return cur
+  }
+  const parent = await findById(root, parentId)
+  if (!parent || !parent.getChildren) return out
+  const siblings =
+    parent._children ?? (parent._children = await parent.getChildren())
+  for (const k of siblings) {
+    if (/\.resource$/i.test(k.name) && k.blob) {
+      try {
+        out.set(k.name.toLowerCase(), await k.blob())
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Sniff and decode the audio bytes into something the browser can
+ * play natively. Strategy:
+ *
+ *   - `FSB5` magic       → parse, decode sample 0 to WAV/Ogg.
+ *   - `OggS` magic       → already Ogg, play raw.
+ *   - `RIFF` (WAV) magic → already WAV, play raw.
+ *   - `ID3` / `0xFFFB`   → MP3, play raw.
+ *   - PCM raw (no magic) → wrap in WAV using the AudioClip metadata.
+ *
+ * Anything else is surfaced as a download-only payload — the user
+ * can save the bytes and convert offline.
+ */
+async function decodeUnityAudioClip(
+  bytes: Uint8Array,
+  v: Record<string, unknown>,
+): Promise<UnityAudioClipView> {
+  const channels = typeof v.m_Channels === "number" ? v.m_Channels : null
+  const sampleRate = typeof v.m_Frequency === "number" ? v.m_Frequency : null
+  const compressionFormat =
+    typeof v.m_CompressionFormat === "number" ? v.m_CompressionFormat : -1
+  const formatLabel = unityAudioFormatName(compressionFormat)
+  const m4 = readMagic4(bytes)
+  // FSB5
+  if (m4 === 0x46534235 /* "FSB5" */) {
+    try {
+      const fsb5 = parseFsb5(bytes)
+      if (fsb5.samples.length === 0) {
+        throw new Error("FSB5 has no samples")
+      }
+      const sample = fsb5.samples[0]!
+      let lib: FmodVorbisSetupPackets | undefined
+      if (fsb5.header.mode === 15) {
+        lib = await getFmodVorbisLibraryForUnity()
+      }
+      const decoded = await decodeSampleToBlob(sample, fsb5.header.mode, lib)
+      return {
+        rawBytes: bytes,
+        playbackBlob: decoded.blob,
+        formatLabel: `FSB5 / ${formatLabel}`,
+        sourceLabel: "Decoded FSB5 sample 0 to playable WAV/Ogg.",
+        downloadExt: decoded.blob.type.includes("ogg") ? "ogg" : "wav",
+        channels,
+        sampleRate,
+        decodeError: null,
+      }
+    } catch (e) {
+      return {
+        rawBytes: bytes,
+        playbackBlob: null,
+        formatLabel: `FSB5 / ${formatLabel}`,
+        sourceLabel: "FSB5 detected but decode failed.",
+        downloadExt: "fsb",
+        channels,
+        sampleRate,
+        decodeError: (e as Error).message,
+      }
+    }
+  }
+  // OggS
+  if (m4 === 0x4f676753) {
+    return {
+      rawBytes: bytes,
+      playbackBlob: new Blob([bytes as BlobPart], { type: "audio/ogg" }),
+      formatLabel,
+      sourceLabel: "Raw Ogg-Vorbis stream.",
+      downloadExt: "ogg",
+      channels,
+      sampleRate,
+      decodeError: null,
+    }
+  }
+  // RIFF (WAV)
+  if (m4 === 0x52494646) {
+    return {
+      rawBytes: bytes,
+      playbackBlob: new Blob([bytes as BlobPart], { type: "audio/wav" }),
+      formatLabel,
+      sourceLabel: "Raw RIFF / WAV stream.",
+      downloadExt: "wav",
+      channels,
+      sampleRate,
+      decodeError: null,
+    }
+  }
+  // MP3 (ID3 header or 0xFF 0xFB sync word)
+  if (
+    (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) ||
+    (bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0)
+  ) {
+    return {
+      rawBytes: bytes,
+      playbackBlob: new Blob([bytes as BlobPart], { type: "audio/mpeg" }),
+      formatLabel,
+      sourceLabel: "Raw MP3 stream.",
+      downloadExt: "mp3",
+      channels,
+      sampleRate,
+      decodeError: null,
+    }
+  }
+  // Raw PCM — wrap in WAV using the clip metadata.
+  if (compressionFormat === 0 && channels && sampleRate) {
+    const bps = typeof v.m_BitsPerSample === "number" ? v.m_BitsPerSample : 16
+    const wav = wrapPcmAsWav(bytes, channels, sampleRate, bps)
+    return {
+      rawBytes: bytes,
+      playbackBlob: new Blob([wav as BlobPart], { type: "audio/wav" }),
+      formatLabel: `PCM / ${bps}-bit`,
+      sourceLabel: "Raw PCM wrapped in a WAV container.",
+      downloadExt: "wav",
+      channels,
+      sampleRate,
+      decodeError: null,
+    }
+  }
+  // Unknown — offer raw download only.
+  return {
+    rawBytes: bytes,
+    playbackBlob: null,
+    formatLabel,
+    sourceLabel: "Unknown audio container; raw bytes available for download.",
+    downloadExt: "bin",
+    channels,
+    sampleRate,
+    decodeError: `Unrecognised audio magic 0x${m4.toString(16).padStart(8, "0")}`,
+  }
+}
+
+function readMagic4(bytes: Uint8Array): number {
+  if (bytes.length < 4) return 0
+  return (
+    ((bytes[0]! << 24) | (bytes[1]! << 16) | (bytes[2]! << 8) | bytes[3]!) >>> 0
+  )
+}
+
+/**
+ * Wrap raw little-endian PCM samples as a minimal RIFF/WAV file.
+ * `bitsPerSample` defaults to 16 — Unity reports it on the
+ * AudioClip alongside m_Channels / m_Frequency.
+ */
+function wrapPcmAsWav(
+  pcm: Uint8Array,
+  channels: number,
+  sampleRate: number,
+  bitsPerSample: number,
+): Uint8Array {
+  const blockAlign = (channels * bitsPerSample) / 8
+  const byteRate = sampleRate * blockAlign
+  const dataSize = pcm.length
+  const buf = new ArrayBuffer(44 + dataSize)
+  const view = new DataView(buf)
+  // RIFF header
+  view.setUint32(0, 0x52494646, false) // "RIFF"
+  view.setUint32(4, 36 + dataSize, true)
+  view.setUint32(8, 0x57415645, false) // "WAVE"
+  // fmt chunk
+  view.setUint32(12, 0x666d7420, false) // "fmt "
+  view.setUint32(16, 16, true) // chunk size
+  view.setUint16(20, 1, true) // format = PCM
+  view.setUint16(22, channels, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, byteRate, true)
+  view.setUint16(32, blockAlign, true)
+  view.setUint16(34, bitsPerSample, true)
+  // data chunk
+  view.setUint32(36, 0x64617461, false) // "data"
+  view.setUint32(40, dataSize, true)
+  new Uint8Array(buf, 44).set(pcm)
+  return new Uint8Array(buf)
+}
+
+/**
+ * Unity `AudioCompressionFormat` enum (from `AudioImporter.cs` in
+ * the Unity source). We only need it for the human-readable label
+ * — actual decoding is driven off the stream magic.
+ */
+function unityAudioFormatName(code: number): string {
+  switch (code) {
+    case 0: return "PCM"
+    case 1: return "Vorbis"
+    case 2: return "ADPCM"
+    case 3: return "MP3"
+    case 4: return "PSMVAG"
+    case 5: return "HEVAG"
+    case 6: return "XMA"
+    case 7: return "AAC"
+    case 8: return "GCADPCM"
+    case 9: return "ATRAC9"
+    default: return code >= 0 ? `format_${code}` : "unknown"
+  }
+}
+
+/**
+ * Lazy-load the FMOD Vorbis setup-packets library on first use,
+ * cached per page load. Mirrors the existing FmodSamplePreview
+ * helper, but kept separate so this file doesn't have to expose
+ * its private cache.
+ */
+let _fmodVorbisLibForUnity: FmodVorbisSetupPackets | null = null
+let _fmodVorbisFetchForUnity: Promise<FmodVorbisSetupPackets> | null = null
+async function getFmodVorbisLibraryForUnity(): Promise<FmodVorbisSetupPackets> {
+  if (_fmodVorbisLibForUnity) return _fmodVorbisLibForUnity
+  if (_fmodVorbisFetchForUnity) return _fmodVorbisFetchForUnity
+  _fmodVorbisFetchForUnity = (async () => {
+    const url = (
+      await import(
+        /* @vite-ignore */
+        "@tootallnate/fsb5/assets/fmod_vorbis_setup_packets.bin?url"
+      )
+    ).default as string
+    const res = await fetch(url)
+    const buf = new Uint8Array(await res.arrayBuffer())
+    _fmodVorbisLibForUnity = loadFmodVorbisSetupPackets(buf)
+    return _fmodVorbisLibForUnity
+  })()
+  return _fmodVorbisFetchForUnity
 }
 
 function WemAudioPreview({ node }: { node: Node }) {

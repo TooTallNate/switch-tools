@@ -223,6 +223,9 @@ importers:
       '@tootallnate/aes-xts':
         specifier: workspace:*
         version: link:../../packages/aes-xts
+      '@tootallnate/astc-wasm':
+        specifier: workspace:*
+        version: link:../../packages/astc-wasm
       '@tootallnate/bars':
         specifier: workspace:*
         version: link:../../packages/bars
@@ -250,6 +253,9 @@ importers:
       '@tootallnate/bfwav':
         specifier: workspace:*
         version: link:../../packages/bfwav
+      '@tootallnate/bmfont':
+        specifier: workspace:*
+        version: link:../../packages/bmfont
       '@tootallnate/bntx':
         specifier: workspace:*
         version: link:../../packages/bntx
@@ -340,6 +346,9 @@ importers:
       '@tootallnate/zstd-wasm':
         specifier: workspace:*
         version: link:../../packages/zstd-wasm
+      '@types/js-yaml':
+        specifier: ^4.0.9
+        version: 4.0.9
       '@types/three':
         specifier: ^0.184.1
         version: 0.184.1
@@ -352,6 +361,9 @@ importers:
       fflate:
         specifier: ^0.8.2
         version: 0.8.2
+      js-yaml:
+        specifier: ^4.1.1
+        version: 4.1.1
       lucide-react:
         specifier: ^0.460.0
         version: 0.460.0(react@19.2.4)
@@ -367,6 +379,9 @@ importers:
       react-dom:
         specifier: 'catalog:'
         version: 19.2.4(react@19.2.4)
+      react-inspector:
+        specifier: ^9.0.0
+        version: 9.0.0(react@19.2.4)
       react-resizable-panels:
         specifier: ^4.11.0
         version: 4.11.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -454,6 +469,15 @@ importers:
         specifier: ^5.3.3
         version: 5.3.3
 
+  packages/astc-wasm:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
+
   packages/bars:
     devDependencies:
       typescript:
@@ -515,6 +539,15 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.9.3
+
+  packages/bmfont:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
   packages/bntx:
     devDependencies:
@@ -3286,6 +3319,9 @@ packages:
   '@types/is-ci@3.0.0':
     resolution: {integrity: sha512-Q0Op0hdWbYd1iahB+IFNQcWXFq4O0Q5MwQP7uN0souuQ4rPg1vEYcnIOfr1gY+M+6rc8FGoRaBO1mOOvL29sEQ==}
 
+  '@types/js-yaml@4.0.9':
+    resolution: {integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==}
+
   '@types/json-schema@7.0.12':
     resolution: {integrity: sha512-Hr5Jfhc9eYOQNPYO5WLDq/n4jqijdHNlDXjuAQkkt+mWdQR+XJToOHrsD4cPaMXpn6KO7y2+wM8AZEs8VpBLVA==}
 
@@ -4979,6 +5015,10 @@ packages:
     resolution: {integrity: sha512-wpxZs9NoxZaJESJGIZTyDEaYpl0FKSA+FB9aJiyemKhMwkxQg63h4T1KJgUGHpTqPDNRcmmYLugrRjJlBtWvRA==}
     hasBin: true
 
+  js-yaml@4.1.1:
+    resolution: {integrity: sha512-qQKT4zQxXl8lLwBtHMWwaTcGfFOZviOJet3Oy/xmGk2gZH677CJM9EvtfdSkgWcATZhj/55JZ0rmy3myCT5lsA==}
+    hasBin: true
+
   jsesc@2.5.2:
     resolution: {integrity: sha512-OYu7XEzjkCQ3C5Ps3QIZsQfNpqoJyZZA99wd9aWd05NCtC5pWOkShK2mkL6HXQR6/Cy2lbNdPlZBpuQHXE63gA==}
     engines: {node: '>=4'}
@@ -6153,6 +6193,11 @@ packages:
     resolution: {integrity: sha512-fqn6a811cx/sE7jtu8txL4lBTwgZYuEVNvy7UPKMNMWeRcZa6v0ja11+Gd9nZQiBfaxDal3PBcKhGBLQ956UNg==}
     peerDependencies:
       react: '>=16.13.1'
+
+  react-inspector@9.0.0:
+    resolution: {integrity: sha512-w/VJucSeHxlwRa2nfM2k7YhpT1r5EtlDOClSR+L7DyQP91QMdfFEDXDs9bPYN4kzP7umFtom7L0b2GGjph4Kow==}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
 
   react-refresh@0.14.0:
     resolution: {integrity: sha512-wViHqhAd8OHeLS/IRMJjTSDHF3U9eWi62F/MledQGPdJGDhodXJ9PBLNGr6WWL7qlH12Mt3TyTpbS+hGXMjCzQ==}
@@ -9898,6 +9943,8 @@ snapshots:
     dependencies:
       ci-info: 3.8.0
 
+  '@types/js-yaml@4.0.9': {}
+
   '@types/json-schema@7.0.12': {}
 
   '@types/mdast@3.0.11':
@@ -10602,7 +10649,7 @@ snapshots:
     dependencies:
       env-paths: 2.2.1
       import-fresh: 3.3.1
-      js-yaml: 4.1.0
+      js-yaml: 4.1.1
       parse-json: 5.2.0
     optionalDependencies:
       typescript: 5.9.3
@@ -11774,6 +11821,10 @@ snapshots:
       esprima: 4.0.1
 
   js-yaml@4.1.0:
+    dependencies:
+      argparse: 2.0.1
+
+  js-yaml@4.1.1:
     dependencies:
       argparse: 2.0.1
 
@@ -13125,6 +13176,10 @@ snapshots:
   react-image-crop@10.0.9(react@19.2.4):
     dependencies:
       clsx: 1.2.1
+      react: 19.2.4
+
+  react-inspector@9.0.0(react@19.2.4):
+    dependencies:
       react: 19.2.4
 
   react-refresh@0.14.0: {}

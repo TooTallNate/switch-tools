@@ -35,6 +35,13 @@ import { parseFsb5 } from '@tootallnate/fsb5';
 import { parseZip, type ZipEntry } from './zip';
 import { parseUnityFs, type UnityFsNode } from './unityfs';
 import {
+	parseSerializedFile,
+	parseObject as parseUnityObject,
+	ClassId as UnityClassId,
+	type ParsedSerializedFile,
+	type SerializedObject,
+} from '@tootallnate/unity-asset';
+import {
 	parseIoStoreToc,
 	type IoStoreToc,
 	type IoChunkEntry,
@@ -47,6 +54,7 @@ import {
 	type NcaSection,
 	NcaContentType,
 	type KeySet,
+	NcaKeyError,
 } from '@tootallnate/nca';
 import type { WalkedDirectory } from './directory';
 import { mergeSplitFiles, type MergedFile } from './split-file';
@@ -69,6 +77,7 @@ export type NodeKind =
 	| 'lz4'
 	| 'unityfs'
 	| 'unity-asset'
+	| 'unity-object'
 	| 'bars'
 	| 'bfsar'
 	| 'bfwar'
@@ -664,16 +673,15 @@ function directoryChildrenFromMerged(
 		const childMerged = dirs.get(name)!;
 		const subtotal = childMerged.reduce((s, m) => s + m.size, 0);
 		out.push(
-			Promise.resolve<Node>({
-				id,
-				name,
-				kind: 'directory',
-				isContainer: true,
-				size: subtotal,
-				format: 'directory',
-				getChildren: () =>
-					directoryChildrenFromMerged(id, childMerged, ctx, tikMap),
-			}),
+			Promise.resolve<Node>(
+				childDirectoryNodeFor({
+					id,
+					name,
+					size: subtotal,
+					getChildren: () =>
+						directoryChildrenFromMerged(id, childMerged, ctx, tikMap),
+				}),
+			),
 		);
 	}
 	for (const m of fileNames) {
@@ -925,9 +933,7 @@ async function parseNcaWithTik(
 	const keys = ctx.getKeys();
 	if (!keys) {
 		ctx.requestKeys();
-		throw new Error(
-			'NCA decryption requires prod.keys. Click the "Add keys" button to provide them.',
-		);
+		throw new ProdKeysMissingError();
 	}
 	let parsed = await parseNca(blob, { keys });
 	if (parsed.hasRightsId && tikMap) {
@@ -938,6 +944,28 @@ async function parseNcaWithTik(
 		}
 	}
 	return parsed;
+}
+
+/**
+ * Thrown when an NCA decryption operation needs `prod.keys` but
+ * none has been loaded into the app yet. Distinct from the
+ * `@tootallnate/nca` package's {@link NcaKeyError} (which covers
+ * "keys present but wrong / outdated") so callers can branch on
+ * `instanceof` to decide whether to prompt for keys or to suggest
+ * updating an existing key file.
+ *
+ * The constructor double-fires `ctx.requestKeys()` is not
+ * sufficient on its own — the user might dismiss the dialog,
+ * navigate away, and click the same node later expecting a
+ * fresh attempt. Throwing this error guarantees the failure
+ * surfaces in the tree's per-node error state and gets re-tried
+ * once keys land.
+ */
+export class ProdKeysMissingError extends Error {
+	constructor() {
+		super('NCA decryption requires prod.keys.');
+		this.name = 'ProdKeysMissingError';
+	}
 }
 
 function makeNcaNode(
@@ -986,8 +1014,8 @@ function makeNcaNode(
 		blob: async () => blob,
 		getChildren: async () => {
 			const parsed = await parseNcaWithTik(blob, ctx, tikMap);
-			if (parsed.missingKey) {
-				throw new Error(parsed.missingKey);
+			if (parsed.missingKeyDetail) {
+				throw new NcaKeyError(parsed.missingKeyDetail);
 			}
 			return ncaSectionNodes(id, parsed, ctx, tikMap);
 		},
@@ -1173,8 +1201,8 @@ function makeNczNode(
 		getChildren: async (options) => {
 			const ncaBlob = await decompressOnce(options);
 			const parsed = await parseNcaWithTik(ncaBlob, ctx, tikMap);
-			if (parsed.missingKey) {
-				throw new Error(parsed.missingKey);
+			if (parsed.missingKeyDetail) {
+				throw new NcaKeyError(parsed.missingKeyDetail);
 			}
 			return ncaSectionNodes(id, parsed, ctx, tikMap);
 		},
@@ -1284,17 +1312,12 @@ async function romfsEntriesToNodes(
 				// become traversable instead of just downloadable.
 				return childNodeFor(id, name, value, ctx);
 			}
-			const isHtdocs = name.toLowerCase().endsWith('.htdocs');
-			return {
+			return childDirectoryNodeFor({
 				id,
 				name,
-				kind: isHtdocs ? 'htdocs' : 'directory',
-				isContainer: true,
-				format: isHtdocs ? 'HTDOCS' : 'directory',
-				meta: isHtdocs ? { htdocsRoot: value as RomFsEntry } : undefined,
 				getChildren: async () =>
 					romfsEntriesToNodes(id, value as RomFsEntry, ctx),
-			};
+			});
 		}),
 	);
 }
@@ -1400,14 +1423,11 @@ async function zipEntriesToNodes(
 				const childId = `${treeId}/${name}`;
 				if (child.dir) {
 					const subNodes = await treeToNodes(childId, child.dir);
-					return {
+					return childDirectoryNodeFor({
 						id: childId,
 						name,
-						kind: 'directory',
-						isContainer: true,
-						format: 'directory',
 						getChildren: async () => subNodes,
-					};
+					});
 				}
 				const file = child.file!;
 				// Route through childNodeFor so nested formats
@@ -1597,14 +1617,11 @@ async function sarcEntriesToNodes(
 				const childId = `${treeId}/${name}`;
 				if (child.dir) {
 					const subNodes = await treeToNodes(childId, child.dir);
-					return {
+					return childDirectoryNodeFor({
 						id: childId,
 						name,
-						kind: 'directory',
-						isContainer: true,
-						format: 'directory',
 						getChildren: async () => subNodes,
-					};
+					});
 				}
 				const file = child.file!;
 				// Route through childNodeFor so nested NRO / SARC /
@@ -2348,14 +2365,11 @@ async function ioStoreEntriesToNodes(
 				const childId = `${treeId}/${n}`;
 				if (child.dir) {
 					const subNodes = await treeToNodes(childId, child.dir);
-					return {
+					return childDirectoryNodeFor({
 						id: childId,
 						name: n,
-						kind: 'directory',
-						isContainer: true,
-						format: 'directory',
 						getChildren: async () => subNodes,
-					};
+					});
 				}
 				const file = child.file!;
 				return makeIoStoreLeaf(childId, n, file, toc, ucasBlob, ctx);
@@ -2545,14 +2559,11 @@ async function unityFsEntriesToNodes(
 				const childId = `${treeId}/${name}`;
 				if (child.dir) {
 					const subNodes = await treeToNodes(childId, child.dir);
-					return {
+					return childDirectoryNodeFor({
 						id: childId,
 						name,
-						kind: 'directory',
-						isContainer: true,
-						format: 'directory',
 						getChildren: async () => subNodes,
-					};
+					});
 				}
 				const file = child.file!;
 				// CAB-* (no extension) files inside a UnityFS bundle
@@ -2583,10 +2594,22 @@ async function unityFsEntriesToNodes(
 
 /**
  * Wrap a Unity SerializedFile (`CAB-…` inside a UnityFS bundle)
- * as a viewer-friendly node. We don't expand it as a directory
- * — its contents are typed objects rather than files — but the
- * preview pane recognises `kind === 'unity-asset'` and mounts
- * the right parser.
+ * as a browsable container. The CAB itself is a single binary
+ * blob in the bundle, but conceptually it holds a heterogeneous
+ * collection of typed objects (`Font`, `Texture2D`, `Material`,
+ * `MonoBehaviour`, …) — making each one an addressable child node
+ * lets users drill into a single asset (e.g. one font out of 26)
+ * instead of being dropped into a wall of stacked previews.
+ *
+ * Children carry `kind: 'unity-object'` plus enough `meta` for the
+ * preview pane to re-fetch and decode the specific object on click
+ * without us having to hold the entire decoded SerializedFile in
+ * memory across the whole tree.
+ *
+ * We don't try to recurse into nested archive formats here — the
+ * embedded font bytes inside a `Font` object, for instance, get
+ * surfaced via the per-object preview rather than as a virtual
+ * `.ttf` child. (We could revisit this if it turns out useful.)
  */
 function makeUnitySerializedFileNode(
 	id: string,
@@ -2598,11 +2621,223 @@ function makeUnitySerializedFileNode(
 		id,
 		name,
 		kind: 'unity-asset',
-		isContainer: false,
+		isContainer: true,
 		size: blob.size,
 		format: 'Unity Asset',
 		blob: async () => blob,
+		getChildren: async () => unitySerializedFileChildren(id, blob),
 	};
+}
+
+/**
+ * Build per-object child nodes for a Unity SerializedFile. Each
+ * child represents one object (`SerializedObject`) and is named
+ * `<m_Name>.<ext>` where `<ext>` is a class-derived hint (e.g.
+ * `.ttf` / `.otf` for a `Font`, falling back to a class-shaped
+ * suffix like `.tex2d` / `.mat` / `.mb`). The hint nudges the
+ * preview pane and download dialog toward the right behaviour
+ * even when the object falls back to the generic preview.
+ *
+ * Sorted by class name first (so Fonts cluster together, Textures
+ * cluster together, …), then by display name (case-insensitive).
+ */
+async function unitySerializedFileChildren(
+	parentId: string,
+	blob: Blob,
+): Promise<Node[]> {
+	let parsed: ParsedSerializedFile;
+	try {
+		parsed = await parseSerializedFile(blob);
+	} catch {
+		// Bad / unsupported SerializedFile — surface no children.
+		// The preview pane will still render the header-level error
+		// when the user clicks the parent node.
+		return [];
+	}
+	const idToClass = new Map<number, string>(
+		Object.entries(UnityClassId).map(([k, v]) => [v as number, k]),
+	);
+	type Entry = {
+		obj: SerializedObject;
+		className: string;
+		displayName: string;
+		ext: string;
+	};
+	const entries: Entry[] = [];
+	for (const obj of parsed.objects) {
+		const className = idToClass.get(obj.classId) ?? `Class${obj.classId}`;
+		// Pull out `m_Name` if the object has a TypeTree we can decode.
+		// For untyped objects (no TypeTree) we fall back to a
+		// `<Class>#<pathId>`-style synthetic name. This is rare for
+		// Switch / mobile bundles which ship TypeTrees, but legal.
+		let displayName = '';
+		let extHint = unityClassExtension(className);
+		const ty = parsed.types[obj.typeIndex];
+		if (ty?.typeTree) {
+			try {
+				const v = await parseUnityObject(obj, ty.typeTree);
+				if (v && typeof v === 'object') {
+					const r = v as Record<string, unknown>;
+					if (typeof r.m_Name === 'string') displayName = r.m_Name;
+					// Refine the Font extension to TTF / OTF based on
+					// the embedded sfnt magic. Mostly cosmetic — the
+					// per-object preview re-sniffs anyway — but it makes
+					// the tree label honest.
+					if (className === 'Font') {
+						// Unity 2020+ describes `m_FontData` as
+						// `vector<char>` (returned as `Uint8Array` by
+						// the array fast-path); older bundles use
+						// `TypelessData` (returned as
+						// `{ size, data: Uint8Array }`). Accept both.
+						let fontBytes: Uint8Array | null = null;
+						const fd = r.m_FontData;
+						if (fd instanceof Uint8Array) fontBytes = fd;
+						else if (
+							fd &&
+							typeof fd === 'object' &&
+							'data' in fd &&
+							(fd as { data?: unknown }).data instanceof Uint8Array
+						) {
+							fontBytes = (fd as { data: Uint8Array }).data;
+						}
+						if (fontBytes && fontBytes.length >= 4) {
+							const m =
+								((fontBytes[0] ?? 0) << 24) |
+								((fontBytes[1] ?? 0) << 16) |
+								((fontBytes[2] ?? 0) << 8) |
+								(fontBytes[3] ?? 0);
+							if (m === 0x4f54544f /* OTTO */) extHint = 'otf';
+						}
+					}
+				}
+			} catch {
+				/* fall through to synthetic name */
+			}
+		}
+		if (!displayName) displayName = `${className}#${obj.pathId.toString()}`;
+		entries.push({ obj, className, displayName, ext: extHint });
+	}
+	entries.sort((a, b) => {
+		if (a.className !== b.className)
+			return a.className.localeCompare(b.className);
+		return a.displayName.localeCompare(b.displayName, undefined, {
+			sensitivity: 'base',
+		});
+	});
+	// Disambiguate duplicate names within the same class (e.g.
+	// "Font Texture" appears 26 times). Append `(N)` based on
+	// occurrence within the post-sort sequence.
+	const seen = new Map<string, number>();
+	return entries.map((e): Node => {
+		const baseLeaf = sanitizeLeafName(e.displayName);
+		const baseFull = `${baseLeaf}.${e.ext}`;
+		const n = seen.get(baseFull) ?? 0;
+		seen.set(baseFull, n + 1);
+		const leaf = n === 0 ? baseFull : `${baseLeaf} (${n + 1}).${e.ext}`;
+		const childId = `${parentId}/${leaf}`;
+		return {
+			id: childId,
+			name: leaf,
+			kind: 'unity-object',
+			isContainer: false,
+			size: e.obj.size,
+			format: e.className,
+			meta: {
+				unityClass: e.className,
+				unityPathId: e.obj.pathId.toString(),
+				unityObjectSize: e.obj.size,
+				// The CAB blob — used by the per-object preview to
+				// re-parse the SerializedFile and locate this object
+				// by `pathId` without re-walking the archive tree.
+				unitySerializedFileBlob: blob,
+				// CAB node id — used to resolve `.resS` siblings via
+				// the existing externals walk (which expects the
+				// SerializedFile's tree node, not the inner object).
+				unitySerializedFileNodeId: parentId,
+			},
+			// `blob()` returns the raw object bytes (the slice of the
+			// SerializedFile's data section that holds this object's
+			// payload). It's the most useful "save this asset" payload
+			// for hex-dumping or feeding into external tooling like
+			// AssetStudio that wants the bytes verbatim.
+			blob: async () => e.obj.data,
+		};
+	});
+}
+
+/**
+ * Filesystem-friendly default extension for a Unity object class.
+ *
+ * The leading `.<class>` segment is informational — names the
+ * Unity class so users can spot what the file is at a glance —
+ * and is followed by `.bin` so the OS / external tooling treat
+ * the download as opaque bytes rather than the named format.
+ *
+ * Concretely: a Texture2D's serialised payload comes out as
+ * `<Name>.tex2d.bin`. The bytes are *not* a self-contained `.tex2d`
+ * file — they're a slice of the parent SerializedFile whose meaning
+ * depends on the parent's TypeTree. Marking them `.bin` avoids
+ * implying re-importability while keeping the class hint visible.
+ *
+ * Font is the lone exception: when the embedded `m_FontData` is a
+ * complete TTF/OTF, we DO surface `.ttf` / `.otf` directly because
+ * those bytes stand on their own (the Font object's other fields
+ * are metadata, not part of the font file itself). The children
+ * builder re-sniffs the magic to refine `.ttf` → `.otf`.
+ */
+function unityClassExtension(className: string): string {
+	if (className === 'Font') return 'ttf';
+	const hint = unityClassHint(className);
+	return `${hint}.bin`;
+}
+
+/** Class-name hint used as the inner extension segment (before `.bin`). */
+function unityClassHint(className: string): string {
+	switch (className) {
+		case 'Texture2D':
+			return 'tex2d';
+		case 'Texture3D':
+			return 'tex3d';
+		case 'Cubemap':
+			return 'cubemap';
+		case 'Material':
+			return 'mat';
+		case 'Shader':
+			return 'shader';
+		case 'Mesh':
+			return 'mesh';
+		case 'AudioClip':
+			return 'audio';
+		case 'AnimationClip':
+			return 'anim';
+		case 'TextAsset':
+			return 'txt';
+		case 'MonoBehaviour':
+			return 'mb';
+		case 'GameObject':
+			return 'go';
+		case 'Transform':
+			return 'transform';
+		case 'AssetBundle':
+			return 'manifest';
+		case 'Sprite':
+			return 'sprite';
+		default:
+			return 'asset';
+	}
+}
+
+/**
+ * Strip / replace characters that would be awkward in a tree-leaf
+ * name (slashes, control chars, leading dots). Mirrors the kind of
+ * sanitation the FMOD-bank node does for its sample children.
+ */
+function sanitizeLeafName(name: string): string {
+	const cleaned = name.replace(/[\\/\u0000-\u001f]+/g, '_').trim();
+	if (!cleaned) return 'unnamed';
+	// Avoid leading dot (would render as a hidden file in download
+	// dialogs).
+	return cleaned.replace(/^\.+/, '_');
 }
 
 // ----- Bundle wrapper detection -----
@@ -2684,6 +2919,46 @@ function makeFfprBundleNode(
 		size: blob.size,
 		format: 'SQEX-AB',
 		blob: async () => blob,
+	};
+}
+
+// ----- Generic dispatcher for directory-shaped child nodes -----
+
+/**
+ * Single source of truth for every container's directory-shaped
+ * child nodes. Containers (PFS0 / HFS0 / RomFS / ZIP / SARC /
+ * IoStore / UnityFS / loose-directory) used to inline `kind:
+ * 'directory'` independently, which meant any cross-cutting
+ * directory recognition (e.g. `*.htdocs/` for the offline-manual
+ * iframe renderer) had to be re-added to each one. Routing
+ * through this helper guarantees a single recognition pass and a
+ * uniform node shape.
+ *
+ * Recognition is purely name-based today (`*.htdocs/` → the
+ * htdocs preview). The preview itself queries `getChildren()`
+ * lazily when it needs the file map, so the archive layer never
+ * has to materialise a full RomFS-shaped tree up-front.
+ *
+ * Mirrors the shape of {@link childNodeFor}: pass the bare
+ * inputs, get back a fully-formed `Node`.
+ */
+function childDirectoryNodeFor(opts: {
+	id: string;
+	name: string;
+	getChildren: () => Promise<Node[]>;
+	/** Optional size in bytes (only the fs-directory walker has this up-front). */
+	size?: number;
+}): Node {
+	const { id, name, getChildren, size } = opts;
+	const isHtdocs = name.toLowerCase().endsWith('.htdocs');
+	return {
+		id,
+		name,
+		kind: isHtdocs ? 'htdocs' : 'directory',
+		isContainer: true,
+		size,
+		format: isHtdocs ? 'HTDOCS' : 'directory',
+		getChildren,
 	};
 }
 

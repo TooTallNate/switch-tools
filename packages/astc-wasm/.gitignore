@@ -1,0 +1,10 @@
+crate/target/
+node_modules/
+dist/
+
+# Cargo.lock IS committed for this crate: it produces the
+# `astc.wasm` binary we ship, so reproducible builds matter.
+# (The convention "libraries don't commit Cargo.lock" applies
+# to libraries published to crates.io; this crate is internal
+# build-only.)
+

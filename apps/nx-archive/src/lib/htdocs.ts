@@ -19,35 +19,45 @@
  *     rendering.
  */
 
-import type { RomFsEntry } from '@tootallnate/romfs';
+import type { Node } from './archive';
 
 /** A flat (path → Blob) view of an `.htdocs` tree. */
 export type HtdocsFiles = Map<string, Blob>;
 
-/** Walk a RomFsEntry tree and produce a flat map keyed by `/`-joined path. */
-export function flattenHtdocs(root: RomFsEntry, prefix = ''): HtdocsFiles {
+/**
+ * Walk an htdocs container's archive-tree node recursively,
+ * resolving every leaf's `Blob` and keying it by `/`-joined
+ * path relative to the container.
+ *
+ * This is the only adapter HtdocsPreview needs from the archive
+ * layer — no `.htdocs`-specific shape lives anywhere else.
+ * Containers (RomFS, ZIP, SARC, fs-directory, …) all expose the
+ * same `Node` API, so this single walk works for any of them.
+ *
+ * Children are fetched via the standard lazy `getChildren()` /
+ * `blob()` accessors; a recursive walk through the whole subtree
+ * keeps the implementation symmetric across container types and
+ * matches the existing recursive-walk pattern other previews use
+ * (Texture2D `.resS` resolution, AudioClip `.resource`).
+ */
+export async function flattenHtdocsFromNode(
+	root: Node,
+	prefix = '',
+): Promise<HtdocsFiles> {
 	const out: HtdocsFiles = new Map();
-	for (const [name, value] of Object.entries(root)) {
-		const path = prefix ? `${prefix}/${name}` : name;
-		if (isBlobLike(value)) {
-			out.set(path, value);
-		} else {
-			for (const [k, v] of flattenHtdocs(value, path)) {
-				out.set(k, v);
+	if (root.isContainer && root.getChildren) {
+		const kids = root._children ?? (root._children = await root.getChildren());
+		for (const child of kids) {
+			const path = prefix ? `${prefix}/${child.name}` : child.name;
+			if (child.isContainer) {
+				const sub = await flattenHtdocsFromNode(child, path);
+				for (const [k, v] of sub) out.set(k, v);
+			} else if (child.blob) {
+				out.set(path, await child.blob());
 			}
 		}
 	}
 	return out;
-}
-
-function isBlobLike(value: unknown): value is Blob {
-	return (
-		!!value &&
-		typeof value === 'object' &&
-		typeof (value as Blob).arrayBuffer === 'function' &&
-		typeof (value as Blob).slice === 'function' &&
-		typeof (value as Blob).size === 'number'
-	);
 }
 
 /** Best-effort MIME type detection by extension. */

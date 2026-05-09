@@ -1,0 +1,38 @@
+# Rust crate that wraps the `texture2ddecoder` ASTC decoder so we can
+# call it from JS via WebAssembly. We keep this separate from the
+# JS package so the cargo manifest has a clean root and the wasm
+# binary it produces lives at a stable relative path.
+
+[package]
+name = "tootallnate-astc-wasm"
+version = "0.0.1"
+edition = "2021"
+authors = ["TooTallNate"]
+description = "Pure-Rust ASTC LDR decoder compiled to WASM."
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# The ASTC decoder lives upstream in `texture2ddecoder`. We pin to a
+# released crates.io version so reproducible builds don't require a
+# git checkout. We keep the default `alloc` feature: turning it off
+# exposes a few unrelated compile errors in `pvrtc.rs` that we
+# don't want to patch around. ASTC decode itself is allocator-free
+# in practice (it operates on the preallocated `&mut [u32]` we
+# pass in), but the crate still requires a `#[global_allocator]`
+# to be installed when `alloc` is on.
+texture2ddecoder = { version = "0.1.2" }
+# Tiny allocator suitable for WASM. We never actually allocate on
+# the heap from the ASTC path, but the texture2ddecoder crate's
+# `alloc` feature triggers `extern crate alloc;` and the linker
+# then wants a global allocator symbol regardless.
+wee_alloc = "0.4"
+
+[profile.release]
+opt-level = "z"      # optimize for size; ASTC is bandwidth-bound
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

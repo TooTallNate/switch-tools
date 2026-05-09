@@ -77,6 +77,7 @@ export function decodeUnityTexture2D(
  */
 export function TextureFormatName(code: number): string | undefined {
   switch (code) {
+    // Uncompressed
     case TextureFormat.Alpha8: return "Alpha8"
     case TextureFormat.ARGB4444: return "ARGB4444"
     case TextureFormat.RGB24: return "RGB24"
@@ -84,15 +85,58 @@ export function TextureFormatName(code: number): string | undefined {
     case TextureFormat.ARGB32: return "ARGB32"
     case TextureFormat.RGB565: return "RGB565"
     case TextureFormat.R16: return "R16"
-    case TextureFormat.DXT1: return "DXT1 (BC1)"
-    case TextureFormat.DXT5: return "DXT5 (BC3)"
     case TextureFormat.RGBA4444: return "RGBA4444"
     case TextureFormat.BGRA32: return "BGRA32"
+    case TextureFormat.RHalf: return "RHalf"
+    case TextureFormat.RGHalf: return "RGHalf"
+    case TextureFormat.RGBAHalf: return "RGBAHalf"
+    case TextureFormat.RFloat: return "RFloat"
+    case TextureFormat.RGFloat: return "RGFloat"
+    case TextureFormat.RGBAFloat: return "RGBAFloat"
+    case TextureFormat.YUY2: return "YUY2"
+    case TextureFormat.RGB9e5Float: return "RGB9e5Float"
+    case TextureFormat.RG16: return "RG16"
     case TextureFormat.R8: return "R8"
+    // BC / DXT
+    case TextureFormat.DXT1: return "DXT1 (BC1)"
+    case TextureFormat.DXT5: return "DXT5 (BC3)"
     case TextureFormat.BC4: return "BC4"
     case TextureFormat.BC5: return "BC5"
     case TextureFormat.BC6H: return "BC6H"
     case TextureFormat.BC7: return "BC7"
+    case TextureFormat.DXT1Crunched: return "DXT1Crunched"
+    case TextureFormat.DXT5Crunched: return "DXT5Crunched"
+    // PVRTC
+    case TextureFormat.PVRTC_RGB2: return "PVRTC_RGB2"
+    case TextureFormat.PVRTC_RGBA2: return "PVRTC_RGBA2"
+    case TextureFormat.PVRTC_RGB4: return "PVRTC_RGB4"
+    case TextureFormat.PVRTC_RGBA4: return "PVRTC_RGBA4"
+    // ETC / EAC
+    case TextureFormat.ETC_RGB4: return "ETC_RGB4"
+    case TextureFormat.ATC_RGB4: return "ATC_RGB4"
+    case TextureFormat.ATC_RGBA8: return "ATC_RGBA8"
+    case TextureFormat.EAC_R: return "EAC_R"
+    case TextureFormat.EAC_R_SIGNED: return "EAC_R_SIGNED"
+    case TextureFormat.EAC_RG: return "EAC_RG"
+    case TextureFormat.EAC_RG_SIGNED: return "EAC_RG_SIGNED"
+    case TextureFormat.ETC2_RGB: return "ETC2_RGB"
+    case TextureFormat.ETC2_RGBA1: return "ETC2_RGBA1"
+    case TextureFormat.ETC2_RGBA8: return "ETC2_RGBA8"
+    case TextureFormat.ETC_RGB4_3DS: return "ETC_RGB4_3DS"
+    case TextureFormat.ETC_RGBA8_3DS: return "ETC_RGBA8_3DS"
+    // ASTC LDR
+    case TextureFormat.ASTC_RGB_4x4: return "ASTC_RGB_4x4"
+    case TextureFormat.ASTC_RGB_5x5: return "ASTC_RGB_5x5"
+    case TextureFormat.ASTC_RGB_6x6: return "ASTC_RGB_6x6"
+    case TextureFormat.ASTC_RGB_8x8: return "ASTC_RGB_8x8"
+    case TextureFormat.ASTC_RGB_10x10: return "ASTC_RGB_10x10"
+    case TextureFormat.ASTC_RGB_12x12: return "ASTC_RGB_12x12"
+    case TextureFormat.ASTC_RGBA_4x4: return "ASTC_RGBA_4x4"
+    case TextureFormat.ASTC_RGBA_5x5: return "ASTC_RGBA_5x5"
+    case TextureFormat.ASTC_RGBA_6x6: return "ASTC_RGBA_6x6"
+    case TextureFormat.ASTC_RGBA_8x8: return "ASTC_RGBA_8x8"
+    case TextureFormat.ASTC_RGBA_10x10: return "ASTC_RGBA_10x10"
+    case TextureFormat.ASTC_RGBA_12x12: return "ASTC_RGBA_12x12"
     default: return undefined
   }
 }

@@ -145,21 +145,111 @@ export interface ParsedNca {
 	/** Decrypted key used for AES-CTR section bodies (= keyArea[2]). */
 	sectionKey: Uint8Array;
 	/**
-	 * Set when the KeySet doesn't have the right key to decrypt section
-	 * bodies (typically because the user's `prod.keys` is older than the
-	 * NCA's firmware target — e.g. a firmware-22 NCA opened with a key
-	 * file that only goes up to master_key_0f).
+	 * Human-readable description of why we couldn't derive the key
+	 * needed to decrypt section bodies (typically because the user's
+	 * `prod.keys` is older than the NCA's firmware target). `null`
+	 * when decryption is fully set up.
 	 *
-	 * The header is still fully parsed when this is set (so the caller
-	 * can show NCA metadata), but reading from a section's `data` blob
-	 * will throw with this same message rather than silently producing
-	 * garbage.
+	 * The header is still fully parsed when this is set (so the
+	 * caller can show NCA metadata), but reading from a section's
+	 * `data` blob throws an {@link NcaKeyError} with the same
+	 * message rather than silently producing garbage.
+	 *
+	 * Prefer {@link missingKeyDetail} for programmatic dispatch —
+	 * callers that want to render their own message or pick a
+	 * different UI affordance per cause should branch on the code,
+	 * not parse this string.
 	 */
 	missingKey: string | null;
+	/**
+	 * Structured form of {@link missingKey}: a stable cause code
+	 * plus the relevant context (key generation, KAEK index, …).
+	 * `null` when `missingKey` is `null`.
+	 */
+	missingKeyDetail: NcaKeyErrorDetail | null;
 	/** Sections present in this NCA (those whose entry start_media != 0). */
 	sections: NcaSection[];
 	/** SHA-256 hash of the entire NCA, hex-encoded (first 16 bytes used as NCA ID). */
 	ncaId: string;
+}
+
+/**
+ * Stable cause codes for NCA-key failures. Callers branch on
+ * `code` to decide what UI to show; the structured `detail`
+ * carries the supporting context for the (canonical) message.
+ *
+ *   - `outdated-keys`  KeySet present but no entry for this NCA's
+ *                      key generation (the most common case — the
+ *                      user's `prod.keys` predates the firmware
+ *                      that produced this NCA).
+ *   - `missing-ticket` NCA uses titlekey crypto but no `.tik`
+ *                      file was supplied alongside.
+ *
+ * `no-keys` (no `KeySet` at all) is surfaced separately by
+ * callers that have direct access to the keys — `parseNca`
+ * itself requires a `KeySet` argument so it can't produce it.
+ */
+export type NcaKeyErrorCode = 'outdated-keys' | 'missing-ticket';
+
+export interface NcaKeyErrorDetail {
+	code: NcaKeyErrorCode;
+	/** Key generation the NCA needs (1-indexed; matches `master_key_<n-1>`). */
+	generation?: number;
+	/**
+	 * Which key area key index was missing. 0 = Application, 1 =
+	 * Ocean, 2 = System. Only set for `outdated-keys` with the
+	 * key-area path (not titlekek).
+	 */
+	kaekIndex?: number;
+	/**
+	 * Sub-cause within `outdated-keys`: which key did we fail to
+	 * find? Lets the UI offer slightly different copy
+	 * ("titlekek for gen N" vs "key area key for gen N").
+	 */
+	kind?: 'key-area-key' | 'titlekek';
+}
+
+/**
+ * Error thrown by NCA section reads when keys are missing or
+ * mismatched. Carries a stable `code` + structured `detail` so the
+ * UI can render its own copy / actions.
+ */
+export class NcaKeyError extends Error {
+	readonly code: NcaKeyErrorCode;
+	readonly detail: NcaKeyErrorDetail;
+
+	constructor(detail: NcaKeyErrorDetail) {
+		super(formatNcaKeyMessage(detail));
+		this.name = 'NcaKeyError';
+		this.code = detail.code;
+		this.detail = detail;
+	}
+}
+
+/**
+ * Canonical user-facing message for a given key error. Single
+ * source of truth so the same cause never produces two different
+ * texts at different call sites.
+ *
+ *   - Both `outdated-keys` sub-kinds collapse to one message
+ *     ("Your prod.keys is older than this NCA…") with the
+ *     specific generation appended for diagnostics. Tools can
+ *     still branch on `detail.kind` if they want to differentiate.
+ *   - `missing-ticket` is its own actionable case (the user
+ *     should locate the matching `.tik`).
+ */
+export function formatNcaKeyMessage(detail: NcaKeyErrorDetail): string {
+	switch (detail.code) {
+		case 'outdated-keys': {
+			const gen =
+				detail.generation !== undefined
+					? ` (needed key generation ${detail.generation})`
+					: '';
+			return `Your prod.keys file is older than this NCA${gen} — try updating it (e.g. with a recent Lockpick_RCM run).`;
+		}
+		case 'missing-ticket':
+			return `This NCA uses titlekey crypto (RightsId set) but no matching .tik ticket file was supplied. Tickets ship alongside the NCA in the same NSP/XCI container.`;
+	}
 }
 
 export interface ParseNcaOptions {
@@ -258,17 +348,22 @@ export async function parseNca(
 	const kak = keys.keyAreaKeys[keyGeneration - 1]?.[kaekIndex];
 	const keyAreaEncrypted = header.subarray(0x300, 0x340);
 	let keyAreaDecrypted: Uint8Array;
-	let missingKey: string | null = null;
-	const kaekIndexName = ['Application', 'Ocean', 'System'][kaekIndex] ?? `index ${kaekIndex}`;
+	let missingKeyDetail: NcaKeyErrorDetail | null = null;
 	if (plaintext) {
 		keyAreaDecrypted = new Uint8Array(keyAreaEncrypted);
 	} else if (!kak || kak.every((b) => b === 0)) {
-		// We don't have the KAEK for this generation. This is most often
-		// caused by an out-of-date `prod.keys` — for example, opening a
-		// firmware-22 NCA with a key file that only goes up to
-		// `master_key_0f`. The caller may still inspect header metadata,
-		// but section reads will throw a clear error.
-		missingKey = `Missing key area key for generation ${keyGeneration} (${kaekIndexName}). Your prod.keys is likely older than this NCA — try updating it (e.g. with a recent Lockpick_RCM run).`;
+		// We don't have the KAEK for this generation. This is most
+		// often caused by an out-of-date `prod.keys` — for example,
+		// opening a firmware-22 NCA with a key file that only goes
+		// up to `master_key_0f`. The caller may still inspect
+		// header metadata, but section reads will throw a clear
+		// {@link NcaKeyError} carrying the structured detail.
+		missingKeyDetail = {
+			code: 'outdated-keys',
+			generation: keyGeneration,
+			kaekIndex,
+			kind: 'key-area-key',
+		};
 		keyAreaDecrypted = new Uint8Array(keyAreaEncrypted);
 	} else {
 		keyAreaDecrypted = await aesEcbDecrypt(kak, keyAreaEncrypted, crypto);
@@ -292,12 +387,18 @@ export async function parseNca(
 	if (hasRightsId) {
 		const titlekek = keys.titlekeks?.[keyGeneration - 1];
 		if (!options.encryptedTitleKey) {
-			missingKey =
-				`This NCA uses titlekey crypto (RightsId set) but no .tik file ` +
-				`was supplied. The matching ticket should ship alongside the ` +
-				`NCA in the NSP/XCI container.`;
+			missingKeyDetail = { code: 'missing-ticket' };
 		} else if (!titlekek || titlekek.every((b) => b === 0)) {
-			missingKey = `Missing titlekek for generation ${keyGeneration}. Your prod.keys is likely older than this NCA.`;
+			// Same root cause as the key-area-key path above: the
+			// user's prod.keys doesn't cover this NCA's generation.
+			// Reported with the same `outdated-keys` code so the UI
+			// renders one consistent message regardless of which
+			// crypto path the NCA uses.
+			missingKeyDetail = {
+				code: 'outdated-keys',
+				generation: keyGeneration,
+				kind: 'titlekek',
+			};
 		} else {
 			sectionKey = await aesEcbDecrypt(
 				titlekek,
@@ -306,6 +407,9 @@ export async function parseNca(
 			);
 		}
 	}
+	const missingKey = missingKeyDetail
+		? formatNcaKeyMessage(missingKeyDetail)
+		: null;
 
 	// Walk section entries (at 0x240, 4 × 0x10 bytes) and FS headers (at 0x400, 4 × 0x200 bytes).
 	const sections: NcaSection[] = [];
@@ -385,7 +489,8 @@ export async function parseNca(
 			crypto,
 			// Plaintext sections (e.g. the Logo PFS0) work fine without keys
 			// — only fail on encrypted sections.
-			missingKey: cryptType === NCA_CRYPT_NONE ? null : missingKey,
+			missingKeyDetail:
+				cryptType === NCA_CRYPT_NONE ? null : missingKeyDetail,
 		});
 
 		const section: NcaSection = {
@@ -433,6 +538,7 @@ export async function parseNca(
 		keyArea,
 		sectionKey,
 		missingKey,
+		missingKeyDetail,
 		sections,
 		ncaId,
 	};
@@ -452,11 +558,12 @@ interface LazySectionParams {
 	plaintext: boolean;
 	crypto: Crypto;
 	/**
-	 * If non-null, the parser detected that the user's KeySet doesn't
-	 * contain the right key to decrypt this section. Reading the blob
-	 * throws this message instead of silently returning garbage.
+	 * If non-null, the parser detected that the user's KeySet
+	 * doesn't contain the right key to decrypt this section.
+	 * Reading from the blob throws an {@link NcaKeyError} carrying
+	 * the structured detail instead of silently returning garbage.
 	 */
-	missingKey: string | null;
+	missingKeyDetail: NcaKeyErrorDetail | null;
 }
 
 /**
@@ -487,7 +594,7 @@ function createLazySectionBlob(params: LazySectionParams): Blob {
 		sectionKey,
 		plaintext,
 		crypto,
-		missingKey,
+		missingKeyDetail,
 	} = params;
 
 	const sectionSize = end - start;
@@ -495,9 +602,10 @@ function createLazySectionBlob(params: LazySectionParams): Blob {
 	// If the parser already detected that we don't have the right key,
 	// any read from this blob would silently return garbage. Surface a
 	// real error instead so callers (PFS0/RomFS parsers, the UI) can
-	// report it properly.
-	if (missingKey) {
-		return makeFailingBlob(sectionSize, missingKey);
+	// report it properly. The error carries the structured `detail`
+	// so the UI can branch on `code` rather than parse the message.
+	if (missingKeyDetail) {
+		return makeFailingBlob(sectionSize, () => new NcaKeyError(missingKeyDetail));
 	}
 
 	// Plaintext / no-crypt sections: just slice the source — the resulting Blob
@@ -670,14 +778,28 @@ function clamp(v: number, lo: number, hi: number) {
 }
 
 /**
- * A `Blob`-shaped facade that throws a descriptive error from every
- * read method. Used when we know up-front we can't decrypt this
- * section so we surface a clear "missing key" message instead of
- * silently returning garbled bytes.
+ * A `Blob`-shaped facade that throws a descriptive error from
+ * every read method. Used when we know up-front we can't decrypt
+ * this section, so we surface a clear error (typically an
+ * {@link NcaKeyError}) instead of silently returning garbled
+ * bytes.
+ *
+ * `makeError` is a thunk so callers can produce a fresh Error
+ * instance per throw — important for stack traces and for
+ * `instanceof` checks against subclasses like `NcaKeyError`.
+ * A plain string is also accepted as a convenience for the
+ * BKTR-patch-section case which doesn't need a structured type.
  */
-function makeFailingBlob(size: number, message: string): Blob {
+function makeFailingBlob(
+	size: number,
+	makeError: string | (() => Error),
+): Blob {
+	const errorFactory: () => Error =
+		typeof makeError === 'string'
+			? () => new Error(makeError)
+			: makeError;
 	const fail = (): never => {
-		throw new Error(message);
+		throw errorFactory();
 	};
 	const facade: Blob = {
 		get size() {
@@ -693,7 +815,7 @@ function makeFailingBlob(size: number, message: string): Blob {
 		slice(start?: number, end?: number, _contentType?: string): Blob {
 			const s = clamp(start ?? 0, 0, size);
 			const e = clamp(end ?? size, s, size);
-			return makeFailingBlob(e - s, message);
+			return makeFailingBlob(e - s, errorFactory);
 		},
 	} as unknown as Blob;
 	return facade;

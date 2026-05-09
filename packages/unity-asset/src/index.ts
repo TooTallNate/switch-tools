@@ -77,29 +77,76 @@ export const ClassId = {
   GUISkin: 146,
 } as const
 
-/** Texture format codes (from `UnityEngine.TextureFormat`). Subset. */
+/**
+ * Texture format codes from `UnityEngine.TextureFormat`. Values are
+ * the on-disk numeric codes Unity ships in `m_TextureFormat`, taken
+ * verbatim from the Unity 2021 enum so the round-trip is exact.
+ *
+ * Not all formats in this table have a decoder in `texture.ts` —
+ * the table is a complete vocabulary; `describeFormat` is the
+ * subset we know how to expand to RGBA8.
+ */
 export const TextureFormat = {
+  // ----- Uncompressed -----
   Alpha8: 1,
   ARGB4444: 2,
   RGB24: 3,
   RGBA32: 4,
   ARGB32: 5,
   RGB565: 7,
-  R16: 9,
-  DXT1: 10,
-  DXT5: 12,
+  R16: 9, // 16-bit unsigned single channel (raw)
   RGBA4444: 13,
   BGRA32: 14,
+  RHalf: 15,
+  RGHalf: 16,
+  RGBAHalf: 17,
+  RFloat: 18,
+  RGFloat: 19,
+  RGBAFloat: 20,
+  YUY2: 21,
+  RGB9e5Float: 22,
+  RG16: 62,
   R8: 63,
-  // Only the texture formats we're likely to decode; lots more exist.
-  BC4: 26,
-  BC5: 27,
+  // ----- Desktop block-compressed (DXT / BC family) -----
+  DXT1: 10,
+  DXT5: 12,
   BC6H: 24,
   BC7: 25,
-  RG16: 62,
-  RG32: 33,
-  RGB48: 34,
-  RGBA64: 35,
+  BC4: 26,
+  BC5: 27,
+  DXT1Crunched: 28,
+  DXT5Crunched: 29,
+  // ----- Mobile / iOS PowerVR -----
+  PVRTC_RGB2: 30,
+  PVRTC_RGBA2: 31,
+  PVRTC_RGB4: 32,
+  PVRTC_RGBA4: 33,
+  // ----- Mobile / Android ETC + ATC -----
+  ETC_RGB4: 34,
+  ATC_RGB4: 35,
+  ATC_RGBA8: 36,
+  EAC_R: 41,
+  EAC_R_SIGNED: 42,
+  EAC_RG: 43,
+  EAC_RG_SIGNED: 44,
+  ETC2_RGB: 45,
+  ETC2_RGBA1: 46,
+  ETC2_RGBA8: 47,
+  // ----- ASTC LDR (Switch / mobile / desktop) -----
+  ASTC_RGB_4x4: 48,
+  ASTC_RGB_5x5: 49,
+  ASTC_RGB_6x6: 50,
+  ASTC_RGB_8x8: 51,
+  ASTC_RGB_10x10: 52,
+  ASTC_RGB_12x12: 53,
+  ASTC_RGBA_4x4: 54,
+  ASTC_RGBA_5x5: 55,
+  ASTC_RGBA_6x6: 56,
+  ASTC_RGBA_8x8: 57,
+  ASTC_RGBA_10x10: 58,
+  ASTC_RGBA_12x12: 59,
+  ETC_RGB4_3DS: 60,
+  ETC_RGBA8_3DS: 61,
 } as const
 
 // ----- header / metadata structures -----
@@ -786,7 +833,10 @@ function readStruct(r: Reader, node: TypeTreeNode): Record<string, unknown> {
   return out
 }
 
-function readArray(r: Reader, arrayNode: TypeTreeNode): unknown[] {
+function readArray(
+  r: Reader,
+  arrayNode: TypeTreeNode,
+): unknown[] | Uint8Array {
   // arrayNode.children = [size: int, data: T]
   if (arrayNode.children.length < 2) {
     throw new Error(
@@ -796,6 +846,9 @@ function readArray(r: Reader, arrayNode: TypeTreeNode): unknown[] {
   const size = readNode(r, arrayNode.children[0]!) as number
   const elemNode = arrayNode.children[1]!
   // Common fast path: array of primitives we can slurp in one go.
+  // Returns `Uint8Array` for byte-element arrays so that font /
+  // shader / mesh blobs come back as compact binary instead of
+  // millions of boxed numbers.
   const fast = fastBulkRead(r, elemNode, size)
   if (fast !== undefined) {
     if ((arrayNode.metaFlag & META_ALIGN_BYTES) !== 0) r.align(4)
@@ -808,27 +861,43 @@ function readArray(r: Reader, arrayNode: TypeTreeNode): unknown[] {
 }
 
 /**
- * If the array element is a primitive, pull all `count`
- * elements in one go via a typed-array view. Order-of-magnitude
- * speedup on big TypelessData blobs (texture pixels).
+ * If the array element is a primitive, pull all `count` elements
+ * in one go via a typed-array view. Order-of-magnitude speedup on
+ * big primitive arrays — texture pixels (often int) and embedded
+ * font / shader / mesh blobs (often `vector<char>`).
+ *
+ * For byte-shaped element types (`UInt8` / `char` / `SInt8`) we
+ * return a `Uint8Array` directly. This:
+ *
+ *   1. Avoids `Array.from(bytes)`'s O(N) per-element JS-object cost,
+ *      which would balloon a 4 MB embedded font into 4 million heap
+ *      slots when all we want is the raw blob.
+ *   2. Means downstream consumers can `instanceof Uint8Array` to
+ *      decide whether to treat the field as binary data (e.g.
+ *      `Font.m_FontData`, which is a `vector<char>` in the modern
+ *      Unity TypeTree but a `TypelessData` in older formats — both
+ *      now collapse to the same shape).
+ *
+ * Wider-than-byte primitives still come back as a plain `unknown[]`
+ * so that JSON-shaped consumers (the Unity-asset KV preview, e.g.)
+ * can iterate them naturally.
  */
 function fastBulkRead(
   r: Reader,
   elem: TypeTreeNode,
   count: number,
-): unknown[] | undefined {
+): unknown[] | Uint8Array | undefined {
   if (elem.children.length > 0) return undefined
   const bytes = r.bytes(count * elemSize(elem.type))
-  // Most callers just want the raw bytes for big primitive
-  // arrays — return a typed array boxed as unknown[] so callers
-  // can still index it. For UInt8 specifically we return the
-  // `Uint8Array` directly inside an array-shaped wrapper to
-  // keep the deserialiser simple.
   switch (elem.type) {
-    case "UInt8": case "byte": case "unsigned char":
-      return Array.from(bytes)
-    case "SInt8": case "char":
-      return Array.from(new Int8Array(bytes.buffer, bytes.byteOffset, count))
+    case "UInt8":
+    case "byte":
+    case "unsigned char":
+    case "SInt8":
+    case "char":
+      // Copy out so callers can mutate / hold the slice without
+      // pinning the whole SerializedFile buffer.
+      return new Uint8Array(bytes)
     case "UInt16": case "unsigned short":
       return Array.from(new Uint16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + count * 2)))
     case "SInt16": case "short":

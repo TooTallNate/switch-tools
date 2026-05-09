@@ -1,0 +1,28 @@
+{
+  "name": "@tootallnate/bmfont",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for AngelCode BMFont (.fnt) bitmap font descriptors. Decodes the binary BMF format used by many game engines (Cocos2d-x, Unity legacy, Unreal pre-Slate, MonoGame, Godot) into typed info / common / pages / chars / kerning records.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "bmfont",
+    "bitmap-font",
+    "angelcode",
+    "fnt"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/bmfont"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.8"
+  }
+}
