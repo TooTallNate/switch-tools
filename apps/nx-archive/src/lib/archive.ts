@@ -47,6 +47,13 @@ import {
 	type IoChunkEntry,
 } from '@tootallnate/iostore';
 import {
+	isUpakV11,
+	parseUpak,
+	readUpakEntry,
+	type ParsedUpak,
+	type UpakEntry,
+} from '@tootallnate/upak';
+import {
 	parseNca,
 	NCA_FS_TYPE_PFS0,
 	NCA_FS_TYPE_ROMFS,
@@ -87,6 +94,7 @@ export type NodeKind =
 	| 'wwise-bnk'
 	| 'fmod-bank'
 	| 'iostore'
+	| 'upak'
 	/**
 	 * A user-selected directory from the local filesystem. Functions
 	 * like an "ad-hoc PFS0" — its children are the files inside, with
@@ -540,6 +548,25 @@ export async function buildRootNode(
 			return makeLz4Node(id, displayName, blob, ctx);
 		case 'UnityFS':
 			return makeUnityFsNode(id, displayName, blob, ctx);
+		case 'UE-PAK': {
+			// `.pak` is also used by Nintendo's bespoke `.pack`
+			// family — footer-sniff to disambiguate before
+			// committing to UE PAK parsing.
+			if (await isUpakV11(blob)) {
+				return makeUpakNode(id, displayName, blob, ctx);
+			}
+			// Otherwise fall through to a generic file (the user
+			// can still download / hex-view it).
+			return {
+				id,
+				name: displayName,
+				kind: 'file',
+				isContainer: false,
+				size: blob.size,
+				format: 'PAK',
+				blob: async () => blob,
+			};
+		}
 		case 'BARS':
 			return makeBarsNode(id, displayName, blob, ctx);
 		case 'BFSAR':
@@ -2469,6 +2496,214 @@ async function readIoStoreChunk(
 	return new Blob([out]);
 }
 
+// ----- UE PAK (Unreal Engine archive) -----
+
+/**
+ * `.pak` is the legacy monolithic Unreal Engine asset container
+ * (UE3 → UE5). Distinct from the `.utoc`/`.ucas` IoStore format
+ * we already support — both ship UE assets but with very
+ * different layouts. PAKs are still common alongside IoStore for
+ * content that doesn't fit the IoStore model (and remained the
+ * only option in earlier UE versions).
+ *
+ * We expose every inner file as a lazy `Blob` window. Compressed
+ * entries (Zlib only — Oodle isn't supported) decompress on read
+ * via `readUpakEntry`. Inner files route through `childNodeFor`
+ * so that nested formats (.uplugin / .ini / .locres / etc.) get
+ * the same per-extension treatment they would in any other
+ * container.
+ *
+ * Older PAK versions (v1–v10) and AES-encrypted indexes throw a
+ * descriptive error from `parseUpak` rather than silently mis-
+ * decoding. Per-file AES encryption is similarly unsupported and
+ * surfaces on first read of an affected entry.
+ */
+function makeUpakNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	// Build both the parsed PAK and the path-keyed tree once on
+	// first `getChildren()`. After the tree is built we drop the
+	// flat `pak.entries[]` reference: every leaf's entry is now
+	// reachable via the tree, and the duplicate ~30 MB of
+	// per-entry JS objects in a 200k-file PAK adds up fast on
+	// memory-constrained browsers.
+	let parsed: Promise<{ ctx: UpakNodeContext }> | null = null;
+	const parse = () => {
+		if (!parsed) {
+			parsed = parseUpak(blob).then((pak) => {
+				const tree = buildUpakTree(pak);
+				// Free the flat entry list — `tree` references
+				// the same `UpakEntry` objects through its map
+				// values, so this is purely shedding the array
+				// container, not the entries themselves.
+				const ctxObj: UpakNodeContext = {
+					source: pak.source,
+					footer: pak.footer,
+					tree,
+				};
+				return { ctx: ctxObj };
+			});
+		}
+		return parsed;
+	};
+	return {
+		id,
+		name,
+		kind: 'upak',
+		isContainer: true,
+		size: blob.size,
+		format: 'UE-PAK',
+		blob: async () => blob,
+		getChildren: async () => {
+			const { ctx: pakCtx } = await parse();
+			return upakEntriesToNodes(id, pakCtx.tree, pakCtx, ctx);
+		},
+	};
+}
+
+/**
+ * Per-PAK shared state passed down to lazy `getChildren`
+ * thunks. Avoids holding a reference to the parsed PAK's flat
+ * `entries[]` array (which we drop right after building the
+ * tree to keep memory bounded for 200k+-entry PAKs).
+ */
+interface UpakNodeContext {
+	source: Blob;
+	footer: ParsedUpak['footer'];
+	tree: UpakTree;
+}
+
+/**
+ * Build the path-keyed tree shape `upakEntriesToNodes` expands
+ * lazily. Returned once per PAK and cached on the parent node;
+ * subsequent `getChildren` calls walk into the already-built
+ * tree without re-allocating maps.
+ *
+ * For UE PAKs with hundreds of thousands of entries (a typical
+ * Switch port can have 200k+ files) this single up-front walk
+ * still allocates a fair amount, but it's a flat array of
+ * `Map`s rather than the much heavier `Node`-with-closures
+ * graph the previous "build the whole node tree at once"
+ * approach produced.
+ */
+type UpakTree = Map<string, { dir?: UpakTree; file?: UpakEntry }>;
+
+function buildUpakTree(pak: ParsedUpak): UpakTree {
+	const root: UpakTree = new Map();
+	for (const entry of pak.entries) {
+		const parts = entry.path.split('/').filter((p) => p.length > 0);
+		if (parts.length === 0) continue;
+		let cur = root;
+		for (let i = 0; i < parts.length; i++) {
+			const part = parts[i]!;
+			const isLast = i === parts.length - 1;
+			let node = cur.get(part);
+			if (!node) {
+				node = {};
+				cur.set(part, node);
+			}
+			if (isLast) {
+				node.file = entry;
+			} else {
+				if (!node.dir) node.dir = new Map();
+				cur = node.dir;
+			}
+		}
+	}
+	return root;
+}
+
+/**
+ * Lazily expand a single level of a parsed PAK's path tree into
+ * `Node` objects. Mirrors the structure other containers
+ * (RomFS / ZIP / SARC / IoStore) produce, but the recursion
+ * lives in each child's `getChildren` thunk rather than running
+ * up-front.
+ *
+ * For modest PAKs (a few thousand entries) the eager tree walk
+ * the iostore branch uses is fine; for UE-shipping PAKs (200k+
+ * entries) it allocates so many `Node` closures and intermediate
+ * `Map`s that the browser tab crashes. This per-level expansion
+ * keeps the node graph minimal: the user only pays for what
+ * they actually open.
+ *
+ * Files become leaves whose `blob()` materialises the
+ * decompressed bytes via `readUpakEntry` on first read.
+ */
+function upakEntriesToNodes(
+	parentId: string,
+	tree: UpakTree,
+	pakCtx: UpakNodeContext,
+	ctx: ArchiveContext,
+): Node[] {
+	const names = [...tree.keys()].sort((a, b) => {
+		const aIsDir = !!tree.get(a)!.dir;
+		const bIsDir = !!tree.get(b)!.dir;
+		if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+		return humanCompare(a, b);
+	});
+	return names.map((n): Node => {
+		const child = tree.get(n)!;
+		const childId = `${parentId}/${n}`;
+		if (child.dir) {
+			const subTree = child.dir;
+			return childDirectoryNodeFor({
+				id: childId,
+				name: n,
+				// Defer expanding this subdirectory's children
+				// until the user actually opens it. The
+				// `subTree` map is already in memory (built once
+				// by `buildUpakTree`), so the only allocation
+				// here is the closure itself.
+				getChildren: async () =>
+					upakEntriesToNodes(childId, subTree, pakCtx, ctx),
+			});
+		}
+		const file = child.file!;
+		// Wrap the per-entry materialisation in a lazy Blob
+		// facade so we don't decompress the file just because
+		// the user clicked into a sibling directory.
+		const lazyBlob = makeLazyBlob(file.uncompressedSize, () =>
+			readUpakEntry(pakCtx.source, file, pakCtx.footer),
+		);
+		return upakLeafNode(childId, n, lazyBlob, ctx);
+	});
+}
+
+/**
+ * Synchronous variant of {@link childNodeFor} for PAK leaves.
+ *
+ * UE PAKs tend to ship with millions of inner files, so even
+ * paying the cost of an async `sniffMagicCheap` per file at
+ * tree-build time would be prohibitive. The vast majority of
+ * inner file names are well-known UE extensions
+ * (.uasset / .uexp / .ubulk / .umap / .uplugin / .uproject /
+ * .ini / .locres / .bin / .pak …), all of which we can dispatch
+ * by extension alone. Anything we don't recognise falls back to
+ * a generic `'file'` node — the user can still download and
+ * inspect it via the hex preview.
+ */
+function upakLeafNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	void ctx;
+	return {
+		id,
+		name,
+		kind: 'file',
+		isContainer: false,
+		size: blob.size,
+		format: detectFormat(name) || 'BIN',
+		blob: async () => blob,
+	};
+}
+
 // ----- UnityFS (Unity AssetBundle) -----
 
 /**
@@ -2989,6 +3224,17 @@ async function childNodeFor(
 	// pairing with the sibling `.ucas` \u2014 lives in
 	// `romfsEntriesToNodes` where the parent directory is in scope.
 	if (ext === 'utoc') return makeIoStoreNode(id, name, blob, null, ctx);
+	if (ext === 'pak') {
+		// `.pak` covers two unrelated formats with the same
+		// extension: Unreal Engine PAKs (footer magic
+		// `0x5A6F12E1`) and Switch first-party `.pack` files
+		// (SARC under a different ext — Nintendo varies the
+		// extension freely). Footer-sniff to disambiguate so a
+		// Nintendo PACK that happens to be named `.pak` falls
+		// through to the SARC magic check below.
+		if (await isUpakV11(blob)) return makeUpakNode(id, name, blob, ctx);
+		// Fall through.
+	}
 	if (ext === 'bundle' || ext === 'unity3d' || ext === 'ab') {
 		// Sniff the magic before committing to UnityFS parsing. Some
 		// Switch ports wrap their AssetBundles in a custom encryption

@@ -1,0 +1,28 @@
+{
+  "name": "@tootallnate/uasset",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Header-level parser for Unreal Engine `.uasset` / `.umap` packages. Decodes the FPackageFileSummary, name table, import table, export table, and soft-object references — enough to identify what an asset IS (class, dependencies, key properties) without trying to deserialise the property bodies (which would require schema knowledge of every UE class).",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "unreal-engine",
+    "ue4",
+    "ue5",
+    "uasset"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/uasset"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.8"
+  }
+}

@@ -319,9 +319,15 @@ importers:
       '@tootallnate/sarc':
         specifier: workspace:*
         version: link:../../packages/sarc
+      '@tootallnate/uasset':
+        specifier: workspace:*
+        version: link:../../packages/uasset
       '@tootallnate/unity-asset':
         specifier: workspace:*
         version: link:../../packages/unity-asset
+      '@tootallnate/upak':
+        specifier: workspace:*
+        version: link:../../packages/upak
       '@tootallnate/usm':
         specifier: workspace:*
         version: link:../../packages/usm
@@ -743,6 +749,15 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/uasset:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
+
   packages/unity-asset:
     dependencies:
       '@tootallnate/bntx':
@@ -752,6 +767,15 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.9.3
+
+  packages/upak:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
   packages/usm:
     devDependencies:

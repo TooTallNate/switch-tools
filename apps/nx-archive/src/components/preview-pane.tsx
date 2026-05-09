@@ -89,6 +89,13 @@ import {
   type BmfChar,
 } from "@tootallnate/bmfont"
 import {
+  parseUasset,
+  inferAssetClassName,
+  resolveFName,
+  resolvePackageIndex,
+  type ParsedUasset,
+} from "@tootallnate/uasset"
+import {
   AUDIO_MIME,
   IMAGE_MIME,
   VIDEO_MIME,
@@ -1408,6 +1415,8 @@ function FilePreview({
       return <TreePreview node={node} kind="yaml" />
     case "html-preview":
       return <HtmlPreview node={node} root={root} />
+    case "uasset-info":
+      return <UassetPreview node={node} />
     case "nacp":
       return <NacpPreview node={node} />
     case "cnmt":
@@ -3523,6 +3532,239 @@ function BmfontPagesSection({
           )
         })}
       </div>
+    </section>
+  )
+}
+
+// ====================================================================
+// Unreal Engine .uasset / .umap header preview
+// ====================================================================
+//
+// We surface the package summary, name table, import table, and
+// export table — enough to identify what an asset is without
+// shipping the per-class property serializer (which is a 10k+
+// LOC project of its own; tools like CUE4Parse / UAssetAPI
+// handle that).
+//
+// In practice this lets users see at a glance:
+//
+//   - The asset's primary class (BinkMediaPlayer, AkInitBank,
+//     Texture2D, WidgetBlueprint, etc.) — inferred from the
+//     first export's classIndex resolved through the import
+//     table
+//   - What other packages this asset depends on (full import
+//     table)
+//   - What named properties / classes the asset references
+//     (name table) — useful as a hint at what the asset is
+//     configured to do, even without decoding property values
+//   - The file's sub-objects (export table) and where their
+//     serialized bodies live in the file
+
+function UassetPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    const blob = await node.blob!()
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    const parsed = parseUasset(bytes)
+    return parsed
+  }, [node.id])
+
+  if (loading) return <LoadingFiller label="Decoding .uasset header…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+
+  const className = inferAssetClassName(v)
+  const ueVersionLabel = (() => {
+    const lf = v.summary.legacyFileVersion
+    if (lf < -7) return `UE5 (legacyFileVersion=${lf})`
+    if (lf === -7) return `UE 4.20+ (legacyFileVersion=${lf})`
+    return `UE 4.x (legacyFileVersion=${lf})`
+  })()
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="UE asset (header view)" />
+
+        <KvBlock title="Asset">
+          <KvRow k="Class" v={className ?? "(unknown)"} />
+          <KvRow k="Engine" v={ueVersionLabel} />
+          <KvRow k="Folder" v={v.summary.folderName} />
+          <KvRow
+            k="Header size"
+            v={`${formatBytes(v.summary.totalHeaderSize)}${v.summary.totalHeaderSize === node.size ? " (header-only file)" : ""}`}
+          />
+          <KvRow
+            k="Tables"
+            v={`${v.names.length} names · ${v.imports.length} imports · ${v.exports.length} exports`}
+          />
+          <KvRow k="Package GUID" v={v.summary.guid} mono />
+          {v.summary.customVersions.length > 0 && (
+            <KvRow
+              k="Custom versions"
+              v={`${v.summary.customVersions.length}`}
+            />
+          )}
+        </KvBlock>
+
+        <UassetExportsTable parsed={v} />
+        <UassetImportsTable parsed={v} />
+        <UassetNamesTable parsed={v} />
+
+        {v.softPackageReferences.length > 0 && (
+          <UassetSoftRefsTable refs={v.softPackageReferences} />
+        )}
+      </div>
+    </ScrollArea>
+  )
+}
+
+function UassetExportsTable({ parsed }: { parsed: ParsedUasset }) {
+  if (parsed.exports.length === 0) return null
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Exports ({parsed.exports.length})
+      </h3>
+      <div className="overflow-x-auto rounded-md border bg-card">
+        <table className="min-w-full text-xs">
+          <thead className="border-b bg-muted/50 text-left text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">Name</th>
+              <th className="px-3 py-2 font-medium">Class</th>
+              <th className="px-3 py-2 font-medium">Outer</th>
+              <th className="px-3 py-2 font-medium">Serial offset</th>
+              <th className="px-3 py-2 font-medium">Serial size</th>
+            </tr>
+          </thead>
+          <tbody>
+            {parsed.exports.map((e, i) => (
+              <tr key={i} className="border-t font-mono [&:hover]:bg-accent/40">
+                <td className="px-3 py-1.5">
+                  {resolveFName(e.objectName, parsed.names)}
+                </td>
+                <td className="px-3 py-1.5">
+                  {resolvePackageIndex(
+                    e.classIndex,
+                    parsed.imports,
+                    parsed.exports,
+                    parsed.names,
+                  )}
+                </td>
+                <td className="px-3 py-1.5 text-muted-foreground">
+                  {resolvePackageIndex(
+                    e.outerIndex,
+                    parsed.imports,
+                    parsed.exports,
+                    parsed.names,
+                  )}
+                </td>
+                <td className="px-3 py-1.5 text-muted-foreground">
+                  {e.serialOffset.toLocaleString()}
+                </td>
+                <td className="px-3 py-1.5 text-muted-foreground">
+                  {formatBytes(e.serialSize)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+function UassetImportsTable({ parsed }: { parsed: ParsedUasset }) {
+  if (parsed.imports.length === 0) return null
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Imports ({parsed.imports.length})
+      </h3>
+      <div className="overflow-x-auto rounded-md border bg-card">
+        <table className="min-w-full text-xs">
+          <thead className="border-b bg-muted/50 text-left text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">Object</th>
+              <th className="px-3 py-2 font-medium">Class</th>
+              <th className="px-3 py-2 font-medium">Package</th>
+              <th className="px-3 py-2 font-medium">Outer</th>
+            </tr>
+          </thead>
+          <tbody>
+            {parsed.imports.map((imp, i) => (
+              <tr key={i} className="border-t font-mono [&:hover]:bg-accent/40">
+                <td className="px-3 py-1.5">
+                  {resolveFName(imp.objectName, parsed.names)}
+                </td>
+                <td className="px-3 py-1.5">
+                  {resolveFName(imp.className, parsed.names)}
+                </td>
+                <td className="px-3 py-1.5 text-muted-foreground">
+                  {resolveFName(imp.classPackage, parsed.names)}
+                </td>
+                <td className="px-3 py-1.5 text-muted-foreground">
+                  {resolvePackageIndex(
+                    imp.outerIndex,
+                    parsed.imports,
+                    parsed.exports,
+                    parsed.names,
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+function UassetNamesTable({ parsed }: { parsed: ParsedUasset }) {
+  if (parsed.names.length === 0) return null
+  // Names lists are sometimes long (50+ entries); cap the
+  // initial render at 200 and let the user scroll.
+  const NAMES_LIMIT = 200
+  const truncated = parsed.names.length > NAMES_LIMIT
+  const visible = parsed.names.slice(0, NAMES_LIMIT)
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Names ({parsed.names.length})
+      </h3>
+      <div className="rounded-md border bg-card p-3">
+        <ul className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 md:grid-cols-3">
+          {visible.map((n, i) => (
+            <li key={i} className="font-mono text-xs text-foreground">
+              <span className="text-muted-foreground">{i.toString().padStart(3, "·")}.</span>{" "}
+              {n.value}
+            </li>
+          ))}
+        </ul>
+        {truncated && (
+          <div className="mt-2 text-xs text-muted-foreground">
+            … {parsed.names.length - NAMES_LIMIT} more name
+            {parsed.names.length - NAMES_LIMIT === 1 ? "" : "s"} (table
+            display capped at {NAMES_LIMIT})
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function UassetSoftRefsTable({ refs }: { refs: string[] }) {
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Soft package references ({refs.length})
+      </h3>
+      <ul className="rounded-md border bg-card p-3 font-mono text-xs">
+        {refs.map((r, i) => (
+          <li key={i} className="px-1 py-0.5">
+            {r}
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }

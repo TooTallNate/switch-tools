@@ -117,6 +117,8 @@ export type PreviewKind =
 	 * available), with a Source toggle for syntax-highlighted text.
 	 */
 	| 'html-preview'
+	/** Unreal Engine `.uasset` / `.umap` package — header-level inspection. */
+	| 'uasset-info'
 	| 'hex';
 
 export const TEXT_EXTS = new Set([
@@ -150,7 +152,16 @@ export const TEXT_EXTS = new Set([
 	'css',
 ]);
 
-export const JSON_EXTS = new Set(['json', 'webmanifest']);
+export const JSON_EXTS = new Set([
+	'json',
+	'webmanifest',
+	// Unreal Engine descriptor files. Both `.uproject` and
+	// `.uplugin` are JSON documents in disguise — detecting them
+	// as JSON gets us the tree view + syntax-highlighted source
+	// for free.
+	'uproject',
+	'uplugin',
+]);
 export const YAML_EXTS = new Set(['yml', 'yaml']);
 export const HTML_EXTS = new Set(['html', 'htm', 'xhtml']);
 export const XML_EXTS = new Set(['xml', 'svg', 'plist']);
@@ -240,9 +251,18 @@ export function detectPreviewKind(name: string): PreviewKind {
 		return 'font-info';
 	if (lower.endsWith('.bffnt')) return 'bffnt-info';
 	if (lower.endsWith('.fnt')) return 'bmfont-info';
+	if (lower.endsWith('.uasset') || lower.endsWith('.umap'))
+		return 'uasset-info';
 	if (lower.endsWith('.bfwav')) return 'bfwav-audio';
 	if (lower.endsWith('.bfstm') || lower.endsWith('.bfstp')) return 'bfstm-audio';
 	if (lower.endsWith('.wem')) return 'wem-audio';
+	// Unreal `.ubulk` is a codec-agnostic "bulk data" sidecar, but in
+	// practice the overwhelming majority of `.ubulk` files we encounter
+	// are Wwise audio payloads (RIFF/WAVE wrappers) sitting under
+	// `…/WwiseAudio/Media/`. Route them to the WEM player — for a
+	// non-WEM `.ubulk` (e.g. texture-mip stream) `parseWem` throws a
+	// clean error which the preview surfaces gracefully.
+	if (lower.endsWith('.ubulk')) return 'wem-audio';
 	if (lower.endsWith('.barslist')) return 'barslist-info';
 	if (lower.endsWith('.bnvib')) return 'bnvib-audio';
 	if (lower.endsWith('.byaml') || lower.endsWith('.byml')) return 'byaml-tree';

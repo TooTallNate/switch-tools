@@ -54,6 +54,8 @@
     "@tootallnate/romfs": "workspace:*",
     "@tootallnate/sarc": "workspace:*",
     "@tootallnate/unity-asset": "workspace:*",
+    "@tootallnate/uasset": "workspace:*",
+    "@tootallnate/upak": "workspace:*",
     "@tootallnate/usm": "workspace:*",
     "@tootallnate/wem": "workspace:*",
     "@tootallnate/wem-vorbis": "workspace:*",

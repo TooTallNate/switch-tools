@@ -1,0 +1,28 @@
+{
+  "name": "@tootallnate/upak",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for Unreal Engine PAK archives (format v11 / UE 5.x). Decodes the footer, primary index, full directory index, and bit-packed pak-entry records, exposing each inner file as a lazy Blob window. Plaintext + Zlib compression only — no Oodle or AES support yet.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "unreal-engine",
+    "ue5",
+    "pak",
+    "archive"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/upak"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.8"
+  }
+}
