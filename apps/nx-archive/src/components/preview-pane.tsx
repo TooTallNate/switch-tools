@@ -2161,7 +2161,11 @@ function FontPreview({ node }: { node: Node }) {
       ? "TrueType"
       : v.format === "otf"
         ? "OpenType (CFF)"
-        : "Unknown sfnt"
+        : v.format === "woff"
+          ? "WOFF (zlib-wrapped sfnt)"
+          : v.format === "woff2"
+            ? "WOFF2 (Brotli-wrapped sfnt)"
+            : "Unknown sfnt"
 
   // Pick the most descriptive name for the header — full name first,
   // then the typographic family + subfamily, then plain family.

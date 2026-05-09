@@ -217,7 +217,14 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.npdm') || lower === 'main.npdm') return 'npdm-info';
 	if (lower.endsWith('.nso') || NSO_BARE_NAMES.has(lower)) return 'nso-info';
 	if (lower.endsWith('.bfttf') || lower.endsWith('.bfotf')) return 'bfttf-info';
-	if (lower.endsWith('.ttf') || lower.endsWith('.otf') || lower.endsWith('.ttc') || lower.endsWith('.otc'))
+	if (
+		lower.endsWith('.ttf') ||
+		lower.endsWith('.otf') ||
+		lower.endsWith('.ttc') ||
+		lower.endsWith('.otc') ||
+		lower.endsWith('.woff') ||
+		lower.endsWith('.woff2')
+	)
 		return 'font-info';
 	if (lower.endsWith('.bffnt')) return 'bffnt-info';
 	if (lower.endsWith('.bfwav')) return 'bfwav-audio';
@@ -538,11 +545,13 @@ export async function parseNpdmForView(blob: Blob): Promise<NpdmView> {
  * preview component registers it with the browser via `FontFace`
  * and renders sample text in the actual font.
  */
+export type FontFormat = 'ttf' | 'otf' | 'woff' | 'woff2' | 'unknown';
+
 export interface FontView {
 	/** Decoded font bytes ready for `FontFace` and download. */
 	font: Blob;
-	/** Sniffed sfnt format. */
-	format: 'ttf' | 'otf' | 'unknown';
+	/** Sniffed font format. */
+	format: FontFormat;
 	/** Size of the decoded font in bytes. */
 	size: number;
 	/** Names extracted from the font's sfnt `name` table. */
@@ -555,7 +564,7 @@ export interface FontView {
 	/**
 	 * For BFTTF inputs: whether the size declared in the obfuscation
 	 * header matched the actual payload length. Always `true` for
-	 * plain TTF / OTF inputs.
+	 * plain TTF / OTF / WOFF inputs.
 	 */
 	headerSizeOk: boolean;
 }
@@ -601,16 +610,19 @@ export async function parseBfttfForView(blob: Blob): Promise<BfttfView> {
 }
 
 /**
- * Build a unified `FontView` from any sfnt blob — plain TTF / OTF
- * or Nintendo's obfuscated BFTTF / BFOTF wrapper. The returned
- * `font` Blob is always a *real* TTF / OTF ready for `FontFace`
- * registration.
+ * Build a unified `FontView` from any font blob the previewer
+ * understands — plain TTF / OTF, Nintendo's obfuscated
+ * BFTTF / BFOTF wrappers, or web font WOFF / WOFF2.
  *
- * Auto-detects the input format by checking for the BFTTF magic
- * (8-byte read), falling back to "treat as plain sfnt" otherwise.
- * That way callers can hand us anything that looks like a font
- * file — `.ttf`, `.otf`, `.ttc` (collections, treated as opaque),
- * `.bfttf`, `.bfotf` — and get a uniform view.
+ * Auto-detects by magic so callers can hand us anything that
+ * looks like a font file — `.ttf`, `.otf`, `.ttc`, `.bfttf`,
+ * `.bfotf`, `.woff`, `.woff2` — and get a uniform view.
+ *
+ * The returned `font` Blob is always whatever the browser will
+ * accept for `FontFace` registration:
+ *   - TTF / OTF / BFTTF inputs → uncompressed sfnt bytes
+ *   - WOFF / WOFF2 → the original wrapped bytes (browsers
+ *     handle the unpacking inside `FontFace` natively)
  */
 export async function parseFontForView(blob: Blob): Promise<FontView> {
 	if (await isBfttf(blob)) {
@@ -625,9 +637,34 @@ export async function parseFontForView(blob: Blob): Promise<FontView> {
 			headerSizeOk: parsed.headerSizeOk,
 		};
 	}
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	const wofMagic = sniffWoffMagic(bytes);
+	if (wofMagic === 'woff' || wofMagic === 'woff2') {
+		const mime = wofMagic === 'woff2' ? 'font/woff2' : 'font/woff';
+		// Browsers' `FontFace` accepts both WOFF flavours
+		// directly. We just hand the original bytes through.
+		const font = new Blob([bytes as BlobPart], { type: mime });
+		// For WOFF1 we can pull out the `name` table cheaply by
+		// inflating just that one table. For WOFF2, the entire
+		// table data section is Brotli-compressed in one stream,
+		// so we decompress it via @tootallnate/brotli-wasm and
+		// then carve the `name` table out of the resulting
+		// concatenated bytes.
+		const names: TtfNameTable =
+			wofMagic === 'woff'
+				? await readWoff1NameTable(bytes).catch(() => ({}))
+				: await readWoff2NameTable(bytes).catch(() => ({}));
+		return {
+			font,
+			format: wofMagic,
+			size: bytes.length,
+			names,
+			wasObfuscated: false,
+			headerSizeOk: true,
+		};
+	}
 	// Plain sfnt path: sniff the format from the first 4 bytes,
 	// pick a sensible MIME type, and read the name table directly.
-	const bytes = new Uint8Array(await blob.arrayBuffer());
 	const format = sniffSfntFormat(bytes);
 	const mime =
 		format === 'otf'
@@ -646,6 +683,321 @@ export async function parseFontForView(blob: Blob): Promise<FontView> {
 		wasObfuscated: false,
 		headerSizeOk: true,
 	};
+}
+
+/**
+ * Identify a WOFF / WOFF2 wrapper from the first 4 bytes.
+ * `wOFF` = `0x774F4646` = WOFF 1, zlib-compressed tables.
+ * `wOF2` = `0x774F4632` = WOFF 2, Brotli-compressed payload
+ * with glyph-data transform. Returns `null` if the bytes
+ * aren't either.
+ */
+function sniffWoffMagic(bytes: Uint8Array): 'woff' | 'woff2' | null {
+	if (bytes.length < 4) return null;
+	const tag =
+		(bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
+	if (tag === 0x774f4646) return 'woff';
+	if (tag === 0x774f4632) return 'woff2';
+	return null;
+}
+
+/**
+ * Decompress and read just the `name` table from a WOFF 1 file.
+ *
+ * WOFF 1 layout (per the W3C spec):
+ *
+ *   +0x00  4   signature ('wOFF')
+ *   +0x04  4   flavor (sfnt magic of the inner font)
+ *   +0x08  4   length (full WOFF file size)
+ *   +0x0C  2   numTables
+ *   +0x0E  2   reserved (zero)
+ *   +0x10  4   totalSfntSize (uncompressed sfnt size)
+ *   +0x14  2   majorVersion
+ *   +0x16  2   minorVersion
+ *   +0x18  4   metaOffset
+ *   +0x1C  4   metaLength
+ *   +0x20  4   metaOrigLength
+ *   +0x24  4   privOffset
+ *   +0x28  4   privLength
+ *
+ *   Table directory (numTables × 20 bytes):
+ *     +0x00  4   tag
+ *     +0x04  4   offset within WOFF file
+ *     +0x08  4   compLength (compressed bytes; equals origLength
+ *                if stored uncompressed)
+ *     +0x0C  4   origLength
+ *     +0x10  4   origChecksum
+ *
+ * Each compressed table is a raw zlib stream (with header).
+ * `DecompressionStream('deflate')` decodes those directly.
+ */
+async function readWoff1NameTable(
+	bytes: Uint8Array,
+): Promise<TtfNameTable> {
+	if (bytes.length < 0x2c) return {};
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const numTables = view.getUint16(0x0c, false);
+	if (numTables === 0) return {};
+	for (let i = 0; i < numTables; i++) {
+		const recOff = 0x2c + i * 20;
+		if (recOff + 20 > bytes.length) break;
+		const tag = String.fromCharCode(
+			bytes[recOff],
+			bytes[recOff + 1],
+			bytes[recOff + 2],
+			bytes[recOff + 3],
+		);
+		if (tag !== 'name') continue;
+		const tableOff = view.getUint32(recOff + 4, false);
+		const compLength = view.getUint32(recOff + 8, false);
+		const origLength = view.getUint32(recOff + 12, false);
+		if (tableOff + compLength > bytes.length) return {};
+		const compBytes = bytes.subarray(tableOff, tableOff + compLength);
+		let nameBytes: Uint8Array;
+		if (compLength === origLength) {
+			// Stored uncompressed (allowed when zlib wouldn't
+			// shrink the table, e.g. tiny `name` tables).
+			nameBytes = compBytes;
+		} else {
+			nameBytes = await inflateZlib(compBytes);
+		}
+		return readNameTableContents(nameBytes);
+	}
+	return {};
+}
+
+/**
+ * Inflate a zlib-wrapped (RFC 1950) byte stream via the
+ * platform's built-in `DecompressionStream('deflate')`. Used by
+ * the WOFF1 table reader.
+ */
+async function inflateZlib(bytes: Uint8Array): Promise<Uint8Array> {
+	const stream = new Blob([bytes as BlobPart])
+		.stream()
+		.pipeThrough(new DecompressionStream('deflate'));
+	const out = new Uint8Array(await new Response(stream).arrayBuffer());
+	return out;
+}
+
+/**
+ * Decompress and read just the `name` table from a WOFF 2 file.
+ *
+ * WOFF 2 layout (per the W3C spec):
+ *
+ *   File header (48 bytes):
+ *     +0x00  4   signature ('wOF2')
+ *     +0x04  4   flavor (sfnt magic)
+ *     +0x08  4   length
+ *     +0x0C  2   numTables
+ *     +0x0E  2   reserved
+ *     +0x10  4   totalSfntSize
+ *     +0x14  4   totalCompressedSize  ← the Brotli payload's size
+ *     +0x18  2   majorVersion
+ *     +0x1A  2   minorVersion
+ *     +0x1C  4   metaOffset
+ *     +0x20  4   metaLength
+ *     +0x24  4   metaOrigLength
+ *     +0x28  4   privOffset
+ *     +0x2C  4   privLength
+ *
+ *   Table directory (numTables variable-length entries):
+ *     1 byte flags
+ *       low 6 bits: tag index into KNOWN_TAGS, or 63 for "arbitrary tag"
+ *       bits 6-7:   transform variant (0 = identity for non-glyf/loca tables)
+ *     [4 bytes tag]   only present if tag index == 63
+ *     UIntBase128 origLength
+ *     [UIntBase128 transformLength] only present for transformed
+ *                                   tables (glyf/loca only)
+ *
+ *   Compressed payload (totalCompressedSize bytes of Brotli-
+ *   compressed concatenated table data, in directory order).
+ *
+ *   The compressed payload's bytes correspond to the
+ *   *transformed* tables back-to-back, which for the `name`
+ *   table are just the original bytes (transform == identity).
+ *   So we just sum each table's logical length up to `name` to
+ *   get its offset in the decompressed stream.
+ */
+async function readWoff2NameTable(
+	bytes: Uint8Array,
+): Promise<TtfNameTable> {
+	if (bytes.length < 0x30) return {};
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const numTables = view.getUint16(0x0c, false);
+	const totalCompressedSize = view.getUint32(0x14, false);
+	if (numTables === 0) return {};
+
+	// KNOWN_TAGS — the 6-bit "tag index" maps into this exact
+	// list (per the WOFF2 spec, section 5.3). Index 63 means
+	// "the next 4 bytes are the tag itself."
+	const KNOWN_TAGS = [
+		'cmap', 'head', 'hhea', 'hmtx', 'maxp', 'name', 'OS/2', 'post',
+		'cvt ', 'fpgm', 'glyf', 'loca', 'prep', 'CFF ', 'VORG', 'EBDT',
+		'EBLC', 'gasp', 'hdmx', 'kern', 'LTSH', 'PCLT', 'VDMX', 'vhea',
+		'vmtx', 'BASE', 'GDEF', 'GPOS', 'GSUB', 'EBSC', 'JSTF', 'MATH',
+		'CBDT', 'CBLC', 'COLR', 'CPAL', 'SVG ', 'sbix', 'acnt', 'avar',
+		'bdat', 'bloc', 'bsln', 'cvar', 'fdsc', 'feat', 'fmtx', 'fvar',
+		'gvar', 'hsty', 'just', 'lcar', 'mort', 'morx', 'opbd', 'prop',
+		'trak', 'Zapf', 'Silf', 'Glat', 'Gloc', 'Feat', 'Sill',
+	];
+
+	let cursor = 0x30; // start of table directory
+	let nameOffsetInUncompressed = 0;
+	let nameLength = 0;
+	let totalUncompressedThroughName = 0;
+	let foundName = false;
+
+	// Walk the directory, summing each table's uncompressed
+	// length so we know where the `name` table sits in the
+	// Brotli payload. We DON'T need to decompress everything —
+	// just up through the `name` table — but we don't know
+	// its position without walking the directory.
+	for (let i = 0; i < numTables; i++) {
+		if (cursor >= bytes.length) return {};
+		const flags = bytes[cursor];
+		cursor += 1;
+		const tagIndex = flags & 0x3f;
+		const transformVersion = (flags >> 6) & 0x03;
+		let tag: string;
+		if (tagIndex === 0x3f) {
+			if (cursor + 4 > bytes.length) return {};
+			tag = String.fromCharCode(
+				bytes[cursor], bytes[cursor + 1],
+				bytes[cursor + 2], bytes[cursor + 3],
+			);
+			cursor += 4;
+		} else {
+			tag = KNOWN_TAGS[tagIndex] ?? '????';
+		}
+		const origRead = readUIntBase128(bytes, cursor);
+		if (!origRead) return {};
+		cursor = origRead.next;
+		const origLength = origRead.value;
+		// Whether a transform-length follows depends on the table.
+		// Per the spec: for glyf and loca, a non-default transform
+		// version (i.e. != 0 for glyf, != 0 for loca) means a
+		// transformLength field IS present. For all OTHER tables
+		// (including `name`), a transformLength field is present
+		// when transformVersion != 0, but the spec for non-glyf/
+		// non-loca tables says transform-version 0 = "no
+		// transform" so no length follows.
+		let logicalLength = origLength;
+		if (
+			(tag === 'glyf' || tag === 'loca')
+				? transformVersion === 0 // glyf/loca: 0 == transformed (default)
+				: transformVersion !== 0 // others: 0 == identity (default)
+		) {
+			const tlenRead = readUIntBase128(bytes, cursor);
+			if (!tlenRead) return {};
+			cursor = tlenRead.next;
+			logicalLength = tlenRead.value;
+		}
+		if (tag === 'name') {
+			nameOffsetInUncompressed = totalUncompressedThroughName;
+			nameLength = logicalLength;
+			foundName = true;
+			break; // we have what we need
+		}
+		totalUncompressedThroughName += logicalLength;
+	}
+	if (!foundName) return {};
+
+	// Decompress the WHOLE Brotli payload (we have to — the
+	// stream isn't seekable). Keep cursor at the byte right
+	// after the directory we walked. The compressed data starts
+	// there. Note: we walked PAST the `name` table entry
+	// (because we `break`-ed inside the loop), so `cursor` is
+	// not actually pointing at the start of the compressed
+	// payload. We need to skip the rest of the directory first.
+	for (let i = 0; cursor < bytes.length; ) {
+		// Restart the walk from where we broke out, finishing
+		// the directory but not tracking anything — we just
+		// need `cursor` at the end of the directory.
+		void i;
+		break;
+	}
+	// Easier: re-walk the directory in full to land cursor at
+	// the start of the compressed payload.
+	cursor = 0x30;
+	for (let i = 0; i < numTables; i++) {
+		if (cursor >= bytes.length) return {};
+		const flags = bytes[cursor];
+		cursor += 1;
+		const tagIndex = flags & 0x3f;
+		const transformVersion = (flags >> 6) & 0x03;
+		let tag: string;
+		if (tagIndex === 0x3f) {
+			if (cursor + 4 > bytes.length) return {};
+			tag = String.fromCharCode(
+				bytes[cursor], bytes[cursor + 1],
+				bytes[cursor + 2], bytes[cursor + 3],
+			);
+			cursor += 4;
+		} else {
+			tag = KNOWN_TAGS[tagIndex] ?? '????';
+		}
+		const r1 = readUIntBase128(bytes, cursor);
+		if (!r1) return {};
+		cursor = r1.next;
+		if (
+			(tag === 'glyf' || tag === 'loca')
+				? transformVersion === 0
+				: transformVersion !== 0
+		) {
+			const r2 = readUIntBase128(bytes, cursor);
+			if (!r2) return {};
+			cursor = r2.next;
+		}
+	}
+	const compressedStart = cursor;
+	const compressedEnd = compressedStart + totalCompressedSize;
+	if (compressedEnd > bytes.length) return {};
+	const compressed = bytes.subarray(compressedStart, compressedEnd);
+
+	// Decompress just up to the byte after the `name` table.
+	// Brotli's streaming API would let us do that exactly, but
+	// for simplicity we decompress the whole payload — fonts
+	// are small and the win isn't worth the extra plumbing.
+	const { brotliDecompressBytes } = await import('./brotli');
+	const decompressed = await brotliDecompressBytes(compressed);
+	if (nameOffsetInUncompressed + nameLength > decompressed.length) {
+		return {};
+	}
+	const nameBytes = decompressed.subarray(
+		nameOffsetInUncompressed,
+		nameOffsetInUncompressed + nameLength,
+	);
+	return readNameTableContents(nameBytes);
+}
+
+/**
+ * Decode a UIntBase128 from `bytes` starting at `offset`.
+ * Each byte's high bit is a continuation flag; the low 7 bits
+ * are data, big-endian. Used by WOFF2 directory entries.
+ *
+ * Returns `null` if the encoding is malformed (more than 5
+ * continuation bytes, or runs off the end of the buffer).
+ */
+function readUIntBase128(
+	bytes: Uint8Array,
+	offset: number,
+): { value: number; next: number } | null {
+	let value = 0;
+	for (let i = 0; i < 5; i++) {
+		if (offset + i >= bytes.length) return null;
+		const b = bytes[offset + i];
+		// Per the spec: leading-zero values are forbidden (so
+		// the encoding is canonical) — we don't enforce that,
+		// just decode permissively.
+		value = (value << 7) | (b & 0x7f);
+		if ((b & 0x80) === 0) {
+			return { value, next: offset + i + 1 };
+		}
+		// Overflow check: 5 × 7 = 35 bits; we'd lose data above
+		// 32 bits, but font tables are well under that.
+		if (value > 0xffffffff) return null;
+	}
+	return null; // ran past 5 bytes without terminator
 }
 
 /**
@@ -700,11 +1052,25 @@ export function readTtfNameTable(bytes: Uint8Array): TtfNameTable {
 		}
 	}
 	if (!nameOff || nameOff + 6 > bytes.length) return {};
+	const nameBytes = bytes.subarray(nameOff, nameOff + nameLen);
+	return readNameTableContents(nameBytes);
+}
 
-	const count = view.getUint16(nameOff + 2, false);
-	const stringOffset = view.getUint16(nameOff + 4, false);
-	const stringStart = nameOff + stringOffset;
-	if (stringStart > bytes.length) return {};
+/**
+ * Decode an isolated `name` table payload (no surrounding sfnt
+ * directory). Used by the WOFF1 metadata path, which can pull
+ * just the `name` table out of the WOFF directory and inflate
+ * it without needing to reconstitute a full sfnt.
+ *
+ * Layout per the OpenType spec — 6-byte header followed by
+ * `count` 12-byte name records, followed by a string heap.
+ */
+export function readNameTableContents(bytes: Uint8Array): TtfNameTable {
+	if (bytes.length < 6) return {};
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const count = view.getUint16(2, false);
+	const stringOffset = view.getUint16(4, false);
+	if (stringOffset > bytes.length) return {};
 
 	const out: TtfNameTable = {};
 	// Iterate the name records. Score each candidate so we prefer the
@@ -712,15 +1078,15 @@ export function readTtfNameTable(bytes: Uint8Array): TtfNameTable {
 	// over the Macintosh platform (1, encoding 0).
 	const scored = new Map<number, { score: number; value: string }>();
 	for (let i = 0; i < count; i++) {
-		const recOff = nameOff + 6 + i * 12;
-		if (recOff + 12 > nameOff + nameLen) break;
+		const recOff = 6 + i * 12;
+		if (recOff + 12 > bytes.length) break;
 		const platformId = view.getUint16(recOff + 0, false);
 		const encodingId = view.getUint16(recOff + 2, false);
 		// const languageId = view.getUint16(recOff + 4, false);
 		const nameId = view.getUint16(recOff + 6, false);
 		const length = view.getUint16(recOff + 8, false);
 		const offset = view.getUint16(recOff + 10, false);
-		const dataOff = stringStart + offset;
+		const dataOff = stringOffset + offset;
 		if (dataOff + length > bytes.length) continue;
 		const data = bytes.subarray(dataOff, dataOff + length);
 		// Decode based on platform/encoding

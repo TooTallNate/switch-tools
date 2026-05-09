@@ -31,6 +31,7 @@
     "@tootallnate/bfwar": "workspace:*",
     "@tootallnate/bfwav": "workspace:*",
     "@tootallnate/bntx": "workspace:*",
+    "@tootallnate/brotli-wasm": "workspace:*",
     "@tootallnate/bnvib": "workspace:*",
     "@tootallnate/byaml": "workspace:*",
     "@tootallnate/dsp-adpcm": "workspace:*",
