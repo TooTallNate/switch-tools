@@ -2848,9 +2848,7 @@ function BfresPreview({
             <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
               3D viewer
             </h3>
-            <div className="h-[420px]">
-              <BfresViewer node={node} root={root} />
-            </div>
+            <BfresViewer node={node} root={root} />
           </section>
         )}
         <KvBlock title="Header">

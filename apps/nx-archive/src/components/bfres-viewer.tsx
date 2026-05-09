@@ -2345,10 +2345,17 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
   const totalFrames = activeAnim ? Math.max(0, activeAnim.frameCount - 1) : 0
 
   return (
-    <div className="flex h-full flex-col gap-2">
+    // Outer column lays out the canvas, control bars, and the
+    // per-shape toggle grid. Crucially we do NOT take `h-full`
+    // here: the parent (BfresPreview) is inside a vertically
+    // scrolling region, and a fixed-height viewer with a long
+    // shape list would clip the toggles or overlap whatever
+    // the parent paints below us. Instead the canvas itself
+    // gets an explicit height, and everything else flows.
+    <div className="flex flex-col gap-2">
       <div
         ref={containerRef}
-        className="relative min-h-[260px] flex-1 overflow-hidden rounded-md border bg-gradient-to-b from-muted/40 to-background"
+        className="relative h-[420px] overflow-hidden rounded-md border bg-gradient-to-b from-muted/40 to-background"
       />
       {/* Animation control bar — only renders when the BFRES has at
           least one skeletal animation. The dropdown selects which
