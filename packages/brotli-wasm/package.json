@@ -1,0 +1,28 @@
+{
+  "name": "@tootallnate/brotli-wasm",
+  "version": "0.0.1",
+  "description": "Streaming Brotli decoder for browser and Node.js, backed by Google's reference C implementation compiled to WebAssembly.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./brotli.wasm": "./dist/brotli.wasm"
+  },
+  "files": [
+    "dist",
+    "c/BROTLI-LICENSE"
+  ],
+  "scripts": {
+    "build:wasm": "make",
+    "build:ts": "tsc",
+    "build": "if [ -x /tmp/wasi-sdk/bin/clang ]; then make; fi && tsc && cp src/brotli.wasm dist/brotli.wasm",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
