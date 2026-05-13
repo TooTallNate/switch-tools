@@ -246,7 +246,13 @@ export function detectPreviewKind(name: string): PreviewKind {
 		lower.endsWith('.ttc') ||
 		lower.endsWith('.otc') ||
 		lower.endsWith('.woff') ||
-		lower.endsWith('.woff2')
+		lower.endsWith('.woff2') ||
+		// `.ufont` is the UE cooker's sibling-file format for
+		// FontFace assets with a streaming load policy: the raw
+		// TTF / OTF bytes verbatim, no UE wrapper. parseFontForView
+		// sniffs the sfnt format from the magic bytes, so the
+		// extension only needs to route here.
+		lower.endsWith('.ufont')
 	)
 		return 'font-info';
 	if (lower.endsWith('.bffnt')) return 'bffnt-info';
