@@ -1,0 +1,32 @@
+{
+  "name": "@tootallnate/bcn",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Pure-TS decoders for BC1 / BC2 / BC3 / BC4 / BC5 (DXTn) compressed textures, returning canonical RGBA8 little-endian pixel buffers ready for Canvas/ImageData. Browser-friendly, no native deps, no WASM.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "bc1",
+    "bc3",
+    "bc4",
+    "bc5",
+    "dxt1",
+    "dxt5",
+    "block-compression",
+    "texture-decoder"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/bcn"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.8"
+  }
+}

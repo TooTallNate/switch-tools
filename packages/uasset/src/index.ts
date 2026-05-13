@@ -130,6 +130,25 @@ export {
 	type UValue,
 } from './properties.js';
 
+// Texture2D / TextureCube platform-data reader.
+export {
+	BULKDATA_ForceInlinePayload,
+	BULKDATA_NoOffsetFixUp,
+	BULKDATA_PayloadAtEndOfFile,
+	BULKDATA_PayloadInSeperateFile,
+	BULKDATA_Size64Bit,
+	BULKDATA_SingleUse,
+	BULKDATA_Unused,
+	getMipBytes,
+	parseTexturePlatformData,
+	parseTexturePlatformDataFromTail,
+	readMipFromUbulk,
+	TextureParseError,
+	type MipLocation,
+	type ParsedTexturePlatformData,
+	type TextureMip,
+} from './texture.js';
+
 /**
  * The fixed-size summary header at the start of every UE
  * package. Field availability depends on `legacyFileVersion`;

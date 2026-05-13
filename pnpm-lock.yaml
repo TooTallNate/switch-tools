@@ -232,6 +232,9 @@ importers:
       '@tootallnate/barslist':
         specifier: workspace:*
         version: link:../../packages/barslist
+      '@tootallnate/bcn':
+        specifier: workspace:*
+        version: link:../../packages/bcn
       '@tootallnate/bffnt':
         specifier: workspace:*
         version: link:../../packages/bffnt
@@ -495,6 +498,15 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.9.3
+
+  packages/bcn:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
   packages/bffnt:
     devDependencies:

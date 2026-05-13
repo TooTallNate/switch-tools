@@ -24,6 +24,7 @@
     "@tootallnate/astc-wasm": "workspace:*",
     "@tootallnate/bars": "workspace:*",
     "@tootallnate/barslist": "workspace:*",
+    "@tootallnate/bcn": "workspace:*",
     "@tootallnate/bffnt": "workspace:*",
     "@tootallnate/bfres": "workspace:*",
     "@tootallnate/bfsar": "workspace:*",

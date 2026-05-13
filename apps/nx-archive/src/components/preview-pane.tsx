@@ -57,6 +57,11 @@ import {
 } from "@tootallnate/unity-asset"
 import { decodeTexture2D as decodeUnityTexture2D } from "~/lib/unity-texture"
 import {
+  decodeUeMip,
+  describePixelFormat,
+  UnsupportedPixelFormatError,
+} from "~/lib/uasset-texture"
+import {
   parseFsb5,
   decodeSampleToBlob,
   loadFmodVorbisSetupPackets,
@@ -89,13 +94,17 @@ import {
   type BmfChar,
 } from "@tootallnate/bmfont"
 import {
-  parseUasset,
+  getMipBytes,
   inferAssetClassName,
+  parseTexturePlatformData,
+  parseUasset,
   readExportProperties,
   resolveFName,
   resolvePackageIndex,
   type NativeStruct,
+  type ParsedTexturePlatformData,
   type ParsedUasset,
+  type TextureMip,
   type UExportProperties,
   type UProperty,
   type UValue,
@@ -3575,15 +3584,22 @@ function UassetPreview({ node, root }: { node: Node; root: Node | null }) {
     // sibling exists in the same archive we decode its properties so
     // the user sees real values like `Looping=true` and not just the
     // names of the properties.
+    //
+    // For Texture2D / TextureCube assets we also try to grab the
+    // `.ubulk` sibling — that's where UE stores the larger mip
+    // levels when the texture doesn't fit in the .uexp inline budget.
     const exports: UExportProperties[] = []
+    let uexpBytes: Uint8Array | null = null
+    let ubulkBytes: Uint8Array | null = null
     let uexpError: Error | null = null
     if (root && node.id.toLowerCase().endsWith(".uasset")) {
-      const siblingId = node.id.replace(/\.uasset$/i, ".uexp")
+      const siblingUexpId = node.id.replace(/\.uasset$/i, ".uexp")
+      const siblingUbulkId = node.id.replace(/\.uasset$/i, ".ubulk")
       try {
-        const siblingNode = await findNodeById(root, siblingId)
-        if (siblingNode?.blob) {
-          const uexpBlob = await siblingNode.blob()
-          const uexpBytes = new Uint8Array(await uexpBlob.arrayBuffer())
+        const uexpNode = await findNodeById(root, siblingUexpId)
+        if (uexpNode?.blob) {
+          const uexpBlob = await uexpNode.blob()
+          uexpBytes = new Uint8Array(await uexpBlob.arrayBuffer())
           for (let i = 0; i < parsed.exports.length; i++) {
             try {
               exports.push(readExportProperties(parsed, uexpBytes, i))
@@ -3594,18 +3610,27 @@ function UassetPreview({ node, root }: { node: Node; root: Node | null }) {
             }
           }
         }
+        const ubulkNode = await findNodeById(root, siblingUbulkId)
+        if (ubulkNode?.blob) {
+          const ubulkBlob = await ubulkNode.blob()
+          ubulkBytes = new Uint8Array(await ubulkBlob.arrayBuffer())
+        }
       } catch (err) {
         uexpError = err instanceof Error ? err : new Error(String(err))
       }
     }
-    return { parsed, exports, uexpError }
+    return { parsed, exports, uexpError, uexpBytes, ubulkBytes }
   }, [node.id, root])
 
   if (loading) return <LoadingFiller label="Decoding .uasset header…" />
   if (error) return <ErrorFiller error={error} />
-  const { parsed: v, exports: decodedExports, uexpError } = data!
+  const { parsed: v, exports: decodedExports, uexpError, uexpBytes, ubulkBytes } = data!
 
   const className = inferAssetClassName(v)
+  const isTexture =
+    className === "Texture2D" ||
+    className === "TextureCube" ||
+    className === "TextureRenderTarget2D"
   const ueVersionLabel = (() => {
     const lf = v.summary.legacyFileVersion
     if (lf < -7) return `UE5 (legacyFileVersion=${lf})`
@@ -3638,6 +3663,15 @@ function UassetPreview({ node, root }: { node: Node; root: Node | null }) {
             />
           )}
         </KvBlock>
+
+        {isTexture && uexpBytes && (
+          <UassetTextureSection
+            parsed={v}
+            uexpBytes={uexpBytes}
+            ubulkBytes={ubulkBytes}
+            className={className}
+          />
+        )}
 
         {decodedExports.length > 0 && (
           <UassetPropertiesSection
@@ -3858,6 +3892,199 @@ function UassetPropertiesSection({
       )}
     </section>
   )
+}
+
+/**
+ * Texture2D / TextureCube preview: parses the FTexturePlatformData
+ * blob in the .uexp tail, picks the largest available mip, and
+ * decodes it to RGBA8 via the pixel-format-specific decoder
+ * (`~/lib/uasset-texture`).
+ *
+ * For cubemaps we render the 6 faces stacked vertically — the
+ * cubemap-to-equirect projection is its own project. Stacking
+ * preserves all the data; users can verify each face individually.
+ */
+function UassetTextureSection({
+  parsed,
+  uexpBytes,
+  ubulkBytes,
+  className,
+}: {
+  parsed: ParsedUasset
+  uexpBytes: Uint8Array
+  ubulkBytes: Uint8Array | null
+  className: string | null
+}) {
+  // Parse the platform-data section once and pick a mip to render.
+  const tpdState = useMemo(() => {
+    try {
+      return {
+        ok: true as const,
+        tpd: parseTexturePlatformData(parsed, uexpBytes, 0),
+      }
+    } catch (err) {
+      return { ok: false as const, error: err as Error }
+    }
+  }, [parsed, uexpBytes])
+
+  // Which mip to render. Default to the largest available (mip[0]).
+  const [selectedMipIdx, setSelectedMipIdx] = useState(0)
+
+  const decodeState = useAsync(async () => {
+    if (!tpdState.ok) return null
+    const mip = tpdState.tpd.mips[selectedMipIdx]
+    if (!mip) return null
+    const bytes = getMipBytes(mip, ubulkBytes)
+    if (!bytes) {
+      throw new Error(
+        `Mip ${selectedMipIdx} (${mip.width}×${mip.height}) needs .ubulk data but no .ubulk sibling was found.`,
+      )
+    }
+    // For cubemaps the stored width × height covers ALL 6 faces stacked.
+    // Decode the full block and present them stacked vertically.
+    return await decodeUeMip(
+      tpdState.tpd.pixelFormat,
+      mip.width,
+      mip.height * Math.max(1, mip.depth) * (tpdState.tpd.isCube ? 6 : 1),
+      bytes,
+    )
+  }, [tpdState, selectedMipIdx, ubulkBytes])
+
+  if (!tpdState.ok) {
+    return (
+      <section className="flex flex-col gap-2 rounded-md border bg-card p-4">
+        <p className="text-sm font-medium">Could not parse texture platform data</p>
+        <p className="text-xs text-muted-foreground">{tpdState.error.message}</p>
+      </section>
+    )
+  }
+
+  const tpd = tpdState.tpd
+  const mip = tpd.mips[selectedMipIdx]
+  const pixelFormatDesc = describePixelFormat(tpd.pixelFormat)
+
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Texture
+      </h3>
+      <KvBlock title={className ?? "Texture"}>
+        <KvRow k="Format" v={`${tpd.pixelFormat} — ${pixelFormatDesc}`} />
+        <KvRow
+          k="Authored"
+          v={`${tpd.importedWidth} × ${tpd.importedHeight}${tpd.isCube ? " (cubemap, 6 faces)" : ""}${tpd.numSlices > 1 && !tpd.isCube ? ` (${tpd.numSlices} slices)` : ""}`}
+        />
+        <KvRow
+          k="Mips"
+          v={`${tpd.mips.length} stored (first cooked: ${tpd.firstMipToSerialize})`}
+        />
+      </KvBlock>
+
+      <div className="mt-3 flex flex-col gap-3 rounded-md border bg-card p-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Mip</span>
+          <select
+            className="rounded border bg-background px-2 py-1 font-mono"
+            value={selectedMipIdx}
+            onChange={(e) => setSelectedMipIdx(Number(e.target.value))}
+          >
+            {tpd.mips.map((m, i) => (
+              <option key={i} value={i}>
+                {i}: {m.width}×{m.height}
+                {m.depth > 1 ? `×${m.depth}` : ""} ({m.location})
+              </option>
+            ))}
+          </select>
+          {mip && (
+            <span className="text-muted-foreground">
+              {formatBytes(mip.dataSize)} encoded
+              {mip.location === "ubulk" && !ubulkBytes && " · .ubulk missing"}
+            </span>
+          )}
+        </div>
+
+        <UassetTextureCanvas
+          decodeState={decodeState}
+          tpd={tpd}
+          mip={mip}
+        />
+      </div>
+    </section>
+  )
+}
+
+/**
+ * Canvas surface for the decoded mip. We paint the pixels straight
+ * into an `ImageData` and let the browser scale via CSS — keeps the
+ * pixel-perfect rendering even when displaying small mips.
+ */
+function UassetTextureCanvas({
+  decodeState,
+  tpd,
+  mip,
+}: {
+  decodeState: ReturnType<typeof useAsync<DecodedMipState>>
+  tpd: ParsedTexturePlatformData
+  mip: TextureMip | undefined
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  useEffect(() => {
+    if (!decodeState.data) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    canvas.width = decodeState.data.width
+    canvas.height = decodeState.data.height
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    // Construct ImageData via a fresh-buffer copy. We could share
+    // the backing storage with the decoder's Uint8Array but the
+    // ImageData constructor's overloads insist on an `ArrayBuffer`
+    // (not `ArrayBufferLike`); copying sidesteps the type dance
+    // and keeps the canvas decoupled from the decoder's lifecycle.
+    const clamped = new Uint8ClampedArray(decodeState.data.pixels)
+    const imageData = new ImageData(
+      clamped,
+      decodeState.data.width,
+      decodeState.data.height,
+    )
+    ctx.putImageData(imageData, 0, 0)
+  }, [decodeState.data])
+
+  if (decodeState.loading) {
+    return <LoadingFiller label={`Decoding ${tpd.pixelFormat}…`} />
+  }
+  if (decodeState.error) {
+    const unsupported = decodeState.error instanceof UnsupportedPixelFormatError
+    return (
+      <section className="flex flex-col gap-2 rounded-md border bg-card p-4">
+        <p className="text-sm font-medium">
+          {unsupported ? "Browser preview not supported" : "Texture decode failed"}
+        </p>
+        <p className="text-xs text-muted-foreground">{decodeState.error.message}</p>
+      </section>
+    )
+  }
+  if (!decodeState.data || !mip) return null
+
+  // Use checkerboard background so transparent textures are visible.
+  // Cap CSS display to a reasonable size so 4k mips don't dominate the page.
+  return (
+    <div className="flex items-center justify-center rounded-md bg-[linear-gradient(45deg,#ccc_25%,transparent_25%),linear-gradient(-45deg,#ccc_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#ccc_75%),linear-gradient(-45deg,transparent_75%,#ccc_75%)] bg-[length:16px_16px] bg-[position:0_0,0_8px,8px_-8px,-8px_0]">
+      <canvas
+        ref={canvasRef}
+        className="max-h-[600px] max-w-full"
+        style={{
+          imageRendering: decodeState.data.width < 256 ? "pixelated" : "auto",
+        }}
+      />
+    </div>
+  )
+}
+
+interface DecodedMipState {
+  width: number
+  height: number
+  pixels: Uint8Array
 }
 
 function UassetExportsTable({ parsed }: { parsed: ParsedUasset }) {
