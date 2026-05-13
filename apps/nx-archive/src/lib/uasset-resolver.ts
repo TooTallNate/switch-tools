@@ -28,6 +28,12 @@ export interface AssetTriplet {
 	uasset: Node;
 	uexp: Node | null;
 	ubulk: Node | null;
+	/**
+	 * Sibling `.ufont` file, when present. UE cooks lazy-loading
+	 * font faces as a separate file next to the .uasset so the
+	 * runtime can stream them on demand.
+	 */
+	ufont: Node | null;
 }
 
 /**
@@ -69,7 +75,13 @@ export function createAssetResolver(root: Node | null): AssetResolver {
 				if (!uassetNode) return null;
 				const uexpNode = await findNodeByPath(root, archivePath + '.uexp');
 				const ubulkNode = await findNodeByPath(root, archivePath + '.ubulk');
-				return { uasset: uassetNode, uexp: uexpNode, ubulk: ubulkNode };
+				const ufontNode = await findNodeByPath(root, archivePath + '.ufont');
+				return {
+					uasset: uassetNode,
+					uexp: uexpNode,
+					ubulk: ubulkNode,
+					ufont: ufontNode,
+				};
 			})();
 			cache.set(packagePath, promise);
 			return promise;
@@ -151,12 +163,26 @@ function mapPackagePath(packagePath: string, mounts: MountMap): string | null {
  * preview-pane.tsx but takes a slash-separated path string we
  * construct from the package mapping above.
  *
- * The archive root's id is the empty string; child ids are
- * `<parent.id>/<name>`. We walk segment-by-segment and rely on
- * each container's cached `_children` for repeat lookups.
+ * Two cases to handle:
+ *   - **Archive root with empty id** (the synthetic root over a
+ *     loose directory): children are the top-level dirs directly.
+ *   - **Archive root that IS a named container** (e.g. a `.pak`
+ *     file the user opened directly): the root's id is its own
+ *     filename, and its children are the PAK's top-level dirs.
+ *     The mount-map paths we build include the root's id as a
+ *     prefix (since they were built from kid.id strings), so when
+ *     walking down, we need to strip the root's id from the path
+ *     before descending — otherwise we'd look for a child whose
+ *     name matches the root's own filename.
  */
 async function findNodeByPath(root: Node, path: string): Promise<Node | null> {
-	const segments = path.split('/').filter((s) => s.length > 0);
+	let remaining = path;
+	if (root.id && remaining.startsWith(`${root.id}/`)) {
+		remaining = remaining.slice(root.id.length + 1);
+	} else if (root.id && remaining === root.id) {
+		return root;
+	}
+	const segments = remaining.split('/').filter((s) => s.length > 0);
 	let cur: Node = root;
 	for (const seg of segments) {
 		if (!cur.getChildren) return null;
