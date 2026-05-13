@@ -18,6 +18,7 @@
  * consistent across the app.
  */
 
+import type { ComponentType } from "react"
 import { useMemo } from "react"
 import {
   ObjectInspector,
@@ -31,6 +32,14 @@ import { useTheme } from "next-themes"
 // Public components
 // ---------------------------------------------------------------------------
 
+interface NodeRendererProps {
+  depth: number
+  name?: string
+  data: unknown
+  isNonenumerable?: boolean
+  expanded?: boolean
+}
+
 export interface JsonInspectorProps {
   /** Any JSON-shaped value (objects, arrays, strings, numbers, …). */
   data: unknown
@@ -38,6 +47,14 @@ export interface JsonInspectorProps {
   name?: string
   /** Initial expand depth. Default 1 — the root expanded, children collapsed. */
   expandLevel?: number
+  /**
+   * Optional custom node renderer passed through to
+   * `react-inspector`. Use this to intercept opaque ref markers
+   * (Unity PPtrs, UE Object refs, …) and render bespoke labels
+   * for them. When omitted, `react-inspector`'s default labelling
+   * is used.
+   */
+  nodeRenderer?: ComponentType<NodeRendererProps>
 }
 
 /**
@@ -51,6 +68,7 @@ export function JsonInspector({
   data,
   name,
   expandLevel = 1,
+  nodeRenderer,
 }: JsonInspectorProps) {
   const { resolvedTheme } = useTheme()
   const theme = resolvedTheme === "dark" ? darkTheme : lightTheme
@@ -65,6 +83,7 @@ export function JsonInspector({
         // @ts-expect-error theme prop accepts both theme name strings and theme objects
         theme={theme}
         expandLevel={expandLevel}
+        nodeRenderer={nodeRenderer}
       />
     </div>
   )
@@ -227,14 +246,6 @@ export function prepareUnityValueForInspector(value: unknown): unknown {
     return out
   }
   return value
-}
-
-interface NodeRendererProps {
-  depth: number
-  name?: string
-  data: unknown
-  isNonenumerable?: boolean
-  expanded?: boolean
 }
 
 function UnityNodeRenderer({

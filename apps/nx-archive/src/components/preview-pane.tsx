@@ -36,6 +36,7 @@ import { Separator } from "~/components/ui/separator"
 import { Skeleton } from "~/components/ui/skeleton"
 import { Spinner } from "~/components/ui/spinner"
 import { BfresViewer } from "./bfres-viewer"
+import { ObjectLabel, ObjectRootLabel } from "react-inspector"
 import { JsonInspector, UnityObjectInspector } from "./data-inspector"
 import {
   demuxIvf,
@@ -70,6 +71,7 @@ import {
 } from "~/lib/uasset-material-chain"
 import {
   createAssetResolver,
+  packagePathFromObjectValue,
   type AssetResolver,
 } from "~/lib/uasset-resolver"
 import {
@@ -3802,6 +3804,8 @@ function UassetPreview({
             parsed={v}
             uexpBytes={uexpBytes}
             kind={isDataTable ? "data-table" : "curve-table"}
+            root={root}
+            onNavigate={onNavigate}
           />
         )}
 
@@ -3809,6 +3813,8 @@ function UassetPreview({
           <UassetPropertiesSection
             parsed={v}
             decodedExports={decodedExports}
+            root={root}
+            onNavigate={onNavigate}
           />
         )}
         {uexpError && (
@@ -3843,20 +3849,26 @@ function UassetPreview({
  *   - Arrays / sets become JS arrays.
  *   - Maps become arrays of `[key, value]` pairs (since plain JS objects
  *     can't represent non-string keys).
- *   - Object references become a string like `"-> Texture2D'/Game/UI/T_Foo'"`.
+ *   - Object references become a string like `"-> Texture2D'/Game/UI/T_Foo'"`,
+ *     OR — when a `parsed` UE asset is supplied via `ctx` — an opaque
+ *     `ObjectRefMarker` that the {@link UassetPropertyInspector} renders
+ *     as a clickable deep-link to the referenced asset.
  *   - Unknown values become `<unknown: NN bytes (reason)>`.
  *
  * The goal is at-a-glance readability in the inspector; consumers that
  * need the full UE typing (e.g. an asset extractor) should consume the
  * raw `UProperty` tree directly.
  */
-function propertiesToInspectable(properties: UProperty[]): Record<string, unknown> {
+function propertiesToInspectable(
+  properties: UProperty[],
+  ctx?: PropertyTreeContext,
+): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const prop of properties) {
     // Static-array properties surface as multiple tags with the same
     // name and arrayIndex 0..N-1. We coalesce them into a JS array.
     const key = prop.name
-    const v = simplifyValue(prop.value)
+    const v = simplifyValue(prop.value, ctx)
     if (key in out) {
       const existing = out[key]
       if (Array.isArray(existing)) {
@@ -3871,7 +3883,40 @@ function propertiesToInspectable(properties: UProperty[]): Record<string, unknow
   return out
 }
 
-function simplifyValue(v: UValue): unknown {
+/**
+ * Context threaded through {@link simplifyValue} so Object /
+ * SoftObject refs can be resolved back to clickable deep-links.
+ * When omitted, refs collapse to plain strings (the original
+ * pre-deep-link behaviour) — this keeps any caller that doesn't
+ * have a `ParsedUasset` handy working unchanged.
+ */
+interface PropertyTreeContext {
+  parsed: ParsedUasset
+}
+
+const OBJECT_REF_TYPE = "__nx_object_ref__"
+
+interface ObjectRefMarker {
+  __type: typeof OBJECT_REF_TYPE
+  label: string
+  packagePath: string | null
+}
+
+function isObjectRefMarker(value: unknown): value is ObjectRefMarker {
+  if (value === null || typeof value !== "object") return false
+  const desc = Object.getOwnPropertyDescriptor(value, "__type")
+  return desc?.value === OBJECT_REF_TYPE
+}
+
+function makeObjectRefMarker(label: string, packagePath: string | null): unknown {
+  const m = Object.create(null)
+  Object.defineProperty(m, "__type", { value: OBJECT_REF_TYPE, enumerable: false })
+  Object.defineProperty(m, "label", { value: label, enumerable: false })
+  Object.defineProperty(m, "packagePath", { value: packagePath, enumerable: false })
+  return m
+}
+
+function simplifyValue(v: UValue, ctx?: PropertyTreeContext): unknown {
   switch (v.kind) {
     case "bool":
     case "int8":
@@ -3889,21 +3934,32 @@ function simplifyValue(v: UValue): unknown {
     case "uint64":
       return v.value.toString()
     case "object":
-      return v.resolved === "None" ? null : `→ ${v.resolved}`
-    case "softObject":
-      return v.subPath ? `${v.assetPath}:${v.subPath}` : v.assetPath
+      if (v.resolved === "None" || v.index === 0) return null
+      if (ctx) {
+        const packagePath = packagePathFromObjectValue(v, ctx.parsed)
+        return makeObjectRefMarker(v.resolved, packagePath)
+      }
+      return `→ ${v.resolved}`
+    case "softObject": {
+      const label = v.subPath ? `${v.assetPath}:${v.subPath}` : v.assetPath
+      if (ctx) {
+        const packagePath = packagePathFromObjectValue(v, ctx.parsed)
+        return makeObjectRefMarker(label, packagePath)
+      }
+      return label
+    }
     case "enum":
       return v.value
     case "byte":
       return v.enumName ? `${v.enumName}::${v.value}` : v.value
     case "array":
     case "set":
-      return v.values.map(simplifyValue)
+      return v.values.map((x) => simplifyValue(x, ctx))
     case "map":
-      return v.entries.map((e) => [simplifyValue(e.key), simplifyValue(e.value)])
+      return v.entries.map((e) => [simplifyValue(e.key, ctx), simplifyValue(e.value, ctx)])
     case "struct":
       if (v.native) return simplifyNativeStruct(v.native)
-      if (v.properties) return propertiesToInspectable(v.properties)
+      if (v.properties) return propertiesToInspectable(v.properties, ctx)
       if (v.rawBytes) {
         return `<${v.structName}: ${v.rawBytes.length} raw bytes>`
       }
@@ -4226,22 +4282,32 @@ function formatHexDump(bytes: Uint8Array, base: number): string {
 function UassetPropertiesSection({
   parsed,
   decodedExports,
+  root,
+  onNavigate,
 }: {
   parsed: ParsedUasset
   decodedExports: UExportProperties[]
+  root: Node | null
+  onNavigate?: (node: Node) => void
 }) {
+  const resolver = useMemo(() => createAssetResolver(root), [root])
+  const refCtx = useMemo<ObjectRefContext>(
+    () => ({ parsed, resolver, onNavigate }),
+    [parsed, resolver, onNavigate],
+  )
+  const treeCtx = useMemo<PropertyTreeContext>(() => ({ parsed }), [parsed])
   const single = decodedExports.length === 1
   const treeData = useMemo(() => {
     if (single) {
-      return propertiesToInspectable(decodedExports[0]!.properties)
+      return propertiesToInspectable(decodedExports[0]!.properties, treeCtx)
     }
     const out: Record<string, unknown> = {}
     for (const e of decodedExports) {
       const name = resolveFName(e.export.objectName, parsed.names)
-      out[name] = propertiesToInspectable(e.properties)
+      out[name] = propertiesToInspectable(e.properties, treeCtx)
     }
     return out
-  }, [decodedExports, parsed.names, single])
+  }, [decodedExports, parsed.names, single, treeCtx])
 
   // Compute which exports had tail bytes (asset-class-specific data
   // we deliberately don't decode at this layer).
@@ -4260,7 +4326,7 @@ function UassetPropertiesSection({
         Properties
       </h3>
       <div className="rounded-md border bg-card p-3">
-        <JsonInspector data={treeData} expandLevel={2} />
+        <UassetPropertyInspector data={treeData} expandLevel={2} refCtx={refCtx} />
       </div>
       {tailNotes.length > 0 && (
         <p className="mt-2 text-xs text-muted-foreground">
@@ -5369,17 +5435,206 @@ function readSoundWaveCookedData(
 // still render every value. Each column header doubles as a sort
 // button; clicking cycles asc → desc → unsorted.
 
+// ====================================================================
+// Object-reference deep-link
+// ====================================================================
+//
+// Renders a UE `ObjectProperty` / `SoftObjectProperty` as a clickable
+// link to the referenced asset when (and only when) we can resolve
+// the target to a real `Node` in the open archive. Mirrors the
+// FontFace-import flow in `UassetFontSection`: same blue underline,
+// same `onNavigate(node)` callback driving the preview/tree.
+//
+// Resolution is async — we cache by package path inside the shared
+// `AssetResolver`, so the cost is paid once per distinct target
+// regardless of how many rows / property nodes reference it.
+//
+// When `onNavigate` isn't wired (e.g. previews mounted outside the
+// main archive view) or resolution fails (asset isn't in this PAK,
+// path looks weird, etc.), the component falls back to plain text
+// so the rest of the preview keeps working.
+
+interface ObjectRefContext {
+  parsed: ParsedUasset
+  resolver: AssetResolver
+  onNavigate?: (node: Node) => void
+}
+
+function ObjectRef({
+  label,
+  packagePath,
+  resolver,
+  onNavigate,
+}: {
+  label: string
+  packagePath: string | null
+  resolver: AssetResolver | null
+  onNavigate?: (node: Node) => void
+}) {
+  // Cache key: just the package path. The resolver does its own
+  // dedup inside, but we still useAsync per render so React knows
+  // when the resolved node changes.
+  const state = useAsync<Node | null>(async () => {
+    if (!packagePath || !onNavigate || !resolver) return null
+    const triplet = await resolver.resolve(packagePath).catch(() => null)
+    return triplet?.uasset ?? null
+  }, [packagePath, resolver, onNavigate])
+
+  const target = state.data ?? null
+  if (!packagePath || !onNavigate || !target) {
+    return (
+      <span className="text-muted-foreground" title={packagePath ?? undefined}>
+        {label}
+      </span>
+    )
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => onNavigate(target)}
+      className="text-primary underline-offset-2 hover:underline"
+      title={`Open ${packagePath}`}
+    >
+      {label}
+    </button>
+  )
+}
+
+/**
+ * UE property tree inspector. Wraps the generic {@link JsonInspector}
+ * with a custom node renderer that intercepts `ObjectRefMarker`s
+ * (opaque references produced by {@link simplifyValue} when given a
+ * `PropertyTreeContext`) and renders them as clickable
+ * {@link ObjectRef} deep-links to the referenced asset.
+ *
+ * Mirrors the `UnityObjectInspector` / `PPtr` pattern in
+ * `data-inspector.tsx`.
+ */
+function UassetPropertyInspector({
+  data,
+  name,
+  expandLevel = 2,
+  refCtx,
+}: {
+  data: unknown
+  name?: string
+  expandLevel?: number
+  refCtx: ObjectRefContext
+}) {
+  const NodeRenderer = useMemo(
+    () =>
+      function UassetNodeRenderer({
+        depth,
+        name: nodeName,
+        data: nodeData,
+        isNonenumerable,
+      }: {
+        depth: number
+        name?: string
+        data: unknown
+        isNonenumerable?: boolean
+        expanded?: boolean
+      }) {
+        if (isObjectRefMarker(nodeData)) {
+          return (
+            <span>
+              {nodeName != null && (
+                <>
+                  <span style={{ color: "var(--muted-foreground)" }}>{nodeName}</span>
+                  <span>: </span>
+                </>
+              )}
+              <ObjectRef
+                label={nodeData.label}
+                packagePath={nodeData.packagePath}
+                resolver={refCtx.resolver}
+                onNavigate={refCtx.onNavigate}
+              />
+            </span>
+          )
+        }
+        if (depth === 0) {
+          return <ObjectRootLabel name={nodeName} data={nodeData} />
+        }
+        return (
+          <ObjectLabel name={nodeName} data={nodeData} isNonenumerable={isNonenumerable} />
+        )
+      },
+    [refCtx],
+  )
+  return (
+    <JsonInspector
+      data={data}
+      name={name}
+      expandLevel={expandLevel}
+      nodeRenderer={NodeRenderer}
+    />
+  )
+}
+
+/**
+ * JSX counterpart to {@link renderUValue} — same value rendering,
+ * but Object / SoftObject refs become clickable {@link ObjectRef}
+ * components when a navigation context is available. Used by the
+ * DataTable cell renderer; the rest of the preview surfaces
+ * (JsonInspector tree, CSV export, sort comparator) still use the
+ * string version.
+ *
+ * Non-object branches forward to {@link renderUValue} so the two
+ * renderers can't disagree about how a value should look.
+ */
+function renderUValueJsx(
+  v: UValue | undefined,
+  ctx: ObjectRefContext | null,
+): React.ReactNode {
+  if (!v) return ""
+  if (v.kind === "object") {
+    if (v.index === 0 || v.resolved === "None") return "None"
+    const packagePath = ctx ? packagePathFromObjectValue(v, ctx.parsed) : null
+    return (
+      <ObjectRef
+        label={v.resolved}
+        packagePath={packagePath}
+        resolver={ctx?.resolver ?? null}
+        onNavigate={ctx?.onNavigate}
+      />
+    )
+  }
+  if (v.kind === "softObject") {
+    const label = v.subPath ? `${v.assetPath}#${v.subPath}` : v.assetPath
+    const packagePath = ctx ? packagePathFromObjectValue(v, ctx.parsed) : null
+    return (
+      <ObjectRef
+        label={label}
+        packagePath={packagePath}
+        resolver={ctx?.resolver ?? null}
+        onNavigate={ctx?.onNavigate}
+      />
+    )
+  }
+  return renderUValue(v)
+}
+
 function UassetDataTableSection({
   node,
   parsed,
   uexpBytes,
   kind,
+  root,
+  onNavigate,
 }: {
   node: Node
   parsed: ParsedUasset
   uexpBytes: Uint8Array
   kind: "data-table" | "curve-table"
+  root: Node | null
+  onNavigate?: (node: Node) => void
 }) {
+  const resolver = useMemo(() => createAssetResolver(root), [root])
+  const refCtx = useMemo<ObjectRefContext>(
+    () => ({ parsed, resolver, onNavigate }),
+    [parsed, resolver, onNavigate],
+  )
   const result = useMemo<
     | { ok: true; table: ParsedDataTable | ParsedCurveTable }
     | { ok: false; error: string }
@@ -5566,7 +5821,7 @@ function UassetDataTableSection({
                       const p = row.properties.find((pp) => pp.name === col)
                       return (
                         <td key={col} className="px-3 py-1.5 text-muted-foreground">
-                          {p ? renderUValue(p.value) : ""}
+                          {p ? renderUValueJsx(p.value, refCtx) : ""}
                         </td>
                       )
                     })}

@@ -22,7 +22,69 @@
  * tree.
  */
 
+import type {
+	ParsedUasset,
+	UValue,
+} from '@tootallnate/uasset';
+import { resolveImportPackagePath } from '@tootallnate/uasset';
 import type { Node } from './archive.js';
+
+/**
+ * Extract a UE package path (`/Game/Foo/Bar/T_Baz`) from any
+ * Object-typed {@link UValue}. The path is the input to
+ * {@link AssetResolver.resolve} for navigation.
+ *
+ * Handles both flavours UE writes today:
+ *
+ *   - **Hard `object` refs**: `UValue.kind === 'object'` with a
+ *     negative `index` walks the import table back to the owning
+ *     Package import via {@link resolveImportPackagePath}.
+ *   - **Soft `softObject` refs**: `UValue.kind === 'softObject'`
+ *     carries an `assetPath` shaped like
+ *     `/Game/Textures/T_Baz.T_Baz` — the trailing `.<ObjectName>`
+ *     is the in-package object name, which we strip to recover the
+ *     package path.
+ *
+ * Returns `null` when:
+ *
+ *   - The value isn't an object / softObject.
+ *   - The index points to an export (same-package nav not yet
+ *     supported by this helper — exports don't have a package
+ *     path of their own).
+ *   - The import chain doesn't terminate at a Package.
+ *   - The softObject path is empty or shaped unexpectedly.
+ */
+export function packagePathFromObjectValue(
+	value: UValue,
+	parsed: ParsedUasset,
+): string | null {
+	if (value.kind === 'object') {
+		if (value.index >= 0) return null; // export-rooted (same package); skip for now
+		return resolveImportPackagePath(value.index, parsed.imports, parsed.names);
+	}
+	if (value.kind === 'softObject') {
+		const path = value.assetPath;
+		if (!path || !path.startsWith('/')) return null;
+		// Strip trailing `.<ObjectName>` (the in-package object
+		// name) to recover just the package path. SoftObjectPath's
+		// `subPath` field tracks sub-asset names separately — we
+		// don't currently navigate into sub-objects, just the file.
+		const dot = path.lastIndexOf('.');
+		if (dot > 0) {
+			const head = path.slice(0, dot);
+			const tail = path.slice(dot + 1);
+			// Only strip when tail looks like a duplicate of the
+			// last path segment (the standard UE convention). If
+			// the user wrote something exotic, leave the path
+			// alone — the resolver will just fail-soft.
+			const lastSlash = head.lastIndexOf('/');
+			const lastSeg = head.slice(lastSlash + 1);
+			if (tail === lastSeg) return head;
+		}
+		return path;
+	}
+	return null;
+}
 
 export interface AssetTriplet {
 	uasset: Node;
