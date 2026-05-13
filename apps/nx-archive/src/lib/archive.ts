@@ -20,6 +20,7 @@ import { parseSarc, type SarcEntry } from '@tootallnate/sarc';
 import { decompressYaz0 } from '@tootallnate/yaz0';
 import { decompressLz4, type Lz4Variant } from '@tootallnate/lz4';
 import { parseBars, type BarsEntry } from '@tootallnate/bars';
+import { parseAwb } from '@tootallnate/awb';
 import { parseBfsar, extForMagic as bfsarExtForMagic } from '@tootallnate/bfsar';
 import { parseBfwar } from '@tootallnate/bfwar';
 import { parseBfres } from '@tootallnate/bfres';
@@ -89,6 +90,7 @@ export type NodeKind =
 	| 'bfsar'
 	| 'bfwar'
 	| 'bfres'
+	| 'awb'
 	| 'gfpak'
 	| 'wwise-pck'
 	| 'wwise-bnk'
@@ -350,6 +352,8 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	wem: 'WEM', // Wwise Encoded Media (audio asset)
 	bank: 'BANK', // FMOD Studio bank (FEV form-type)
 	fsb: 'FSB5', // FMOD Sample Bank
+	awb: 'AWB', // CRI AFS2 audio wave bank
+	hca: 'HCA', // CRI High Compression Audio
 };
 
 /**
@@ -412,7 +416,8 @@ type SniffedFormat =
 	| 'gfpak'
 	| 'wwise-pck'
 	| 'wwise-bnk'
-	| 'fmod-bank';
+	| 'fmod-bank'
+	| 'awb';
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -448,6 +453,7 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (m4 === 'FSAR') return 'bfsar';
 	if (m4 === 'FWAR') return 'bfwar';
 	if (m4 === 'FRES') return 'bfres';
+	if (m4 === 'AFS2') return 'awb';
 	if (m4 === 'AKPK' || m4 === 'KPKA') return 'wwise-pck';
 	if (m4 === 'BKHD') return 'wwise-bnk';
 	// FMOD Studio bank: RIFF + form-type "FEV " at offset 8.
@@ -588,6 +594,8 @@ export async function buildRootNode(
 				blob: async () => blob,
 			};
 		}
+		case 'AWB':
+			return makeAwbNode(id, displayName, blob, ctx);
 		case 'BARS':
 			return makeBarsNode(id, displayName, blob, ctx);
 		case 'BFSAR':
@@ -1838,6 +1846,70 @@ async function barsEntriesToNodes(
 			};
 		}),
 	);
+}
+
+// ----- AWB (CRI AFS2 audio wave bank) -----
+
+/**
+ * Make an AWB / AFS2 container node. The archive holds many
+ * HCA-encoded audio tracks indexed by a small `(id, offset, size)`
+ * table at the head of the file. Each track becomes a child Node
+ * named `track_NNN.hca` (sorted by serialised order, zero-padded for
+ * lexical sort) so they show up in the tree just like the contents
+ * of any other container.
+ *
+ * The parent's per-bank HCA subkey is threaded into each child's
+ * `meta.awbKey` so the HCA preview can derive the type-56 cipher
+ * tables when the bank is encrypted and a per-file key is supplied.
+ *
+ * Tracks are extracted lazily via `Blob.slice()` — even for banks
+ * with hundreds of tracks, the only eager work is parsing the AFS2
+ * header (a few KiB).
+ */
+function makeAwbNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'awb',
+		isContainer: true,
+		size: blob.size,
+		format: 'AWB',
+		blob: async () => blob,
+		getChildren: async () => {
+			// Header is small; 64 KiB is more than enough for any
+			// bank we've seen. If a future bank has a massive id/offset
+			// table the parser will throw a clear error and we can
+			// grow this.
+			const headLen = Math.min(blob.size, 0x10000);
+			const head = new Uint8Array(await blob.slice(0, headLen).arrayBuffer());
+			const parsed = parseAwb(head);
+			void ctx; // reserved for future tikMap-style propagation
+			const width = Math.max(3, String(parsed.tracks.length).length);
+			return parsed.tracks.map((t, i): Node => {
+				const leafName = `track_${String(i).padStart(width, '0')}.hca`;
+				const childId = `${id}/${leafName}`;
+				const trackBlob = blob.slice(t.offset, t.offset + t.size);
+				return {
+					id: childId,
+					name: leafName,
+					kind: 'file',
+					isContainer: false,
+					size: t.size,
+					format: 'HCA',
+					meta: {
+						awbTrackId: t.id,
+						awbSubkey: parsed.subkey,
+					},
+					blob: async () => trackBlob,
+				};
+			});
+		},
+	};
 }
 
 // ----- BFSAR (Binary caFe Sound ARchive) -----
@@ -3350,6 +3422,7 @@ async function childNodeFor(
 	if (ext === 'bfsar') return makeBfsarNode(id, name, blob, ctx);
 	if (ext === 'bfwar') return makeBfwarNode(id, name, blob, ctx);
 	if (ext === 'bfres') return makeBfresNode(id, name, blob, ctx);
+	if (ext === 'awb') return makeAwbNode(id, name, blob, ctx);
 	if (ext === 'gfpak') return makeGfpakNode(id, name, blob, ctx);
 	if (ext === 'pck') return makeWwisePckNode(id, name, blob, ctx);
 	if (ext === 'bnk') return makeWwiseBnkNode(id, name, blob, ctx);
@@ -3385,6 +3458,7 @@ async function childNodeFor(
 	if (sniffed === 'bfsar') return makeBfsarNode(id, name, blob, ctx);
 	if (sniffed === 'bfwar') return makeBfwarNode(id, name, blob, ctx);
 	if (sniffed === 'bfres') return makeBfresNode(id, name, blob, ctx);
+	if (sniffed === 'awb') return makeAwbNode(id, name, blob, ctx);
 	if (sniffed === 'gfpak') return makeGfpakNode(id, name, blob, ctx);
 	if (sniffed === 'wwise-pck') return makeWwisePckNode(id, name, blob, ctx);
 	if (sniffed === 'wwise-bnk') return makeWwiseBnkNode(id, name, blob, ctx);
