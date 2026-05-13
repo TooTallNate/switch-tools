@@ -570,10 +570,65 @@ function computeFileHeaderSize(blocksCount: number): number {
  * would be possible but adds complexity for the typical
  * sub-megabyte UE asset where the whole-file approach is fine.
  */
+/**
+ * Decompression callback for compressors that we don't implement
+ * natively in this package. Currently used for Oodle (Kraken /
+ * Mermaid / Selkie / Leviathan), which requires a separately-built
+ * WASM module — see `@tootallnate/oodle-wasm` and its README for
+ * the redistribution-free build recipe.
+ *
+ * The callback receives one block's compressed bytes and the
+ * decompressed size that block must produce, and returns the
+ * decompressed bytes.
+ *
+ * Async so the host can lazy-load the WASM module on first call.
+ */
+export type ExternalDecompressor = (
+	compressed: Uint8Array,
+	uncompressedSize: number,
+	methodName: string,
+) => Promise<Uint8Array>;
+
+/**
+ * Options for {@link readUpakEntry}. Lets the caller plug in an
+ * external decompressor for compressors this package doesn't ship
+ * built-in (currently: anything other than Zlib).
+ */
+export interface ReadUpakEntryOptions {
+	/**
+	 * Called when an entry uses a compressor this package can't
+	 * decode by itself. If not provided, decoding such an entry
+	 * throws {@link UpakUnsupportedCompressionError}.
+	 */
+	externalDecompressor?: ExternalDecompressor;
+}
+
+/**
+ * Thrown when {@link readUpakEntry} encounters a compression
+ * algorithm it doesn't implement and no `externalDecompressor`
+ * callback was supplied. The `methodName` field carries the slot's
+ * string identifier from the PAK footer (e.g. `"Oodle"`,
+ * `"Kraken"`, `"LZ4"`), so the host can decide which dependency to
+ * lazy-load.
+ */
+export class UpakUnsupportedCompressionError extends Error {
+	readonly entryPath: string;
+	readonly methodName: string;
+	constructor(entryPath: string, methodName: string) {
+		super(
+			`PAK entry "${entryPath}" uses ${methodName} compression; pass an externalDecompressor option to readUpakEntry to handle it.`,
+		);
+		this.name = 'UpakUnsupportedCompressionError';
+		this.entryPath = entryPath;
+		this.methodName = methodName;
+	}
+}
+
 export async function readUpakEntry(
 	source: Blob,
 	entry: UpakEntry,
 	footer: UpakFooter,
+	options: ReadUpakEntryOptions = {},
 ): Promise<Blob> {
 	if (entry.encrypted) {
 		throw new Error(
@@ -594,20 +649,32 @@ export async function readUpakEntry(
 		);
 	}
 	const lower = methodName.toLowerCase();
-	if (lower !== 'zlib') {
-		throw new Error(
-			`PAK entry "${entry.path}" uses ${methodName} compression; only Zlib is supported.`,
-		);
-	}
-	// Decompress each block, concatenate into a single Blob.
-	// Blocks are deflate streams with a 2-byte zlib header, which
-	// `DecompressionStream('deflate')` natively understands.
 	const decoded: Uint8Array[] = [];
-	for (const block of entry.compressionBlocks) {
-		const compressed = await source
-			.slice(block.start, block.end)
-			.arrayBuffer();
-		decoded.push(await inflateOnce(new Uint8Array(compressed)));
+	if (lower === 'zlib') {
+		// Native path — DecompressionStream handles zlib/deflate.
+		for (const block of entry.compressionBlocks) {
+			const compressed = await source.slice(block.start, block.end).arrayBuffer();
+			decoded.push(await inflateOnce(new Uint8Array(compressed)));
+		}
+	} else if (options.externalDecompressor) {
+		// External path (typically Oodle via @tootallnate/oodle-wasm).
+		// UE splits a file into N blocks of `compressionBlockSize`
+		// each; the final block holds whatever's left of
+		// `uncompressedSize`.
+		const fullBlockSize = entry.compressionBlockSize;
+		for (let i = 0; i < entry.compressionBlocks.length; i++) {
+			const block = entry.compressionBlocks[i]!;
+			const remaining = entry.uncompressedSize - i * fullBlockSize;
+			const blockRawSize = Math.min(fullBlockSize, remaining);
+			const compressed = new Uint8Array(
+				await source.slice(block.start, block.end).arrayBuffer(),
+			);
+			decoded.push(
+				await options.externalDecompressor(compressed, blockRawSize, methodName),
+			);
+		}
+	} else {
+		throw new UpakUnsupportedCompressionError(entry.path, methodName);
 	}
 	return new Blob(decoded as BlobPart[]);
 }

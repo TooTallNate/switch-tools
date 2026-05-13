@@ -6,6 +6,7 @@ import {
   GithubIcon,
   KeyIcon,
   KeyRoundIcon,
+  PackageIcon,
   UploadIcon,
   XIcon,
 } from "lucide-react"
@@ -36,9 +37,11 @@ interface AppHeaderProps {
   onOpenFile: (file: File) => void
   onOpenDirectory: (directory: WalkedDirectory) => void
   onOpenKeys: () => void
+  onOpenOodle: () => void
   onCloseFile: () => void
   hasFile: boolean
   hasKeys: boolean
+  hasOodle: boolean
   currentFileName?: string
   currentFileSize?: number
   onPickerError: (err: Error) => void
@@ -48,9 +51,11 @@ export function AppHeader({
   onOpenFile,
   onOpenDirectory,
   onOpenKeys,
+  onOpenOodle,
   onCloseFile,
   hasFile,
   hasKeys,
+  hasOodle,
   currentFileName,
   currentFileSize,
   onPickerError,
@@ -180,6 +185,18 @@ export function AppHeader({
           )}
           {hasKeys ? "Keys" : "Add keys"}
           {hasKeys && (
+            <Badge variant="secondary" className="ml-0.5">
+              loaded
+            </Badge>
+          )}
+        </Button>
+        <Button variant="outline" size="sm" onClick={onOpenOodle}>
+          <PackageIcon
+            data-icon="inline-start"
+            className={hasOodle ? "text-primary" : undefined}
+          />
+          Oodle
+          {hasOodle && (
             <Badge variant="secondary" className="ml-0.5">
               loaded
             </Badge>

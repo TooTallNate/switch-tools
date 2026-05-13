@@ -313,6 +313,9 @@ importers:
       '@tootallnate/nsp':
         specifier: workspace:*
         version: link:../../packages/nsp
+      '@tootallnate/oodle-wasm':
+        specifier: workspace:*
+        version: link:../../packages/oodle-wasm
       '@tootallnate/pfs0':
         specifier: workspace:*
         version: link:../../packages/pfs0

@@ -13,6 +13,7 @@ import {
   type SearchState,
 } from "~/components/file-tree-search"
 import { KeysDialog } from "~/components/keys-dialog"
+import { OodleDialog } from "~/components/oodle-dialog"
 import { PreviewPane } from "~/components/preview-pane"
 import {
   ResizableHandle,
@@ -29,6 +30,10 @@ import {
 } from "~/lib/archive"
 import type { WalkedDirectory } from "~/lib/directory"
 import { loadStoredKeySet } from "~/lib/keys-store"
+import {
+  getOodleDecompressor,
+  loadStoredOodleWasm,
+} from "~/lib/oodle-store"
 import type { KeySet } from "@tootallnate/nca"
 import { formatBytes } from "~/lib/utils"
 
@@ -75,6 +80,8 @@ function ArchiveApp() {
   const [opened, setOpened] = useState<Opened | null>(null)
   const [selected, setSelected] = useState<Node | null>(null)
   const [keysOpen, setKeysOpen] = useState(false)
+  const [oodleOpen, setOodleOpen] = useState(false)
+  const [hasOodle, setHasOodle] = useState(false)
   const [keys, setKeys] = useState<KeySet | null>(null)
   const [reloadCounter, setReloadCounter] = useState(0)
   const [searchState, setSearchState] = useState<SearchState>({
@@ -105,6 +112,10 @@ function ArchiveApp() {
     void loadStoredKeySet().then((stored) => {
       if (stored) setKeys(stored.keySet)
     })
+    // Preload the Oodle WASM if the user uploaded one previously, so
+    // the in-memory cache is warm by the time the first Oodle-
+    // compressed block is read.
+    void loadStoredOodleWasm().then((bytes) => setHasOodle(!!bytes))
   }, [])
 
   // The ArchiveContext is intentionally stable across re-renders so that
@@ -113,6 +124,8 @@ function ArchiveApp() {
     () => ({
       getKeys: () => keysRef.current,
       requestKeys: () => setKeysOpen(true),
+      getOodleDecompressor,
+      requestOodle: () => setOodleOpen(true),
     }),
     [],
   )
@@ -210,9 +223,11 @@ function ArchiveApp() {
         onOpenFile={handleOpenFile}
         onOpenDirectory={handleOpenDirectory}
         onOpenKeys={() => setKeysOpen(true)}
+        onOpenOodle={() => setOodleOpen(true)}
         onCloseFile={handleCloseFile}
         hasFile={!!opened}
         hasKeys={!!keys}
+        hasOodle={hasOodle}
         currentFileName={opened ? openedDisplayName(opened) : undefined}
         currentFileSize={opened ? openedDisplaySize(opened) : undefined}
         onPickerError={handlePickerError}
@@ -315,6 +330,20 @@ function ArchiveApp() {
         open={keysOpen}
         onOpenChange={setKeysOpen}
         onSaved={handleKeysSaved}
+      />
+
+      <OodleDialog
+        open={oodleOpen}
+        onOpenChange={setOodleOpen}
+        onChanged={() => {
+          // Sync the badge state with what was just saved.
+          void loadStoredOodleWasm().then((bytes) => setHasOodle(!!bytes))
+          // Force a tree re-fetch on any nodes whose previous read
+          // failed with OodleMissingError; same mechanism we use for
+          // ProdKeysMissingError after a keys upload.
+          if (opened) invalidateNcaErrors(opened.root)
+          setReloadCounter((c) => c + 1)
+        }}
       />
     </div>
   )

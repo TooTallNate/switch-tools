@@ -51,6 +51,7 @@
     "@tootallnate/nro": "workspace:*",
     "@tootallnate/nso": "workspace:*",
     "@tootallnate/nsp": "workspace:*",
+    "@tootallnate/oodle-wasm": "workspace:*",
     "@tootallnate/pfs0": "workspace:*",
     "@tootallnate/romfs": "workspace:*",
     "@tootallnate/sarc": "workspace:*",

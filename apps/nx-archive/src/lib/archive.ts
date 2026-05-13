@@ -179,11 +179,32 @@ export interface Node {
  * partially expanded) immediately makes those keys available to every
  * pending NCA decryption.
  */
+/**
+ * A function that decompresses one Oodle-compressed block in-place.
+ * The host wires this up by loading `oodle.wasm` (built per the
+ * `@tootallnate/oodle-wasm` package's README) and forwarding to
+ * `OodleDecoder.decompress`.
+ */
+export type OodleDecompress = (
+	compressed: Uint8Array,
+	uncompressedSize: number,
+) => Promise<Uint8Array>;
+
 export interface ArchiveContext {
 	/** Returns the current `KeySet`, or `null` if none has been provided yet. */
 	getKeys: () => KeySet | null;
 	/** Asks the UI to prompt the user for `prod.keys`. */
 	requestKeys: () => void;
+	/**
+	 * Returns an Oodle decompressor if the user has supplied an
+	 * `oodle.wasm` blob, or `null` otherwise. Reading
+	 * Oodle-compressed PAK/IoStore entries calls this once per
+	 * block; the returned function may be the same instance across
+	 * calls or a fresh closure each time.
+	 */
+	getOodleDecompressor?: () => OodleDecompress | null;
+	/** Asks the UI to prompt the user for an `oodle.wasm` blob. */
+	requestOodle?: () => void;
 }
 
 /**
@@ -992,6 +1013,22 @@ export class ProdKeysMissingError extends Error {
 	constructor() {
 		super('NCA decryption requires prod.keys.');
 		this.name = 'ProdKeysMissingError';
+	}
+}
+
+/**
+ * Thrown when an Oodle-compressed PAK / IoStore entry can't be
+ * decompressed because the user hasn't supplied an `oodle.wasm`
+ * blob. The host catches this and prompts the user; once a WASM
+ * blob lands in `ArchiveContext.getOodleDecompressor()`, the read
+ * succeeds on retry.
+ */
+export class OodleMissingError extends Error {
+	constructor(
+		message = 'Oodle-compressed data requires a separately-built oodle.wasm.',
+	) {
+		super(message);
+		this.name = 'OodleMissingError';
 	}
 }
 
@@ -2423,7 +2460,7 @@ function makeIoStoreLeaf(
 	entry: IoChunkEntry,
 	toc: IoStoreToc,
 	ucasBlob: Blob | null,
-	_ctx: ArchiveContext,
+	ctx: ArchiveContext,
 ): Node {
 	const ext = extOf(name);
 	const format = detectFormat(name) || ext.toUpperCase() || 'BIN';
@@ -2440,7 +2477,7 @@ function makeIoStoreLeaf(
 					`Reading IoStore entries requires the matching ".ucas" file alongside this ".utoc". Open the parent directory to make both files available.`,
 				);
 			}
-			return readIoStoreChunk(toc, ucasBlob, entry);
+			return readIoStoreChunk(toc, ucasBlob, entry, ctx);
 		},
 	};
 }
@@ -2448,16 +2485,27 @@ function makeIoStoreLeaf(
 /**
  * Reconstruct an IoStore entry's bytes by stitching together the
  * compression blocks that cover its `[offset, offset + length)`
- * range. Each block's compression method is checked against our
- * supported list (`None` only, for now) so the user gets a clear
- * error instead of garbage bytes when the build uses Oodle / Zlib.
+ * range.
+ *
+ * Each block's compression method is checked at read time:
+ *
+ *   - `None` (or method index 0): the block is copied verbatim.
+ *   - `Oodle`/`Kraken`/`Mermaid`/`Selkie`/`Leviathan`/`Hydra`: the
+ *     block is dispatched to the host's Oodle decompressor. When
+ *     the host hasn't supplied one (the user hasn't uploaded an
+ *     `oodle.wasm`), we throw {@link OodleMissingError} — the
+ *     preview pane catches that and shows a prompt.
+ *   - Anything else (Zlib, etc.): unsupported, throws a
+ *     descriptive error.
  */
 async function readIoStoreChunk(
 	toc: IoStoreToc,
 	ucasBlob: Blob,
 	entry: IoChunkEntry,
+	ctx: ArchiveContext,
 ): Promise<Blob> {
 	const blockSize = BigInt(toc.header.compressionBlockSize);
+	const fullBlockSize = toc.header.compressionBlockSize;
 	const firstBlock = Number(entry.offset / blockSize);
 	const offsetInFirstBlock = Number(entry.offset % blockSize);
 	const lastBlockExclusive = Number(
@@ -2468,23 +2516,42 @@ async function readIoStoreChunk(
 	const out = new Uint8Array(totalLength);
 	let written = 0;
 	let skip = offsetInFirstBlock;
+	let oodleDecompress: OodleDecompress | null | undefined;
 	for (let i = firstBlock; i < lastBlockExclusive; i++) {
 		const b = toc.compressionBlocks[i];
-		const methodName = toc.compressionMethods[b.compressionMethodIndex];
-		if (methodName !== 'None') {
-			throw new Error(
-				`IoStore block #${i} uses compression "${methodName}", which is not supported. ` +
-					`Open-source decoders for Oodle/Zlib/etc. inside IoStore are out of scope of this viewer; ` +
-					`use FModel or CUE4Parse to extract this entry.`,
-			);
-		}
+		const methodName =
+			b.compressionMethodIndex === 0
+				? 'None'
+				: toc.compressionMethods[b.compressionMethodIndex];
 		const blockStart = Number(b.offset);
 		const blockEnd = blockStart + b.compressedSize;
-		const slice = new Uint8Array(
+		const rawSlice = new Uint8Array(
 			await ucasBlob.slice(blockStart, blockEnd).arrayBuffer(),
 		);
-		const take = Math.min(slice.length - skip, totalLength - written);
-		out.set(slice.subarray(skip, skip + take), written);
+		let decoded: Uint8Array;
+		if (methodName === 'None' || b.compressionMethodIndex === 0) {
+			decoded = rawSlice;
+		} else if (isOodleMethodName(methodName)) {
+			if (oodleDecompress === undefined) {
+				oodleDecompress = ctx.getOodleDecompressor?.() ?? null;
+			}
+			if (!oodleDecompress) {
+				ctx.requestOodle?.();
+				throw new OodleMissingError(
+					`IoStore block #${i} uses ${methodName} compression; upload an oodle.wasm to decode it.`,
+				);
+			}
+			// Each block's decompressed size is either `fullBlockSize`
+			// or the entry's remainder for the last block.
+			decoded = await oodleDecompress(rawSlice, b.uncompressedSize);
+		} else {
+			throw new Error(
+				`IoStore block #${i} uses unsupported compression "${methodName}". ` +
+					`Only "None" and Oodle are supported.`,
+			);
+		}
+		const take = Math.min(decoded.length - skip, totalLength - written);
+		out.set(decoded.subarray(skip, skip + take), written);
 		written += take;
 		skip = 0;
 	}
@@ -2493,7 +2560,19 @@ async function readIoStoreChunk(
 			`IoStore reconstruction short: expected ${totalLength} bytes, got ${written}`,
 		);
 	}
+	void fullBlockSize;
 	return new Blob([out]);
+}
+
+/**
+ * Returns true if `name` matches any of the Oodle compressor names
+ * UE writes into PAK / IoStore compression-method slots. UE's tools
+ * often write the generic name "Oodle" but some pipelines split out
+ * the variant names directly.
+ */
+function isOodleMethodName(name: string | undefined): boolean {
+	if (!name) return false;
+	return /^(?:oodle|kraken|mermaid|selkie|leviathan|hydra)$/i.test(name);
 }
 
 // ----- UE PAK (Unreal Engine archive) -----
@@ -2667,7 +2746,27 @@ function upakEntriesToNodes(
 		// facade so we don't decompress the file just because
 		// the user clicked into a sibling directory.
 		const lazyBlob = makeLazyBlob(file.uncompressedSize, () =>
-			readUpakEntry(pakCtx.source, file, pakCtx.footer),
+			readUpakEntry(pakCtx.source, file, pakCtx.footer, {
+				externalDecompressor: async (
+					compressed,
+					uncompressedSize,
+					methodName,
+				) => {
+					if (!isOodleMethodName(methodName)) {
+						throw new Error(
+							`PAK uses unsupported compression "${methodName}".`,
+						);
+					}
+					const od = ctx.getOodleDecompressor?.();
+					if (!od) {
+						ctx.requestOodle?.();
+						throw new OodleMissingError(
+							`PAK entry uses ${methodName}; upload an oodle.wasm to decode it.`,
+						);
+					}
+					return od(compressed, uncompressedSize);
+				},
+			}),
 		);
 		return upakLeafNode(childId, n, lazyBlob, ctx);
 	});
