@@ -89,19 +89,19 @@ describe('initAthTable', () => {
 	});
 
 	it('type 1 walks the reference table at the sample-rate step', () => {
-		// The walker advances `v += sampleRate` each step and indexes
-		// the 1024-byte reference by `v >>> 13`. The first entry is
-		// always 0x78 (index 0); subsequent entries vary with the rate
-		// because higher rates skip further into the table.
+		// clHCA advances `acc += sample_rate` then indexes
+		// `ath_base_curve[acc >> 13]`. For 22050 Hz the first index is
+		// `22050 >> 13 = 2`, which yields 0x56 (86); for 48000 Hz the
+		// first index is `48000 >> 13 = 5`, yielding 0x4C (76).
 		const t22 = initAthTable(1, 22050);
-		expect(t22[0]).toBe(0x78);
+		expect(t22[0]).toBe(0x56);
 		// Determinism across calls.
 		expect(initAthTable(1, 22050)).toEqual(t22);
 
 		const t48 = initAthTable(1, 48000);
-		expect(t48[0]).toBe(0x78);
+		expect(t48[0]).toBe(0x4c);
 		// Higher rate ⇒ the walker reaches the table-end sentinel
-		// (0xFF) sooner, so the tail is more saturated.
+		// (0xFF) sooner, so the tail is more saturated with 0xFF.
 		const tail48Mostly = t48.slice(120).every((b) => b === 0xff);
 		const tail22Mostly = t22.slice(120).every((b) => b === 0xff);
 		expect(tail48Mostly || tail22Mostly).toBe(true);

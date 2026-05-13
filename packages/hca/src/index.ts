@@ -1,32 +1,39 @@
-/**
- * `@tootallnate/hca` — pure-JS decoder for CRI Middleware's HCA
- * (High Compression Audio) codec.
+/*
+ * @tootallnate/hca — pure-TypeScript decoder for CRI Middleware's
+ * High Compression Audio (HCA) codec.
  *
- * Use {@link decodeHca} to turn raw HCA bytes (typically extracted
- * from an AWB / ACB bank by `@tootallnate/awb`) into interleaved
- * Float32 PCM, or {@link decodeHcaToWavBlob} for a ready-to-play
- * `audio/wav` blob.
+ * Ported from vgmstream's clHCA (ISC license, by nyaga / kode54 /
+ * bnnm). See README + LICENSE.
+ *
+ * Use {@link decodeHca} for raw Float32 PCM, or
+ * {@link decodeHcaToWavBlob} for a ready-to-play `audio/wav` blob.
  *
  * Encrypted files (`ciphType === 56`) need a 64-bit per-file key
  * plus an optional per-bank AWB subkey. We don't ship any keys —
- * pass them via `decodeHcaOptions`.
- *
- * Algorithm ported verbatim from kohos/CriTools (MIT), restructured
- * into small modules with TypeScript types. The math matches the
- * reference bit for bit; cross-validate against vgmstream's clHCA
- * if you suspect divergence.
+ * pass them via {@link DecodeHcaOptions}.
  */
 
-export { parseHcaHeader, HcaHeaderError, deriveSubkey, type HcaHeader } from './header.js';
 export {
-	initCiphTable,
-	decryptBlock,
-	checkSum,
-} from './cipher.js';
+	parseHcaHeader,
+	HcaHeaderError,
+	deriveSubkey,
+	HCA_VERSION_V101,
+	HCA_VERSION_V102,
+	HCA_VERSION_V103,
+	HCA_VERSION_V200,
+	HCA_VERSION_V300,
+	type HcaHeader,
+} from './header.js';
+export { initCiphTable, decryptBlock, checkSum } from './cipher.js';
 export { initAthTable } from './tables.js';
-export { initDecode, decodeBlock, type HcaChannelState, type HcaDecodeState } from './decoder.js';
+export {
+	initDecode,
+	decodeBlock,
+	type HcaChannelState,
+	type HcaDecodeState,
+} from './decoder.js';
 
-import { parseHcaHeader, deriveSubkey } from './header.js';
+import { parseHcaHeader, deriveSubkey, HCA_SAMPLES_PER_FRAME } from './header.js';
 import { initCiphTable } from './cipher.js';
 import { initAthTable } from './tables.js';
 import { initDecode, decodeBlock } from './decoder.js';
@@ -67,10 +74,9 @@ export interface DecodedHca {
 /**
  * Decode an entire HCA stream to interleaved Float32 PCM.
  *
- * The standard HCA block size is `header.blockSize` bytes (most
- * files use 0x100); each block produces exactly 1024 samples per
- * channel. The decode loops through `header.blockCount` blocks and
- * stops early if any block fails its CRC.
+ * Each compressed block produces exactly 1024 samples per channel; we
+ * loop through `header.blockCount` blocks and stop early if any block
+ * fails its CRC.
  *
  * Throws `HcaHeaderError` for header-shape problems or `Error` for
  * config mismatches (unsupported comp ranges, missing key on a
@@ -93,8 +99,6 @@ export function decodeHca(
 		key1 = derived.key1;
 		key2 = derived.key2;
 	} else if (options.key !== undefined && options.key !== null) {
-		// Even for ciphType 0/1 callers can still pass a key; if they
-		// do, mix it in the same way (matches kohos's behaviour).
 		const derived = deriveSubkey(options.key, options.awbKey ?? 0);
 		key1 = derived.key1;
 		key2 = derived.key2;
@@ -103,24 +107,27 @@ export function decodeHca(
 	const athTable = initAthTable(header.athType, header.samplingRate);
 	const state = initDecode(header, ciphTable, athTable);
 
-	const volume = (options.volume ?? 1.0) * header.volume;
-	const numSamples = header.blockCount * 0x80 * 8;
+	const volume = (options.volume ?? 1.0) * header.rvaVolume;
+	const numSamples = header.blockCount * HCA_SAMPLES_PER_FRAME;
 	const interleaved = new Float32Array(numSamples * header.channelCount);
+	const channels = state.channels;
+	const channelCount = header.channelCount;
 
-	let address = header.dataOffset;
+	let address = header.headerSize;
 	let writeIdx = 0;
 	for (let m = 0; m < header.blockCount; m++) {
 		if (address + header.blockSize > bytes.length) break;
-		// Decrypt-in-place mutates the input, which could corrupt
-		// callers that share the buffer. Slice into a fresh Uint8Array
-		// so the original bytes are preserved.
+		// Decrypt-in-place mutates the input; slice into a fresh buffer
+		// so the caller can hand us shared memory.
 		const block = bytes.subarray(address, address + header.blockSize).slice();
 		const ok = decodeBlock(state, block);
 		if (!ok) break;
-		for (let i = 0; i < 8; i++) {
-			for (let j = 0; j < 0x80; j++) {
-				for (let k = 0; k < header.channelCount; k++) {
-					interleaved[writeIdx++] = state.channels[k]!.wave[i]![j]! * volume;
+		// Emit interleaved samples [L0 R0 L1 R1 ...] for the block.
+		for (let sf = 0; sf < 8; sf++) {
+			for (let j = 0; j < 128; j++) {
+				const off = sf * 128 + j;
+				for (let k = 0; k < channelCount; k++) {
+					interleaved[writeIdx++] = channels[k]!.wave[off]! * volume;
 				}
 			}
 		}
@@ -131,17 +138,15 @@ export function decodeHca(
 		samples: interleaved,
 		sampleRate: header.samplingRate,
 		numChannels: header.channelCount,
-		numSamples: numSamples,
+		numSamples,
 	};
 }
 
 /**
  * Wrap interleaved Float32 PCM into a RIFF WAVE buffer at the
- * requested bit depth. Mirrors `@tootallnate/dsp-adpcm`'s `encodeWav`
- * but adds 32-bit float output (which HCA samples already are).
- *
- * `mode = 16` (16-bit PCM) is the most browser-compatible choice;
- * we clamp into [-1, 1] before quantising.
+ * requested bit depth. `mode = 0` writes 32-bit float WAV (which HCA
+ * samples natively are); 16-bit PCM is the most browser-compatible
+ * choice.
  */
 export function encodeWav(
 	samples: Float32Array,
@@ -163,7 +168,7 @@ export function encodeWav(
 	out.set(enc.encode('WAVE'), 8);
 	out.set(enc.encode('fmt '), 12);
 	dv.setUint32(16, 16, true);
-	dv.setUint16(20, isFloat ? 3 : 1, true); // 1=PCM, 3=IEEE float
+	dv.setUint16(20, isFloat ? 3 : 1, true);
 	dv.setUint16(22, numChannels, true);
 	dv.setUint32(24, sampleRate, true);
 	dv.setUint32(28, sampleRate * numChannels * bytesPerSample, true);

@@ -1,30 +1,21 @@
-/**
- * HCA cipher + block CRC helpers.
+/*
+ * @tootallnate/hca — pure-TypeScript decoder for CRI Middleware's
+ * High Compression Audio (HCA) codec.
  *
- * Three cipher types in the wild:
- *
- *   - **0**: identity (file is unencrypted).
- *   - **1**: a fixed permutation seeded by a small recurrence; the
- *     same table for every type-1 HCA.
- *   - **56**: derived from a 64-bit per-file key (with an optional
- *     per-bank AWB subkey mixed in). This is the only flavour that
- *     actually requires the user to know a game-specific key.
- *
- * Each "block" (the per-frame compressed payload) is then XOR-
- * substituted byte-by-byte against the table.
- *
- * Block CRC is the same 16-bit polynomial CRIWARE uses across all
- * its formats (CRC-16/CDMA2000 with `init=0`, no reflection); the
- * lookup table is embedded here.
- *
- * Ported from kohos/CriTools/src/hca.js (MIT).
+ * Ported from vgmstream's clHCA (ISC license, by nyaga / kode54 /
+ * bnnm). See README + LICENSE.
  */
 
 /**
- * Build the cipher substitution table for a given `ciphType` /
- * key pair.
+ * Build the per-stream cipher byte-substitution table.
  *
- * @throws if `type` isn't 0, 1, or 56.
+ *   - **0**: identity (file unencrypted)
+ *   - **1**: fixed permutation seeded by a small recurrence
+ *   - **56**: derived from a 64-bit per-file key
+ *
+ * For type 56 we accept the key as `(key1, key2)` where `key1` holds
+ * the low 32 bits and `key2` the high 32 bits. Use
+ * `deriveSubkey(...)` from `header.ts` to mix in an AWB subkey.
  */
 export function initCiphTable(
 	type: number,
@@ -37,6 +28,7 @@ export function initCiphTable(
 		return table;
 	}
 	if (type === 1) {
+		// keyless static permutation
 		let v = 0;
 		for (let i = 1; i < 0xff; i++) {
 			v = (v * 13 + 11) & 0xff;
@@ -48,54 +40,60 @@ export function initCiphTable(
 		return table;
 	}
 	if (type === 56) {
-		const t1 = new Uint8Array(8);
-		if (!key1) key2--;
-		key1--;
-		// Reduce the 64-bit (key2:key1) pair down to 7 bytes by
-		// rotating right one byte per step. JS bit-shifts work on
-		// 32-bit values; we re-assemble manually rather than going
-		// through a BigInt round-trip.
-		for (let i = 0; i < 7; i++) {
-			t1[i] = key1 & 0xff;
-			key1 = ((key1 >>> 8) | ((key2 << 24) >>> 0)) >>> 0;
-			key2 = (key2 >>> 8) >>> 0;
-		}
-		const t2 = new Uint8Array([
-			t1[1]!,
-			(t1[1]! ^ t1[6]!) & 0xff,
-			(t1[2]! ^ t1[3]!) & 0xff,
-			t1[2]!,
-			(t1[2]! ^ t1[1]!) & 0xff,
-			(t1[3]! ^ t1[4]!) & 0xff,
-			t1[3]!,
-			(t1[3]! ^ t1[2]!) & 0xff,
-			(t1[4]! ^ t1[5]!) & 0xff,
-			t1[4]!,
-			(t1[4]! ^ t1[3]!) & 0xff,
-			(t1[5]! ^ t1[6]!) & 0xff,
-			t1[5]!,
-			(t1[5]! ^ t1[4]!) & 0xff,
-			(t1[6]! ^ t1[1]!) & 0xff,
-			t1[6]!,
-		]);
-		const t3 = new Uint8Array(0x100);
-		const t31 = new Uint8Array(0x10);
-		const t32 = new Uint8Array(0x10);
-		createTable56(t31, t1[0]!);
-		let k = 0;
-		for (let i = 0; i < 0x10; i++) {
-			createTable56(t32, t2[i]!);
-			const v = (t31[i]! << 4) & 0xff;
-			for (let j = 0; j < 0x10; j++) {
-				t3[k++] = (v | t32[j]!) & 0xff;
+		// Treat (key2:key1) as a 64-bit keycode. C does `if(keycode!=0)
+		// keycode--`. We carry the borrow across the 32-bit halves.
+		if (!(key1 === 0 && key2 === 0)) {
+			if (key1 === 0) {
+				key2 = (key2 - 1) >>> 0;
+				key1 = 0xffffffff;
+			} else {
+				key1 = (key1 - 1) >>> 0;
 			}
 		}
-		let j = 1;
-		let v = 0;
+		const kc = new Uint8Array(8);
+		for (let r = 0; r < 7; r++) {
+			kc[r] = key1 & 0xff;
+			// rotate right by 8 bits over 64-bit value
+			const lowFromHigh = (key2 & 0xff) << 24;
+			key1 = ((key1 >>> 8) | lowFromHigh) >>> 0;
+			key2 = (key2 >>> 8) >>> 0;
+		}
+		const seed = new Uint8Array(16);
+		seed[0x00] = kc[1]!;
+		seed[0x01] = (kc[1]! ^ kc[6]!) & 0xff;
+		seed[0x02] = (kc[2]! ^ kc[3]!) & 0xff;
+		seed[0x03] = kc[2]!;
+		seed[0x04] = (kc[2]! ^ kc[1]!) & 0xff;
+		seed[0x05] = (kc[3]! ^ kc[4]!) & 0xff;
+		seed[0x06] = kc[3]!;
+		seed[0x07] = (kc[3]! ^ kc[2]!) & 0xff;
+		seed[0x08] = (kc[4]! ^ kc[5]!) & 0xff;
+		seed[0x09] = kc[4]!;
+		seed[0x0a] = (kc[4]! ^ kc[3]!) & 0xff;
+		seed[0x0b] = (kc[5]! ^ kc[6]!) & 0xff;
+		seed[0x0c] = kc[5]!;
+		seed[0x0d] = (kc[5]! ^ kc[4]!) & 0xff;
+		seed[0x0e] = (kc[6]! ^ kc[1]!) & 0xff;
+		seed[0x0f] = kc[6]!;
+		const base = new Uint8Array(0x100);
+		const baseR = new Uint8Array(16);
+		const baseC = new Uint8Array(16);
+		init56CreateTable(baseR, kc[0]!);
+		for (let r = 0; r < 16; r++) {
+			init56CreateTable(baseC, seed[r]!);
+			const nb = (baseR[r]! << 4) & 0xff;
+			for (let c = 0; c < 16; c++) {
+				base[r * 16 + c] = nb | baseC[c]!;
+			}
+		}
+		// final shuffle table
+		let x = 0;
+		let pos = 1;
 		for (let i = 0; i < 0x100; i++) {
-			v = (v + 0x11) & 0xff;
-			const a = t3[v]!;
-			if (a !== 0 && a !== 0xff) table[j++] = a;
+			x = (x + 17) & 0xff;
+			if (base[x] !== 0 && base[x] !== 0xff) {
+				table[pos++] = base[x]!;
+			}
 		}
 		table[0] = 0;
 		table[0xff] = 0xff;
@@ -104,17 +102,17 @@ export function initCiphTable(
 	throw new Error(`HCA: unsupported ciphType ${type}`);
 }
 
-function createTable56(out: Uint8Array, key: number): void {
+function init56CreateTable(out: Uint8Array, key: number): void {
 	const mul = ((key & 1) << 3) | 5;
 	const add = (key & 0xe) | 1;
 	let k = key >>> 4;
-	for (let i = 0; i < 0x10; i++) {
+	for (let i = 0; i < 16; i++) {
 		k = (k * mul + add) & 0xf;
 		out[i] = k;
 	}
 }
 
-/** Apply the cipher table to a block in place. */
+/** Apply the cipher table to a block in place (idempotent w.r.t. the table). */
 export function decryptBlock(table: Uint8Array, block: Uint8Array): void {
 	for (let i = 0; i < block.length; i++) {
 		block[i] = table[block[i]!]!;
@@ -122,7 +120,8 @@ export function decryptBlock(table: Uint8Array, block: Uint8Array): void {
 }
 
 // =====================================================================
-// CRC-16 (CRIWARE flavour)
+// CRC-16 (CRIWARE flavour). Polynomial table from clHCA's
+// `hcacommon_crc_mask_table[]`. `init = 0`, no reflection.
 // =====================================================================
 
 const CRC16_TABLE = new Uint16Array([
@@ -158,16 +157,16 @@ const CRC16_TABLE = new Uint16Array([
 ]);
 
 /**
- * CRIWARE-flavour CRC-16 over `data[0..size)`. The 16-bit checksum
- * sits in the last 2 bytes of every HCA header / block and is
- * computed over everything that precedes it. Use `size = block.length`
- * to verify (the result must be 0 — the CRC over the whole block
- * including the trailing CRC bytes is a self-check).
+ * CRIWARE CRC-16 over `data[0..size)`. The trailing 2 bytes of every
+ * HCA header/block are the CRC; running CRC over the whole block
+ * including the trailing CRC bytes is a self-check (yields 0).
  */
 export function checkSum(data: Uint8Array, size: number): number {
 	let sum = 0;
 	for (let i = 0; i < size; i++) {
-		sum = ((sum << 8) & 0xffff) ^ CRC16_TABLE[((sum >>> 8) ^ data[i]!) & 0xff]!;
+		sum =
+			((sum << 8) & 0xffff) ^
+			CRC16_TABLE[((sum >>> 8) ^ data[i]!) & 0xff]!;
 	}
 	return sum;
 }

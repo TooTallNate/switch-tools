@@ -120,13 +120,14 @@ describe('parseHcaHeader', () => {
 		expect(h.samplingRate).toBe(48000);
 		expect(h.blockCount).toBe(100);
 		expect(h.blockSize).toBe(682);
-		expect(h.r01).toBe(0);
-		expect(h.r02).toBe(15);
-		expect(h.compdec).toBe('comp');
+		expect(h.minResolution).toBe(0);
+		expect(h.maxResolution).toBe(15);
 		expect(h.ciphType).toBe(0);
 		expect(h.athType).toBe(0); // v3 default
-		expect(h.loopStart).toBeNull();
+		expect(h.loopFlag).toBe(0);
+		expect(h.loopStartFrame).toBe(0);
 		expect(h.volume).toBe(1);
+		expect(h.rvaVolume).toBe(1);
 		expect(h.comment).toBeNull();
 	});
 
@@ -140,15 +141,18 @@ describe('parseHcaHeader', () => {
 		});
 		const h = parseHcaHeader(bytes);
 		expect(h.athType).toBe(0); // chunk overrides the version default
-		expect(h.loopStart).toBe(10);
-		expect(h.loopEnd).toBe(20);
+		expect(h.loopFlag).toBe(1);
+		expect(h.loopStartFrame).toBe(10);
+		expect(h.loopEndFrame).toBe(20);
 		expect(h.ciphType).toBe(1);
 		expect(h.volume).toBeCloseTo(0.5);
 		expect(h.comment).toBe('test');
 	});
 
 	it('falls back to athType=1 on pre-v2 streams when ath\\0 chunk is absent', () => {
-		const bytes = buildHcaHeader({ version: 0x0150 });
+		// Pre-v2.0 official version (v1.3); clHCA hardcodes ath_type=1
+		// for any version < 0x0200 when no ath\0 chunk is present.
+		const bytes = buildHcaHeader({ version: 0x0103, r01: 1 });
 		const h = parseHcaHeader(bytes);
 		expect(h.athType).toBe(1);
 	});

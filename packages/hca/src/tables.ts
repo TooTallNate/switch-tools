@@ -1,44 +1,17 @@
-/**
- * Precomputed HCA decoder lookup tables.
+/*
+ * @tootallnate/hca — pure-TypeScript decoder for CRI Middleware's
+ * High Compression Audio (HCA) codec.
  *
- * Every table here is a verbatim copy of the constants from
- * kohos/CriTools/src/hca.js (MIT-licensed). The numeric float
- * tables are stored as u32 bit-patterns and reinterpreted as
- * Float32 at module load via {@link u32ToFloat32}. That matches
- * the canonical clHCA-style decoder; the bit-pattern form is what
- * every other HCA port also uses, so cross-checking is trivial.
- *
- * Ported from kohos/CriTools/src/hca.js (MIT).
+ * Ported from vgmstream's clHCA (ISC license, by nyaga / kode54 /
+ * bnnm). See README + LICENSE.
  */
 
 /**
- * Reinterpret an array of u32 bit-patterns as a Float32Array. We
- * write each u32 into a 4-byte buffer in little-endian order, then
- * read it back as a Float32 (also LE) — exactly what the original
- * JS port does with `Buffer.writeUInt32LE` / `readFloatLE`.
+ * ATH (Absolute Threshold of Hearing) base curve. Verbatim from
+ * clHCA's `ath_base_curve[656]`. Used by `ath_init1` to build the
+ * per-stream 128-entry table; quantised by the sample rate.
  */
-function u32ToFloat32(values: number[]): Float32Array {
-	const buf = new ArrayBuffer(4);
-	const dv = new DataView(buf);
-	const out = new Float32Array(values.length);
-	for (let i = 0; i < values.length; i++) {
-		dv.setUint32(0, values[i]! >>> 0, true);
-		out[i] = dv.getFloat32(0, true);
-	}
-	return out;
-}
-
-// =====================================================================
-// ATH (Absolute Threshold of Hearing) — psychoacoustic weighting curve.
-//
-// One of two tables is used depending on the file's `athType`:
-//   - type 0: all zeros (modern HCA, the bias is handled elsewhere)
-//   - type 1: a 1024-entry lookup quantised down to 128 entries via the
-//     file's sample rate, used by older HCA streams.
-// =====================================================================
-
-/** The 1024-entry reference table for ATH type 1. */
-const ATH_BASE = new Uint8Array([
+const ATH_BASE_CURVE = new Uint8Array([
 	0x78, 0x5f, 0x56, 0x51, 0x4e, 0x4c, 0x4b, 0x49, 0x48, 0x48, 0x47, 0x46,
 	0x46, 0x45, 0x45, 0x45, 0x44, 0x44, 0x44, 0x44, 0x43, 0x43, 0x43, 0x43,
 	0x43, 0x43, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x41, 0x41,
@@ -97,126 +70,26 @@ const ATH_BASE = new Uint8Array([
 ]);
 
 /**
- * Build the per-stream ATH table from the file's `athType` and sample
- * rate. `type === 0` is a flat zero table; `type === 1` quantises
- * `ATH_BASE` into 128 entries by the sample rate's step size.
+ * Build the per-stream ATH table.
+ *
+ *   - `type === 0`: flat zero table (most modern HCA).
+ *   - `type === 1`: pre-v2 curved table, quantised by `sampleRate`.
  */
 export function initAthTable(athType: number, sampleRate: number): Uint8Array {
-	const out = new Uint8Array(0x80);
+	const out = new Uint8Array(128);
 	if (athType === 0) return out;
 	if (athType !== 1) {
 		throw new Error(`HCA: unsupported athType ${athType}`);
 	}
-	let v = 0;
-	for (let i = 0; i < 0x80; i++) {
-		const index = v >>> 13;
-		if (index >= 0x28e) {
-			for (let j = i; j < 0x80; j++) out[j] = 0xff;
+	let acc = 0;
+	for (let i = 0; i < 128; i++) {
+		acc += sampleRate;
+		const index = acc >>> 13;
+		if (index >= 654) {
+			for (let j = i; j < 128; j++) out[j] = 0xff;
 			break;
 		}
-		out[i] = ATH_BASE[index]!;
-		v += sampleRate;
+		out[i] = ATH_BASE_CURVE[index]!;
 	}
 	return out;
 }
-
-// =====================================================================
-// Decode-step lookup tables. Names mirror clHCA / kohos for easy
-// cross-reference; comments in the decoder describe what each one is
-// for in context.
-// =====================================================================
-
-export const DECODE1_SCALELIST = new Uint8Array([
-	0x0e, 0x0e, 0x0e, 0x0e, 0x0e, 0x0e, 0x0d, 0x0d, 0x0d, 0x0d, 0x0d, 0x0d,
-	0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0c, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b, 0x0b,
-	0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x0a, 0x09, 0x09, 0x09, 0x09, 0x09,
-	0x09, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x07, 0x06, 0x06, 0x05, 0x04,
-	0x04, 0x04, 0x03, 0x03, 0x03, 0x02, 0x02, 0x02, 0x02, 0x00, 0x00, 0x00,
-	0x00, 0x00, 0x00, 0x00,
-]);
-
-export const DECODE1_VALUE_FLOAT = u32ToFloat32([
-	0x342a8d26, 0x34633f89, 0x3497657d, 0x34c9b9be, 0x35066491, 0x353311c4,
-	0x356e9910, 0x359ef532, 0x35d3ccf1, 0x360d1adf, 0x363c034a, 0x367a83b3,
-	0x36a6e595, 0x36de60f5, 0x371426ff, 0x3745672a, 0x37838359, 0x37af3b79,
-	0x37e97c38, 0x381b8d3a, 0x384f4319, 0x388a14d5, 0x38b7fbf0, 0x38f5257d,
-	0x3923520f, 0x39599d16, 0x3990fa4d, 0x39c12c4d, 0x3a00b1ed, 0x3a2b7a3a,
-	0x3a647b6d, 0x3a9837f0, 0x3acad226, 0x3b071f62, 0x3b340aaf, 0x3b6fe4ba,
-	0x3b9fd228, 0x3bd4f35b, 0x3c0ddf04, 0x3c3d08a4, 0x3c7bdfed, 0x3ca7cd94,
-	0x3cdf9613, 0x3d14f4f0, 0x3d467991, 0x3d843a29, 0x3db02f0e, 0x3deac0c7,
-	0x3e1c6573, 0x3e506334, 0x3e8ad4c6, 0x3eb8fbaf, 0x3ef67a41, 0x3f243516,
-	0x3f5acb94, 0x3f91c3d3, 0x3fc238d2, 0x400164d2, 0x402c6897, 0x4065b907,
-	0x40990b88, 0x40cbec15, 0x4107db35, 0x413504f3,
-]);
-
-export const DECODE1_SCALE_FLOAT = u32ToFloat32([
-	0x00000000, 0x3f2aaaab, 0x3ecccccd, 0x3e924925, 0x3e638e39, 0x3e3a2e8c,
-	0x3e1d89d9, 0x3e088889, 0x3d842108, 0x3d020821, 0x3c810204, 0x3c008081,
-	0x3b804020, 0x3b002008, 0x3a801002, 0x3a000801,
-]);
-
-export const DECODE2_LIST1 = new Uint8Array([
-	0, 2, 3, 3, 4, 4, 4, 4, 5, 6, 7, 8, 9, 10, 11, 12,
-]);
-
-export const DECODE2_LIST2 = new Uint8Array([
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 0, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 2, 2, 2, 2, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0,
-	2, 2, 3, 3, 3, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 3, 3, 3, 3,
-	3, 3, 3, 3, 3, 3, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4,
-	3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 3, 3, 4, 4, 4, 4, 4, 4,
-	4, 4, 4, 4, 4, 4, 4, 4,
-]);
-
-export const DECODE2_LIST3 = new Int8Array([
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, -1, 0, 0, 0,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, -1, -1, 2, -2, 0, 0, 0, 0, 0, 0,
-	0, 0, 0, 0, 1, -1, 2, -2, 3, -3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1,
-	-1, -1, 2, 2, -2, -2, 3, 3, -3, -3, 4, -4, 0, 0, 1, 1, -1, -1, 2, 2,
-	-2, -2, 3, -3, 4, -4, 5, -5, 0, 0, 1, 1, -1, -1, 2, -2, 3, -3, 4, -4,
-	5, -5, 6, -6, 0, 0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 7, -7,
-]);
-
-export const DECODE3_LIST_FLOAT = u32ToFloat32([
-	0x00000000, 0x00000000, 0x32a0b051, 0x32d61b5e, 0x330ea43a, 0x333e0f68,
-	0x337d3e0c, 0x33a8b6d5, 0x33e0ccdf, 0x3415c3ff, 0x34478d75, 0x3484f1f6,
-	0x34b123f6, 0x34ec0719, 0x351d3eda, 0x355184df, 0x358b95c2, 0x35b9fcd2,
-	0x35f7d0df, 0x36251958, 0x365bfbb8, 0x36928e72, 0x36c346cd, 0x370218af,
-	0x372d583f, 0x3766f85b, 0x3799e046, 0x37cd078c, 0x3808980f, 0x38360094,
-	0x38728177, 0x38a18faf, 0x38d744fd, 0x390f6a81, 0x393f179a, 0x397e9e11,
-	0x39a9a15b, 0x39e2055b, 0x3a16942d, 0x3a48a2d8, 0x3a85aac3, 0x3ab21a32,
-	0x3aed4f30, 0x3b1e196e, 0x3b52a81e, 0x3b8c57ca, 0x3bbaff5b, 0x3bf9295a,
-	0x3c25fed7, 0x3c5d2d82, 0x3c935a2b, 0x3cc4563f, 0x3d02cd87, 0x3d2e4934,
-	0x3d68396a, 0x3d9ab62b, 0x3dce248c, 0x3e0955ee, 0x3e36fd92, 0x3e73d290,
-	0x3ea27043, 0x3ed87039, 0x3f1031dc, 0x3f40213b, 0x3f800000, 0x3faa8d26,
-	0x3fe33f89, 0x4017657d, 0x4049b9be, 0x40866491, 0x40b311c4, 0x40ee9910,
-	0x411ef532, 0x4153ccf1, 0x418d1adf, 0x41bc034a, 0x41fa83b3, 0x4226e595,
-	0x425e60f5, 0x429426ff, 0x42c5672a, 0x43038359, 0x432f3b79, 0x43697c38,
-	0x439b8d3a, 0x43cf4319, 0x440a14d5, 0x4437fbf0, 0x4475257d, 0x44a3520f,
-	0x44d99d16, 0x4510fa4d, 0x45412c4d, 0x4580b1ed, 0x45ab7a3a, 0x45e47b6d,
-	0x461837f0, 0x464ad226, 0x46871f62, 0x46b40aaf, 0x46efe4ba, 0x471fd228,
-	0x4754f35b, 0x478ddf04, 0x47bd08a4, 0x47fbdfed, 0x4827cd94, 0x485f9613,
-	0x4894f4f0, 0x48c67991, 0x49043a29, 0x49302f0e, 0x496ac0c7, 0x499c6573,
-	0x49d06334, 0x4a0ad4c6, 0x4a38fbaf, 0x4a767a41, 0x4aa43516, 0x4adacb94,
-	0x4b11c3d3, 0x4b4238d2, 0x4b8164d2, 0x4bac6897, 0x4be5b907, 0x4c190b88,
-	0x4c4bec15, 0x00000000,
-]);
-
-export const DECODE4_LIST_FLOAT = u32ToFloat32([
-	0x40000000, 0x3fedb6db, 0x3fdb6db7, 0x3fc92492, 0x3fb6db6e, 0x3fa49249,
-	0x3f924925, 0x3f800000, 0x3f5b6db7, 0x3f36db6e, 0x3f124925, 0x3edb6db7,
-	0x3e924925, 0x3e124925, 0x00000000, 0x00000000,
-]);
-
-// =====================================================================
-// DECODE5 — the 7-stage IMDCT-like synthesis. Two parallel banks of 7
-// per-stage tables (`list1Float[stage]`, `list2Float[stage]`), each
-// 0x80 floats, plus a single 0x80-float windowing table
-// (`list3Float`). The tables are big so we load them lazily from
-// `decode5-tables.ts`.
-// =====================================================================
-export {
-	DECODE5_LIST1_FLOAT,
-	DECODE5_LIST2_FLOAT,
-	DECODE5_LIST3_FLOAT,
-} from './decode5-tables.js';
