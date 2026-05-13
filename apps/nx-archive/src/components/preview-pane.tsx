@@ -126,6 +126,7 @@ import {
   type UProperty,
   type UValue,
 } from "@tootallnate/uasset"
+import { decodeSwitchAudio, encodeWavBlob } from "@tootallnate/dsp-adpcm"
 import {
   AUDIO_MIME,
   IMAGE_MIME,
@@ -5039,6 +5040,63 @@ function UassetSoundWaveSection({
     }
   }, [parsed, uexpBytes])
 
+  // For SWITCH_AUDIO00000000 payloads we can decode the underlying
+  // Nintendo DSP-ADPCM directly and wrap it in a WAV blob for the
+  // browser's `<audio>` element. Other platform-specific formats
+  // (XMA, ATRAC, etc.) still fall through to the metadata + raw
+  // download path.
+  const playable = useMemo(() => {
+    if (!decoded || "error" in decoded) return null
+    if (decoded.formatName !== "SWITCH_AUDIO00000000") return null
+    try {
+      const result = decodeSwitchAudio(decoded.payload)
+      const wavBlob = encodeWavBlob(
+        result.samples,
+        result.sampleRate,
+        result.numChannels,
+      )
+      return {
+        wavBlob,
+        sampleRate: result.sampleRate,
+        numChannels: result.numChannels,
+        numSamples: result.numSamples,
+      }
+    } catch (err) {
+      return {
+        error: err instanceof Error ? err.message : String(err),
+      } as const
+    }
+  }, [decoded])
+
+  // Object URL for the decoded WAV — created once per payload, freed
+  // when the asset (or the failed-decode state) changes.
+  const [wavUrl, setWavUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!playable || "error" in playable) {
+      setWavUrl(null)
+      return
+    }
+    const url = URL.createObjectURL(playable.wavBlob)
+    setWavUrl(url)
+    return () => {
+      URL.revokeObjectURL(url)
+      setWavUrl(null)
+    }
+  }, [playable])
+
+  // Raw payload download (always available, even when we successfully
+  // play the file — handy for offline / vgmstream comparisons).
+  const downloadHref = useMemo(() => {
+    if (!decoded || "error" in decoded || !decoded.payload) return null
+    const blob = new Blob([decoded.payload as BlobPart])
+    return URL.createObjectURL(blob)
+  }, [decoded])
+  useEffect(() => {
+    return () => {
+      if (downloadHref) URL.revokeObjectURL(downloadHref)
+    }
+  }, [downloadHref])
+
   if (!decoded) {
     return (
       <section className="rounded-md border bg-card p-4 text-sm text-muted-foreground">
@@ -5056,22 +5114,38 @@ function UassetSoundWaveSection({
   }
 
   const downloadName = `${decoded.formatName.toLowerCase().replace(/[^a-z0-9]/g, "_")}.bin`
-  const downloadHref = useMemo(() => {
-    if (!decoded.payload) return null
-    const blob = new Blob([decoded.payload as BlobPart])
-    return URL.createObjectURL(blob)
-  }, [decoded.payload])
-  useEffect(() => {
-    return () => {
-      if (downloadHref) URL.revokeObjectURL(downloadHref)
-    }
-  }, [downloadHref])
 
   return (
     <section className="flex flex-col gap-3">
       <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
         SoundWave
       </h3>
+
+      {/* Playable preview comes first when available — that's what
+          the user usually wants to look at. */}
+      {playable && !("error" in playable) && wavUrl && (
+        <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+          <audio src={wavUrl} controls className="w-full" preload="auto" />
+          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>
+              Decoded Nintendo DSP-ADPCM → 16-bit PCM (
+              {playable.numChannels === 1 ? "mono" : `${playable.numChannels} ch`}
+              {" · "}
+              {playable.sampleRate} Hz
+              {" · "}
+              {(playable.numSamples / playable.sampleRate).toFixed(2)}s)
+            </span>
+            <a
+              href={wavUrl}
+              download={`${decoded.formatName.toLowerCase()}.wav`}
+              className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+            >
+              Save .wav
+            </a>
+          </div>
+        </section>
+      )}
+
       <KvBlock title="Audio">
         <KvRow k="Format" v={decoded.formatName} />
         {decoded.properties.numChannels !== undefined && (
@@ -5095,26 +5169,39 @@ function UassetSoundWaveSection({
         <KvRow k="Cooked payload" v={formatBytes(decoded.payload.length)} />
       </KvBlock>
 
-      <Alert>
-        <CircleAlertIcon />
-        <AlertTitle>Switch-cooked audio: playback not yet supported</AlertTitle>
-        <AlertDescription>
-          This SoundWave uses the <code className="font-mono">{decoded.formatName}</code>{" "}
-          platform-specific codec, which isn&rsquo;t a standard RIFF / Ogg / Opus
-          container. The metadata above is decoded from the property tags;
-          the raw compressed payload is available for offline decoding via
-          tools like{" "}
-          <a
-            href="https://github.com/vgmstream/vgmstream"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="font-medium underline underline-offset-2"
-          >
-            vgmstream
-          </a>
-          .
-        </AlertDescription>
-      </Alert>
+      {/* If we tried to decode and failed, surface it but keep the
+          raw download below. */}
+      {playable && "error" in playable && (
+        <Alert variant="destructive">
+          <CircleAlertIcon />
+          <AlertTitle>SWITCH_AUDIO decode failed</AlertTitle>
+          <AlertDescription>{playable.error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* For formats we can't play, explain why and point at the
+          tool that can. */}
+      {!playable && (
+        <Alert>
+          <CircleAlertIcon />
+          <AlertTitle>Playback not yet supported for {decoded.formatName}</AlertTitle>
+          <AlertDescription>
+            This SoundWave uses a platform-specific codec we don&rsquo;t
+            decode yet. The metadata above is read from the property
+            tags; the raw compressed payload is available below for
+            offline decoding via tools like{" "}
+            <a
+              href="https://github.com/vgmstream/vgmstream"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium underline underline-offset-2"
+            >
+              vgmstream
+            </a>
+            .
+          </AlertDescription>
+        </Alert>
+      )}
 
       {downloadHref && (
         <div>

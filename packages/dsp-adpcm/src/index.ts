@@ -242,3 +242,8 @@ export function interleavePcm16(channels: Int16Array[]): Int16Array {
 }
 
 export { encodeWav, encodeWavBlob } from './wav.js';
+export {
+	decodeSwitchAudio,
+	type SwitchAudioChannelHeader,
+	type SwitchAudioDecoded,
+} from './switch-audio.js';
