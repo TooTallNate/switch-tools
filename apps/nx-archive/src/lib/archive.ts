@@ -21,6 +21,11 @@ import { decompressYaz0 } from '@tootallnate/yaz0';
 import { decompressLz4, type Lz4Variant } from '@tootallnate/lz4';
 import { parseBars, type BarsEntry } from '@tootallnate/bars';
 import { parseAwb } from '@tootallnate/awb';
+import {
+	cueNamesForAwb,
+	CueWaveformSource,
+	parseAcb,
+} from '@tootallnate/acb';
 import { parseBfsar, extForMagic as bfsarExtForMagic } from '@tootallnate/bfsar';
 import { parseBfwar } from '@tootallnate/bfwar';
 import { parseBfres } from '@tootallnate/bfres';
@@ -740,10 +745,16 @@ function directoryChildrenFromMerged(
 			),
 		);
 	}
+	// Build a sibling map so pair-aware formats (AWB ↔ ACB) can
+	// resolve their companion files lazily by name within this
+	// directory level.
+	const siblings = buildSiblingMap(
+		fileNames.map((m) => [m.relativePath, m.blob] as const),
+	);
 	for (const m of fileNames) {
 		const name = m.relativePath; // already a leaf
 		const id = `${parentId}/${name}`;
-		out.push(directoryFileNode(id, name, m, ctx, tikMap));
+		out.push(directoryFileNode(id, name, m, ctx, tikMap, siblings));
 	}
 	return Promise.all(out);
 }
@@ -759,8 +770,9 @@ async function directoryFileNode(
 	m: MergedFile,
 	ctx: ArchiveContext,
 	tikMap: TikMap,
+	siblings?: SiblingMap,
 ): Promise<Node> {
-	const node = await childNodeFor(id, name, m.blob, ctx, tikMap);
+	const node = await childNodeFor(id, name, m.blob, ctx, tikMap, siblings);
 	// Annotate split files with a friendlier badge so users can see
 	// "this is N parts joined".
 	if (m.partCount > 1 && node.kind === 'file') {
@@ -1357,6 +1369,13 @@ async function romfsEntriesToNodes(
 		if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
 		return humanCompare(a, b);
 	});
+	// Build sibling map so pair-aware formats (AWB ↔ ACB, .utoc ↔
+	// .ucas) can look up companions lazily.
+	const siblings = buildSiblingMap(
+		names
+			.filter((n) => isBlobLike(dir[n]))
+			.map((n) => [n, dir[n] as Blob] as const),
+	);
 	// Resolve children in parallel — `childNodeFor` is sync object
 	// construction for typical leaves, but for unknown extensions it
 	// reads ~4 bytes to magic-sniff. RomFS file blobs are random-
@@ -1382,7 +1401,7 @@ async function romfsEntriesToNodes(
 				// SARC, Yaz0+SARC under bizarre extensions like
 				// `.sbfarc` / `.shksc` / `.sbactorpack`, ZIP, etc. —
 				// become traversable instead of just downloadable.
-				return childNodeFor(id, name, value, ctx);
+				return childNodeFor(id, name, value, ctx, undefined, siblings);
 			}
 			return childDirectoryNodeFor({
 				id,
@@ -1851,26 +1870,81 @@ async function barsEntriesToNodes(
 // ----- AWB (CRI AFS2 audio wave bank) -----
 
 /**
+ * Map from lowercase basename → blob for a set of siblings at one
+ * directory level. Passed through {@link childNodeFor} so formats
+ * that benefit from sibling metadata (today: AWB looking for an
+ * ACB) can find their pair lazily. Names are stored lowercase to
+ * make matches case-insensitive on case-sensitive filesystems.
+ */
+type SiblingMap = Map<string, Blob>;
+
+/**
+ * Build a {@link SiblingMap} from a list of `(name, blob)` pairs.
+ * Names are lowercased; duplicate keys keep the first-seen blob.
+ */
+function buildSiblingMap(entries: Iterable<readonly [string, Blob]>): SiblingMap {
+	const out: SiblingMap = new Map();
+	for (const [name, blob] of entries) {
+		const key = name.toLowerCase();
+		if (!out.has(key)) out.set(key, blob);
+	}
+	return out;
+}
+
+/**
+ * Sibling-lookup callback for {@link makeAwbNode}. When the AWB is
+ * being created from a directory or container that can locate
+ * additional files by name, the parent supplies this so the AWB
+ * node can find its companion `.acb` lazily (and only when the
+ * user actually expands the bank). The implementation should match
+ * `basename` case-insensitively and resolve to `null` when no such
+ * sibling exists.
+ *
+ * Defaults to a no-op when omitted, which means AWB tracks fall
+ * back to the `track_NNN.hca` naming convention.
+ */
+export type AwbSiblingResolver = (basename: string) => Promise<Blob | null>;
+
+/** Wrap a {@link SiblingMap} into an {@link AwbSiblingResolver}. */
+function siblingsToAwbResolver(
+	siblings: SiblingMap | undefined,
+): AwbSiblingResolver | undefined {
+	if (!siblings) return undefined;
+	return async (basename: string) => siblings.get(basename.toLowerCase()) ?? null;
+}
+
+/**
  * Make an AWB / AFS2 container node. The archive holds many
  * HCA-encoded audio tracks indexed by a small `(id, offset, size)`
  * table at the head of the file. Each track becomes a child Node
- * named `track_NNN.hca` (sorted by serialised order, zero-padded for
- * lexical sort) so they show up in the tree just like the contents
- * of any other container.
+ * named after its cue (when an ACB companion is available) or
+ * `track_NNN.hca` otherwise — so they show up in the tree just like
+ * the contents of any other container.
+ *
+ * **ACB lookup**: when a `siblingResolver` is supplied, the AWB
+ * node will look up a companion `.acb` with the same basename when
+ * its `getChildren()` is first called. The ACB's `CueNameTable`
+ * provides the human-readable cue names; tracks not referenced by
+ * any cue keep the generic `track_NNN.hca` fallback. The lookup is
+ * fully optional and failure-tolerant: if the resolver returns
+ * `null`, throws, or the bytes don't parse as ACB, we silently fall
+ * back to generic names. No errors surface in the tree.
  *
  * The parent's per-bank HCA subkey is threaded into each child's
- * `meta.awbKey` so the HCA preview can derive the type-56 cipher
- * tables when the bank is encrypted and a per-file key is supplied.
+ * `meta.awbSubkey` so the HCA preview can derive the type-56
+ * cipher tables when the bank is encrypted and a per-file key is
+ * supplied.
  *
  * Tracks are extracted lazily via `Blob.slice()` — even for banks
  * with hundreds of tracks, the only eager work is parsing the AFS2
- * header (a few KiB).
+ * header (a few KiB) and optionally the ACB header.
  */
 function makeAwbNode(
 	id: string,
 	name: string,
 	blob: Blob,
 	ctx: ArchiveContext,
+	siblingResolver?: AwbSiblingResolver,
 ): Node {
 	return {
 		id,
@@ -1889,9 +1963,57 @@ function makeAwbNode(
 			const head = new Uint8Array(await blob.slice(0, headLen).arrayBuffer());
 			const parsed = parseAwb(head);
 			void ctx; // reserved for future tikMap-style propagation
+
+			// Optional ACB sibling lookup. `<name>.awb` → `<name>.acb`.
+			// We strip the extension case-insensitively and prefer the
+			// dot-stripped form; the resolver itself decides how to
+			// match (some directory layouts are case-sensitive).
+			const baseName = name.replace(/\.awb$/i, '');
+			let cueNames: Map<number, string> | null = null;
+			if (siblingResolver) {
+				try {
+					const acbBlob = await siblingResolver(`${baseName}.acb`);
+					if (acbBlob) {
+						const acbBytes = new Uint8Array(await acbBlob.arrayBuffer());
+						const acb = parseAcb(acbBytes);
+						// Memory cues point at the embedded AwbFile;
+						// stream cues point at our AWB. We use stream
+						// port 0 (the standard layout — single companion
+						// per ACB) which matches the vast majority of
+						// in-the-wild banks. When that yields nothing
+						// (memory-only ACB), fall back to the memory map.
+						const stream = cueNamesForAwb(acb, CueWaveformSource.Stream, 0);
+						cueNames = stream.size > 0
+							? stream
+							: cueNamesForAwb(acb, CueWaveformSource.Memory);
+					}
+				} catch {
+					// Soft-fall-back to generic names; logging would
+					// be noisy for every loose AWB.
+					cueNames = null;
+				}
+			}
+
 			const width = Math.max(3, String(parsed.tracks.length).length);
+			const used = new Set<string>();
 			return parsed.tracks.map((t, i): Node => {
-				const leafName = `track_${String(i).padStart(width, '0')}.hca`;
+				const cueName = cueNames?.get(t.id);
+				let leafName: string;
+				if (cueName) {
+					// Sanitize for the filesystem: replace anything
+					// that's not [A-Za-z0-9._-] with `_`. ACB cue names
+					// in the wild are mostly ASCII; defensive anyway.
+					const safe = cueName.replace(/[^A-Za-z0-9._-]/g, '_');
+					leafName = `${safe}.hca`;
+					// Disambiguate if the sanitization collapses two
+					// distinct cues to the same name.
+					if (used.has(leafName)) {
+						leafName = `${safe}_${i}.hca`;
+					}
+				} else {
+					leafName = `track_${String(i).padStart(width, '0')}.hca`;
+				}
+				used.add(leafName);
 				const childId = `${id}/${leafName}`;
 				const trackBlob = blob.slice(t.offset, t.offset + t.size);
 				return {
@@ -1904,6 +2026,7 @@ function makeAwbNode(
 					meta: {
 						awbTrackId: t.id,
 						awbSubkey: parsed.subkey,
+						awbCueName: cueName ?? null,
 					},
 					blob: async () => trackBlob,
 				};
@@ -3376,6 +3499,7 @@ async function childNodeFor(
 	blob: Blob,
 	ctx: ArchiveContext,
 	tikMap?: TikMap,
+	siblings?: SiblingMap,
 ): Promise<Node> {
 	const ext = extOf(name);
 	if (ext === 'nca') return makeNcaNode(id, name, blob, ctx, tikMap);
@@ -3422,7 +3546,9 @@ async function childNodeFor(
 	if (ext === 'bfsar') return makeBfsarNode(id, name, blob, ctx);
 	if (ext === 'bfwar') return makeBfwarNode(id, name, blob, ctx);
 	if (ext === 'bfres') return makeBfresNode(id, name, blob, ctx);
-	if (ext === 'awb') return makeAwbNode(id, name, blob, ctx);
+	if (ext === 'awb') {
+		return makeAwbNode(id, name, blob, ctx, siblingsToAwbResolver(siblings));
+	}
 	if (ext === 'gfpak') return makeGfpakNode(id, name, blob, ctx);
 	if (ext === 'pck') return makeWwisePckNode(id, name, blob, ctx);
 	if (ext === 'bnk') return makeWwiseBnkNode(id, name, blob, ctx);
@@ -3458,7 +3584,9 @@ async function childNodeFor(
 	if (sniffed === 'bfsar') return makeBfsarNode(id, name, blob, ctx);
 	if (sniffed === 'bfwar') return makeBfwarNode(id, name, blob, ctx);
 	if (sniffed === 'bfres') return makeBfresNode(id, name, blob, ctx);
-	if (sniffed === 'awb') return makeAwbNode(id, name, blob, ctx);
+	if (sniffed === 'awb') {
+		return makeAwbNode(id, name, blob, ctx, siblingsToAwbResolver(siblings));
+	}
 	if (sniffed === 'gfpak') return makeGfpakNode(id, name, blob, ctx);
 	if (sniffed === 'wwise-pck') return makeWwisePckNode(id, name, blob, ctx);
 	if (sniffed === 'wwise-bnk') return makeWwiseBnkNode(id, name, blob, ctx);

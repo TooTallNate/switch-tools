@@ -220,6 +220,9 @@ importers:
       '@shikijs/themes':
         specifier: ^4.0.2
         version: 4.0.2
+      '@tootallnate/acb':
+        specifier: workspace:*
+        version: link:../../packages/acb
       '@tootallnate/aes-xts':
         specifier: workspace:*
         version: link:../../packages/aes-xts
@@ -479,6 +482,12 @@ importers:
         version: 3.4.16
       typescript:
         specifier: 'catalog:'
+        version: 5.9.3
+
+  packages/acb:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
         version: 5.9.3
 
   packages/aes-xts:

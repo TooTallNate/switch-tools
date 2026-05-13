@@ -22,6 +22,7 @@
     "@shikijs/themes": "^4.0.2",
     "@tootallnate/aes-xts": "workspace:*",
     "@tootallnate/astc-wasm": "workspace:*",
+    "@tootallnate/acb": "workspace:*",
     "@tootallnate/awb": "workspace:*",
     "@tootallnate/bars": "workspace:*",
     "@tootallnate/barslist": "workspace:*",
