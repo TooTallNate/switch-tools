@@ -149,6 +149,17 @@ export {
 	type TextureMip,
 } from './texture.js';
 
+// StaticMesh cooked geometry parser.
+export {
+	parseStaticMesh,
+	parseStaticMeshFromTail,
+	StaticMeshParseError,
+	type FBoxSphereBounds,
+	type LoadedStaticMesh,
+	type StaticMeshLOD,
+	type StaticMeshSection,
+} from './static-mesh.js';
+
 /**
  * The fixed-size summary header at the start of every UE
  * package. Field availability depends on `legacyFileVersion`;

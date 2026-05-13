@@ -56,6 +56,7 @@ import {
   type SerializedObject,
 } from "@tootallnate/unity-asset"
 import { decodeTexture2D as decodeUnityTexture2D } from "~/lib/unity-texture"
+import { StaticMeshViewer } from "./static-mesh-viewer"
 import {
   decodeUeMip,
   describePixelFormat,
@@ -96,11 +97,13 @@ import {
 import {
   getMipBytes,
   inferAssetClassName,
+  parseStaticMesh,
   parseTexturePlatformData,
   parseUasset,
   readExportProperties,
   resolveFName,
   resolvePackageIndex,
+  type LoadedStaticMesh,
   type NativeStruct,
   type ParsedTexturePlatformData,
   type ParsedUasset,
@@ -3631,6 +3634,7 @@ function UassetPreview({ node, root }: { node: Node; root: Node | null }) {
     className === "Texture2D" ||
     className === "TextureCube" ||
     className === "TextureRenderTarget2D"
+  const isStaticMesh = className === "StaticMesh"
   const ueVersionLabel = (() => {
     const lf = v.summary.legacyFileVersion
     if (lf < -7) return `UE5 (legacyFileVersion=${lf})`
@@ -3671,6 +3675,10 @@ function UassetPreview({ node, root }: { node: Node; root: Node | null }) {
             ubulkBytes={ubulkBytes}
             className={className}
           />
+        )}
+
+        {isStaticMesh && uexpBytes && (
+          <UassetStaticMeshSection parsed={v} uexpBytes={uexpBytes} />
         )}
 
         {decodedExports.length > 0 && (
@@ -4085,6 +4093,95 @@ interface DecodedMipState {
   width: number
   height: number
   pixels: Uint8Array
+}
+
+/**
+ * StaticMesh preview: parse the FStaticMeshRenderData blob from the
+ * .uexp tail, render LOD 0 in a Three.js viewer. The viewer itself
+ * handles LOD switching, wireframe toggle, etc. — this wrapper just
+ * does the parse and surfaces a clear error if the data doesn't
+ * decode (rare in practice, but useful to know when it happens).
+ */
+function UassetStaticMeshSection({
+  parsed,
+  uexpBytes,
+}: {
+  parsed: ParsedUasset
+  uexpBytes: Uint8Array
+}) {
+  // Find the StaticMesh export (the one whose classIndex resolves to a
+  // "StaticMesh" import). Sibling BodySetup / NavCollision exports
+  // come first in the export table.
+  const meshState = useMemo<
+    | { ok: true; mesh: LoadedStaticMesh }
+    | { ok: false; error: Error }
+  >(() => {
+    try {
+      let exportIdx = -1
+      for (let i = 0; i < parsed.exports.length; i++) {
+        const exp = parsed.exports[i]
+        if (exp.classIndex >= 0) continue
+        const imp = parsed.imports[-exp.classIndex - 1]
+        if (!imp) continue
+        const className = parsed.names[imp.objectName.nameIndex]?.value
+        if (className === "StaticMesh") {
+          exportIdx = i
+          break
+        }
+      }
+      if (exportIdx < 0) {
+        throw new Error("No StaticMesh export found in this .uasset")
+      }
+      const mesh = parseStaticMesh(parsed, uexpBytes, exportIdx)
+      if (mesh.lods.length === 0) {
+        throw new Error("StaticMesh has no LODs (all were stripped or non-inline)")
+      }
+      return { ok: true as const, mesh }
+    } catch (err) {
+      return {
+        ok: false as const,
+        error: err instanceof Error ? err : new Error(String(err)),
+      }
+    }
+  }, [parsed, uexpBytes])
+
+  if (!meshState.ok) {
+    return (
+      <section className="flex flex-col gap-2 rounded-md border bg-card p-4">
+        <p className="text-sm font-medium">Could not decode StaticMesh geometry</p>
+        <p className="text-xs text-muted-foreground">{meshState.error.message}</p>
+      </section>
+    )
+  }
+  const { mesh } = meshState
+  const lod0 = mesh.lods[0]!
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Mesh
+      </h3>
+      <KvBlock title="StaticMesh">
+        <KvRow
+          k="LOD 0"
+          v={`${lod0.numVertices.toLocaleString()} vertices · ${(lod0.indices.length / 3).toLocaleString()} triangles`}
+        />
+        <KvRow k="LODs available" v={`${mesh.lods.length}`} />
+        <KvRow k="Sections" v={`${lod0.sections.length}`} />
+        {mesh.materialSlotNames.length > 0 && (
+          <KvRow k="Materials" v={mesh.materialSlotNames.join(", ")} />
+        )}
+        {mesh.bounds && (
+          <KvRow
+            k="Bounds"
+            v={`origin (${mesh.bounds.originX.toFixed(1)}, ${mesh.bounds.originY.toFixed(1)}, ${mesh.bounds.originZ.toFixed(1)}) · radius ${mesh.bounds.sphereRadius.toFixed(1)}`}
+          />
+        )}
+      </KvBlock>
+      <div className="mt-3 h-[500px]">
+        <StaticMeshViewer mesh={mesh} />
+      </div>
+    </section>
+  )
 }
 
 function UassetExportsTable({ parsed }: { parsed: ParsedUasset }) {
