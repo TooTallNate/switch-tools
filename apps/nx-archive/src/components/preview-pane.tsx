@@ -63,6 +63,13 @@ import {
   UnsupportedPixelFormatError,
 } from "~/lib/uasset-texture"
 import {
+  extractMaterialPathsFromProperties,
+  pickDiffuseTexture,
+  resolveMaterialTextures,
+  type DecodedTexture,
+} from "~/lib/uasset-material-chain"
+import { createAssetResolver } from "~/lib/uasset-resolver"
+import {
   parseFsb5,
   decodeSampleToBlob,
   loadFmodVorbisSetupPackets,
@@ -3678,7 +3685,7 @@ function UassetPreview({ node, root }: { node: Node; root: Node | null }) {
         )}
 
         {isStaticMesh && uexpBytes && (
-          <UassetStaticMeshSection parsed={v} uexpBytes={uexpBytes} />
+          <UassetStaticMeshSection parsed={v} uexpBytes={uexpBytes} root={root} />
         )}
 
         {decodedExports.length > 0 && (
@@ -4105,15 +4112,15 @@ interface DecodedMipState {
 function UassetStaticMeshSection({
   parsed,
   uexpBytes,
+  root,
 }: {
   parsed: ParsedUasset
   uexpBytes: Uint8Array
+  root: Node | null
 }) {
-  // Find the StaticMesh export (the one whose classIndex resolves to a
-  // "StaticMesh" import). Sibling BodySetup / NavCollision exports
-  // come first in the export table.
+  // 1. Parse the cooked geometry (sync; ~ms even for 50k-vert meshes).
   const meshState = useMemo<
-    | { ok: true; mesh: LoadedStaticMesh }
+    | { ok: true; mesh: LoadedStaticMesh; exportIdx: number }
     | { ok: false; error: Error }
   >(() => {
     try {
@@ -4136,7 +4143,7 @@ function UassetStaticMeshSection({
       if (mesh.lods.length === 0) {
         throw new Error("StaticMesh has no LODs (all were stripped or non-inline)")
       }
-      return { ok: true as const, mesh }
+      return { ok: true as const, mesh, exportIdx }
     } catch (err) {
       return {
         ok: false as const,
@@ -4144,6 +4151,31 @@ function UassetStaticMeshSection({
       }
     }
   }, [parsed, uexpBytes])
+
+  // 2. Walk the StaticMaterials → MaterialInstance → Texture2D chain
+  //    for every material slot in parallel. Cache the resolver across
+  //    re-renders of this component instance so repeat lookups stay
+  //    snappy when the user toggles wireframe / LOD.
+  const resolver = useMemo(() => createAssetResolver(root), [root])
+  const texturesState = useAsync<Array<DecodedTexture | null>>(async () => {
+    if (!meshState.ok) return []
+    // Re-read the StaticMesh property block to pull the StaticMaterials
+    // array out as raw decoded properties — that's what the chain
+    // helper consumes.
+    const { properties } = readExportProperties(
+      parsed,
+      uexpBytes,
+      meshState.exportIdx,
+    )
+    const staticMaterialsProp = properties.find((p) => p.name === "StaticMaterials")
+    if (!staticMaterialsProp || staticMaterialsProp.value.kind !== "array") return []
+    const materialPaths = extractMaterialPathsFromProperties(
+      staticMaterialsProp.value.values,
+      parsed,
+    )
+    const sets = await resolveMaterialTextures(materialPaths, resolver)
+    return sets.map((set) => (set ? pickDiffuseTexture(set) : null))
+  }, [meshState, parsed, uexpBytes, resolver])
 
   if (!meshState.ok) {
     return (
@@ -4155,6 +4187,8 @@ function UassetStaticMeshSection({
   }
   const { mesh } = meshState
   const lod0 = mesh.lods[0]!
+  const textures = texturesState.data ?? null
+  const texturesResolved = textures?.filter((t) => t).length ?? 0
   return (
     <section>
       <h3 className="mb-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
@@ -4170,6 +4204,16 @@ function UassetStaticMeshSection({
         {mesh.materialSlotNames.length > 0 && (
           <KvRow k="Materials" v={mesh.materialSlotNames.join(", ")} />
         )}
+        {textures && (
+          <KvRow
+            k="Textures"
+            v={
+              texturesResolved === 0
+                ? "(none resolved)"
+                : `${texturesResolved} of ${textures.length} material${textures.length === 1 ? "" : "s"} textured`
+            }
+          />
+        )}
         {mesh.bounds && (
           <KvRow
             k="Bounds"
@@ -4178,7 +4222,10 @@ function UassetStaticMeshSection({
         )}
       </KvBlock>
       <div className="mt-3 h-[500px]">
-        <StaticMeshViewer mesh={mesh} />
+        <StaticMeshViewer
+          mesh={mesh}
+          materialDiffuseTextures={textures ?? undefined}
+        />
       </div>
     </section>
   )

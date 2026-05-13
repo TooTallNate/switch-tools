@@ -5,6 +5,7 @@ import {
 	isUasset,
 	parseUasset,
 	resolveFName,
+	resolveImportPackagePath,
 	resolvePackageIndex,
 } from "../src/index.js"
 
@@ -267,5 +268,60 @@ describe("parseUasset", () => {
 
 	it("rejects non-uasset input", () => {
 		expect(() => parseUasset(new Uint8Array(20))).toThrowError(/Not a UE/)
+	})
+})
+
+describe("resolveImportPackagePath", () => {
+	// Hand-built import table for a "Texture2D T_Foo" whose outer is
+	// "Package /Game/Folder/T_Foo" — the canonical UE shape.
+	const names = [
+		{ value: "None", hashNonCasePreserving: 0, hashCasePreserving: 0 },
+		{ value: "Texture2D", hashNonCasePreserving: 0, hashCasePreserving: 0 },
+		{ value: "T_Foo", hashNonCasePreserving: 0, hashCasePreserving: 0 },
+		{ value: "/Script/Engine", hashNonCasePreserving: 0, hashCasePreserving: 0 },
+		{ value: "/Script/CoreUObject", hashNonCasePreserving: 0, hashCasePreserving: 0 },
+		{ value: "Package", hashNonCasePreserving: 0, hashCasePreserving: 0 },
+		{ value: "/Game/Folder/T_Foo", hashNonCasePreserving: 0, hashCasePreserving: 0 },
+	]
+	const fname = (idx: number) => ({ nameIndex: idx, number: 0 })
+	const imports = [
+		// [-1] Package "/Game/Folder/T_Foo" (top of chain)
+		{
+			classPackage: fname(4),
+			className: fname(5),
+			outerIndex: 0,
+			objectName: fname(6),
+		},
+		// [-2] Texture2D "T_Foo" whose outer is import[-1]
+		{
+			classPackage: fname(3),
+			className: fname(1),
+			outerIndex: -1,
+			objectName: fname(2),
+		},
+	]
+
+	it("walks the outer chain to the package path", () => {
+		expect(resolveImportPackagePath(-2, imports, names)).toBe(
+			"/Game/Folder/T_Foo",
+		)
+	})
+
+	it("returns the package path directly when the import IS the package", () => {
+		expect(resolveImportPackagePath(-1, imports, names)).toBe(
+			"/Game/Folder/T_Foo",
+		)
+	})
+
+	it("returns null for positive (export) indices", () => {
+		expect(resolveImportPackagePath(5, imports, names)).toBeNull()
+	})
+
+	it("returns null for index 0 (None)", () => {
+		expect(resolveImportPackagePath(0, imports, names)).toBeNull()
+	})
+
+	it("returns null for out-of-range import index", () => {
+		expect(resolveImportPackagePath(-99, imports, names)).toBeNull()
 	})
 })

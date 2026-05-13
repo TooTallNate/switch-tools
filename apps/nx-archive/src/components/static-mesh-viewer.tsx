@@ -21,8 +21,18 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
 
 import type { LoadedStaticMesh, StaticMeshLOD } from "@tootallnate/uasset"
 
+import type { DecodedTexture } from "~/lib/uasset-material-chain"
+
 interface Props {
   mesh: LoadedStaticMesh
+  /**
+   * Optional per-section diffuse textures. Index matches
+   * `mesh.lods[*].sections[i].materialIndex`; entries may be `null`
+   * if the material chain didn't resolve a usable texture (engine
+   * default, unsupported pixel format, etc.). When omitted, every
+   * section falls back to {@link THREE.MeshNormalMaterial}.
+   */
+  materialDiffuseTextures?: Array<DecodedTexture | null>
 }
 
 /**
@@ -30,6 +40,13 @@ interface Props {
  * arrays the parser produced — no copies, since `BufferAttribute`
  * holds a reference and Three.js never mutates incoming attribute
  * data on construction.
+ *
+ * Each StaticMesh section becomes a `geometry.group`, so the viewer
+ * can render the mesh with multiple materials in a single draw-call
+ * pipeline. The group's `materialIndex` matches UE's
+ * `Section.materialIndex` (which indexes into the mesh's
+ * `StaticMaterials` array). When the renderer hands us a parallel
+ * materials array, group N picks `materials[section.materialIndex]`.
  */
 function buildGeometry(lod: StaticMeshLOD): THREE.BufferGeometry {
   const geom = new THREE.BufferGeometry()
@@ -37,21 +54,60 @@ function buildGeometry(lod: StaticMeshLOD): THREE.BufferGeometry {
   geom.setAttribute("normal", new THREE.BufferAttribute(lod.normals, 3))
   if (lod.uvs[0]) geom.setAttribute("uv", new THREE.BufferAttribute(lod.uvs[0], 2))
   geom.setIndex(new THREE.BufferAttribute(lod.indices, 1))
+  // One group per section, in declaration order.
+  for (const sec of lod.sections) {
+    geom.addGroup(sec.firstIndex, sec.numTriangles * 3, sec.materialIndex)
+  }
   geom.computeBoundingBox()
   geom.computeBoundingSphere()
   return geom
 }
 
-export function StaticMeshViewer({ mesh }: Props) {
+/**
+ * Build a Three.js DataTexture from a {@link DecodedTexture}.
+ *
+ * UE textures land here as raw RGBA8 bytes in the layout the
+ * decoder emits. We mark them as sRGB so albedo maps display with
+ * correct gamma; engine-side they're authored that way. Also flip
+ * Y because UE's UV origin is top-left vs WebGL's bottom-left
+ * (the same flip we already do when writing OBJ files for offline
+ * verification).
+ */
+function buildDataTexture(decoded: DecodedTexture): THREE.DataTexture {
+  const tex = new THREE.DataTexture(
+    decoded.pixels,
+    decoded.width,
+    decoded.height,
+    THREE.RGBAFormat,
+    THREE.UnsignedByteType,
+  )
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.wrapS = THREE.RepeatWrapping
+  tex.wrapT = THREE.RepeatWrapping
+  tex.flipY = true
+  tex.needsUpdate = true
+  return tex
+}
+
+export function StaticMeshViewer({ mesh, materialDiffuseTextures }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [error, setError] = useState<Error | null>(null)
   const [selectedLOD, setSelectedLOD] = useState(0)
   const [showWireframe, setShowWireframe] = useState(false)
   const [showNormals, setShowNormals] = useState(false)
+  // When true, force the normal-shaded fallback even if textures are
+  // available — useful for visual debugging.
+  const [forceNormalShading, setForceNormalShading] = useState(false)
 
   // Stable geometry per LOD so the canvas effect can swap without
   // rebuilding the attribute buffers every render.
   const geometries = useMemo(() => mesh.lods.map(buildGeometry), [mesh])
+  // Track whether we have at least one resolved texture — used to
+  // gate the "Textured" toggle visibility.
+  const hasAnyTexture = useMemo(
+    () => Boolean(materialDiffuseTextures?.some((t) => t)),
+    [materialDiffuseTextures],
+  )
 
   useEffect(() => {
     return () => {
@@ -95,14 +151,48 @@ export function StaticMeshViewer({ mesh }: Props) {
     dirLight.position.set(2, 4, 3)
     scene.add(dirLight)
 
-    // One material per section so the UI can later attach material
-    // names. For now MeshNormalMaterial is uniform across sections.
-    const material = new THREE.MeshNormalMaterial({
-      side: THREE.DoubleSide,
-      wireframe: showWireframe,
-      flatShading: false,
-    })
-    const meshObj = new THREE.Mesh(geometry, material)
+    // Build one material per slot. We size the array to whichever is
+    // larger of (largest section.materialIndex + 1) or the supplied
+    // texture array length, so unused or out-of-range section indices
+    // still get a valid material entry.
+    const useTextures = !forceNormalShading && hasAnyTexture
+    const slotCount = Math.max(
+      ...lod.sections.map((s) => s.materialIndex + 1),
+      materialDiffuseTextures?.length ?? 0,
+      1,
+    )
+    const materials: THREE.Material[] = []
+    const ownedTextures: THREE.DataTexture[] = []
+    for (let i = 0; i < slotCount; i++) {
+      const decoded = useTextures ? materialDiffuseTextures?.[i] : null
+      if (decoded) {
+        const tex = buildDataTexture(decoded)
+        ownedTextures.push(tex)
+        materials.push(
+          new THREE.MeshStandardMaterial({
+            map: tex,
+            side: THREE.DoubleSide,
+            wireframe: showWireframe,
+            roughness: 0.85,
+            metalness: 0,
+          }),
+        )
+      } else {
+        materials.push(
+          new THREE.MeshNormalMaterial({
+            side: THREE.DoubleSide,
+            wireframe: showWireframe,
+            flatShading: false,
+          }),
+        )
+      }
+    }
+    // When we have multiple materials, Three.js expects an array.
+    // For a single section we collapse to a scalar to skip the
+    // per-group dispatcher.
+    const meshMaterial: THREE.Material | THREE.Material[] =
+      materials.length === 1 ? materials[0]! : materials
+    const meshObj = new THREE.Mesh(geometry, meshMaterial)
     // UE uses a left-handed Z-up coordinate system; Three.js is
     // right-handed Y-up. Rotate so the model looks right-side-up.
     meshObj.rotation.x = -Math.PI / 2
@@ -170,7 +260,8 @@ export function StaticMeshViewer({ mesh }: Props) {
       cancelAnimationFrame(rafId)
       ro.disconnect()
       controls.dispose()
-      material.dispose()
+      for (const m of materials) m.dispose()
+      for (const t of ownedTextures) t.dispose()
       if (normalsHelper) {
         normalsHelper.geometry.dispose()
         ;(normalsHelper.material as THREE.Material).dispose()
@@ -180,7 +271,7 @@ export function StaticMeshViewer({ mesh }: Props) {
         container.removeChild(renderer.domElement)
       }
     }
-  }, [geometry, lod, showWireframe, showNormals])
+  }, [geometry, lod, showWireframe, showNormals, materialDiffuseTextures, forceNormalShading, hasAnyTexture])
 
   if (error) {
     return (
@@ -222,6 +313,16 @@ export function StaticMeshViewer({ mesh }: Props) {
           />
           <span>Normals</span>
         </label>
+        {hasAnyTexture && (
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={forceNormalShading}
+              onChange={(e) => setForceNormalShading(e.target.checked)}
+            />
+            <span>Normal shading</span>
+          </label>
+        )}
         {lod && (
           <span className="ml-auto text-muted-foreground">
             {lod.sections.length} section{lod.sections.length === 1 ? "" : "s"}

@@ -160,6 +160,17 @@ export {
 	type StaticMeshSection,
 } from './static-mesh.js';
 
+// MaterialInstance helpers (parameter extraction).
+export {
+	extractMaterialParentIndex,
+	extractScalarParameters,
+	extractTextureParameters,
+	extractVectorParameters,
+	type MaterialScalarParameter,
+	type MaterialTextureParameter,
+	type MaterialVectorParameter,
+} from './material.js';
+
 /**
  * The fixed-size summary header at the start of every UE
  * package. Field availability depends on `legacyFileVersion`;
@@ -578,6 +589,50 @@ export function resolvePackageIndex(
 	const exp = exports[i];
 	if (!exp) return `<bad export index ${index}>`;
 	return resolveFName(exp.objectName, names);
+}
+
+/**
+ * Resolve an import's containing package path by walking its
+ * `outerIndex` chain to the top-level Package import.
+ *
+ * UE import-table layout:
+ *   - A Texture2D import has `outerIndex` pointing at a Package
+ *     import whose `objectName` is the `/Game/.../T_Foo` path.
+ *   - A Package import has `outerIndex === 0` (the package is
+ *     the top of its own chain).
+ *
+ * For an import like
+ *   `Texture2D T_Foo` (outerIndex=-7) → `Package /Game/.../T_Foo` (outerIndex=0)
+ * this returns `"/Game/Project/Textures/T_Foo"`.
+ *
+ * Returns `null` when the chain doesn't terminate at a Package,
+ * loops back on itself, or the index is out of range.
+ *
+ * @param fpackageIndex Negative FPackageIndex (e.g. -16 = imports[15]).
+ *                      Pass 0 to get null; pass a positive value to
+ *                      get null (only imports have a package path).
+ */
+export function resolveImportPackagePath(
+	fpackageIndex: number,
+	imports: UassetImport[],
+	names: UassetName[],
+): string | null {
+	if (fpackageIndex >= 0) return null;
+	let cur = imports[-fpackageIndex - 1];
+	if (!cur) return null;
+	// Walk outerIndex up to a Package (outerIndex === 0). Cap the
+	// walk at imports.length to defend against malformed cycles.
+	for (let hops = 0; hops < imports.length; hops++) {
+		if (cur.outerIndex === 0) {
+			// Package imports use their `objectName` as the path.
+			return resolveFName(cur.objectName, names);
+		}
+		if (cur.outerIndex >= 0) return null; // unexpected: an export-rooted import
+		const next = imports[-cur.outerIndex - 1];
+		if (!next) return null;
+		cur = next;
+	}
+	return null;
 }
 
 /**
