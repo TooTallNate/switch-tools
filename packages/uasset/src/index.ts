@@ -124,6 +124,7 @@ export const UASSET_MAGIC = 0x9e2a83c1;
 // re-exported here so callers get a single import surface.
 export {
 	readExportProperties,
+	readTaggedPropertyStream,
 	type NativeStruct,
 	type UExportProperties,
 	type UProperty,
@@ -170,6 +171,17 @@ export {
 	type MaterialTextureParameter,
 	type MaterialVectorParameter,
 } from './material.js';
+
+// UDataTable / UCurveTable readers.
+export {
+	DataTableParseError,
+	parseCurveTable,
+	parseDataTable,
+	parseDataTableAtExport,
+	type DataTableRow,
+	type ParsedCurveTable,
+	type ParsedDataTable,
+} from './data-table.js';
 
 // UE5 IO Store ("Zen Loader") cooked package parser.
 export {

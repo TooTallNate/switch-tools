@@ -221,16 +221,47 @@ export function readExportProperties(
 		);
 	}
 	const end = Math.min(uexpBytes.length, offset + exp.serialSize);
-	const r = new Reader(uexpBytes, offset);
+	const stream = readTaggedPropertyStream(parsed, uexpBytes, offset, end);
+	return {
+		export: exp,
+		properties: stream.properties,
+		consumed: stream.consumed,
+		tail: uexpBytes.subarray(offset + stream.consumed, end),
+	};
+}
+
+/**
+ * Read a `None`-terminated property tag stream from an arbitrary
+ * window into a `.uexp` buffer. Returns the decoded properties plus
+ * the number of bytes consumed (including the trailing 8-byte
+ * `None` tag, when present).
+ *
+ * Use this when you need to walk *several* tagged-property streams
+ * inside one export body — e.g. each row of a `UDataTable` is its
+ * own `None`-terminated stream, prefixed by a row-name FName.
+ * `readExportProperties` is the convenience wrapper for the
+ * single-stream "top of export body" case.
+ *
+ * `endOffset` bounds the read so a malformed asset can't run off
+ * the end of the buffer; the read stops at whichever comes first:
+ * the `None` terminator, the bound, or the end of the buffer.
+ */
+export function readTaggedPropertyStream(
+	parsed: ParsedUasset,
+	uexpBytes: Uint8Array,
+	startOffset: number,
+	endOffset: number = uexpBytes.length,
+): { properties: UProperty[]; consumed: number } {
+	const start = Math.max(0, Math.min(uexpBytes.length, startOffset));
+	const end = Math.max(start, Math.min(uexpBytes.length, endOffset));
+	const r = new Reader(uexpBytes, start);
 	const properties: UProperty[] = [];
 	while (r.pos < end) {
 		const tag = readNextTag(r, parsed);
-		if (!tag) break; // hit None terminator
+		if (!tag) break;
 		properties.push(tag);
 	}
-	const consumed = r.pos - offset;
-	const tail = uexpBytes.subarray(r.pos, end);
-	return { export: exp, properties, consumed, tail };
+	return { properties, consumed: r.pos - start };
 }
 
 /**

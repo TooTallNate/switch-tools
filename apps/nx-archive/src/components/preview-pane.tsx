@@ -105,9 +105,12 @@ import {
   type BmfChar,
 } from "@tootallnate/bmfont"
 import {
+  DataTableParseError,
   getMipBytes,
   inferAssetClassName,
   isZenPackage,
+  parseCurveTable,
+  parseDataTable,
   parseStaticMesh,
   parseTexturePlatformData,
   parseUasset,
@@ -116,8 +119,11 @@ import {
   resolveFName,
   resolveImportPackagePath,
   resolvePackageIndex,
+  type DataTableRow,
   type LoadedStaticMesh,
   type NativeStruct,
+  type ParsedCurveTable,
+  type ParsedDataTable,
   type ParsedTexturePlatformData,
   type ParsedUasset,
   type ParsedZenPackage,
@@ -3730,6 +3736,8 @@ function UassetPreview({
   const isFont = className === "Font"
   const isFontFace = className === "FontFace"
   const isSoundWave = className === "SoundWave"
+  const isDataTable = className === "DataTable"
+  const isCurveTable = className === "CurveTable"
   const ueVersionLabel = (() => {
     const lf = v.summary.legacyFileVersion
     if (lf < -7) return `UE5 (legacyFileVersion=${lf})`
@@ -3786,6 +3794,15 @@ function UassetPreview({
 
         {isSoundWave && uexpBytes && (
           <UassetSoundWaveSection node={node} parsed={v} uexpBytes={uexpBytes} />
+        )}
+
+        {(isDataTable || isCurveTable) && uexpBytes && (
+          <UassetDataTableSection
+            node={node}
+            parsed={v}
+            uexpBytes={uexpBytes}
+            kind={isDataTable ? "data-table" : "curve-table"}
+          />
         )}
 
         {decodedExports.length > 0 && (
@@ -5340,6 +5357,380 @@ function readSoundWaveCookedData(
   }
   const payload = tail.subarray(p, p + dataSize)
   return { properties, formatName, payload }
+}
+
+// ====================================================================
+// DataTable / CurveTable preview
+// ====================================================================
+//
+// Drives the parser in `@tootallnate/uasset/data-table` and renders
+// the rows as an HTML table. Columns are derived from the union of
+// all row property names so heterogeneous tables (rare but legal)
+// still render every value. Each column header doubles as a sort
+// button; clicking cycles asc → desc → unsorted.
+
+function UassetDataTableSection({
+  node,
+  parsed,
+  uexpBytes,
+  kind,
+}: {
+  node: Node
+  parsed: ParsedUasset
+  uexpBytes: Uint8Array
+  kind: "data-table" | "curve-table"
+}) {
+  const result = useMemo<
+    | { ok: true; table: ParsedDataTable | ParsedCurveTable }
+    | { ok: false; error: string }
+  >(() => {
+    try {
+      const table =
+        kind === "data-table"
+          ? parseDataTable(parsed, uexpBytes)
+          : parseCurveTable(parsed, uexpBytes)
+      return { ok: true, table }
+    } catch (err) {
+      const msg =
+        err instanceof DataTableParseError || err instanceof Error
+          ? err.message
+          : String(err)
+      return { ok: false, error: msg }
+    }
+  }, [parsed, uexpBytes, kind])
+
+  // Column union over all rows. We preserve first-appearance order
+  // so the typical case (every row has the same struct shape) keeps
+  // the natural property order from the row struct.
+  const columns = useMemo(() => {
+    if (!result.ok) return [] as string[]
+    const seen = new Set<string>()
+    const list: string[] = []
+    for (const row of result.table.rows) {
+      for (const p of row.properties) {
+        if (!seen.has(p.name)) {
+          seen.add(p.name)
+          list.push(p.name)
+        }
+      }
+    }
+    return list
+  }, [result])
+
+  // Sort spec: column name + direction. Null when unsorted.
+  const [sortBy, setSortBy] = useState<{ col: string; dir: "asc" | "desc" } | null>(null)
+  const rowsSorted = useMemo(() => {
+    if (!result.ok) return [] as DataTableRow[]
+    const rows = result.table.rows
+    if (!sortBy) return rows
+    const { col, dir } = sortBy
+    const mul = dir === "asc" ? 1 : -1
+    const copy = rows.slice()
+    copy.sort((a, b) => {
+      if (col === "Row name") {
+        return a.name.localeCompare(b.name) * mul
+      }
+      const av = a.properties.find((p) => p.name === col)?.value
+      const bv = b.properties.find((p) => p.name === col)?.value
+      return compareUValue(av, bv) * mul
+    })
+    return copy
+  }, [result, sortBy])
+
+  const cycleSort = (col: string) => {
+    setSortBy((prev) => {
+      if (!prev || prev.col !== col) return { col, dir: "asc" }
+      if (prev.dir === "asc") return { col, dir: "desc" }
+      return null
+    })
+  }
+
+  // CSV export. Row name is the first column; remaining columns
+  // are written in the same order as the on-screen table. Cell
+  // values use the same string rendering as the table; cells with
+  // commas / quotes / newlines get double-quoted with embedded
+  // quotes doubled (RFC 4180).
+  const csvBlob = useMemo(() => {
+    if (!result.ok) return null
+    const header = ["Row name", ...columns]
+    const lines = [header.map(csvEscape).join(",")]
+    for (const row of result.table.rows) {
+      const cells = [row.name]
+      for (const col of columns) {
+        const p = row.properties.find((pp) => pp.name === col)
+        cells.push(p ? renderUValue(p.value) : "")
+      }
+      lines.push(cells.map(csvEscape).join(","))
+    }
+    const text = lines.join("\n") + "\n"
+    return new Blob([text], { type: "text/csv;charset=utf-8" })
+  }, [result, columns])
+  const csvHref = useMemo(() => {
+    if (!csvBlob) return null
+    return URL.createObjectURL(csvBlob)
+  }, [csvBlob])
+  useEffect(() => {
+    return () => {
+      if (csvHref) URL.revokeObjectURL(csvHref)
+    }
+  }, [csvHref])
+  const csvFileName = `${node.name.replace(/\.uasset$/i, "")}.csv`
+
+  if (!result.ok) {
+    return (
+      <section className="rounded-md border bg-card p-4">
+        <p className="text-sm font-medium">
+          Could not decode {kind === "data-table" ? "DataTable" : "CurveTable"} rows
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">{result.error}</p>
+      </section>
+    )
+  }
+
+  const table = result.table
+  const isDataTable = "rowStructName" in table
+  return (
+    <section className="flex flex-col gap-3">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        {kind === "data-table" ? "Data table" : "Curve table"}
+      </h3>
+
+      <KvBlock title="Schema">
+        {isDataTable && (table as ParsedDataTable).rowStructName && (
+          <KvRow
+            k="Row struct"
+            v={
+              (table as ParsedDataTable).rowStructName +
+              ((table as ParsedDataTable).rowStructPackage
+                ? ` (${(table as ParsedDataTable).rowStructPackage})`
+                : "")
+            }
+            mono
+          />
+        )}
+        <KvRow k="Rows" v={`${table.rows.length}`} />
+        <KvRow k="Columns" v={`${columns.length}`} />
+      </KvBlock>
+
+      {table.rows.length === 0 ? (
+        <Alert>
+          <CircleAlertIcon />
+          <AlertTitle>Table has no rows</AlertTitle>
+          <AlertDescription>
+            The asset parsed correctly but `NumRows` is 0.
+          </AlertDescription>
+        </Alert>
+      ) : (
+        <>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              Showing {rowsSorted.length} rows. Click a column header to sort.
+            </p>
+            {csvHref && (
+              <a
+                href={csvHref}
+                download={csvFileName}
+                className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-xs font-medium hover:bg-accent"
+              >
+                <DownloadIcon className="size-3.5" />
+                Export CSV
+              </a>
+            )}
+          </div>
+          <div className="max-h-[600px] overflow-auto rounded-md border bg-card">
+            <table className="min-w-full text-xs">
+              <thead className="sticky top-0 z-10 border-b bg-card text-left">
+                <tr>
+                  <DataTableHeaderCell
+                    label="Row name"
+                    sortKey="Row name"
+                    sortBy={sortBy}
+                    onClick={cycleSort}
+                  />
+                  {columns.map((col) => (
+                    <DataTableHeaderCell
+                      key={col}
+                      label={col}
+                      sortKey={col}
+                      sortBy={sortBy}
+                      onClick={cycleSort}
+                    />
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rowsSorted.map((row, i) => (
+                  <tr key={i} className="border-t font-mono [&:hover]:bg-accent/40">
+                    <td className="px-3 py-1.5 font-medium">{row.name}</td>
+                    {columns.map((col) => {
+                      const p = row.properties.find((pp) => pp.name === col)
+                      return (
+                        <td key={col} className="px-3 py-1.5 text-muted-foreground">
+                          {p ? renderUValue(p.value) : ""}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </section>
+  )
+}
+
+function DataTableHeaderCell({
+  label,
+  sortKey,
+  sortBy,
+  onClick,
+}: {
+  label: string
+  sortKey: string
+  sortBy: { col: string; dir: "asc" | "desc" } | null
+  onClick: (col: string) => void
+}) {
+  const active = sortBy?.col === sortKey
+  const arrow = !active ? "" : sortBy!.dir === "asc" ? " ↑" : " ↓"
+  return (
+    <th
+      className="cursor-pointer px-3 py-2 font-medium select-none hover:bg-accent/60"
+      onClick={() => onClick(sortKey)}
+    >
+      <span className={active ? "text-foreground" : "text-muted-foreground"}>
+        {label}
+        {arrow}
+      </span>
+    </th>
+  )
+}
+
+/**
+ * Render a {@link UValue} as the short, table-friendly string we
+ * use both on-screen and in the CSV export. Complex values (arrays,
+ * maps, structs) are summarised — the user can still drill into
+ * them via the existing Properties view below this section.
+ */
+function renderUValue(v: UValue | undefined): string {
+  if (!v) return ""
+  switch (v.kind) {
+    case "bool":
+      return v.value ? "true" : "false"
+    case "int8":
+    case "int16":
+    case "int32":
+    case "uint16":
+    case "uint32":
+    case "byte":
+      return String(typeof v.value === "string" ? v.value : v.value)
+    case "int64":
+    case "uint64":
+      return v.value.toString()
+    case "float":
+    case "double":
+      return Number.isFinite(v.value) ? String(v.value) : String(v.value)
+    case "name":
+    case "string":
+    case "text":
+      return v.value
+    case "object":
+      return v.resolved
+    case "softObject":
+      return v.subPath ? `${v.assetPath}#${v.subPath}` : v.assetPath
+    case "enum":
+      return `${v.enumName}::${v.value}`
+    case "array":
+      return `[${v.values.length} × ${v.innerType}]`
+    case "map":
+      return `Map<${v.keyType},${v.valueType}> (${v.entries.length})`
+    case "set":
+      return `Set<${v.innerType}> (${v.values.length})`
+    case "struct":
+      if (v.native) return `${v.structName} ${describeNativeStruct(v.native)}`
+      if (v.properties) return `${v.structName} {${v.properties.length} props}`
+      if (v.rawBytes) return `${v.structName} (${v.rawBytes.length}B)`
+      return v.structName
+    case "unknown":
+      return `<unknown ${v.reason}>`
+  }
+}
+
+function describeNativeStruct(n: NativeStruct): string {
+  // Pick a compact representation for the common natives.
+  switch (n.kind) {
+    case "Vector":
+      return `(${n.x}, ${n.y}, ${n.z})`
+    case "Vector2D":
+    case "IntPoint":
+      return `(${n.x}, ${n.y})`
+    case "Vector4":
+    case "Quat":
+    case "Plane":
+      return `(${n.x}, ${n.y}, ${n.z}, ${n.w})`
+    case "IntVector":
+      return `(${n.x}, ${n.y}, ${n.z})`
+    case "Rotator":
+      return `(p=${n.pitch}, y=${n.yaw}, r=${n.roll})`
+    case "Color":
+      return `#${[n.r, n.g, n.b]
+        .map((c) => c.toString(16).padStart(2, "0"))
+        .join("")}${n.a !== 255 ? `:${n.a.toString(16).padStart(2, "0")}` : ""}`
+    case "LinearColor":
+      return `(${n.r.toFixed(3)}, ${n.g.toFixed(3)}, ${n.b.toFixed(3)}, ${n.a.toFixed(3)})`
+    case "Guid":
+      return n.value
+    default:
+      return ""
+  }
+}
+
+/**
+ * Sort comparator for {@link UValue}. Numbers compare numerically;
+ * everything else falls back to the string rendering. Undefined
+ * values sort to the end of an ascending list (so empty cells
+ * cluster, as in a spreadsheet).
+ */
+function compareUValue(a: UValue | undefined, b: UValue | undefined): number {
+  if (a === undefined && b === undefined) return 0
+  if (a === undefined) return 1
+  if (b === undefined) return -1
+  const an = uValueAsNumber(a)
+  const bn = uValueAsNumber(b)
+  if (an !== null && bn !== null) return an - bn
+  return renderUValue(a).localeCompare(renderUValue(b))
+}
+
+function uValueAsNumber(v: UValue): number | null {
+  switch (v.kind) {
+    case "int8":
+    case "int16":
+    case "int32":
+    case "uint16":
+    case "uint32":
+    case "float":
+    case "double":
+      return v.value as number
+    case "int64":
+    case "uint64": {
+      const n = Number(v.value)
+      return Number.isFinite(n) ? n : null
+    }
+    case "bool":
+      return v.value ? 1 : 0
+    case "byte":
+      return typeof v.value === "number" ? v.value : null
+    default:
+      return null
+  }
+}
+
+function csvEscape(s: string): string {
+  if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
+    return `"${s.replace(/"/g, '""')}"`
+  }
+  return s
 }
 
 function UassetExportsTable({ parsed }: { parsed: ParsedUasset }) {
