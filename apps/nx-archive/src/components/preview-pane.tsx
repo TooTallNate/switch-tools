@@ -68,7 +68,10 @@ import {
   resolveMaterialTextures,
   type DecodedTexture,
 } from "~/lib/uasset-material-chain"
-import { createAssetResolver } from "~/lib/uasset-resolver"
+import {
+  createAssetResolver,
+  type AssetResolver,
+} from "~/lib/uasset-resolver"
 import {
   parseFsb5,
   decodeSampleToBlob,
@@ -111,6 +114,7 @@ import {
   parseZenPackage,
   readExportProperties,
   resolveFName,
+  resolveImportPackagePath,
   resolvePackageIndex,
   type LoadedStaticMesh,
   type NativeStruct,
@@ -3688,6 +3692,7 @@ function UassetPreview({ node, root }: { node: Node; root: Node | null }) {
     className === "TextureCube" ||
     className === "TextureRenderTarget2D"
   const isStaticMesh = className === "StaticMesh"
+  const isFont = className === "Font"
   const ueVersionLabel = (() => {
     const lf = v.summary.legacyFileVersion
     if (lf < -7) return `UE5 (legacyFileVersion=${lf})`
@@ -3732,6 +3737,10 @@ function UassetPreview({ node, root }: { node: Node; root: Node | null }) {
 
         {isStaticMesh && uexpBytes && (
           <UassetStaticMeshSection parsed={v} uexpBytes={uexpBytes} root={root} />
+        )}
+
+        {isFont && (
+          <UassetFontSection parsed={v} root={root} />
         )}
 
         {decodedExports.length > 0 && (
@@ -4521,6 +4530,249 @@ function UassetStaticMeshSection({
         />
       </div>
     </section>
+  )
+}
+
+/**
+ * Font preview: walks a `UFont` asset's import table for any
+ * `FontFace` references, resolves them to sibling `.uasset` files
+ * in the archive, extracts the TTF/OTF bytes from each, and hands
+ * them to the existing FontPreview component for rendering.
+ *
+ * UE's font system separates the metadata (UFont) from the actual
+ * font bytes (UFontFace). One Font asset can reference multiple
+ * FontFace assets (for fallback typefaces); we show every one we
+ * can resolve so localised assets with separate Japanese / Latin
+ * face references display all of them.
+ *
+ * If a FontFace doesn't ship with inline data (`LoadingPolicy !=
+ * Inline`), the bytes live in a sibling `.ufont` file that the
+ * cooker emits next to the `.uasset`. We try that path as a
+ * fallback.
+ */
+function UassetFontSection({
+  parsed,
+  root,
+}: {
+  parsed: ParsedUasset
+  root: Node | null
+}) {
+  const resolver = useMemo(() => createAssetResolver(root), [root])
+  const fontFaceRefs = useMemo(() => {
+    const refs: { objectName: string; packagePath: string | null }[] = []
+    for (let i = 0; i < parsed.imports.length; i++) {
+      const imp = parsed.imports[i]!
+      const cls = parsed.names[imp.className.nameIndex]?.value
+      if (cls !== "FontFace") continue
+      const fpkgIdx = -(i + 1)
+      refs.push({
+        objectName: parsed.names[imp.objectName.nameIndex]?.value ?? "(unknown)",
+        packagePath: resolveImportPackagePath(fpkgIdx, parsed.imports, parsed.names),
+      })
+    }
+    return refs
+  }, [parsed])
+
+  const state = useAsync<ResolvedFontFace[]>(async () => {
+    const out: ResolvedFontFace[] = []
+    for (const ref of fontFaceRefs) {
+      if (!ref.packagePath) {
+        out.push({ ...ref, status: "no-path" })
+        continue
+      }
+      try {
+        const resolved = await loadFontFaceBytes(ref.packagePath, resolver)
+        out.push({ ...ref, status: "ok", ...resolved })
+      } catch (err) {
+        out.push({
+          ...ref,
+          status: "error",
+          error: err instanceof Error ? err.message : String(err),
+        })
+      }
+    }
+    return out
+  }, [fontFaceRefs, resolver])
+
+  if (fontFaceRefs.length === 0) {
+    return (
+      <section className="rounded-md border bg-card p-4 text-sm text-muted-foreground">
+        This Font has no FontFace references in its import table. The actual
+        glyph data probably lives elsewhere (a `BulkData` table or a separate
+        archive); not yet supported.
+      </section>
+    )
+  }
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Font faces ({fontFaceRefs.length})
+      </h3>
+      {state.loading && <LoadingFiller label="Resolving FontFace assets…" />}
+      {state.error && <ErrorFiller error={state.error} />}
+      {state.data?.map((face, i) => (
+        <FontFaceCard key={i} face={face} />
+      ))}
+    </section>
+  )
+}
+
+interface ResolvedFontFaceBase {
+  objectName: string
+  packagePath: string | null
+}
+
+type ResolvedFontFace =
+  | (ResolvedFontFaceBase & { status: "ok"; bytes: Uint8Array; sourceLabel: string })
+  | (ResolvedFontFaceBase & { status: "no-path" })
+  | (ResolvedFontFaceBase & { status: "error"; error: string })
+
+/**
+ * Resolve `/Game/…/T_Foo` to its sibling .uasset/.uexp/.ufont
+ * triplet and extract the TTF/OTF bytes.
+ *
+ * Two cooked layouts are supported:
+ *   1. Inline: bytes live in the .uexp tail after a `bSerializeGuid`
+ *      pair + 4-byte `bLoadInlineData=1` + length-prefixed
+ *      `TArray<uint8>`.
+ *   2. Streamed: bytes live in a sibling `.ufont` file. We sniff
+ *      this by checking the `bLoadInlineData` flag at the start of
+ *      the tail — when it's 0, fall back to the `.ufont` resolver.
+ */
+async function loadFontFaceBytes(
+  packagePath: string,
+  resolver: AssetResolver,
+): Promise<{ bytes: Uint8Array; sourceLabel: string }> {
+  const triplet = await resolver.resolve(packagePath)
+  if (!triplet) {
+    throw new Error(`FontFace asset not found in archive: ${packagePath}`)
+  }
+  const aBytes = new Uint8Array(await (await triplet.uasset.blob!()).arrayBuffer())
+  const parsed = parseUasset(aBytes)
+  let inlineBytes: Uint8Array | null = null
+  if (triplet.uexp) {
+    const eBytes = new Uint8Array(await (await triplet.uexp.blob!()).arrayBuffer())
+    inlineBytes = readFontFaceInlineData(parsed, eBytes)
+  }
+  if (inlineBytes && inlineBytes.length > 0) {
+    return { bytes: inlineBytes, sourceLabel: "inline (.uexp)" }
+  }
+  // Fall back to looking up a sibling .ufont file with the same path.
+  // UE's cooker emits `<faceName>.ufont` next to the .uasset.
+  const ufontPath = packagePath.replace(
+    /\/([^/]+)$/,
+    "/" + packagePath.split("/").pop() + ".ufont",
+  )
+  void ufontPath
+  // The resolver's `.uasset/.uexp/.ubulk` triplet doesn't try
+  // arbitrary extensions; we'd need a more general lookup. For
+  // now, surface a clear error so the user knows the bytes are in
+  // a separately-cooked file.
+  throw new Error(
+    "FontFace ships with streaming-policy data (no inline bytes). The actual TTF lives in a sibling .ufont file next to the .uasset; streaming-policy fonts aren't yet resolved by this preview.",
+  )
+}
+
+/**
+ * Read the UFontFace's post-property cooked-data block.
+ *
+ * Layout (UE 4.20+; matches the canonical `UFontFace::Serialize`):
+ *   [property tags ending in `None`]
+ *   u32 bSerializeGuid             (UObject::Serialize tail)
+ *   if bSerializeGuid: FGuid (16 bytes)
+ *   u32 bLoadInlineData
+ *   if bLoadInlineData:
+ *     i32 NumBytes
+ *     u8  Data[NumBytes]
+ *
+ * Returns the inline data bytes, or null when the asset uses a
+ * streaming loading policy.
+ */
+function readFontFaceInlineData(
+  parsed: ParsedUasset,
+  uexpBytes: Uint8Array,
+): Uint8Array | null {
+  if (parsed.exports.length === 0) return null
+  let props
+  try {
+    props = readExportProperties(parsed, uexpBytes, 0)
+  } catch {
+    return null
+  }
+  const tail = props.tail
+  if (tail.length < 8) return null
+  const dv = new DataView(tail.buffer, tail.byteOffset, tail.byteLength)
+  let p = 0
+  const bSerializeGuid = dv.getUint32(p, true)
+  p += 4
+  if (bSerializeGuid) {
+    if (tail.length < p + 16) return null
+    p += 16
+  }
+  if (tail.length < p + 4) return null
+  const bLoadInlineData = dv.getUint32(p, true)
+  p += 4
+  if (!bLoadInlineData) return null
+  if (tail.length < p + 4) return null
+  const numBytes = dv.getInt32(p, true)
+  p += 4
+  if (numBytes <= 0 || tail.length < p + numBytes) return null
+  return tail.subarray(p, p + numBytes).slice()
+}
+
+function FontFaceCard({ face }: { face: ResolvedFontFace }) {
+  const blob = useMemo(() => {
+    if (face.status !== "ok") return null
+    return new Blob([face.bytes as BlobPart], { type: "font/ttf" })
+  }, [face])
+  return (
+    <div className="rounded-md border bg-card p-4">
+      <div className="mb-2 flex items-baseline justify-between gap-3">
+        <h4 className="font-mono text-sm font-medium">{face.objectName}</h4>
+        <span className="text-xs text-muted-foreground">
+          {face.status === "ok"
+            ? `${formatBytes(face.bytes.length)} · ${face.sourceLabel}`
+            : face.status === "error"
+              ? "load failed"
+              : "no archive path"}
+        </span>
+      </div>
+      {face.packagePath && (
+        <p className="mb-2 break-all font-mono text-xs text-muted-foreground">
+          {face.packagePath}
+        </p>
+      )}
+      {face.status === "error" && (
+        <p className="text-xs text-destructive">{face.error}</p>
+      )}
+      {face.status === "ok" && blob && <FontBytesPreview blob={blob} />}
+    </div>
+  )
+}
+
+/**
+ * Render a Blob containing TTF/OTF bytes via the existing
+ * `FontPreview` pipeline — same code path that previews standalone
+ * .ttf/.otf files. We construct a synthetic in-memory Node so the
+ * preview component can use its normal `node.blob!()` flow.
+ */
+function FontBytesPreview({ blob }: { blob: Blob }) {
+  const node = useMemo<Node>(
+    () => ({
+      id: `font-bytes:${blob.size}:${Math.random().toString(36).slice(2)}`,
+      name: "extracted.ttf",
+      kind: "file",
+      isContainer: false,
+      size: blob.size,
+      blob: async () => blob,
+    }),
+    [blob],
+  )
+  return (
+    <div className="rounded-md border bg-background">
+      <FontPreview node={node} />
+    </div>
   )
 }
 

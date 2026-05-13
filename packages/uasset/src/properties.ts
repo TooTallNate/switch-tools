@@ -582,17 +582,14 @@ function readStruct(r: Reader, parsed: ParsedUasset, ctx: ValueCtx): UValue {
  * Decode the body of a struct (no tag preamble — used both for
  * top-level StructProperty and for inlined structs inside arrays/sets).
  *
- * UE structs serialize one of two ways:
- *   1. **Native** (UScriptStruct overrides `Serialize` / `SerializeNativeTags`):
- *      fixed binary layout, no property tags. Determined by a flag on
- *      the C++ class which we obviously don't have. We hard-code the
- *      well-known ones in {@link NATIVE_STRUCT_SIZES}.
+ * UE structs serialize one of three ways:
+ *   1. **Native** (UScriptStruct overrides `Serialize` /
+ *      `SerializeNativeTags`): fixed binary layout, no property
+ *      tags. Hard-coded in {@link NATIVE_STRUCT_SIZES} when
+ *      fixed-size, or via a per-struct branch in
+ *      {@link readVariableSizeNativeStruct} when variable-size.
  *   2. **Tagged**: recursive property-tag stream terminated by a `None`
- *      tag. This is the default for UPROPERTY-only USTRUCTs.
- *
- * We try the native registry first (decoded value when we know the
- * layout, raw bytes of the registered size when we don't), then fall
- * back to a tagged property-stream parse.
+ *      tag. The default for UPROPERTY-only USTRUCTs.
  */
 function readStructBody(
 	r: Reader,
@@ -605,14 +602,20 @@ function readStructBody(
 	if (decoded) {
 		return { kind: 'struct', structName, native: decoded };
 	}
-	// 2. Native struct we know is fixed-size but don't decode in detail.
+	// 2. Variable-size native struct we know how to advance past.
+	if (isVariableSizeNativeStruct(structName)) {
+		const raw = r.peekBytes(r.pos, valueEnd);
+		r.pos = valueEnd;
+		return { kind: 'struct', structName, rawBytes: raw };
+	}
+	// 3. Native struct we know is fixed-size but don't decode in detail.
 	const fixedSize = NATIVE_STRUCT_SIZES[structName];
 	if (fixedSize !== undefined) {
 		const raw = r.peekBytes(r.pos, r.pos + fixedSize);
 		r.skip(fixedSize);
 		return { kind: 'struct', structName, rawBytes: raw };
 	}
-	// 3. Generic UStruct: recursive property-tag stream.
+	// 4. Generic UStruct: recursive property-tag stream.
 	const properties: UProperty[] = [];
 	while (r.pos < valueEnd) {
 		const tag = readNextTag(r, parsed);
@@ -620,6 +623,40 @@ function readStructBody(
 		properties.push(tag);
 	}
 	return { kind: 'struct', structName, properties };
+}
+
+/**
+ * Returns true if `structName` is a UE struct that has its own
+ * custom binary serialization (via UScriptStruct::Serialize) of
+ * variable size, and is NOT covered by the per-struct readers in
+ * {@link readNativeStruct}.
+ *
+ * For these structs the only safe thing to do is consume the
+ * tag-declared payload bytes verbatim — the inner format is
+ * version-dependent and not worth decoding for a generic preview.
+ * The byte slice is preserved on the returned `UValue.rawBytes`
+ * so a per-class consumer (e.g. the font preview) can interpret
+ * it.
+ */
+function isVariableSizeNativeStruct(structName: string): boolean {
+	switch (structName) {
+		// FFontData: variable-size FArchive::Serialize override.
+		// Layout: bool bIsCooked + optional FPackageIndex
+		// FontFaceAsset + (when FontFaceAsset is null) FString
+		// FontFilename + u8 Hinting + u8 LoadingPolicy.
+		case 'FontData':
+			return true;
+		// FFrameNumber, FFrameRate, FQualifiedFrameTime: also
+		// native-serialized in UE 4.27+. We don't currently render
+		// any of them in detail; treating them as opaque-but-known
+		// keeps consumers' tag streams aligned.
+		case 'FrameNumber':
+		case 'FrameRate':
+		case 'QualifiedFrameTime':
+			return true;
+		default:
+			return false;
+	}
 }
 
 /**
