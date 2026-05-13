@@ -104,9 +104,11 @@ import {
 import {
   getMipBytes,
   inferAssetClassName,
+  isZenPackage,
   parseStaticMesh,
   parseTexturePlatformData,
   parseUasset,
+  parseZenPackage,
   readExportProperties,
   resolveFName,
   resolvePackageIndex,
@@ -114,6 +116,7 @@ import {
   type NativeStruct,
   type ParsedTexturePlatformData,
   type ParsedUasset,
+  type ParsedZenPackage,
   type TextureMip,
   type UExportProperties,
   type UProperty,
@@ -3584,10 +3587,43 @@ function BmfontPagesSection({
 //   - The file's sub-objects (export table) and where their
 //     serialized bodies live in the file
 
+// A UassetPreview's loader returns either the legacy-format result
+// (with a `.uexp` sibling supplying property data) or a UE5 Zen
+// package result (everything inline in a single blob). The render
+// path branches on the discriminator.
+type UassetPreviewData =
+  | {
+      kind: "legacy"
+      parsed: ParsedUasset
+      exports: UExportProperties[]
+      uexpError: Error | null
+      uexpBytes: Uint8Array | null
+      ubulkBytes: Uint8Array | null
+    }
+  | {
+      kind: "zen"
+      parsed: ParsedZenPackage
+      sourceBytes: Uint8Array
+    }
+
 function UassetPreview({ node, root }: { node: Node; root: Node | null }) {
-  const { loading, data, error } = useAsync(async () => {
+  const { loading, data, error } = useAsync<UassetPreviewData>(async () => {
     const blob = await node.blob!()
     const bytes = new Uint8Array(await blob.arrayBuffer())
+    // Legacy .uasset (magic 0x9E2A83C1) vs UE5 IO Store ("Zen"):
+    // legacy files have the magic at offset 0, Zen files don't.
+    // We can't just call `parseUasset(bytes)` and catch — that
+    // produces a misleading error for the Zen case.
+    const looksLegacy =
+      bytes.length >= 4 &&
+      bytes[0] === 0xc1 &&
+      bytes[1] === 0x83 &&
+      bytes[2] === 0x2a &&
+      bytes[3] === 0x9e
+    if (!looksLegacy && isZenPackage(bytes)) {
+      const parsed = parseZenPackage(bytes)
+      return { kind: "zen", parsed, sourceBytes: bytes }
+    }
     const parsed = parseUasset(bytes)
     // UE splits each asset into a `.uasset` (header tables) and a
     // sibling `.uexp` (the actual export property bodies). When a
@@ -3629,11 +3665,21 @@ function UassetPreview({ node, root }: { node: Node; root: Node | null }) {
         uexpError = err instanceof Error ? err : new Error(String(err))
       }
     }
-    return { parsed, exports, uexpError, uexpBytes, ubulkBytes }
+    return {
+      kind: "legacy",
+      parsed,
+      exports,
+      uexpError,
+      uexpBytes,
+      ubulkBytes,
+    }
   }, [node.id, root])
 
   if (loading) return <LoadingFiller label="Decoding .uasset header…" />
   if (error) return <ErrorFiller error={error} />
+  if (data!.kind === "zen") {
+    return <ZenPackageView parsed={data!.parsed} sourceBytes={data!.sourceBytes} />
+  }
   const { parsed: v, exports: decodedExports, uexpError, uexpBytes, ubulkBytes } = data!
 
   const className = inferAssetClassName(v)
@@ -3852,6 +3898,253 @@ function simplifyNativeStruct(s: NativeStruct): unknown {
     case "SimpleCurveKey":
       return { time: s.time, value: s.value }
   }
+}
+
+/**
+ * Preview for UE5 IO Store ("Zen Loader") packages.
+ *
+ * Unlike legacy `.uasset` files there's no magic, no sibling `.uexp`,
+ * and no name-table outer chain for imports — instead, package
+ * references are CityHash64 hashes against a separate global object
+ * table. We don't yet have the global table on hand, so this view
+ * focuses on what we CAN decode without it:
+ *
+ *   - Package name + flags
+ *   - Per-export name + class hash + body location/size
+ *   - Full name map (everything UE actually serialised)
+ *   - Hex view of each export's body bytes, for users who want to
+ *     navigate the encoded property data manually.
+ *
+ * Decoding the property body itself (unversioned property bitmap +
+ * field-path-encoded values) is its own multi-hundred-LOC project
+ * and is the next layer we'll build.
+ */
+function ZenPackageView({
+  parsed,
+  sourceBytes,
+}: {
+  parsed: ParsedZenPackage
+  sourceBytes: Uint8Array
+}) {
+  const flagLabels = useMemo(() => {
+    const flags: string[] = []
+    const f = parsed.summary.packageFlags
+    if (f & 0x80000000) flags.push("FilterEditorOnly")
+    if (f & 0x00002000) flags.push("UsesUnversionedProperties")
+    if (f & 0x00000001) flags.push("NewlyCreated")
+    if (f & 0x00000002) flags.push("ClientOptional")
+    if (f & 0x00000004) flags.push("ServerSideOnly")
+    if (f & 0x00000008) flags.push("CompiledIn")
+    if (f & 0x00000010) flags.push("ForDiffing")
+    if (f & 0x00000040) flags.push("ContainsMap")
+    if (flags.length === 0) flags.push("(none)")
+    return flags
+  }, [parsed.summary.packageFlags])
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="UE5 Zen Package (IO Store cooked)" />
+
+        <KvBlock title="Package">
+          <KvRow k="Name" v={parsed.summary.name} />
+          <KvRow k="Format" v={parsed.summary.variant === "legacy" ? "Legacy (UE 4.26 – 5.0)" : "FZenPackageSummary (UE 5.1+)"} />
+          <KvRow k="Header size" v={`${formatBytes(parsed.summary.headerSize)}`} />
+          <KvRow
+            k="Tables"
+            v={`${parsed.names.length} names · ${parsed.imports.length} imports · ${parsed.exports.length} exports`}
+          />
+          <KvRow
+            k="Package flags"
+            v={`0x${parsed.summary.packageFlags.toString(16)} (${flagLabels.join(", ")})`}
+          />
+        </KvBlock>
+
+        <Alert>
+          <CircleAlertIcon />
+          <AlertTitle>Zen package: partial decode</AlertTitle>
+          <AlertDescription>
+            The header, name map, import map, and export map decode cleanly.
+            Property body decoding for unversioned UE5 packages (the bytes after
+            each export's header) is not yet implemented — those tags need a
+            global class schema we don't have access to. The raw bytes are
+            available in the per-export hex view below.
+          </AlertDescription>
+        </Alert>
+
+        <ZenExportsSection parsed={parsed} sourceBytes={sourceBytes} />
+        <ZenImportsSection parsed={parsed} />
+        <ZenNamesSection parsed={parsed} />
+      </div>
+    </ScrollArea>
+  )
+}
+
+function ZenExportsSection({
+  parsed,
+  sourceBytes,
+}: {
+  parsed: ParsedZenPackage
+  sourceBytes: Uint8Array
+}) {
+  if (parsed.exports.length === 0) return null
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Exports ({parsed.exports.length})
+      </h3>
+      <div className="overflow-x-auto rounded-md border bg-card">
+        <table className="min-w-full text-xs">
+          <thead className="border-b bg-muted/50 text-left text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">#</th>
+              <th className="px-3 py-2 font-medium">Name</th>
+              <th className="px-3 py-2 font-medium">Class</th>
+              <th className="px-3 py-2 font-medium">Body offset</th>
+              <th className="px-3 py-2 font-medium">Body size</th>
+              <th className="px-3 py-2 font-medium">Object flags</th>
+            </tr>
+          </thead>
+          <tbody>
+            {parsed.exports.map((exp, i) => (
+              <tr key={i} className="border-t font-mono [&:hover]:bg-accent/40">
+                <td className="px-3 py-1.5 text-muted-foreground">{i}</td>
+                <td className="px-3 py-1.5">{exp.objectName}</td>
+                <td className="px-3 py-1.5 text-xs">
+                  {exp.classIndex.type === "ScriptImport"
+                    ? `Script(0x${exp.classIndex.scriptImportHash!.toString(16)})`
+                    : exp.classIndex.type}
+                </td>
+                <td className="px-3 py-1.5 text-muted-foreground">
+                  0x{exp.bodyOffset.toString(16)}
+                </td>
+                <td className="px-3 py-1.5 text-muted-foreground">
+                  {formatBytes(exp.cookedSerialSize)}
+                </td>
+                <td className="px-3 py-1.5 text-muted-foreground">
+                  0x{exp.objectFlags.toString(16)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Export bodies live at the listed offsets within this file. Hex view
+        below shows the first 256 bytes of each.
+      </p>
+      <div className="mt-2 flex flex-col gap-3">
+        {parsed.exports.map((exp, i) => (
+          <details key={i} className="rounded-md border bg-card p-3 text-xs">
+            <summary className="cursor-pointer font-medium">
+              Export {i}: {exp.objectName} — first 256 bytes
+            </summary>
+            <pre className="mt-2 overflow-x-auto rounded bg-muted/40 p-2 font-mono text-[11px] leading-relaxed">
+              {formatHexDump(
+                sourceBytes.subarray(
+                  exp.bodyOffset,
+                  Math.min(exp.bodyOffset + 256, exp.bodyOffset + exp.cookedSerialSize),
+                ),
+                exp.bodyOffset,
+              )}
+            </pre>
+          </details>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ZenImportsSection({ parsed }: { parsed: ParsedZenPackage }) {
+  if (parsed.imports.length === 0) return null
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Imports ({parsed.imports.length})
+      </h3>
+      <div className="overflow-x-auto rounded-md border bg-card">
+        <table className="min-w-full text-xs">
+          <thead className="border-b bg-muted/50 text-left text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">#</th>
+              <th className="px-3 py-2 font-medium">Type</th>
+              <th className="px-3 py-2 font-medium">Hash / reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            {parsed.imports.map((imp, i) => (
+              <tr key={i} className="border-t font-mono [&:hover]:bg-accent/40">
+                <td className="px-3 py-1.5 text-muted-foreground">{i}</td>
+                <td className="px-3 py-1.5">{imp.type}</td>
+                <td className="px-3 py-1.5 text-muted-foreground">
+                  {imp.type === "ScriptImport"
+                    ? `0x${imp.scriptImportHash!.toString(16)}`
+                    : imp.type === "PackageImport"
+                      ? `pkg=${imp.packageImportRef!.importedPackageIndex} hashIdx=${imp.packageImportRef!.importedPublicExportHashIndex}`
+                      : imp.type === "Export"
+                        ? `export[${imp.exportIndex}]`
+                        : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+function ZenNamesSection({ parsed }: { parsed: ParsedZenPackage }) {
+  if (parsed.names.length === 0) return null
+  const NAMES_LIMIT = 200
+  const truncated = parsed.names.length > NAMES_LIMIT
+  const visible = parsed.names.slice(0, NAMES_LIMIT)
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Names ({parsed.names.length})
+      </h3>
+      <div className="rounded-md border bg-card p-3">
+        <ul className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 md:grid-cols-3">
+          {visible.map((n, i) => (
+            <li key={i} className="font-mono text-xs text-foreground">
+              <span className="text-muted-foreground">{i.toString().padStart(3, "·")}.</span>{" "}
+              {n}
+            </li>
+          ))}
+        </ul>
+        {truncated && (
+          <div className="mt-2 text-xs text-muted-foreground">
+            … {parsed.names.length - NAMES_LIMIT} more name
+            {parsed.names.length - NAMES_LIMIT === 1 ? "" : "s"} (table display
+            capped at {NAMES_LIMIT})
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
+/**
+ * Pretty-print `bytes` as a hex+ASCII dump similar to `xxd`. `base`
+ * is the absolute file offset of `bytes[0]`, used to anchor the
+ * left-column labels.
+ */
+function formatHexDump(bytes: Uint8Array, base: number): string {
+  const lines: string[] = []
+  for (let i = 0; i < bytes.length; i += 16) {
+    const row = bytes.subarray(i, Math.min(i + 16, bytes.length))
+    const hex = Array.from(row)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join(" ")
+    const asc = Array.from(row)
+      .map((b) => (b >= 0x20 && b < 0x7e ? String.fromCharCode(b) : "."))
+      .join("")
+    lines.push(
+      `${(base + i).toString(16).padStart(6, "0")}  ${hex.padEnd(48)}  ${asc}`,
+    )
+  }
+  return lines.join("\n")
 }
 
 /**

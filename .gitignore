@@ -4,6 +4,7 @@ node_modules
 .vercel
 ?.ts
 *.tsbuildinfo
+.DS_Store
 
 # Remix stuffs
 .cache

@@ -171,6 +171,21 @@ export {
 	type MaterialVectorParameter,
 } from './material.js';
 
+// UE5 IO Store ("Zen Loader") cooked package parser.
+export {
+	FMappedNameType,
+	isZenPackage,
+	parseZenPackage,
+	resolveName as resolveZenName,
+	ZenPackageParseError,
+	type FMappedName,
+	type FPackageObjectIndex,
+	type ParsedZenPackage,
+	type ZenExport,
+	type ZenPackageSummary,
+	type ZenSummaryVariant,
+} from './zen.js';
+
 /**
  * The fixed-size summary header at the start of every UE
  * package. Field availability depends on `legacyFileVersion`;
