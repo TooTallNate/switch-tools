@@ -3693,6 +3693,7 @@ function UassetPreview({ node, root }: { node: Node; root: Node | null }) {
     className === "TextureRenderTarget2D"
   const isStaticMesh = className === "StaticMesh"
   const isFont = className === "Font"
+  const isSoundWave = className === "SoundWave"
   const ueVersionLabel = (() => {
     const lf = v.summary.legacyFileVersion
     if (lf < -7) return `UE5 (legacyFileVersion=${lf})`
@@ -3741,6 +3742,10 @@ function UassetPreview({ node, root }: { node: Node; root: Node | null }) {
 
         {isFont && (
           <UassetFontSection parsed={v} root={root} />
+        )}
+
+        {isSoundWave && uexpBytes && (
+          <UassetSoundWaveSection parsed={v} uexpBytes={uexpBytes} />
         )}
 
         {decodedExports.length > 0 && (
@@ -4774,6 +4779,244 @@ function FontBytesPreview({ blob }: { blob: Blob }) {
       <FontPreview node={node} />
     </div>
   )
+}
+
+/**
+ * SoundWave preview: surfaces the audio metadata from property tags
+ * (channels / sample rate / duration / total samples) and the per-
+ * platform format identifier from the cooked FFormatContainer.
+ *
+ * Switch UE5 builds typically wrap their audio in a Switch-specific
+ * cooked format (often labeled `SWITCH_AUDIO00000000` in the format
+ * container) that isn't a known public RIFF/WAVE/Ogg/Opus container.
+ * Without an upstream decoder we can extract the metadata, surface
+ * the format identifier, and offer the raw compressed payload as a
+ * download for offline decoding (vgmstream, ffmpeg with appropriate
+ * patches, etc.). Inline browser playback isn't yet implemented.
+ */
+function UassetSoundWaveSection({
+  parsed,
+  uexpBytes,
+}: {
+  parsed: ParsedUasset
+  uexpBytes: Uint8Array
+}) {
+  const decoded = useMemo(() => {
+    if (parsed.exports.length === 0) return null
+    try {
+      return readSoundWaveCookedData(parsed, uexpBytes)
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) } as const
+    }
+  }, [parsed, uexpBytes])
+
+  if (!decoded) {
+    return (
+      <section className="rounded-md border bg-card p-4 text-sm text-muted-foreground">
+        SoundWave has no exports to decode.
+      </section>
+    )
+  }
+  if ("error" in decoded) {
+    return (
+      <section className="rounded-md border bg-card p-4">
+        <p className="text-sm font-medium">Could not read SoundWave cooked data</p>
+        <p className="mt-1 text-xs text-muted-foreground">{decoded.error}</p>
+      </section>
+    )
+  }
+
+  const downloadName = `${decoded.formatName.toLowerCase().replace(/[^a-z0-9]/g, "_")}.bin`
+  const downloadHref = useMemo(() => {
+    if (!decoded.payload) return null
+    const blob = new Blob([decoded.payload as BlobPart])
+    return URL.createObjectURL(blob)
+  }, [decoded.payload])
+  useEffect(() => {
+    return () => {
+      if (downloadHref) URL.revokeObjectURL(downloadHref)
+    }
+  }, [downloadHref])
+
+  return (
+    <section className="flex flex-col gap-3">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        SoundWave
+      </h3>
+      <KvBlock title="Audio">
+        <KvRow k="Format" v={decoded.formatName} />
+        {decoded.properties.numChannels !== undefined && (
+          <KvRow
+            k="Channels"
+            v={`${decoded.properties.numChannels}${decoded.properties.numChannels === 1 ? " (mono)" : decoded.properties.numChannels === 2 ? " (stereo)" : ""}`}
+          />
+        )}
+        {decoded.properties.sampleRate !== undefined && (
+          <KvRow k="Sample rate" v={`${decoded.properties.sampleRate} Hz`} />
+        )}
+        {decoded.properties.duration !== undefined && (
+          <KvRow k="Duration" v={`${decoded.properties.duration.toFixed(3)} s`} />
+        )}
+        {decoded.properties.totalSamples !== undefined && (
+          <KvRow
+            k="Total samples"
+            v={decoded.properties.totalSamples.toLocaleString()}
+          />
+        )}
+        <KvRow k="Cooked payload" v={formatBytes(decoded.payload.length)} />
+      </KvBlock>
+
+      <Alert>
+        <CircleAlertIcon />
+        <AlertTitle>Switch-cooked audio: playback not yet supported</AlertTitle>
+        <AlertDescription>
+          This SoundWave uses the <code className="font-mono">{decoded.formatName}</code>{" "}
+          platform-specific codec, which isn&rsquo;t a standard RIFF / Ogg / Opus
+          container. The metadata above is decoded from the property tags;
+          the raw compressed payload is available for offline decoding via
+          tools like{" "}
+          <a
+            href="https://github.com/vgmstream/vgmstream"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium underline underline-offset-2"
+          >
+            vgmstream
+          </a>
+          .
+        </AlertDescription>
+      </Alert>
+
+      {downloadHref && (
+        <div>
+          <a
+            href={downloadHref}
+            download={downloadName}
+            className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium hover:bg-accent"
+          >
+            <DownloadIcon className="size-4" />
+            Download raw {decoded.formatName} payload ({formatBytes(decoded.payload.length)})
+          </a>
+        </div>
+      )}
+    </section>
+  )
+}
+
+interface SoundWaveCookedData {
+  properties: {
+    numChannels?: number
+    sampleRate?: number
+    duration?: number
+    totalSamples?: number
+  }
+  formatName: string
+  payload: Uint8Array
+}
+
+/**
+ * Walk the property tags + `USoundWave::Serialize` tail (UE 4.20+):
+ *
+ *   property tags ending in `None`
+ *   u32 bSerializeGuid + optional FGuid
+ *   u32 bCooked = 1
+ *   TArray<FSoundFormatData> CompressedFormatData:
+ *     i32 count
+ *     per entry:
+ *       FName FormatName             (e.g. SWITCH_AUDIO00000000)
+ *       FByteBulkData PayloadHeader  (flags + i32 size + i32 size2 + i64 offset)
+ *       payload bytes (when ForceInlinePayload flag set)
+ *   FGuid CompressedDataGuid
+ *
+ * Returns the first CompressedFormatData entry's name + payload —
+ * Switch builds typically have just one entry.
+ */
+function readSoundWaveCookedData(
+  parsed: ParsedUasset,
+  uexpBytes: Uint8Array,
+): SoundWaveCookedData {
+  // Pull primitive metadata properties first (these are
+  // version-independent and decode cleanly via the standard tag stream).
+  const props = readExportProperties(parsed, uexpBytes, 0)
+  const properties: SoundWaveCookedData["properties"] = {}
+  for (const p of props.properties) {
+    if (p.value.kind === "int32" && p.name === "NumChannels") {
+      properties.numChannels = p.value.value
+    } else if (p.value.kind === "int32" && p.name === "SampleRate") {
+      properties.sampleRate = p.value.value
+    } else if (p.value.kind === "float" && p.name === "Duration") {
+      properties.duration = p.value.value
+    } else if (p.value.kind === "float" && p.name === "TotalSamples") {
+      properties.totalSamples = p.value.value
+    } else if (p.value.kind === "int32" && p.name === "TotalSamples") {
+      properties.totalSamples = p.value.value
+    }
+  }
+
+  const tail = props.tail
+  const dv = new DataView(tail.buffer, tail.byteOffset, tail.byteLength)
+  let p = 0
+  // bSerializeGuid + optional FGuid (UObject::Serialize tail)
+  if (tail.length < p + 4) {
+    throw new Error("Truncated USoundWave tail before bSerializeGuid")
+  }
+  const bSerializeGuid = dv.getUint32(p, true)
+  p += 4
+  if (bSerializeGuid) {
+    if (tail.length < p + 16) throw new Error("Truncated FGuid")
+    p += 16
+  }
+  // u32 bCooked
+  if (tail.length < p + 4) throw new Error("Truncated bCooked")
+  const bCooked = dv.getUint32(p, true)
+  p += 4
+  if (!bCooked) {
+    throw new Error("USoundWave is not cooked (raw RawData stream not supported by this preview)")
+  }
+  // CompressedFormatData TArray
+  if (tail.length < p + 4) throw new Error("Truncated CompressedFormatData count")
+  const formatCount = dv.getInt32(p, true)
+  p += 4
+  if (formatCount < 1) throw new Error("CompressedFormatData is empty")
+  // First entry: FName FormatName (2 × u32) + FByteBulkData
+  if (tail.length < p + 8) throw new Error("Truncated FormatName")
+  const formatNameIdx = dv.getUint32(p, true)
+  p += 4
+  p += 4 // FormatName.number
+  const formatName =
+    parsed.names[formatNameIdx]?.value ?? `<bad name ${formatNameIdx}>`
+  // FByteBulkData header.
+  if (tail.length < p + 4) throw new Error("Truncated bulkFlags")
+  const bulkFlags = dv.getUint32(p, true)
+  p += 4
+  const sized64 = (bulkFlags & 0x2000) !== 0
+  let dataSize: number
+  if (sized64) {
+    if (tail.length < p + 16) throw new Error("Truncated 64-bit size")
+    dataSize = Number(dv.getBigUint64(p, true))
+    p += 8
+    p += 8 // dataSize2
+  } else {
+    if (tail.length < p + 8) throw new Error("Truncated 32-bit size")
+    dataSize = dv.getInt32(p, true)
+    p += 4
+    p += 4 // dataSize2
+  }
+  if (tail.length < p + 8) throw new Error("Truncated bulk offset")
+  p += 8 // i64 offset
+  const inline = (bulkFlags & 0x40) !== 0
+  if (!inline) {
+    throw new Error(
+      `CompressedFormatData has non-inline payload (flags=0x${bulkFlags.toString(16)}); only inline payloads are read by this preview.`,
+    )
+  }
+  if (tail.length < p + dataSize) {
+    throw new Error(
+      `Truncated payload: need ${dataSize} bytes, have ${tail.length - p}`,
+    )
+  }
+  const payload = tail.subarray(p, p + dataSize)
+  return { properties, formatName, payload }
 }
 
 function UassetExportsTable({ parsed }: { parsed: ParsedUasset }) {
