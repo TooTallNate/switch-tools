@@ -226,6 +226,9 @@ importers:
       '@tootallnate/astc-wasm':
         specifier: workspace:*
         version: link:../../packages/astc-wasm
+      '@tootallnate/awb':
+        specifier: workspace:*
+        version: link:../../packages/awb
       '@tootallnate/bars':
         specifier: workspace:*
         version: link:../../packages/bars
@@ -283,6 +286,9 @@ importers:
       '@tootallnate/gfpak':
         specifier: workspace:*
         version: link:../../packages/gfpak
+      '@tootallnate/hca':
+        specifier: workspace:*
+        version: link:../../packages/hca
       '@tootallnate/hfs0':
         specifier: workspace:*
         version: link:../../packages/hfs0
@@ -490,6 +496,12 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
+  packages/awb:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/bars:
     devDependencies:
       typescript:
@@ -646,6 +658,12 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.3.3
+
+  packages/hca:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
 
   packages/hfs0:
     devDependencies:

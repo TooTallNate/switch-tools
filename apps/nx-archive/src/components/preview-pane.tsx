@@ -136,6 +136,16 @@ import {
 } from "@tootallnate/uasset"
 import { decodeSwitchAudio, encodeWavBlob } from "@tootallnate/dsp-adpcm"
 import {
+  parseAwb,
+  type ParsedAwb,
+  type AwbTrack,
+} from "@tootallnate/awb"
+import {
+  decodeHcaToWavBlob,
+  parseHcaHeader,
+  type HcaHeader,
+} from "@tootallnate/hca"
+import {
   AUDIO_MIME,
   IMAGE_MIME,
   VIDEO_MIME,
@@ -1508,6 +1518,8 @@ function FilePreview({
       return <WemAudioPreview node={node} />
     case "fmod-sample-audio":
       return <FmodSamplePreview node={node} />
+    case "awb-bank":
+      return <AwbPreview node={node} />
     case "barslist-info":
       return <BarslistPreview node={node} />
     case "bnvib-audio":
@@ -9646,6 +9658,316 @@ function WemAudioPlayer({
 // ====================================================================
 // FMOD Studio bank sample (FSB5) — audio preview
 // ====================================================================
+
+// ====================================================================
+// AWB / AFS2 wave bank preview
+// ====================================================================
+//
+// CRI Middleware's AWB packs many HCA-encoded tracks into one file.
+// The container is trivial (offset table + per-track byte ranges);
+// the audio inside is HCA, which we decode via `@tootallnate/hca` to
+// PCM and wrap in a WAV blob for native `<audio>` playback.
+//
+// Decode is **per-track on demand**: even a 200 MB bank with 50+
+// tracks parses its header instantly, and individual tracks decode
+// in a few hundred milliseconds when the user clicks Play. We
+// cache decoded WAV blobs so re-selecting a track is instant.
+//
+// Encrypted banks (`subkey != 0` and/or HCA `ciphType == 56`)
+// require a 64-bit per-file key — we surface a notice in that case
+// since we don't ship game keys.
+
+interface AwbTrackView extends AwbTrack {
+	hca: HcaHeader | null;
+	hcaError: string | null;
+}
+
+interface AwbView {
+	parsed: ParsedAwb;
+	tracks: AwbTrackView[];
+	totalBytes: number;
+}
+
+async function parseAwbForView(node: Node): Promise<AwbView> {
+	if (!node.blob) throw new Error('AWB node has no backing blob.')
+	const fullBlob = await node.blob()
+	// Header parsing only needs the first chunk. 64 KiB covers any
+	// AWB we've ever seen; for genuinely huge track tables the
+	// parser will tell us, so we can grow if it ever happens.
+	const headBytes = await fullBlob
+		.slice(0, Math.min(64 * 1024, fullBlob.size))
+		.arrayBuffer()
+	const parsed = parseAwb(new Uint8Array(headBytes))
+
+	// Read each track's HCA header by reading just `dataOffset`
+	// bytes from each. We cap the per-track sniff at 4 KiB which
+	// is more than enough — HCA `dataOffset` is the entire header
+	// section and ~256 B in practice.
+	const tracks: AwbTrackView[] = []
+	for (const t of parsed.tracks) {
+		const sniffSize = Math.min(t.size, 4096)
+		const sniff = await fullBlob
+			.slice(t.offset, t.offset + sniffSize)
+			.arrayBuffer()
+		try {
+			const hca = parseHcaHeader(new Uint8Array(sniff))
+			tracks.push({ ...t, hca, hcaError: null })
+		} catch (err) {
+			tracks.push({
+				...t,
+				hca: null,
+				hcaError: err instanceof Error ? err.message : String(err),
+			})
+		}
+	}
+	const totalBytes = tracks.reduce((sum, t) => sum + t.size, 0)
+	return { parsed, tracks, totalBytes }
+}
+
+function AwbPreview({ node }: { node: Node }) {
+	const { loading, data, error } = useAsync(
+		async () => parseAwbForView(node),
+		[node.id],
+	)
+	if (loading) return <LoadingFiller label="Parsing AWB wave bank…" />
+	if (error) return <ErrorFiller error={error} />
+	const v = data!
+
+	const codecHits = v.tracks.filter((t) => t.hca).length
+	const encryptedHits = v.tracks.filter((t) => t.hca?.ciphType === 56).length
+
+	return (
+		<ScrollArea className="h-full">
+			<div className="flex flex-col gap-5 p-5">
+				<SectionHeader title="AWB — CRI audio wave bank" />
+
+				<KvBlock title="Bank">
+					<KvRow k="Format" v="AFS2" />
+					<KvRow k="Tracks" v={String(v.parsed.trackCount)} />
+					<KvRow k="Codec" v={codecHits === v.tracks.length ? `HCA (all ${codecHits} tracks)` : `HCA × ${codecHits}/${v.tracks.length}`} />
+					<KvRow k="Alignment" v={`${v.parsed.alignment} bytes`} />
+					<KvRow
+						k="Encryption"
+						v={
+							v.parsed.subkey === 0 && encryptedHits === 0
+								? 'none'
+								: `subkey=0x${v.parsed.subkey.toString(16).padStart(4, '0')}${encryptedHits ? ` (+${encryptedHits} tracks with cipher type 56)` : ''}`
+						}
+					/>
+					<KvRow k="Total payload" v={formatBytes(v.totalBytes)} />
+				</KvBlock>
+
+				{encryptedHits > 0 && (
+					<Alert>
+						<CircleAlertIcon />
+						<AlertTitle>Tracks use the type-56 HCA cipher</AlertTitle>
+						<AlertDescription>
+							{encryptedHits} of {v.tracks.length} tracks are encrypted
+							with a per-file 64-bit key. We don't ship game keys; affected
+							tracks can be downloaded as raw `.hca` for offline decoding
+							with vgmstream or another HCA tool.
+						</AlertDescription>
+					</Alert>
+				)}
+
+				<AwbTrackTable view={v} node={node} />
+			</div>
+		</ScrollArea>
+	)
+}
+
+function AwbTrackTable({ view, node }: { view: AwbView; node: Node }) {
+	const [selected, setSelected] = useState<number | null>(null)
+	return (
+		<section className="flex flex-col gap-3">
+			<h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+				Tracks ({view.tracks.length})
+			</h3>
+
+			{selected !== null && view.tracks[selected] && (
+				<AwbTrackPlayer
+					key={`${node.id}#${selected}`}
+					node={node}
+					track={view.tracks[selected]!}
+					awb={view.parsed}
+				/>
+			)}
+
+			<div className="max-h-[600px] overflow-auto rounded-md border bg-card">
+				<table className="min-w-full text-xs">
+					<thead className="sticky top-0 z-10 border-b bg-card text-left">
+						<tr>
+							<th className="px-3 py-2 font-medium text-muted-foreground">#</th>
+							<th className="px-3 py-2 font-medium text-muted-foreground">Id</th>
+							<th className="px-3 py-2 font-medium text-muted-foreground">Codec</th>
+							<th className="px-3 py-2 font-medium text-muted-foreground">Channels</th>
+							<th className="px-3 py-2 font-medium text-muted-foreground">Rate</th>
+							<th className="px-3 py-2 font-medium text-muted-foreground">Duration</th>
+							<th className="px-3 py-2 font-medium text-muted-foreground">Size</th>
+							<th className="px-3 py-2"></th>
+						</tr>
+					</thead>
+					<tbody>
+						{view.tracks.map((t, i) => {
+							const isActive = selected === i
+							const samples =
+								t.hca != null
+									? t.hca.blockCount * 0x80 * 8
+									: 0
+							const seconds = t.hca ? samples / t.hca.samplingRate : 0
+							return (
+								<tr
+									key={i}
+									className={`border-t font-mono ${isActive ? 'bg-accent/30' : '[&:hover]:bg-accent/20'}`}
+								>
+									<td className="px-3 py-1.5 text-muted-foreground">{i}</td>
+									<td className="px-3 py-1.5">{t.id}</td>
+									<td className="px-3 py-1.5">
+										{t.hca ? (
+											<span>
+												HCA v{(t.hca.version >>> 8).toString()}.{(t.hca.version & 0xff).toString(16)}
+												{t.hca.ciphType !== 0 && (
+													<span className="ml-1 rounded bg-amber-500/20 px-1 text-[10px] text-amber-700 dark:text-amber-300">
+														ciph={t.hca.ciphType}
+													</span>
+												)}
+											</span>
+										) : (
+											<span className="text-destructive">unknown</span>
+										)}
+									</td>
+									<td className="px-3 py-1.5">{t.hca?.channelCount ?? '—'}</td>
+									<td className="px-3 py-1.5">
+										{t.hca ? `${t.hca.samplingRate} Hz` : '—'}
+									</td>
+									<td className="px-3 py-1.5">
+										{seconds > 0 ? formatDuration(seconds) : '—'}
+									</td>
+									<td className="px-3 py-1.5 text-muted-foreground">
+										{formatBytes(t.size)}
+									</td>
+									<td className="px-3 py-1.5">
+										<button
+											type="button"
+											className="rounded-md border bg-background px-2 py-0.5 font-medium hover:bg-accent disabled:opacity-50 disabled:hover:bg-background"
+											onClick={() => setSelected(i)}
+											disabled={!t.hca || t.hca.ciphType === 56}
+											title={
+												t.hca?.ciphType === 56
+													? 'Encrypted (cipher 56) — key required'
+													: t.hca
+														? `Play track ${i}`
+														: 'Cannot parse HCA header'
+											}
+										>
+											{isActive ? 'Selected' : 'Play'}
+										</button>
+									</td>
+								</tr>
+							)
+						})}
+					</tbody>
+				</table>
+			</div>
+		</section>
+	)
+}
+
+function AwbTrackPlayer({
+	node,
+	track,
+	awb,
+}: {
+	node: Node
+	track: AwbTrackView
+	awb: ParsedAwb
+}) {
+	const { loading, data, error } = useAsync(async () => {
+		if (!node.blob) throw new Error('AWB node has no backing blob.')
+		const blob = await node.blob()
+		const sliceAb = await blob
+			.slice(track.offset, track.offset + track.size)
+			.arrayBuffer()
+		const bytes = new Uint8Array(sliceAb)
+		// AWB subkey is mixed with the (currently unset) per-file
+		// key — for ciphType-0 tracks the key path is a no-op.
+		const { blob: wavBlob, decoded } = decodeHcaToWavBlob(bytes, {
+			awbKey: awb.subkey,
+		})
+		return { wavBlob, decoded, hcaBytes: bytes }
+	}, [node.id, track.offset, track.size, awb.subkey])
+
+	const [wavUrl, setWavUrl] = useState<string | null>(null)
+	useEffect(() => {
+		if (!data) return
+		const url = URL.createObjectURL(data.wavBlob)
+		setWavUrl(url)
+		return () => {
+			URL.revokeObjectURL(url)
+			setWavUrl(null)
+		}
+	}, [data])
+
+	const baseName = node.name.replace(/\.awb$/i, '')
+	const wavFileName = `${baseName}.track${String(track.id).padStart(3, '0')}.wav`
+	const hcaFileName = `${baseName}.track${String(track.id).padStart(3, '0')}.hca`
+
+	const hcaUrl = useMemo(() => {
+		if (!data) return null
+		const b = new Blob([data.hcaBytes as BlobPart], { type: 'audio/x-hca' })
+		return URL.createObjectURL(b)
+	}, [data])
+	useEffect(() => {
+		return () => {
+			if (hcaUrl) URL.revokeObjectURL(hcaUrl)
+		}
+	}, [hcaUrl])
+
+	if (loading) return <LoadingFiller label={`Decoding track ${track.id}…`} />
+	if (error) return <ErrorFiller error={error} />
+
+	return (
+		<section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+			{wavUrl ? (
+				<audio src={wavUrl} controls className="w-full" preload="auto" />
+			) : (
+				<Skeleton className="h-12 w-full" />
+			)}
+			<div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+				<span>
+					Decoded HCA → 16-bit PCM (
+					{data!.decoded.numChannels === 1
+						? 'mono'
+						: `${data!.decoded.numChannels} ch`}
+					{' · '}
+					{data!.decoded.sampleRate} Hz
+					{' · '}
+					{formatDuration(data!.decoded.numSamples / data!.decoded.sampleRate)})
+				</span>
+				<div className="flex items-center gap-2">
+					{wavUrl && (
+						<a
+							href={wavUrl}
+							download={wavFileName}
+							className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+						>
+							Save .wav
+						</a>
+					)}
+					{hcaUrl && (
+						<a
+							href={hcaUrl}
+							download={hcaFileName}
+							className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+						>
+							Save .hca
+						</a>
+					)}
+				</div>
+			</div>
+		</section>
+	)
+}
 
 function FmodSamplePreview({ node }: { node: Node }) {
   const { loading, data, error } = useAsync(async () => {

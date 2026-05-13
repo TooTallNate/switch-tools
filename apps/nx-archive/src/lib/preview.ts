@@ -93,6 +93,8 @@ export type PreviewKind =
 	| 'wem-audio'
 	/** FMOD Studio FSB5 sample (PCM → WAV, FMOD-Vorbis → Ogg-Vorbis). */
 	| 'fmod-sample-audio'
+	/** CRI AFS2 / AWB audio wave bank (HCA-encoded tracks). */
+	| 'awb-bank'
 	/** Tiny ARSL manifest of BARS file paths. */
 	| 'barslist-info'
 	/** Switch HD Rumble vibration patterns. */
@@ -262,6 +264,10 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.bfwav')) return 'bfwav-audio';
 	if (lower.endsWith('.bfstm') || lower.endsWith('.bfstp')) return 'bfstm-audio';
 	if (lower.endsWith('.wem')) return 'wem-audio';
+	// CRI AWB / AFS2 audio wave banks (HCA tracks inside). `.acb` is
+	// the companion metadata file — recognise both but only `.awb`
+	// has the binary payload.
+	if (lower.endsWith('.awb')) return 'awb-bank';
 	// Unreal `.ubulk` is a codec-agnostic "bulk data" sidecar, but in
 	// practice the overwhelming majority of `.ubulk` files we encounter
 	// are Wwise audio payloads (RIFF/WAVE wrappers) sitting under

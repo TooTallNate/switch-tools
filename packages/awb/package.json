@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/awb",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for CRI Middleware's AFS2 / AWB audio wave bank container. Reads the track table and exposes per-track byte slices (usually HCA, decoded via @tootallnate/hca; occasionally ADX). Used in many Japanese games and CRIWARE-licensed engines.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/awb"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
