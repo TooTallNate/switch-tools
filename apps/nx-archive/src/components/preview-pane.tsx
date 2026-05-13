@@ -3785,7 +3785,7 @@ function UassetPreview({
         )}
 
         {isSoundWave && uexpBytes && (
-          <UassetSoundWaveSection parsed={v} uexpBytes={uexpBytes} />
+          <UassetSoundWaveSection node={node} parsed={v} uexpBytes={uexpBytes} />
         )}
 
         {decodedExports.length > 0 && (
@@ -5025,9 +5025,11 @@ function FontBytesPreview({
  * patches, etc.). Inline browser playback isn't yet implemented.
  */
 function UassetSoundWaveSection({
+  node,
   parsed,
   uexpBytes,
 }: {
+  node: Node
   parsed: ParsedUasset
   uexpBytes: Uint8Array
 }) {
@@ -5113,7 +5115,12 @@ function UassetSoundWaveSection({
     )
   }
 
-  const downloadName = `${decoded.formatName.toLowerCase().replace(/[^a-z0-9]/g, "_")}.bin`
+  // Strip the `.uasset` extension off the source filename and
+  // append our own. Falls back to a format-derived name when the
+  // node somehow doesn't carry one (synthetic in-memory previews).
+  const baseName = node.name.replace(/\.uasset$/i, "") || decoded.formatName.toLowerCase()
+  const wavFileName = `${baseName}.wav`
+  const payloadFileName = `${baseName}.${decoded.formatName.toLowerCase().replace(/[^a-z0-9]/g, "_")}.bin`
 
   return (
     <section className="flex flex-col gap-3">
@@ -5137,7 +5144,7 @@ function UassetSoundWaveSection({
             </span>
             <a
               href={wavUrl}
-              download={`${decoded.formatName.toLowerCase()}.wav`}
+              download={wavFileName}
               className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
             >
               Save .wav
@@ -5207,7 +5214,7 @@ function UassetSoundWaveSection({
         <div>
           <a
             href={downloadHref}
-            download={downloadName}
+            download={payloadFileName}
             className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium hover:bg-accent"
           >
             <DownloadIcon className="size-4" />
