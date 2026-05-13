@@ -1,0 +1,38 @@
+{
+  "name": "@tootallnate/oodle-wasm",
+  "version": "0.0.1",
+  "description": "WebAssembly decoder for RAD's Oodle Data Compression. Ships the TypeScript wrapper and a build recipe; users compile the WASM themselves from RAD's source (the package never redistributes Oodle bytes).",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "c/wrapper.c",
+    "c/wrapper.h",
+    "scripts",
+    "Makefile",
+    "README.md"
+  ],
+  "scripts": {
+    "build:ts": "tsc",
+    "build:wasm": "make",
+    "build": "tsc",
+    "setup-source": "bash scripts/setup-source.sh",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "author": "Nathan Rajlich <n@n8.io>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/oodle-wasm"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

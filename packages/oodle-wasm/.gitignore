@@ -1,0 +1,11 @@
+# Oodle source code fetched via `make setup-source`. This is RAD Game
+# Tools' proprietary code under the Unreal Engine EULA; it cannot be
+# redistributed in this repository. Users fetch it themselves.
+c/oodle-src/
+
+# Build artifacts (object files + compiled WASM). We deliberately
+# don't ship a pre-built oodle.wasm — the user must compile it from
+# their own copy of the source after accepting the UE EULA.
+build/
+src/oodle.wasm
+dist/oodle.wasm
