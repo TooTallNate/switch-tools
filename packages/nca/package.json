@@ -19,7 +19,8 @@
   "dependencies": {
     "@tootallnate/aes-xts": "0.0.2",
     "@tootallnate/cnmt": "0.0.1",
-    "@tootallnate/ivfc": "0.0.2"
+    "@tootallnate/ivfc": "0.0.2",
+    "@tootallnate/lz4": "workspace:*"
   },
   "devDependencies": {
     "@tootallnate/pfs0": "workspace:*",

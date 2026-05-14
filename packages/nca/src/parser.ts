@@ -18,6 +18,15 @@ import { decrypt as aesXtsDecrypt } from '@tootallnate/aes-xts';
 import { aesCtrEncrypt, aesEcbDecrypt, buildNcaCtr } from './crypto.js';
 import type { KeySet } from './keys.js';
 import { NcaContentType } from './index.js';
+import { BucketTreeReader } from './bucket-tree.js';
+import {
+	readCompressionInfo,
+	type CompressionInfoFields,
+} from './compression-info.js';
+import {
+	CompressedStorageReader,
+	COMPRESSED_ENTRY_SIZE,
+} from './compressed-storage.js';
 
 /** NCA header total size: 0xC00 bytes */
 const NCA_HEADER_SIZE = 0xc00;
@@ -114,6 +123,14 @@ export interface NcaSection {
 	 * RomFS data (the section sliced from `romfsOffset` for `romfsSize`).
 	 */
 	romfsData?: Blob;
+	/**
+	 * `true` when this section's `data` (and therefore `pfs0Data` /
+	 * `romfsData`) is read through a CompressedStorage layer — i.e. the
+	 * raw section bytes were both AES-CTR encrypted *and* compressed
+	 * (typically LZ4) under a BucketTree index. Consumers don't normally
+	 * need to look at this; it's exposed for diagnostics.
+	 */
+	compressed?: boolean;
 }
 
 export interface ParsedNca {
@@ -434,6 +451,15 @@ export async function parseNca(
 		// section_ctr is at 0x140 within the FS header (8 bytes)
 		const sectionCtr = fsHeader.slice(0x140, 0x148);
 
+		// TODO: SparseInfo offset bug — switchbrew documents SparseInfo at
+		// 0x148..0x178, but this parser currently isn't aware of SparseInfo
+		// (no read/handling at all). When SparseInfo support is added, the
+		// SparseInfo block must be read at 0x148, NOT 0x140 (the field at
+		// 0x140 is `Generation + SecureValue` == section CTR, which we
+		// correctly read above). Until then, sparse NCAs may decrypt to
+		// garbage; only CompressionInfo (added below at the canonical 0x178)
+		// is handled.
+
 		const mediaStartOffset = startMedia * MEDIA_UNIT;
 		const mediaEndOffset = endMedia * MEDIA_UNIT;
 
@@ -493,6 +519,31 @@ export async function parseNca(
 				cryptType === NCA_CRYPT_NONE ? null : missingKeyDetail,
 		});
 
+		// If CompressionInfo is populated, the FS-data region (RomFS
+		// for IVFC sections, PFS0 for PFS0 sections) is encoded as a
+		// CompressedStorage layer on top of the AES-CTR-decrypted
+		// bytes. Wrap it now so downstream consumers see the
+		// decompressed view.
+		//
+		// The BKTR table lives inside the FS-data region — at offset
+		// `tableOffset` of that region, not of the whole section —
+		// per Atmosphere's `NcaBucketInfo` semantics. The 16-byte
+		// BucketTree top-level header is embedded in
+		// `compression_info.bucket.header[0x10]` (already parsed
+		// by `readCompressionInfo`), not present at section bytes.
+		let compressionInfo: CompressionInfoFields | null = null;
+		try {
+			compressionInfo = readCompressionInfo(fsHeader);
+		} catch (err) {
+			// A populated-but-malformed CompressionInfo block is a hard
+			// failure: silently falling back to raw bytes would just
+			// cause the downstream parser to die hundreds of MB later
+			// with a cryptic message. Re-throw with context.
+			throw new Error(
+				`NCA section ${i}: malformed CompressionInfo: ${(err as Error).message}`,
+			);
+		}
+
 		const section: NcaSection = {
 			index: i,
 			fsType,
@@ -511,10 +562,20 @@ export async function parseNca(
 		};
 
 		if (pfs0Offset !== undefined && pfs0Size !== undefined) {
-			section.pfs0Data = sectionData.slice(pfs0Offset, pfs0Offset + pfs0Size);
+			let pfs0Data = sectionData.slice(pfs0Offset, pfs0Offset + pfs0Size);
+			if (compressionInfo) {
+				pfs0Data = await wrapWithCompressedStorage(pfs0Data, compressionInfo);
+				section.compressed = true;
+			}
+			section.pfs0Data = pfs0Data;
 		}
 		if (romfsOffset !== undefined && romfsSize !== undefined) {
-			section.romfsData = sectionData.slice(romfsOffset, romfsOffset + romfsSize);
+			let romfsData = sectionData.slice(romfsOffset, romfsOffset + romfsSize);
+			if (compressionInfo) {
+				romfsData = await wrapWithCompressedStorage(romfsData, compressionInfo);
+				section.compressed = true;
+			}
+			section.romfsData = romfsData;
 		}
 
 		sections.push(section);
@@ -542,6 +603,243 @@ export async function parseNca(
 		sections,
 		ncaId,
 	};
+}
+
+// -------------------- Compressed-storage Blob facade --------------------
+
+/**
+ * Wrap a `Blob` representing one decrypted region (typically the
+ * RomFS / IVFC-L5 data layer of a section) with a CompressedStorage
+ * decoding layer.
+ *
+ * `compressionInfo.tableOffset` and `tableSize` are offsets and
+ * sizes **within `source`** — the BKTR L1 node + entry sets live
+ * in `[tableOffset, tableOffset+tableSize)`, and the decompressed
+ * (virtual) view's size is taken from the L1 NodeHeader's `offset`
+ * field. The first physical byte of the compressed payload is at
+ * `source[0]`; the BKTR table sits at the *end* of the physical
+ * region.
+ *
+ * The 16-byte BucketTree top-level header is NOT present in
+ * `source[tableOffset]` — it's embedded in the FS-header's
+ * CompressionInfo struct (`bucket.header[0x10]`), already parsed
+ * by `readCompressionInfo`. The reader uses `entryCount` from
+ * that parsed header.
+ */
+function wrapWithCompressedStorage(
+	source: Blob,
+	info: CompressionInfoFields,
+): Blob {
+	// CompressedStorage uses 16 KiB nodes per Atmosphere.
+	const NODE_SIZE = 16 * 1024;
+	const tableOffset = Number(info.tableOffset);
+	const tableSize = Number(info.tableSize);
+	if (!Number.isSafeInteger(tableOffset) || !Number.isSafeInteger(tableSize)) {
+		throw new Error(
+			`CompressionInfo tableOffset/tableSize too large for Number: ${info.tableOffset}/${info.tableSize}`,
+		);
+	}
+	const tableEnd = tableOffset + tableSize;
+	// nodeStorage: the L1 NodeHeader + offsets array, within the
+	// first `NODE_SIZE` bytes of the BKTR table region.
+	const nodeStorage = source.slice(tableOffset, tableOffset + NODE_SIZE);
+	// entryStorage: everything after the L1 node region, up to tableEnd.
+	const entryStorage = source.slice(tableOffset + NODE_SIZE, tableEnd);
+
+	const table = new BucketTreeReader({
+		nodeStorage,
+		entryStorage,
+		nodeSize: NODE_SIZE,
+		entrySize: COMPRESSED_ENTRY_SIZE,
+		entryCount: info.bucketTreeHeader.entryCount,
+	});
+
+	// The logical (decompressed) size is the L1 NodeHeader's `offset`
+	// field, exposed via `table.getOffsets().endOffset`. We CAN'T
+	// resolve this eagerly: doing so forces a 16 KiB read from
+	// `source`, which goes through AES-CTR decryption, which fails
+	// for RightsId-keyed NCAs before the caller has had a chance to
+	// supply a titlekey. (The two-phase `parseNca` flow in
+	// `nx-archive` calls us once without the key just to read the
+	// header.)
+	//
+	// Defer to the FIRST read: the facade exposes 0 as a placeholder
+	// for `.size`, and the real logical size is fetched on demand at
+	// first read. Real-world `Blob.size` consumers are limited to
+	// RomFS / PFS0 decoders that don't actually depend on the wrapper-
+	// blob's reported size (they read structured headers and seek by
+	// offset).
+	//
+	// Critically: we kick off the lazy promise INSIDE the
+	// CompressedStorageReader's `getLogicalSize`, which is only
+	// awaited when an actual read happens. That way an aborted
+	// first-pass `parseNca` (no titlekey) doesn't produce an
+	// orphaned rejected promise.
+	let logicalSizeCache: Promise<bigint> | null = null;
+	const lazyLogicalSize = (): Promise<bigint> => {
+		if (logicalSizeCache === null) {
+			logicalSizeCache = table.getOffsets().then((o) => o.endOffset);
+		}
+		return logicalSizeCache;
+	};
+
+	const reader = new CompressedStorageReader({
+		readSectionRange: async (start, end) => {
+			// `source` is a Blob; sliced ranges are decrypted on demand.
+			const startN = Number(start);
+			const endN = Number(end);
+			if (!Number.isSafeInteger(startN) || !Number.isSafeInteger(endN)) {
+				throw new Error(`CompressedStorage range too large: [${start}, ${end})`);
+			}
+			const ab = await source.slice(startN, endN).arrayBuffer();
+			return new Uint8Array(ab);
+		},
+		table,
+		logicalSize: lazyLogicalSize,
+	});
+
+	return makeCompressedStorageBlob(reader, 0n, lazyLogicalSize);
+}
+
+/**
+ * Build a `Blob`-shaped facade over a `CompressedStorageReader`
+ * sub-range. `.slice()` returns another facade covering a
+ * narrower logical range, so consumers can do the usual
+ * `.slice().arrayBuffer()` dance without forcing a full read.
+ *
+ * `end` may be a thunk (`() => Promise<bigint>`) that resolves
+ * to the absolute end offset. This lets the top-level wrapper
+ * defer the logical-size lookup (which requires AES-CTR-decrypting
+ * one block of the source) until the first actual read — see the
+ * note in `wrapWithCompressedStorage` about two-phase `parseNca`.
+ * Thunks are preferred over bare promises because they don't
+ * produce orphaned rejections when nothing ever awaits the facade.
+ */
+function makeCompressedStorageBlob(
+	reader: CompressedStorageReader,
+	start: bigint,
+	end: bigint | (() => Promise<bigint>),
+): Blob {
+	// When the end offset is unresolved, we expose `size` as 0
+	// (Blob spec requires a `number`). Real consumers read via
+	// `.slice().arrayBuffer()` or `.bytes()` which await `end`
+	// internally; nothing in this codebase actually relies on
+	// `.size` returning the true value for a compressed-storage
+	// facade.
+	let resolvedEnd: bigint | null = null;
+	let resolvedSizeNum: number | null = null;
+	if (typeof end === 'bigint') {
+		resolvedEnd = end;
+		const diff = end - start;
+		if (diff < 0n) {
+			throw new Error(`CompressedStorage slice has negative size: ${diff}`);
+		}
+		resolvedSizeNum =
+			diff <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(diff) : NaN;
+	}
+	const resolveEnd = async (): Promise<bigint> => {
+		if (resolvedEnd === null) {
+			resolvedEnd = await (end as () => Promise<bigint>)();
+			const diff = resolvedEnd - start;
+			resolvedSizeNum =
+				diff <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(diff) : NaN;
+		}
+		return resolvedEnd;
+	};
+	const facade: Blob = {
+		get size() {
+			// `0` when the size is still pending. This is incorrect
+			// per the Blob spec but better than blocking or throwing;
+			// every downstream consumer in this codebase either calls
+			// `.arrayBuffer()` / `.bytes()` (which await internally),
+			// or reads structured headers that don't iterate to the
+			// end. The placeholder is replaced as soon as anything
+			// triggers a read.
+			return resolvedSizeNum !== null && Number.isFinite(resolvedSizeNum)
+				? resolvedSizeNum
+				: 0;
+		},
+		get type() {
+			return '';
+		},
+		async arrayBuffer(): Promise<ArrayBuffer> {
+			const e = await resolveEnd();
+			const u8 = await reader.read(start, e);
+			const ab = new ArrayBuffer(u8.byteLength);
+			new Uint8Array(ab).set(u8);
+			return ab;
+		},
+		async bytes(): Promise<Uint8Array> {
+			const e = await resolveEnd();
+			return reader.read(start, e);
+		},
+		async text(): Promise<string> {
+			const e = await resolveEnd();
+			const u8 = await reader.read(start, e);
+			return new TextDecoder().decode(u8);
+		},
+		slice(s?: number, e?: number, _contentType?: string): Blob {
+			// Clamp like the standard Blob.slice spec: negative values
+			// are not supported here (we never produce them, and Blob
+			// consumers in this codebase don't pass them).
+			const localStart = s === undefined ? 0 : Math.max(0, s);
+			// When the parent end is still pending, we can't honour
+			// "slice to end of parent" synchronously. We pass the
+			// pending promise through so the new facade also defers.
+			if (e === undefined) {
+				if (resolvedEnd !== null) {
+					return makeCompressedStorageBlob(
+						reader,
+						start + BigInt(localStart),
+						resolvedEnd,
+					);
+				}
+				return makeCompressedStorageBlob(
+					reader,
+					start + BigInt(localStart),
+					// Pass the thunk through so the child facade
+					// also defers until a real read happens.
+					resolveEnd,
+				);
+			}
+			const localEnd = Math.max(localStart, e);
+			if (resolvedEnd !== null && Number.isFinite(resolvedSizeNum!)) {
+				const cappedEnd = Math.min(localEnd, resolvedSizeNum!);
+				return makeCompressedStorageBlob(
+					reader,
+					start + BigInt(localStart),
+					start + BigInt(cappedEnd),
+				);
+			}
+			return makeCompressedStorageBlob(
+				reader,
+				start + BigInt(localStart),
+				start + BigInt(localEnd),
+			);
+		},
+		stream(): ReadableStream<Uint8Array> {
+			const CHUNK = 64 * 1024;
+			let pos = start;
+			return new ReadableStream<Uint8Array>({
+				async pull(controller) {
+					const e = await resolveEnd();
+					if (pos >= e) {
+						controller.close();
+						return;
+					}
+					const next = pos + BigInt(CHUNK) < e ? pos + BigInt(CHUNK) : e;
+					try {
+						const u8 = await reader.read(pos, next);
+						controller.enqueue(u8);
+						pos = next;
+					} catch (err) {
+						controller.error(err);
+					}
+				},
+			});
+		},
+	} as unknown as Blob;
+	return facade;
 }
 
 // -------------------- Lazy-decryption Blob facade --------------------

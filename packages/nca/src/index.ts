@@ -43,6 +43,31 @@ export {
 	NCA_HASH_TYPE_PFS0,
 	NCA_HASH_TYPE_ROMFS,
 } from './parser.js';
+export {
+	BucketTreeReader,
+	type BucketTreeHeader,
+	type BucketTreeNodeHeader,
+	type BucketTreeOffsets,
+	type BucketTreeFind,
+	type BucketTreeReaderOptions,
+	parseBucketTreeHeader,
+} from './bucket-tree.js';
+export {
+	readCompressionInfo,
+	type CompressionInfoFields,
+	COMPRESSION_INFO_OFFSET,
+	COMPRESSION_INFO_SIZE,
+} from './compression-info.js';
+export {
+	CompressedStorageReader,
+	type CompressedStorageReaderOptions,
+	type CompressedEntry,
+	parseCompressedEntry,
+	COMPRESSED_ENTRY_SIZE,
+	COMPRESSION_TYPE_NONE,
+	COMPRESSION_TYPE_ZEROS,
+	COMPRESSION_TYPE_LZ4,
+} from './compressed-storage.js';
 
 import { encrypt as aesXtsEncryptDefault } from '@tootallnate/aes-xts';
 import { build as ivfcBuild, IVFC_HEADER_SIZE } from '@tootallnate/ivfc';
