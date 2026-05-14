@@ -105,6 +105,8 @@ export type PreviewKind =
 	| 'barslist-info'
 	/** Nintendo MSBT (MsgStdBn) — localized text/dialog/UI strings. */
 	| 'msbt-text'
+	/** TotK / Wonder AI behavior-tree node binary (`.ainb`). */
+	| 'ainb-info'
 	/** Switch HD Rumble vibration patterns. */
 	| 'bnvib-audio'
 	/** Nintendo binary YAML — game configs / data tables. */
@@ -275,6 +277,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.bfwav')) return 'bfwav-audio';
 	if (lower.endsWith('.bwav')) return 'bwav-audio';
 	if (lower.endsWith('.msbt')) return 'msbt-text';
+	if (lower.endsWith('.ainb')) return 'ainb-info';
 	if (lower.endsWith('.bfstm') || lower.endsWith('.bfstp')) return 'bfstm-audio';
 	if (lower.endsWith('.wem')) return 'wem-audio';
 	// CRI HCA — standalone tracks (extracted from AWB or hand-named).

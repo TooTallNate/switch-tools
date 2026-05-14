@@ -1571,6 +1571,8 @@ function FilePreview({
       return <BwavAudioPreview node={node} />
     case "msbt-text":
       return <MsbtTextPreview node={node} />
+    case "ainb-info":
+      return <AinbPreview node={node} />
     case "bfstm-audio":
       return <NintendoAudioPreview node={node} kind="bfstm" />
     case "wem-audio":
@@ -7391,6 +7393,148 @@ function MsbtEntriesTable({ parsed }: { parsed: ParsedMsbt }) {
         </tbody>
       </table>
     </section>
+  )
+}
+
+// ====================================================================
+// AINB — TotK / Wonder AI behavior-tree node binary
+// ====================================================================
+//
+// AINB is a complex format (nodes, attachments, properties, triggers,
+// locals, commands, …). For first-pass preview we only read:
+//
+//   - version (u32 at 0x04; high u16 = major, low u16 = minor)
+//   - file-name index + name (at 0x08 + string pool at 0x24)
+//   - command / node counts (at 0x0C, 0x10)
+//   - all interned strings from the string pool (so the user can see
+//     what nodes/properties this AI references)
+//
+// Full graph extraction is a follow-up that can build on this header
+// scaffolding.
+
+interface AinbHeaderSummary {
+  version: string
+  /** Path or short name of the AI source file (from the string pool). */
+  fileName: string
+  /** Number of top-level commands. */
+  commandCount: number
+  /** Number of nodes in the graph. */
+  nodeCount: number
+  /** All distinct strings from the pool, in pool order. */
+  stringPool: string[]
+}
+
+function parseAinbHeader(bytes: Uint8Array): AinbHeaderSummary {
+  if (
+    bytes.length < 0x40 ||
+    bytes[0] !== 0x41 ||
+    bytes[1] !== 0x49 ||
+    bytes[2] !== 0x42 ||
+    bytes[3] !== 0x20
+  ) {
+    throw new Error("Not an AINB file (missing 'AIB ' magic)")
+  }
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const version = dv.getUint32(0x04, true)
+  const major = (version >>> 16) & 0xffff
+  const minor = version & 0xffff
+  const fileNameOffset = dv.getUint32(0x08, true)
+  const commandCount = dv.getUint32(0x0c, true)
+  const nodeCount = dv.getUint32(0x10, true)
+  const stringTableOffset = dv.getUint32(0x24, true)
+
+  const decoder = new TextDecoder("utf-8", { fatal: false })
+  const readCStringAt = (off: number): string => {
+    if (off >= bytes.length) return ""
+    let end = off
+    while (end < bytes.length && bytes[end] !== 0) end++
+    return decoder.decode(bytes.subarray(off, end))
+  }
+
+  // String pool: null-terminated strings packed back-to-back, from
+  // `stringTableOffset` to EOF.
+  const stringPool: string[] = []
+  if (stringTableOffset > 0 && stringTableOffset < bytes.length) {
+    let off = stringTableOffset
+    while (off < bytes.length) {
+      // Skip empty entries (consecutive nulls).
+      if (bytes[off] === 0) {
+        off++
+        continue
+      }
+      const s = readCStringAt(off)
+      stringPool.push(s)
+      off += s.length + 1
+    }
+  }
+
+  // fileNameOffset is an index INTO the string pool (relative offset
+  // from `stringTableOffset`). We resolve it by reading a C-string
+  // at the absolute byte.
+  const fileName = readCStringAt(stringTableOffset + fileNameOffset)
+
+  return {
+    version: minor === 0 ? `${major}.0` : `${major}.${minor}`,
+    fileName,
+    commandCount,
+    nodeCount,
+    stringPool,
+  }
+}
+
+function AinbPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    const blob = await node.blob!()
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    return parseAinbHeader(bytes)
+  }, [node.id])
+
+  if (loading) return <LoadingFiller label="Reading AINB header…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="AINB — AI behavior-tree node binary" />
+
+        <Alert>
+          <CircleAlertIcon />
+          <AlertTitle>Metadata preview only</AlertTitle>
+          <AlertDescription>
+            The AINB format encodes a full AI behavior-tree graph with
+            attachments, locals, triggers, and command tables. This preview
+            shows the header summary and the interned string pool;
+            full graph extraction is a future enhancement.
+          </AlertDescription>
+        </Alert>
+
+        <KvBlock title="Header">
+          <KvRow k="Version" v={v.version} />
+          <KvRow k="File name" v={v.fileName || "—"} />
+          <KvRow k="Commands" v={v.commandCount.toLocaleString()} />
+          <KvRow k="Nodes" v={v.nodeCount.toLocaleString()} />
+          <KvRow k="String-pool entries" v={v.stringPool.length.toLocaleString()} />
+        </KvBlock>
+
+        {v.stringPool.length > 0 && (
+          <section className="overflow-hidden rounded-md border bg-card">
+            <div className="border-b bg-muted/40 px-3 py-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Referenced strings
+            </div>
+            <ul className="divide-y divide-border">
+              {v.stringPool.map((s, i) => (
+                <li
+                  key={i}
+                  className="px-3 py-1.5 font-mono text-xs hover:bg-accent/40"
+                >
+                  {s || <span className="text-muted-foreground italic">(empty)</span>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
+    </ScrollArea>
   )
 }
 
