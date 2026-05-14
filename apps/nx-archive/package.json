@@ -40,6 +40,7 @@
     "@tootallnate/brotli-wasm": "workspace:*",
     "@tootallnate/byaml": "workspace:*",
     "@tootallnate/dsp-adpcm": "workspace:*",
+    "@tootallnate/dxtk-font": "workspace:*",
     "@tootallnate/fmod-bank": "workspace:*",
     "@tootallnate/fsb5": "workspace:*",
     "@tootallnate/gfpak": "workspace:*",

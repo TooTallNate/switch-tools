@@ -85,6 +85,8 @@ export type PreviewKind =
 	| 'bffnt-info'
 	/** AngelCode BMFont (`.fnt`) bitmap font descriptor. */
 	| 'bmfont-info'
+	/** DirectXTK SpriteFont (`.spritefont`, `DXTKfont` magic) — bitmap-atlas font. */
+	| 'spritefont-info'
 	/** Switch / Wii U single-shot audio (BFWAV / BFSTP, also BARS-embedded FWAVs). */
 	| 'bfwav-audio'
 	/** Switch / Wii U streamed audio (BFSTM / BFSTP). */
@@ -261,6 +263,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 		return 'font-info';
 	if (lower.endsWith('.bffnt')) return 'bffnt-info';
 	if (lower.endsWith('.fnt')) return 'bmfont-info';
+	if (lower.endsWith('.spritefont')) return 'spritefont-info';
 	if (lower.endsWith('.uasset') || lower.endsWith('.umap'))
 		return 'uasset-info';
 	if (lower.endsWith('.bfwav')) return 'bfwav-audio';

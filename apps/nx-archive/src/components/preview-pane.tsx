@@ -107,6 +107,11 @@ import {
   type BmfChar,
 } from "@tootallnate/bmfont"
 import {
+  parseSpriteFont,
+  type ParsedSpriteFont,
+  type SpriteFontGlyph,
+} from "@tootallnate/dxtk-font"
+import {
   DataTableParseError,
   getMipBytes,
   inferAssetClassName,
@@ -1505,6 +1510,8 @@ function FilePreview({
       return <BffntPreview node={node} />
     case "bmfont-info":
       return <BmfontPreview node={node} root={root} />
+    case "spritefont-info":
+      return <SpritefontPreview node={node} />
     case "bfwav-audio":
       return <NintendoAudioPreview node={node} kind="bfwav" />
     case "bfstm-audio":
@@ -3607,6 +3614,327 @@ function BmfontPagesSection({
       </div>
     </section>
   )
+}
+
+// ====================================================================
+// DirectXTK SpriteFont (.spritefont) — bitmap-atlas font preview
+// ====================================================================
+//
+// SpriteFont is a flat bitmap-font format: a glyph table (codepoint
+// → atlas sub-rect + draw offset + advance) plus a single texture
+// containing every glyph. We parse it via `@tootallnate/dxtk-font`,
+// paint the atlas to a canvas, and use the glyph table to render a
+// live sample-text panel — same UX as the BMFont preview, just a
+// simpler format (single page, no kerning table).
+
+interface SpritefontView {
+  parsed: ParsedSpriteFont
+  /** Index from codepoint → glyph for O(1) lookups during text rendering. */
+  glyphIndex: Map<number, SpriteFontGlyph>
+}
+
+function SpritefontPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    const blob = await node.blob!()
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    const parsed = parseSpriteFont(bytes)
+    const glyphIndex = new Map<number, SpriteFontGlyph>()
+    for (const g of parsed.glyphs) glyphIndex.set(g.character, g)
+    const view: SpritefontView = { parsed, glyphIndex }
+    return view
+  }, [node.id])
+
+  // Build an HTMLImageElement of the atlas once per view. We use a
+  // canvas → blob → image dance so the sample-text canvas can use
+  // `drawImage` for sub-rect blits exactly like BmfontSampleSection
+  // does. (Trying to `drawImage` directly from an ImageData isn't
+  // supported across canvases, hence the round-trip.)
+  const [atlasImage, setAtlasImage] = useState<HTMLImageElement | null>(null)
+  const [atlasUrl, setAtlasUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!data) return
+    let cancelled = false
+    let revokeUrl: string | null = null
+    ;(async () => {
+      const { textureWidth, textureHeight, atlasRgba } = data.parsed
+      const canvas = document.createElement("canvas")
+      canvas.width = textureWidth
+      canvas.height = textureHeight
+      const ctx = canvas.getContext("2d")
+      if (!ctx) return
+      // Copy into a fresh ArrayBuffer so the `Uint8ClampedArray`
+      // satisfies `ImageData`'s requirement of a plain ArrayBuffer
+      // (TS-side; the underlying type is `ArrayBufferLike` which
+      // could be a SharedArrayBuffer).
+      const clamped = new Uint8ClampedArray(atlasRgba.length)
+      clamped.set(atlasRgba)
+      const img = new ImageData(clamped, textureWidth, textureHeight)
+      ctx.putImageData(img, 0, 0)
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob((b) => resolve(b), "image/png"),
+      )
+      if (!blob || cancelled) return
+      const url = URL.createObjectURL(blob)
+      revokeUrl = url
+      const imageEl = new Image()
+      await new Promise<void>((resolve, reject) => {
+        imageEl.onload = () => resolve()
+        imageEl.onerror = (e) => reject(new Error(`atlas image load failed: ${e}`))
+        imageEl.src = url
+      })
+      if (cancelled) return
+      setAtlasImage(imageEl)
+      setAtlasUrl(url)
+    })()
+    return () => {
+      cancelled = true
+      if (revokeUrl) URL.revokeObjectURL(revokeUrl)
+      setAtlasImage(null)
+      setAtlasUrl(null)
+    }
+  }, [data])
+
+  const [sample, setSample] = useState(
+    "The quick brown fox jumps over the lazy dog.\n0123456789 !@#$%^&*()",
+  )
+
+  if (loading) return <LoadingFiller label="Decoding SpriteFont…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+
+  // Compute codepoint coverage summary — the user often wants to
+  // know what range of characters this font carries (ASCII?
+  // ASCII + Latin-1? Japanese?).
+  const codepoints = v.parsed.glyphs.map((g) => g.character).sort((a, b) => a - b)
+  const minCp = codepoints[0]
+  const maxCp = codepoints[codepoints.length - 1]
+  const coverage =
+    minCp !== undefined && maxCp !== undefined
+      ? `U+${minCp.toString(16).toUpperCase().padStart(4, "0")} … U+${maxCp.toString(16).toUpperCase().padStart(4, "0")}`
+      : "—"
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="SpriteFont — DirectXTK bitmap font" />
+
+        <KvBlock title="Font">
+          <KvRow k="Glyphs" v={`${v.parsed.glyphs.length}`} />
+          <KvRow
+            k="Line spacing"
+            v={`${v.parsed.lineSpacing.toFixed(1)} px`}
+          />
+          <KvRow
+            k="Default char"
+            v={
+              v.parsed.defaultCharacter === 0
+                ? "(none)"
+                : `'${printableChar(v.parsed.defaultCharacter)}' (U+${v.parsed.defaultCharacter
+                    .toString(16)
+                    .toUpperCase()
+                    .padStart(4, "0")})`
+            }
+          />
+          <KvRow k="Codepoint range" v={coverage} />
+        </KvBlock>
+
+        <KvBlock title="Atlas">
+          <KvRow
+            k="Texture size"
+            v={`${v.parsed.textureWidth} × ${v.parsed.textureHeight} px`}
+          />
+          <KvRow
+            k="Format"
+            v={`${spritefontFormatLabel(v.parsed.textureFormat)} (${v.parsed.textureFormatName})`}
+          />
+        </KvBlock>
+
+        <SpritefontSampleSection
+          view={v}
+          atlasImage={atlasImage}
+          sample={sample}
+          onSampleChange={setSample}
+        />
+
+        <SpritefontAtlasSection view={v} atlasUrl={atlasUrl} />
+      </div>
+    </ScrollArea>
+  )
+}
+
+/**
+ * Render a sample text composited from atlas glyphs. Pen-based
+ * layout: per character, draw the atlas sub-rect at
+ * `(pen.x + xOffset, pen.y + yOffset)`, advance pen.x by
+ * `xAdvance`. Newlines wrap to a new line by lineSpacing pixels.
+ *
+ * Glyphs missing from the table fall back to `defaultCharacter`
+ * (or are skipped if the default is also missing).
+ */
+function SpritefontSampleSection({
+  view,
+  atlasImage,
+  sample,
+  onSampleChange,
+}: {
+  view: SpritefontView
+  atlasImage: HTMLImageElement | null
+  sample: string
+  onSampleChange: (value: string) => void
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const text = sample.length > 0 ? sample : " "
+    const layout = layoutSpritefontText(view, text)
+    canvas.width = Math.max(1, layout.width)
+    canvas.height = Math.max(1, layout.height)
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    if (!atlasImage) return
+    for (const g of layout.glyphs) {
+      const sub = g.glyph.subrect
+      const w = sub.right - sub.left
+      const h = sub.bottom - sub.top
+      if (w <= 0 || h <= 0) continue
+      ctx.drawImage(atlasImage, sub.left, sub.top, w, h, g.dstX, g.dstY, w, h)
+    }
+  }, [view, sample, atlasImage])
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Sample
+      </h3>
+      <textarea
+        value={sample}
+        onChange={(e) => onSampleChange(e.target.value)}
+        rows={3}
+        className="w-full resize-y rounded-md border bg-background p-2 font-mono text-xs"
+      />
+      <div className="overflow-auto rounded-md border bg-card p-3">
+        <canvas
+          ref={canvasRef}
+          className="block max-w-full"
+          style={{ imageRendering: "pixelated" }}
+        />
+      </div>
+    </section>
+  )
+}
+
+/**
+ * Render the raw atlas image and offer a PNG download. Helpful for
+ * sanity-checking what the font actually contains, and lets users
+ * extract the bitmap for offline use.
+ */
+function SpritefontAtlasSection({
+  view,
+  atlasUrl,
+}: {
+  view: SpritefontView
+  atlasUrl: string | null
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+        Atlas image
+      </h3>
+      <div className="overflow-auto rounded-md border bg-card p-3">
+        {atlasUrl ? (
+          <img
+            src={atlasUrl}
+            alt={`SpriteFont atlas ${view.parsed.textureWidth}×${view.parsed.textureHeight}`}
+            className="block max-w-full"
+            style={{ imageRendering: "pixelated" }}
+          />
+        ) : (
+          <Skeleton className="h-32 w-full" />
+        )}
+      </div>
+      {atlasUrl && (
+        <div>
+          <a
+            href={atlasUrl}
+            download="atlas.png"
+            className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-xs font-medium hover:bg-accent"
+          >
+            <DownloadIcon className="size-3.5" />
+            Save atlas.png
+          </a>
+        </div>
+      )}
+    </section>
+  )
+}
+
+interface SpritefontLayoutGlyph {
+  glyph: SpriteFontGlyph
+  dstX: number
+  dstY: number
+}
+
+/**
+ * Pen-based text layout. Returns the per-glyph draw positions plus
+ * the bounding-box width/height of the laid-out text. We respect
+ * line-spacing for `\n` and substitute missing codepoints with the
+ * font's `defaultCharacter` (silently skip when default is missing
+ * too).
+ */
+function layoutSpritefontText(
+  view: SpritefontView,
+  text: string,
+): { width: number; height: number; glyphs: SpritefontLayoutGlyph[] } {
+  const glyphs: SpritefontLayoutGlyph[] = []
+  const fallback = view.glyphIndex.get(view.parsed.defaultCharacter) ?? null
+  const lineSpacing = view.parsed.lineSpacing
+  let penX = 0
+  let penY = 0
+  let maxX = 0
+  // Walk by codepoint so surrogate pairs (rare in SpriteFont but
+  // possible) come out right.
+  for (const ch of text) {
+    if (ch === "\n") {
+      penX = 0
+      penY += lineSpacing
+      continue
+    }
+    const cp = ch.codePointAt(0)
+    if (cp === undefined) continue
+    const glyph = view.glyphIndex.get(cp) ?? fallback
+    if (!glyph) continue
+    glyphs.push({
+      glyph,
+      dstX: penX + glyph.xOffset,
+      dstY: penY + glyph.yOffset,
+    })
+    const sub = glyph.subrect
+    const w = sub.right - sub.left
+    const advance = glyph.xAdvance + w
+    penX += advance
+    if (penX > maxX) maxX = penX
+  }
+  const height = penY + lineSpacing
+  return { width: Math.max(1, Math.ceil(maxX)), height: Math.max(1, Math.ceil(height)), glyphs }
+}
+
+function spritefontFormatLabel(format: number): string {
+  switch (format) {
+    case 28:
+      return "R8G8B8A8 (32-bit)"
+    case 115:
+      return "B4G4R4A4 (16-bit)"
+    case 74:
+      return "BC2 / DXT3 (block-compressed)"
+    default:
+      return `unknown (DXGI=${format})`
+  }
+}
+
+function printableChar(cp: number): string {
+  if (cp >= 0x20 && cp < 0x7f) return String.fromCodePoint(cp)
+  return `0x${cp.toString(16)}`
 }
 
 // ====================================================================
