@@ -342,6 +342,7 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	bfwar: 'BFWAR', // Wave archive (collection of BFWAVs)
 	bfstm: 'BFSTM', // Streamed audio
 	bfwav: 'BFWAV', // Cached/baked audio
+	bwav: 'BWAV', // Newer Nintendo wav (BotW 2 / Tears of the Kingdom / Mario Wonder era)
 	bfstp: 'BFSTP', // Prefetch stream
 	barslist: 'BARSLIST', // ARSL — manifest of BARS file refs
 	bnvib: 'BNVIB', // Switch HD Rumble vibration pattern

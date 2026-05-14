@@ -139,7 +139,20 @@ import {
   type UProperty,
   type UValue,
 } from "@tootallnate/uasset"
-import { decodeSwitchAudio, encodeWavBlob } from "@tootallnate/dsp-adpcm"
+import {
+  decodeChannel,
+  decodeSwitchAudio,
+  encodeWavBlob,
+  interleavePcm16,
+  makeDspState,
+} from "@tootallnate/dsp-adpcm"
+import {
+  BWAV_CODEC_DSP_ADPCM,
+  BWAV_CODEC_NX_OPUS,
+  BWAV_CODEC_PCM16LE,
+  bwavChannelByteRanges,
+  parseBwav,
+} from "@tootallnate/bwav"
 import { parseAwb, type ParsedAwb } from "@tootallnate/awb"
 import { decodeHcaToWavBlob, parseHcaHeader } from "@tootallnate/hca"
 import {
@@ -1553,6 +1566,8 @@ function FilePreview({
       return <SpritefontPreview node={node} />
     case "bfwav-audio":
       return <NintendoAudioPreview node={node} kind="bfwav" />
+    case "bwav-audio":
+      return <BwavAudioPreview node={node} />
     case "bfstm-audio":
       return <NintendoAudioPreview node={node} kind="bfstm" />
     case "wem-audio":
@@ -7048,6 +7063,230 @@ function NintendoAudioPreview({
             <KvRow k="File size" v={formatBytes(v.parsed.data.fileSize)} />
           </KvBlock>
         )}
+      </div>
+    </ScrollArea>
+  )
+}
+
+// ====================================================================
+// BWAV — Nintendo BotW2 / Tears of the Kingdom / Mario Wonder audio
+// ====================================================================
+//
+// Three on-disk codecs:
+//
+//   0 (PCM16LE):
+//     Interleaved s16 samples. Wrap as a WAV directly.
+//
+//   1 (DSP-ADPCM, the codec used by Amiibo SFX in TotK):
+//     Per-channel coefficient table + initial hist values are already
+//     in the BWAV channel header (unlike SwitchAudio's separate DSP
+//     header). We feed those straight to `makeDspState` +
+//     `decodeChannel` and then interleave.
+//
+//   2 (NXOpus, per-channel):
+//     Each channel is an independent NXOpus sub-stream at its own
+//     payload offset. Stereo BWAVs need both streams demuxed +
+//     re-muxed in sync — non-trivial. For now we surface a clear
+//     "codec 2 not yet supported" message so the user sees the
+//     metadata but the player area shows the limitation.
+//
+// Decoding everything ≤ a few seconds of audio is essentially free
+// in JS, so we decode synchronously inside the loader.
+
+function decodeBwavToWavBlob(bytes: Uint8Array): {
+  wavBlob: Blob | null
+  codecName: string
+  sampleRate: number
+  numChannels: number
+  totalSamples: number
+  unsupportedReason: string | null
+} {
+  const parsed = parseBwav(bytes)
+  const channelCount = parsed.channels.length
+  const ch0 = parsed.channels[0]
+  const codecName =
+    ch0.codec === BWAV_CODEC_PCM16LE
+      ? "PCM16LE"
+      : ch0.codec === BWAV_CODEC_DSP_ADPCM
+        ? "Nintendo DSP-ADPCM"
+        : ch0.codec === BWAV_CODEC_NX_OPUS
+          ? "Nintendo Switch Opus (NXOpus)"
+          : `Unknown (${ch0.codec})`
+  const ranges = bwavChannelByteRanges(parsed, bytes.length)
+
+  if (ch0.codec === BWAV_CODEC_PCM16LE) {
+    // The channels are *interleaved* in a single payload block,
+    // not per-channel. vgmstream computes `interleave = ch1_off
+    // - ch0_off`, which for PCM16 mono is just the payload size.
+    // For stereo PCM16, the payload starts at channel[0].offset
+    // and runs `2 * numSamples * 2 bytes`.
+    const payloadStart = ch0.payloadOffset
+    const numSamples = ch0.numSamples
+    const payloadSize = numSamples * channelCount * 2
+    const payloadEnd = Math.min(payloadStart + payloadSize, bytes.length)
+    if (payloadEnd <= payloadStart) {
+      return {
+        wavBlob: null,
+        codecName,
+        sampleRate: ch0.sampleRate,
+        numChannels: channelCount,
+        totalSamples: numSamples,
+        unsupportedReason: "PCM16 payload is empty",
+      }
+    }
+    // Copy into a fresh Int16Array so the result owns its buffer
+    // (the input may be a view into a shared ArrayBuffer).
+    const pcmBytes = bytes.subarray(payloadStart, payloadEnd)
+    const samples = new Int16Array(
+      pcmBytes.byteLength >> 1,
+    )
+    const dv = new DataView(
+      pcmBytes.buffer,
+      pcmBytes.byteOffset,
+      pcmBytes.byteLength,
+    )
+    for (let i = 0; i < samples.length; i++) samples[i] = dv.getInt16(i * 2, true)
+    const wav = encodeWavBlob(samples, ch0.sampleRate, channelCount)
+    return {
+      wavBlob: wav,
+      codecName,
+      sampleRate: ch0.sampleRate,
+      numChannels: channelCount,
+      totalSamples: numSamples,
+      unsupportedReason: null,
+    }
+  }
+
+  if (ch0.codec === BWAV_CODEC_DSP_ADPCM) {
+    // Per-channel: pull the byte slice, build a DspChannelState from
+    // the (already-LE) coefficient bytes in the header + the initial
+    // hist values, decode to PCM16, then interleave.
+    const perChannelPcm: Int16Array[] = []
+    for (let c = 0; c < channelCount; c++) {
+      const ch = parsed.channels[c]
+      const { start, end } = ranges[c]
+      const frames = bytes.subarray(start, end)
+      // `makeDspState` reads 32 bytes of coefs from a Uint8Array; we
+      // have an Int16Array(16) here. Pack back to bytes (LE since
+      // BWAV is little-endian).
+      const coefBytes = new Uint8Array(32)
+      const cdv = new DataView(coefBytes.buffer)
+      for (let i = 0; i < 16; i++) cdv.setInt16(i * 2, ch.coefs[i], true)
+      const state = makeDspState(coefBytes, {
+        littleEndian: true,
+        hist1: ch.startHist1,
+        hist2: ch.startHist2,
+      })
+      perChannelPcm.push(decodeChannel(frames, ch.numSamples, state))
+    }
+    const interleaved =
+      channelCount === 1 ? perChannelPcm[0] : interleavePcm16(perChannelPcm)
+    const wav = encodeWavBlob(interleaved, ch0.sampleRate, channelCount)
+    return {
+      wavBlob: wav,
+      codecName,
+      sampleRate: ch0.sampleRate,
+      numChannels: channelCount,
+      totalSamples: ch0.numSamples,
+      unsupportedReason: null,
+    }
+  }
+
+  if (ch0.codec === BWAV_CODEC_NX_OPUS) {
+    return {
+      wavBlob: null,
+      codecName,
+      sampleRate: ch0.sampleRate,
+      numChannels: channelCount,
+      totalSamples: ch0.numSamples,
+      unsupportedReason:
+        "NXOpus playback for BWAV isn't wired up yet — the per-channel layered framing differs from Wwise's OPUSNX and requires a separate parser. Metadata is shown above.",
+    }
+  }
+
+  return {
+    wavBlob: null,
+    codecName,
+    sampleRate: ch0.sampleRate,
+    numChannels: channelCount,
+    totalSamples: ch0.numSamples,
+    unsupportedReason: `Unknown BWAV codec (${ch0.codec})`,
+  }
+}
+
+function BwavAudioPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    const blob = await node.blob!()
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    return decodeBwavToWavBlob(bytes)
+  }, [node.id])
+
+  const [wavUrl, setWavUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!data?.wavBlob) {
+      setWavUrl(null)
+      return
+    }
+    const url = URL.createObjectURL(data.wavBlob)
+    setWavUrl(url)
+    return () => {
+      URL.revokeObjectURL(url)
+      setWavUrl(null)
+    }
+  }, [data])
+
+  if (loading) return <LoadingFiller label="Decoding BWAV…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const durationSeconds = v.totalSamples / (v.sampleRate || 1)
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="BWAV — Nintendo modern audio (BotW 2 / TotK / Wonder)" />
+
+        <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+          {wavUrl ? (
+            <audio
+              src={wavUrl}
+              controls
+              className="w-full"
+            />
+          ) : v.unsupportedReason ? (
+            <Alert>
+              <CircleAlertIcon />
+              <AlertTitle>Playback unavailable</AlertTitle>
+              <AlertDescription>{v.unsupportedReason}</AlertDescription>
+            </Alert>
+          ) : (
+            <Skeleton className="h-12 w-full" />
+          )}
+          {wavUrl && (
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span>Decoded to WAV ({v.codecName})</span>
+              <a
+                href={wavUrl}
+                download={`${node.name.replace(/\.bwav$/i, "")}.wav`}
+                className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+              >
+                Save .wav
+              </a>
+            </div>
+          )}
+        </section>
+
+        <KvBlock title="Audio">
+          <KvRow k="Codec" v={v.codecName} />
+          <KvRow k="Sample rate" v={`${v.sampleRate.toLocaleString()} Hz`} />
+          <KvRow
+            k="Channels"
+            v={`${v.numChannels} (${v.numChannels === 1 ? "mono" : v.numChannels === 2 ? "stereo" : `${v.numChannels}-channel`})`}
+          />
+          <KvRow k="Total samples" v={v.totalSamples.toLocaleString()} />
+          <KvRow
+            k="Duration"
+            v={`${formatDuration(durationSeconds)} (${durationSeconds.toFixed(2)}s)`}
+          />
+        </KvBlock>
       </div>
     </ScrollArea>
   )

@@ -89,6 +89,8 @@ export type PreviewKind =
 	| 'spritefont-info'
 	/** Switch / Wii U single-shot audio (BFWAV / BFSTP, also BARS-embedded FWAVs). */
 	| 'bfwav-audio'
+	/** Nintendo BWAV (newer than BFWAV; BotW 2 / TotK / Wonder era). */
+	| 'bwav-audio'
 	/** Switch / Wii U streamed audio (BFSTM / BFSTP). */
 	| 'bfstm-audio'
 	/** Wwise WEM audio asset (Switch-Opus → Ogg, PCM → WAV). */
@@ -269,6 +271,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.uasset') || lower.endsWith('.umap'))
 		return 'uasset-info';
 	if (lower.endsWith('.bfwav')) return 'bfwav-audio';
+	if (lower.endsWith('.bwav')) return 'bwav-audio';
 	if (lower.endsWith('.bfstm') || lower.endsWith('.bfstp')) return 'bfstm-audio';
 	if (lower.endsWith('.wem')) return 'wem-audio';
 	// CRI HCA — standalone tracks (extracted from AWB or hand-named).

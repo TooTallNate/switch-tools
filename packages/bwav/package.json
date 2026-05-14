@@ -1,0 +1,30 @@
+{
+  "name": "@tootallnate/bwav",
+  "version": "0.0.1",
+  "description": "Parser for Nintendo's `.bwav` audio container (BotW 2 / TotK / Mario Wonder era).",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "author": "Nathan Rajlich <n@n8.io>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/bwav"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
