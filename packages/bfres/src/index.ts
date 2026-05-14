@@ -791,10 +791,20 @@ function readModels(
 		// materialArrayOffset, materialDictOffset, userDataArrayOffset,
 		// userDataDictOffset, userPointer.
 		const skeletonOffset = Number(v.getBigUint64(ptrBase + 0x10, true));
-		// Counts come after the pointer block. v5–v8: 16 bytes after
-		// the 88-byte pointer area (= ptrBase + 0x58); v9+: counts at
-		// ptrBase + 0x50.
-		const countsBase = ptrBase + (version.major >= 9 ? 0x48 : 0x58);
+		// Counts come after the pointer block:
+		//   v5–v8: counts at ptrBase + 0x58 (after a 0x58-byte pointer block)
+		//   v9:    counts at ptrBase + 0x48 (one fewer 0x10 area)
+		//   v10:   counts at ptrBase + 0x60 (v10 inserted two new pointers
+		//          — ShaderAssignArrayOffset + ShaderAssignDictOffset — into
+		//          the FMDL pointer block between materialDictOffset and
+		//          userDataArrayOffset, pushing counts forward by 0x18).
+		//          Observed in Echoes of Wisdom / TotK / Mario Wonder.
+		const countsBase =
+			version.major >= 10
+				? ptrBase + 0x60
+				: version.major >= 9
+					? ptrBase + 0x48
+					: ptrBase + 0x58;
 		if (countsBase + 8 > data.length) {
 			out.push({
 				name: names[i],
@@ -829,9 +839,13 @@ function readModels(
 				// plausible u16. Cheap fallback: grab the first u16 in
 				// the post-pointer region that's between 1 and 4096.
 				const fsklPtrBase = skeletonOffset + (version.major >= 9 ? 0x08 : 0x10);
+				// FSKL counts offset varies by version. In addition to
+				// the originally-documented v9+ locations, v10's FSKL
+				// puts the bone-count u16 at +0x30 (observed in
+				// DVCommonEnkeiCastleFlower.bfres from Echoes of Wisdom).
 				const fsklCountsCandidates =
 					version.major >= 9
-						? [fsklPtrBase + 0x40, fsklPtrBase + 0x48]
+						? [fsklPtrBase + 0x30, fsklPtrBase + 0x40, fsklPtrBase + 0x48]
 						: [fsklPtrBase + 0x44, fsklPtrBase + 0x50];
 				for (const cand of fsklCountsCandidates) {
 					if (cand + 2 > data.length) continue;
@@ -1178,7 +1192,14 @@ export async function extractGeometry(blob: Blob): Promise<BfresGeometry[]> {
 		const fmdlOff = fmdlOffsets[mi];
 		const ptrBase = fmdlOff + (major >= 9 ? 0x08 : 0x10);
 		const shapeValuesOffset = Number(v.getBigUint64(ptrBase + 0x20, true));
-		const countsBase = ptrBase + (major >= 9 ? 0x48 : 0x58);
+		// v10 added two pointers to the FMDL pointer block (see the
+		// parseBfres equivalent), pushing the counts forward by 0x18.
+		const countsBase =
+			major >= 10
+				? ptrBase + 0x60
+				: major >= 9
+					? ptrBase + 0x48
+					: ptrBase + 0x58;
 		const numShape = v.getUint16(countsBase + 2, true);
 
 		// Each FSHP value is a pointer to its FSHP record. v9+ FSHPs
@@ -1286,7 +1307,14 @@ export async function extractMaterials(blob: Blob): Promise<BfresMaterial[][]> {
 		const matValuesOffset = Number(v.getBigUint64(ptrBase + 0x30, true));
 		const matDictOffset = Number(v.getBigUint64(ptrBase + 0x38, true));
 		const matNames = readDict(data, v, matDictOffset);
-		const countsBase = ptrBase + (major >= 9 ? 0x48 : 0x58);
+		// v10 added two pointers to the FMDL pointer block — see
+		// the parseBfres equivalent.
+		const countsBase =
+			major >= 10
+				? ptrBase + 0x60
+				: major >= 9
+					? ptrBase + 0x48
+					: ptrBase + 0x58;
 		const numMaterial = v.getUint16(countsBase + 4, true);
 
 		const matsForFmdl: BfresMaterial[] = [];
@@ -1335,19 +1363,26 @@ export async function extractMaterials(blob: Blob): Promise<BfresMaterial[][]> {
 			}
 			// Parse FMAT record. v9+ replaces the leading 12-byte
 			// HeaderBlock with a u32 flags field, which shifts every
-			// subsequent offset by 8 bytes.
+			// subsequent offset by 8 bytes. v10 then re-shuffles the
+			// pointer block: `textureNameArrayOff` moves from 0x30 to
+			// 0x20, `samplerDictOff` moves from 0x48 to 0x38, and the
+			// count bytes move from (0xa0, 0xa1) to (0xa2, 0xa3).
 			const baseShift = major >= 9 ? -8 : 0;
 			const matNameOff = Number(
 				v.getBigInt64(off + 0x10 + baseShift, true),
 			);
-			const textureNameArrayOff = Number(
-				v.getBigInt64(off + 0x38 + baseShift, true),
-			);
-			const samplerDictOff = Number(
-				v.getBigInt64(off + 0x50 + baseShift, true),
-			);
-			const numTextureRef = data[off + 0xa8 + baseShift];
-			const numSampler = data[off + 0xa9 + baseShift];
+			const textureNameArrayOff =
+				major >= 10
+					? Number(v.getBigInt64(off + 0x20, true))
+					: Number(v.getBigInt64(off + 0x38 + baseShift, true));
+			const samplerDictOff =
+				major >= 10
+					? Number(v.getBigInt64(off + 0x38, true))
+					: Number(v.getBigInt64(off + 0x50 + baseShift, true));
+			const numTextureRef =
+				major >= 10 ? data[off + 0xa2] : data[off + 0xa8 + baseShift];
+			const numSampler =
+				major >= 10 ? data[off + 0xa3] : data[off + 0xa9 + baseShift];
 
 			const name = matNames[i] ?? readPoolString(data, matNameOff);
 			const textureRefs: string[] = [];
