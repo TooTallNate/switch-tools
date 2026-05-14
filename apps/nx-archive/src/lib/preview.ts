@@ -109,6 +109,8 @@ export type PreviewKind =
 	| 'bntx-image'
 	/** CRI Sofdec2 USM video container (VP9 / H.264 + HCA / ADX / PCM). */
 	| 'usm-video'
+	/** Bink 2 (`.bk2`) video — decode via user-supplied WASM, re-encode to MP4. */
+	| 'bink2-video'
 	/** Unity SerializedFile (`CAB-…` inside an AssetBundle). */
 	| 'unity-asset'
 	/** A single object inside a Unity SerializedFile (Font, Texture2D, …). */
@@ -286,6 +288,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.byaml') || lower.endsWith('.byml')) return 'byaml-tree';
 	if (lower.endsWith('.bntx')) return 'bntx-image';
 	if (lower.endsWith('.usm')) return 'usm-video';
+	if (lower.endsWith('.bk2')) return 'bink2-video';
 	// Switch app icons (in Control NCA RomFS) are JPEGs with a `.dat` ext.
 	if (/^icon_.*\.dat$/.test(lower)) return 'image';
 	const ext = extOf(name);

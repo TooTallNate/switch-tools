@@ -2,6 +2,7 @@ import { useRef } from "react"
 import {
   ChevronDownIcon,
   FileIcon,
+  FilmIcon,
   FolderIcon,
   GithubIcon,
   KeyIcon,
@@ -38,10 +39,12 @@ interface AppHeaderProps {
   onOpenDirectory: (directory: WalkedDirectory) => void
   onOpenKeys: () => void
   onOpenOodle: () => void
+  onOpenBink2: () => void
   onCloseFile: () => void
   hasFile: boolean
   hasKeys: boolean
   hasOodle: boolean
+  hasBink2: boolean
   currentFileName?: string
   currentFileSize?: number
   onPickerError: (err: Error) => void
@@ -52,10 +55,12 @@ export function AppHeader({
   onOpenDirectory,
   onOpenKeys,
   onOpenOodle,
+  onOpenBink2,
   onCloseFile,
   hasFile,
   hasKeys,
   hasOodle,
+  hasBink2,
   currentFileName,
   currentFileSize,
   onPickerError,
@@ -197,6 +202,18 @@ export function AppHeader({
           />
           Oodle
           {hasOodle && (
+            <Badge variant="secondary" className="ml-0.5">
+              loaded
+            </Badge>
+          )}
+        </Button>
+        <Button variant="outline" size="sm" onClick={onOpenBink2}>
+          <FilmIcon
+            data-icon="inline-start"
+            className={hasBink2 ? "text-primary" : undefined}
+          />
+          Bink2
+          {hasBink2 && (
             <Badge variant="secondary" className="ml-0.5">
               loaded
             </Badge>

@@ -14,6 +14,7 @@ import {
 } from "~/components/file-tree-search"
 import { KeysDialog } from "~/components/keys-dialog"
 import { OodleDialog } from "~/components/oodle-dialog"
+import { Bink2Dialog } from "~/components/bink2-dialog"
 import { PreviewPane } from "~/components/preview-pane"
 import {
   ResizableHandle,
@@ -34,6 +35,7 @@ import {
   getOodleDecompressor,
   loadStoredOodleWasm,
 } from "~/lib/oodle-store"
+import { loadStoredBink2Wasm } from "~/lib/bink2-store"
 import type { KeySet } from "@tootallnate/nca"
 import { formatBytes } from "~/lib/utils"
 
@@ -82,6 +84,12 @@ function ArchiveApp() {
   const [keysOpen, setKeysOpen] = useState(false)
   const [oodleOpen, setOodleOpen] = useState(false)
   const [hasOodle, setHasOodle] = useState(false)
+  const [bink2Open, setBink2Open] = useState(false)
+  const [hasBink2, setHasBink2] = useState(false)
+  // Bumped whenever the stored Bink2 WASM changes (upload or clear),
+  // so previews waiting on the WASM auto-retry instead of needing
+  // the user to re-select the file.
+  const [bink2WasmVersion, setBink2WasmVersion] = useState(0)
   const [keys, setKeys] = useState<KeySet | null>(null)
   const [reloadCounter, setReloadCounter] = useState(0)
   const [searchState, setSearchState] = useState<SearchState>({
@@ -116,6 +124,9 @@ function ArchiveApp() {
     // the in-memory cache is warm by the time the first Oodle-
     // compressed block is read.
     void loadStoredOodleWasm().then((bytes) => setHasOodle(!!bytes))
+    // Preload the Bink 2 WASM as well so .bk2 previews can start
+    // decoding immediately on first selection.
+    void loadStoredBink2Wasm().then((bytes) => setHasBink2(!!bytes))
   }, [])
 
   // The ArchiveContext is intentionally stable across re-renders so that
@@ -224,10 +235,12 @@ function ArchiveApp() {
         onOpenDirectory={handleOpenDirectory}
         onOpenKeys={() => setKeysOpen(true)}
         onOpenOodle={() => setOodleOpen(true)}
+        onOpenBink2={() => setBink2Open(true)}
         onCloseFile={handleCloseFile}
         hasFile={!!opened}
         hasKeys={!!keys}
         hasOodle={hasOodle}
+        hasBink2={hasBink2}
         currentFileName={opened ? openedDisplayName(opened) : undefined}
         currentFileSize={opened ? openedDisplaySize(opened) : undefined}
         onPickerError={handlePickerError}
@@ -318,6 +331,8 @@ function ArchiveApp() {
                 node={selected}
                 root={opened.root}
                 onNavigate={setSelected}
+                onRequestBink2={() => setBink2Open(true)}
+                bink2WasmVersion={bink2WasmVersion}
               />
             </ResizablePanel>
           </ResizablePanelGroup>
@@ -347,6 +362,20 @@ function ArchiveApp() {
           // ProdKeysMissingError after a keys upload.
           if (opened) invalidateNcaErrors(opened.root)
           setReloadCounter((c) => c + 1)
+        }}
+      />
+
+      <Bink2Dialog
+        open={bink2Open}
+        onOpenChange={setBink2Open}
+        onChanged={() => {
+          // Bink2 WASM is consumed only by the preview pane, so we
+          // don't need to invalidate the archive tree the way Oodle
+          // does. Updating both the badge AND the version counter
+          // lets any open Bink2 preview auto-retry without manual
+          // navigation.
+          void loadStoredBink2Wasm().then((bytes) => setHasBink2(!!bytes))
+          setBink2WasmVersion((v) => v + 1)
         }}
       />
     </div>
