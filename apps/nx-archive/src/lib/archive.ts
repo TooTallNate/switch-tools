@@ -96,6 +96,7 @@ export type NodeKind =
 	| 'bfwar'
 	| 'bfres'
 	| 'awb'
+	| 'acb'
 	| 'gfpak'
 	| 'wwise-pck'
 	| 'wwise-bnk'
@@ -359,6 +360,7 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	bank: 'BANK', // FMOD Studio bank (FEV form-type)
 	fsb: 'FSB5', // FMOD Sample Bank
 	awb: 'AWB', // CRI AFS2 audio wave bank
+	acb: 'ACB', // CRI Audio Cue Binary (cue manifest; pairs with .awb sibling)
 	hca: 'HCA', // CRI High Compression Audio
 };
 
@@ -602,6 +604,8 @@ export async function buildRootNode(
 		}
 		case 'AWB':
 			return makeAwbNode(id, displayName, blob, ctx);
+		case 'ACB':
+			return makeAcbNode(id, displayName, blob, ctx, undefined);
 		case 'BARS':
 			return makeBarsNode(id, displayName, blob, ctx);
 		case 'BFSAR':
@@ -2032,6 +2036,118 @@ function makeAwbNode(
 					blob: async () => trackBlob,
 				};
 			});
+		},
+	};
+}
+
+// ----- ACB (CRI Audio Cue Binary) -----
+
+/**
+ * Make an ACB container node. An ACB is a cue manifest that maps
+ * human-readable cue names (`BGM_TitleScreen`, `SE_Footstep_Wood`)
+ * to one or more audio tracks living in either:
+ *
+ *   - The ACB's own *embedded* AWB (memory cues — small SFX banks);
+ *   - An external *streamed* AWB sibling file (typically `<name>.awb`).
+ *
+ * Tree shape:
+ *
+ *   <name>.acb/
+ *     ├─ memory/
+ *     │    ├─ BGM_Boss_Theme.hca       ← decoded from embedded AwbFile
+ *     │    └─ …
+ *     └─ stream/
+ *          ├─ → <sibling0>.awb         ← jump-target leaves
+ *          └─ …
+ *
+ * Stream-AWB references render as `<name>.awb` leaves whose blob() is
+ * the sibling file's bytes — when the actual `.awb` is in the same
+ * dir, this means clicking either the `.acb` node OR the sibling
+ * `.awb` opens the same tracks. (Memory cues live only here.)
+ */
+function makeAcbNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+	siblings: SiblingMap | undefined,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'acb',
+		isContainer: true,
+		size: blob.size,
+		format: 'ACB',
+		blob: async () => blob,
+		getChildren: async () => {
+			const bytes = new Uint8Array(await blob.arrayBuffer());
+			const acb = parseAcb(bytes);
+			const children: Node[] = [];
+
+			// Memory cues: embedded AwbFile in the ACB itself.
+			if (acb.embeddedAwb && acb.embeddedAwb.byteLength > 0) {
+				// Copy into a fresh ArrayBuffer to satisfy `Blob`'s
+				// type signature (the parsed view's underlying buffer
+				// is `ArrayBufferLike`, which may be a SharedArrayBuffer).
+				const copy = new Uint8Array(acb.embeddedAwb.byteLength);
+				copy.set(acb.embeddedAwb);
+				const memoryAwbBlob = new Blob([copy.buffer]);
+				const memoryId = `${id}/memory.awb`;
+				children.push(
+					makeAwbNode(memoryId, 'memory.awb', memoryAwbBlob, ctx, async (lookupName) => {
+						// The embedded-AWB node would normally look for a
+						// sibling `.acb`. Short-circuit: the ACB IS this
+						// node's parent, so we already know the cue mapping
+						// without re-parsing. The siblingResolver only fires
+						// for the `.acb` filename lookup, so it's safe to
+						// return our own bytes.
+						if (lookupName.toLowerCase().endsWith('.acb')) return blob;
+						return null;
+					}),
+				);
+			}
+
+			// Stream cues: each `streamAwbs` entry refers to a sibling
+			// `.awb` file by name. Resolve via the sibling map (loose-
+			// directory / RomFS), surface as a child AWB so the user
+			// can open it in-tree.
+			const seenStream = new Set<string>();
+			for (const stream of acb.streamAwbs) {
+				if (!stream.name || seenStream.has(stream.name.toLowerCase())) continue;
+				seenStream.add(stream.name.toLowerCase());
+				const awbName = `${stream.name}.awb`;
+				const childId = `${id}/${awbName}`;
+				const siblingBlob = siblings ? siblings.get(awbName.toLowerCase()) : undefined;
+				if (siblingBlob) {
+					children.push(
+						makeAwbNode(childId, awbName, siblingBlob, ctx, async (lookupName) => {
+							// Same self-resolution as the memory case.
+							if (lookupName.toLowerCase().endsWith('.acb')) return blob;
+							return null;
+						}),
+					);
+				} else {
+					// Sibling not present in the archive we have access
+					// to — surface as an informational placeholder so
+					// the user can see the cue refers to an external file.
+					children.push({
+						id: childId,
+						name: awbName,
+						kind: 'file',
+						isContainer: false,
+						size: 0,
+						format: 'EXTERNAL',
+						blob: async () => new Blob(),
+						meta: {
+							acbStreamPort: acb.streamAwbs.indexOf(stream),
+							missing: true,
+						},
+					});
+				}
+			}
+
+			return children;
 		},
 	};
 }
@@ -3550,6 +3666,7 @@ async function childNodeFor(
 	if (ext === 'awb') {
 		return makeAwbNode(id, name, blob, ctx, siblingsToAwbResolver(siblings));
 	}
+	if (ext === 'acb') return makeAcbNode(id, name, blob, ctx, siblings);
 	if (ext === 'gfpak') return makeGfpakNode(id, name, blob, ctx);
 	if (ext === 'pck') return makeWwisePckNode(id, name, blob, ctx);
 	if (ext === 'bnk') return makeWwiseBnkNode(id, name, blob, ctx);
