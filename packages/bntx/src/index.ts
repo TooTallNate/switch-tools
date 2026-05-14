@@ -233,10 +233,45 @@ export interface DecodedTexture {
  * and the 10-10-10-2 / RGB565 BGRA8 variants we haven't seen in
  * the wild).
  */
+/**
+ * Synchronous ASTC block-stream → RGBA8 decoder, supplied by the
+ * caller. Allows decoding ASTC-compressed BNTX layers without
+ * baking a WASM dep into this package.
+ *
+ * The caller is expected to await `AstcDecoder.create()` once and
+ * pass a closure that calls the resulting `decoder.decode(...)`.
+ * `decodeBntxLayer` stays synchronous so the BFRES viewer's
+ * texture-cache loop and other tight call sites don't have to
+ * become async.
+ *
+ * Contract:
+ *   - `src` holds `ceil(w/blkW) * ceil(h/blkH) * 16` bytes of ASTC
+ *     blocks (post-deswizzle, linear order).
+ *   - Returns a fresh `Uint8Array(w * h * 4)` of RGBA8 pixels,
+ *     top-down rows.
+ *
+ * Pass `null` / undefined to fall back to the legacy "ASTC not
+ * supported" error path; useful when the caller is intentionally
+ * BCn-only.
+ */
+export type BntxAstcDecoder = (
+	width: number,
+	height: number,
+	blockW: number,
+	blockH: number,
+	src: Uint8Array,
+) => Uint8Array;
+
+export interface DecodeBntxLayerOptions {
+	/** Optional sync ASTC decoder, used when the texture is ASTC-format. */
+	astcDecoder?: BntxAstcDecoder;
+}
+
 export function decodeBntxLayer(
 	bytes: Uint8Array,
 	tex: BntxTexture,
 	layerIndex: number = 0,
+	options: DecodeBntxLayerOptions = {},
 ): DecodedTexture {
 	if (layerIndex < 0 || layerIndex >= tex.arrayLength) {
 		throw new Error(
@@ -249,12 +284,33 @@ export function decodeBntxLayer(
 	const swizzled = bytes.subarray(layerStart, layerEnd);
 
 	if (info.isAstc) {
-		throw new Error(
-			`ASTC textures are not supported (format ${info.name}). ` +
-				`Most Switch BNTXes use BCn instead — ASTC is rare on Switch but ` +
-				`appears in some Switch titles. Use BNTX-Editor or similar ` +
-				`to decode.`,
+		if (!options.astcDecoder) {
+			throw new Error(
+				`ASTC textures need an ASTC decoder (format ${info.name}). ` +
+					`Pass \`options.astcDecoder\` from a host-loaded WASM module ` +
+					`(e.g. @tootallnate/astc-wasm). Most Switch BNTXes use BCn so ` +
+					`BCn-only callers can omit this.`,
+			);
+		}
+		// Deswizzle first — same path as BCn, just with a different
+		// bytes-per-block (16) and the ASTC block dimensions.
+		const linear = deswizzle({
+			width: tex.width,
+			height: tex.height,
+			blkWidth: info.blkWidth,
+			blkHeight: info.blkHeight,
+			bytesPerBlock: info.bytesPerBlock,
+			data: swizzled,
+			blockHeight: blockHeightFromLog2(tex.blockHeightLog2),
+		});
+		const pixels = options.astcDecoder(
+			tex.width,
+			tex.height,
+			info.blkWidth,
+			info.blkHeight,
+			linear,
 		);
+		return { width: tex.width, height: tex.height, pixels };
 	}
 
 	const linear = deswizzle({
@@ -346,7 +402,10 @@ export function decodeBntxLayer(
  * its first layer to RGBA8. Throws for empty containers or
  * unsupported formats.
  */
-export function decodeBntxToRgba(bytes: Uint8Array): DecodedTexture & {
+export function decodeBntxToRgba(
+	bytes: Uint8Array,
+	options: DecodeBntxLayerOptions = {},
+): DecodedTexture & {
 	texture: BntxTexture;
 } {
 	const parsed = parseBntx(bytes);
@@ -354,6 +413,6 @@ export function decodeBntxToRgba(bytes: Uint8Array): DecodedTexture & {
 		throw new Error('BNTX has no textures');
 	}
 	const tex = parsed.textures[0];
-	const decoded = decodeBntxLayer(bytes, tex, 0);
+	const decoded = decodeBntxLayer(bytes, tex, 0, options);
 	return { ...decoded, texture: tex };
 }

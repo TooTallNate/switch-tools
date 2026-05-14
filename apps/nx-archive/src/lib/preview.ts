@@ -50,6 +50,7 @@ import {
 	type ParsedBntx,
 	type BntxTexture,
 } from '@tootallnate/bntx';
+import { getAstcBlockDecoder } from './astc';
 import { parseBfres, type ParsedBfres } from '@tootallnate/bfres';
 import {
 	parseWem,
@@ -1512,7 +1513,13 @@ export async function parseBntxForView(blob: Blob): Promise<BntxView> {
 		throw new Error('BNTX has no textures');
 	}
 	const texture = parsed.textures[0];
-	const decoded = decodeBntxLayer(bytes, texture, 0);
+	// If the texture is ASTC, lazy-load the ASTC WASM decoder before
+	// decoding. BCn-only textures skip the load entirely (lazy import
+	// inside `getAstcBlockDecoder` is gated by the `isAstc` check).
+	const astcDecoder = texture.formatInfo.isAstc
+		? await getAstcBlockDecoder()
+		: undefined;
+	const decoded = decodeBntxLayer(bytes, texture, 0, { astcDecoder });
 	return { parsed, texture, pixels: decoded.pixels };
 }
 

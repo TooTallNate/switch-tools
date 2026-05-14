@@ -32,9 +32,15 @@ import {
   type BfresSkeletalAnim,
   type BfresSkeleton,
 } from "@tootallnate/bfres"
-import { parseBntx, decodeBntxLayer, type BntxTexture } from "@tootallnate/bntx"
+import {
+  parseBntx,
+  decodeBntxLayer,
+  type BntxAstcDecoder,
+  type BntxTexture,
+} from "@tootallnate/bntx"
 
 import type { Node } from "~/lib/archive"
+import { getAstcBlockDecoder } from "~/lib/astc"
 
 /**
  * Error boundary that contains rendering exceptions to the BFRES
@@ -159,6 +165,17 @@ type BntxTextureCache = {
   decoded: Map<string, DecodedRgba | null>
   /** Memoised `THREE.DataTexture`s keyed by `name|wrapMode`. */
   textures: Map<string, THREE.Texture | null>
+  /**
+   * Pre-resolved synchronous ASTC decoder. Lazily populated by the
+   * BfresViewer at mount when any bank contains an ASTC texture; left
+   * undefined when no ASTC textures are present (cheap-path stays
+   * cheap — no WASM load).
+   *
+   * BCn textures don't touch this; the absence is OK for them.
+   * ASTC textures fall back to "decode failed" when this is missing,
+   * which surfaces as the existing "no texture" fallback.
+   */
+  astcDecoder?: BntxAstcDecoder
 }
 
 /** Locate `name` across `banks`; return its `BntxTexture` + raw bytes, or null. */
@@ -201,12 +218,45 @@ async function loadBntxBankFromBfres(blob: Blob): Promise<BntxBank | null> {
  * Companion BNTX banks (e.g. from a BotW-style `*.Tex.sbfres`)
  * can be appended later via `cache.banks.push(...)`.
  */
+/**
+ * True iff any texture in any of `banks` uses an ASTC compression
+ * format. Used to decide whether to lazy-load the ASTC WASM decoder
+ * before the (sync) `decodeBntxLayer` path runs.
+ */
+function banksHaveAstc(banks: BntxBank[]): boolean {
+  for (const bank of banks) {
+    for (const tex of bank.byName.values()) {
+      if (tex.formatInfo.isAstc) return true
+    }
+  }
+  return false
+}
+
+/**
+ * If `cache.astcDecoder` isn't set yet AND any of the cache's banks
+ * have ASTC textures, lazy-load the decoder and store it on the
+ * cache. Used both at initial construction and after appending
+ * companion `.Tex.sbfres` / shared-texture banks (which may carry
+ * ASTC even when the primary bank didn't).
+ */
+async function ensureAstcDecoder(cache: BntxTextureCache): Promise<void> {
+  if (cache.astcDecoder) return
+  if (!banksHaveAstc(cache.banks)) return
+  cache.astcDecoder = await getAstcBlockDecoder()
+}
+
 async function loadEmbeddedBntxTextures(
   blob: Blob,
 ): Promise<BntxTextureCache | null> {
   const bank = await loadBntxBankFromBfres(blob)
   if (!bank) return null
-  return { banks: [bank], decoded: new Map(), textures: new Map() }
+  const cache: BntxTextureCache = {
+    banks: [bank],
+    decoded: new Map(),
+    textures: new Map(),
+  }
+  await ensureAstcDecoder(cache)
+  return cache
 }
 
 /**
@@ -1097,7 +1147,9 @@ function pickAlbedo(
     const found = findInBanks(cache.banks, textureName)
     if (found) {
       try {
-        const d = decodeBntxLayer(found.bytes, found.tex, 0)
+        const d = decodeBntxLayer(found.bytes, found.tex, 0, {
+          astcDecoder: cache.astcDecoder,
+        })
         decoded = {
           pixels: new Uint8ClampedArray(
             d.pixels.buffer,
@@ -1164,7 +1216,9 @@ function getTextureByName(
     const found = findInBanks(cache.banks, textureName)
     if (found) {
       try {
-        const d = decodeBntxLayer(found.bytes, found.tex, 0)
+        const d = decodeBntxLayer(found.bytes, found.tex, 0, {
+          astcDecoder: cache.astcDecoder,
+        })
         decoded = {
           pixels: new Uint8ClampedArray(
             d.pixels.buffer,
@@ -1988,6 +2042,7 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
             } else {
               mergedTextures.banks.push(...companionBanks)
             }
+            await ensureAstcDecoder(mergedTextures)
           }
         }
         // Second-pass: if any albedo bindings still aren't
@@ -2011,6 +2066,7 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
           } else {
             mergedTextures.banks.push(...sharedBanks)
           }
+          await ensureAstcDecoder(mergedTextures)
         }
         // Same idea for animations: append every clip pulled from
         // companion `*_Animation.*` BFRES files to the model's own
