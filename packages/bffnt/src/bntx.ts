@@ -23,7 +23,12 @@ export const BNTX_MAGIC = 'BNTX';
 export const BNTX_FORMAT_R4G4 = 0x0201; // 1 byte/pixel; on Switch BFFNT used as A8 (anti-aliased single-channel glyph data)
 export const BNTX_FORMAT_R8 = 0x0101;
 export const BNTX_FORMAT_R8G8 = 0x0901;
-export const BNTX_FORMAT_R8G8B8A8 = 0x0b01;
+export const BNTX_FORMAT_R8G8B8A8_UNORM = 0x0b01;
+/** R8G8B8A8 stored as sRGB. Same byte layout as UNORM; the gamma flag is
+ *  cosmetic at the format level — Switch BFFNTs treat both identically. */
+export const BNTX_FORMAT_R8G8B8A8_SRGB = 0x0b06;
+/** Back-compat alias. Prefer the explicit `_UNORM`/`_SRGB` constants above. */
+export const BNTX_FORMAT_R8G8B8A8 = BNTX_FORMAT_R8G8B8A8_UNORM;
 export const BNTX_FORMAT_BC4_UNORM = 0x1d01;
 export const BNTX_FORMAT_BC4_SNORM = 0x1d02;
 
@@ -159,7 +164,12 @@ export function bntxFormatToBffntFormat(bntxFormat: number): number {
 			return 0x08;
 		case BNTX_FORMAT_R8G8:
 			return 0x0a; // LA8
-		case BNTX_FORMAT_R8G8B8A8:
+		case BNTX_FORMAT_R8G8B8A8_UNORM:
+		case BNTX_FORMAT_R8G8B8A8_SRGB:
+			// Same byte layout (4 × u8 RGBA per pixel); the sRGB flag
+			// only changes the gamma-decode policy a GPU sampler would
+			// apply, which the BFFNT renderer doesn't care about — we
+			// treat both as the BFFNT "RGBA8" format.
 			return 0x07; // RGBA8
 		case BNTX_FORMAT_BC4_UNORM:
 		case BNTX_FORMAT_BC4_SNORM:
@@ -168,7 +178,8 @@ export function bntxFormatToBffntFormat(bntxFormat: number): number {
 			throw new Error(
 				`Unsupported BNTX texture format 0x${bntxFormat.toString(16)} — ` +
 					`only BC4 (0x1d01/0x1d02), R8 (0x0101), R4G4 (0x0201), ` +
-					`R8G8 (0x0901), R8G8B8A8 (0x0b01) are implemented`,
+					`R8G8 (0x0901), R8G8B8A8 UNORM/SRGB (0x0b01/0x0b06) ` +
+					`are implemented`,
 			);
 	}
 }
