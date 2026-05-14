@@ -277,6 +277,9 @@ importers:
       '@tootallnate/brotli-wasm':
         specifier: workspace:*
         version: link:../../packages/brotli-wasm
+      '@tootallnate/bwav':
+        specifier: workspace:*
+        version: link:../../packages/bwav
       '@tootallnate/byaml':
         specifier: workspace:*
         version: link:../../packages/byaml
@@ -307,6 +310,9 @@ importers:
       '@tootallnate/lz4':
         specifier: workspace:^
         version: link:../../packages/lz4
+      '@tootallnate/msbt':
+        specifier: workspace:*
+        version: link:../../packages/msbt
       '@tootallnate/nacp':
         specifier: workspace:*
         version: link:../../packages/nacp
@@ -630,6 +636,15 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
+  packages/bwav:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
+
   packages/byaml:
     devDependencies:
       typescript:
@@ -728,6 +743,15 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.9.3
+
+  packages/msbt:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
   packages/nacp:
     devDependencies:

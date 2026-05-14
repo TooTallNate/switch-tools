@@ -1575,6 +1575,10 @@ function FilePreview({
       return <AinbPreview node={node} />
     case "nrr-info":
       return <NrrPreview node={node} />
+    case "ptcl-info":
+      return <NintendoWareResourcePreview node={node} kind="ptcl" />
+    case "bnsh-info":
+      return <NintendoWareResourcePreview node={node} kind="bnsh" />
     case "bfstm-audio":
       return <NintendoAudioPreview node={node} kind="bfstm" />
     case "wem-audio":
@@ -7649,6 +7653,216 @@ function NrrPreview({ node }: { node: Node }) {
                 </li>
               ))}
             </ul>
+          </section>
+        )}
+      </div>
+    </ScrollArea>
+  )
+}
+
+// ====================================================================
+// NintendoWare resource header preview (PTCL, BNSH)
+// ====================================================================
+//
+// PTCL (VFXB) and BNSH share the NintendoWare resource format: an
+// 8-byte magic, a 4-byte version field, a 2-byte BOM, then a list
+// of inner sections each tagged with a 4-byte ASCII magic. We do
+// just enough decoding to surface:
+//
+//   - The top-level magic + version + BOM endianness
+//   - The first ~64 KB of section magics (a histogram so the user
+//     can see what sub-block kinds the file actually contains)
+//   - The first interned name string from the file, when one is
+//     near the start (PTCL's effect-set name, BNSH's shader name)
+
+interface NwResourceSummary {
+  magic: string
+  versionHex: string
+  endianness: "little" | "big"
+  /** Probable name string at a "well-known" offset (often 0x40, 0x80, 0x90). */
+  embeddedName: string | null
+  /** Distinct 4-ASCII tags observed in the inspected prefix. */
+  sectionMagics: Array<{ tag: string; count: number }>
+}
+
+const NW_INSPECT_BYTES = 0x10000
+
+function parseNintendoWareResource(bytes: Uint8Array): NwResourceSummary {
+  if (bytes.length < 0x20) {
+    throw new Error("File too short to contain a NintendoWare resource header")
+  }
+  const magic = String.fromCharCode(
+    bytes[0],
+    bytes[1],
+    bytes[2],
+    bytes[3],
+    bytes[4],
+    bytes[5],
+    bytes[6],
+    bytes[7],
+  ).trim()
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const versionRaw = dv.getUint32(0x08, true)
+  // BOM at 0x0C: 0xfeff (file-native order). If we read it back as LE
+  // and get 0xfeff, the file is LE; 0xfffe back means big-endian.
+  const bom = dv.getUint16(0x0c, true)
+  const endianness: "little" | "big" = bom === 0xfeff ? "little" : "big"
+
+  // Scan for ASCII 4-byte tags throughout the first 64 KB. A tag is
+  // 4 printable-ASCII bytes followed by either a 4th printable byte
+  // and a space-padded suffix, or a sensible u32 length field. We
+  // only require all 4 bytes to be printable-ASCII letters/digits/
+  // spaces — that's enough to pick up most NintendoWare blocks
+  // (`ESTA`, `ESET`, `EMTR`, `RNDR`, `KSHU`, …, plus `_RLT`, `_STR`,
+  // `_DIC`, `_BYT` shared blocks).
+  const tagCounts = new Map<string, number>()
+  const inspectEnd = Math.min(bytes.length, NW_INSPECT_BYTES)
+  for (let i = 0x20; i + 4 <= inspectEnd; i += 4) {
+    let printable = true
+    for (let j = 0; j < 4; j++) {
+      const b = bytes[i + j]
+      if (
+        !(
+          (b >= 0x41 && b <= 0x5a) || // A–Z
+          (b >= 0x61 && b <= 0x7a) || // a–z
+          (b >= 0x30 && b <= 0x39) || // 0–9
+          b === 0x5f || // _
+          b === 0x20    // space (used as right-padding)
+        )
+      ) {
+        printable = false
+        break
+      }
+    }
+    if (!printable) continue
+    const tag = String.fromCharCode(bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3])
+    if (tag === "    ") continue
+    tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1)
+  }
+
+  // Sniff an embedded name string at the post-header region (most
+  // NintendoWare resources put a short identifier near the top).
+  // Look for the first run of ≥3 printable ASCII chars terminated
+  // by a null, anywhere in [0x40 .. 0x200].
+  let embeddedName: string | null = null
+  for (let off = 0x40; off + 4 < Math.min(bytes.length, 0x200); off++) {
+    if (
+      bytes[off] >= 0x20 &&
+      bytes[off] < 0x7f &&
+      bytes[off] !== 0x20 &&
+      // Reject 4-byte ASCII tags (those are the section-magics above).
+      !(
+        bytes[off + 4] >= 0x20 &&
+        bytes[off + 4] < 0x7f &&
+        bytes[off + 3] >= 0x20 &&
+        bytes[off + 3] < 0x7f &&
+        bytes[off + 4] !== 0x00
+      )
+    ) {
+      // Build a candidate string by reading until null / non-printable.
+      let end = off
+      while (
+        end < bytes.length &&
+        bytes[end] >= 0x20 &&
+        bytes[end] < 0x7f
+      ) {
+        end++
+      }
+      const len = end - off
+      if (len >= 3) {
+        // Require a null terminator to weed out random ASCII runs.
+        if (end < bytes.length && bytes[end] === 0) {
+          embeddedName = String.fromCharCode.apply(
+            null,
+            Array.from(bytes.subarray(off, end)),
+          )
+          break
+        }
+      }
+      // Advance past this run regardless.
+      off = end
+    }
+  }
+
+  return {
+    magic,
+    versionHex: `0x${versionRaw.toString(16).padStart(8, "0")}`,
+    endianness,
+    embeddedName,
+    sectionMagics: [...tagCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([tag, count]) => ({ tag, count })),
+  }
+}
+
+function NintendoWareResourcePreview({
+  node,
+  kind,
+}: {
+  node: Node
+  kind: "ptcl" | "bnsh"
+}) {
+  const { loading, data, error } = useAsync(async () => {
+    const blob = await node.blob!()
+    const head = blob.slice(0, Math.min(blob.size, NW_INSPECT_BYTES))
+    const bytes = new Uint8Array(await head.arrayBuffer())
+    return parseNintendoWareResource(bytes)
+  }, [node.id, kind])
+
+  if (loading) return <LoadingFiller label="Reading header…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const title =
+    kind === "ptcl"
+      ? "PTCL — NintendoWare particle (VFXB)"
+      : "BNSH — NintendoWare shader binary"
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title={title} />
+
+        <Alert>
+          <CircleAlertIcon />
+          <AlertTitle>Header preview</AlertTitle>
+          <AlertDescription>
+            {kind === "ptcl"
+              ? "VFXB carries a full particle-graph definition (emitters, modules, render passes, embedded textures). This preview shows the header summary and the section-magic histogram so you can see what blocks the effect uses."
+              : "BNSH carries one or more compiled shader binaries with reflection metadata. This preview shows the header summary and the section-magic histogram; per-shader bytecode is not yet decoded."}
+          </AlertDescription>
+        </Alert>
+
+        <KvBlock title="Header">
+          <KvRow k="Magic" v={v.magic || "—"} />
+          <KvRow k="Version" v={v.versionHex} />
+          <KvRow k="Byte order" v={v.endianness === "little" ? "Little-endian" : "Big-endian"} />
+          {v.embeddedName && (
+            <KvRow k="Embedded name" v={v.embeddedName} />
+          )}
+        </KvBlock>
+
+        {v.sectionMagics.length > 0 && (
+          <section className="overflow-hidden rounded-md border bg-card">
+            <div className="border-b bg-muted/40 px-3 py-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Section magics observed
+            </div>
+            <table className="w-full text-sm">
+              <thead className="bg-muted/20 text-xs uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-1.5 text-left">Tag</th>
+                  <th className="px-3 py-1.5 text-right">Count</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {v.sectionMagics.map((s) => (
+                  <tr key={s.tag} className="hover:bg-accent/40">
+                    <td className="px-3 py-1 font-mono">{s.tag}</td>
+                    <td className="px-3 py-1 text-right tabular-nums">
+                      {s.count.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </section>
         )}
       </div>

@@ -109,6 +109,10 @@ export type PreviewKind =
 	| 'ainb-info'
 	/** Switch NRR0 — registry of NRO SHA-256 hashes a title may load. */
 	| 'nrr-info'
+	/** NintendoWare VFXB particle (`.ptcl`). */
+	| 'ptcl-info'
+	/** NintendoWare BNSH shader binary (`.bnsh`, `.bnsh_vsh`, `.bnsh_fsh`). */
+	| 'bnsh-info'
 	/** Switch HD Rumble vibration patterns. */
 	| 'bnvib-audio'
 	/** Nintendo binary YAML — game configs / data tables. */
@@ -281,6 +285,14 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.msbt')) return 'msbt-text';
 	if (lower.endsWith('.ainb')) return 'ainb-info';
 	if (lower.endsWith('.nrr')) return 'nrr-info';
+	if (lower.endsWith('.ptcl')) return 'ptcl-info';
+	if (
+		lower.endsWith('.bnsh') ||
+		lower.endsWith('.bnsh_vsh') ||
+		lower.endsWith('.bnsh_fsh')
+	) {
+		return 'bnsh-info';
+	}
 	if (lower.endsWith('.bfstm') || lower.endsWith('.bfstp')) return 'bfstm-audio';
 	if (lower.endsWith('.wem')) return 'wem-audio';
 	// CRI HCA — standalone tracks (extracted from AWB or hand-named).
