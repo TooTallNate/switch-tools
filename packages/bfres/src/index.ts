@@ -788,23 +788,24 @@ function readModels(
 		const ptrBase = fmdlOff + (version.major >= 9 ? 0x08 : 0x10);
 		// Pointers (in order): nameOffset, pathOffset, skeletonOffset,
 		// vertexBufferArrayOffset, shapeArrayOffset, shapeDictOffset,
-		// materialArrayOffset, materialDictOffset, userDataArrayOffset,
-		// userDataDictOffset, userPointer.
+		// materialArrayOffset, materialDictOffset, shaderAssignArrayOffset,
+		// shaderAssignDictOffset, userDataArrayOffset, userDataDictOffset,
+		// userPointer.
 		const skeletonOffset = Number(v.getBigUint64(ptrBase + 0x10, true));
-		// Counts come after the pointer block:
-		//   v5–v8: counts at ptrBase + 0x58 (after a 0x58-byte pointer block)
-		//   v9:    counts at ptrBase + 0x48 (one fewer 0x10 area)
-		//   v10:   counts at ptrBase + 0x60 (v10 inserted two new pointers
-		//          — ShaderAssignArrayOffset + ShaderAssignDictOffset — into
-		//          the FMDL pointer block between materialDictOffset and
-		//          userDataArrayOffset, pushing counts forward by 0x18).
-		//          Observed in Echoes of Wisdom / TotK / Mario Wonder.
-		const countsBase =
-			version.major >= 10
-				? ptrBase + 0x60
-				: version.major >= 9
-					? ptrBase + 0x48
-					: ptrBase + 0x58;
+		// Counts: empirically the (numVertexBuffer, numShape, numMaterial)
+		// triple sits at `fmdlOff + 0x68` across every BFRES variant
+		// we've seen on Switch — v5 (MK8 Deluxe), v9 (Mario Wonder DLC
+		// content like BigRock), v10 (Echoes of Wisdom).
+		//
+		// Earlier code computed `ptrBase + 0x48` for v9 and `+0x58` for
+		// v5–v8, which was wrong for v9 (it lands at `fmdlOff + 0x50`,
+		// inside the still-going pointer block) and only happened to
+		// produce the right answer for v5 because `fmdlOff + 0x10 +
+		// 0x58 = +0x68` matches. Anchor the read on `fmdlOff + 0x68`
+		// directly so we don't have to track the per-version pointer-
+		// block size — and so v9 files start reporting their real model
+		// counts instead of zero.
+		const countsBase = fmdlOff + 0x68;
 		if (countsBase + 8 > data.length) {
 			out.push({
 				name: names[i],
@@ -1192,14 +1193,9 @@ export async function extractGeometry(blob: Blob): Promise<BfresGeometry[]> {
 		const fmdlOff = fmdlOffsets[mi];
 		const ptrBase = fmdlOff + (major >= 9 ? 0x08 : 0x10);
 		const shapeValuesOffset = Number(v.getBigUint64(ptrBase + 0x20, true));
-		// v10 added two pointers to the FMDL pointer block (see the
-		// parseBfres equivalent), pushing the counts forward by 0x18.
-		const countsBase =
-			major >= 10
-				? ptrBase + 0x60
-				: major >= 9
-					? ptrBase + 0x48
-					: ptrBase + 0x58;
+		// See `readModels`: counts triple lives at `fmdlOff + 0x68`
+		// across every BFRES version we've seen on Switch.
+		const countsBase = fmdlOff + 0x68;
 		const numShape = v.getUint16(countsBase + 2, true);
 
 		// Each FSHP value is a pointer to its FSHP record. v9+ FSHPs
@@ -1307,48 +1303,60 @@ export async function extractMaterials(blob: Blob): Promise<BfresMaterial[][]> {
 		const matValuesOffset = Number(v.getBigUint64(ptrBase + 0x30, true));
 		const matDictOffset = Number(v.getBigUint64(ptrBase + 0x38, true));
 		const matNames = readDict(data, v, matDictOffset);
-		// v10 added two pointers to the FMDL pointer block — see
-		// the parseBfres equivalent.
-		const countsBase =
-			major >= 10
-				? ptrBase + 0x60
-				: major >= 9
-					? ptrBase + 0x48
-					: ptrBase + 0x58;
+		// See `readModels`: counts triple lives at `fmdlOff + 0x68`
+		// across every BFRES version we've seen on Switch.
+		const countsBase = fmdlOff + 0x68;
 		const numMaterial = v.getUint16(countsBase + 4, true);
 
 		const matsForFmdl: BfresMaterial[] = [];
 		// The actual record stride is decided by the on-disk FMAT layout
-		// (0xb8 for v5–v8, smaller for v9+). We sniff by checking the
-		// FMAT magic at successive candidate strides on the first
-		// material, then commit to that stride for the rest.
+		// (0xb8 for v5–v8, smaller for v9+). When the model has at
+		// least 2 materials we can sniff the real stride by probing
+		// for the second FMAT's magic at each candidate offset. With
+		// a single material we have to guess — pick the most-common
+		// per-version stride.
 		let stride = 0;
 		const candidateStrides = major >= 9 ? [0xa0, 0xb0, 0xb8] : [0xb8, 0xc0];
-		for (const cand of candidateStrides) {
-			const off = matValuesOffset + 0 * cand;
-			if (off + 4 > data.length) continue;
-			if (
-				data[off] === 0x46 &&
-				data[off + 1] === 0x4d &&
-				data[off + 2] === 0x41 &&
-				data[off + 3] === 0x54
-			) {
-				stride = cand;
-				break;
+		if (numMaterial >= 2) {
+			for (const cand of candidateStrides) {
+				const off = matValuesOffset + 1 * cand;
+				if (off + 4 > data.length) continue;
+				if (
+					data[off] === 0x46 &&
+					data[off + 1] === 0x4d &&
+					data[off + 2] === 0x41 &&
+					data[off + 3] === 0x54
+				) {
+					stride = cand;
+					break;
+				}
 			}
 		}
 		if (stride === 0) {
-			// FMAT magic missing — bail with empty materials
-			while (matsForFmdl.length < numMaterial) {
-				matsForFmdl.push({
-					name: matNames[matsForFmdl.length] ?? '',
-					textureRefs: [],
-					samplers: [],
-					bindings: [],
-				});
+			// Single-material model OR no stride matched. Fall back to
+			// the per-version default. Empirically 0xb0 is right for
+			// v9+ (Mario Wonder / Echoes of Wisdom) and 0xb8 for v5–v8
+			// (MK8 Deluxe). If material 0 doesn't even start with FMAT,
+			// bail out with empty material records.
+			if (
+				matValuesOffset + 4 > data.length ||
+				data[matValuesOffset] !== 0x46 ||
+				data[matValuesOffset + 1] !== 0x4d ||
+				data[matValuesOffset + 2] !== 0x41 ||
+				data[matValuesOffset + 3] !== 0x54
+			) {
+				while (matsForFmdl.length < numMaterial) {
+					matsForFmdl.push({
+						name: matNames[matsForFmdl.length] ?? '',
+						textureRefs: [],
+						samplers: [],
+						bindings: [],
+					});
+				}
+				out.push(matsForFmdl);
+				continue;
 			}
-			out.push(matsForFmdl);
-			continue;
+			stride = major >= 9 ? 0xb0 : 0xb8;
 		}
 
 		for (let i = 0; i < numMaterial; i++) {
@@ -1364,9 +1372,23 @@ export async function extractMaterials(blob: Blob): Promise<BfresMaterial[][]> {
 			// Parse FMAT record. v9+ replaces the leading 12-byte
 			// HeaderBlock with a u32 flags field, which shifts every
 			// subsequent offset by 8 bytes. v10 then re-shuffles the
-			// pointer block: `textureNameArrayOff` moves from 0x30 to
-			// 0x20, `samplerDictOff` moves from 0x48 to 0x38, and the
-			// count bytes move from (0xa0, 0xa1) to (0xa2, 0xa3).
+			// pointer block again: `textureNameArrayOff` moves from
+			// 0x30 to 0x20, `samplerDictOff` moves from 0x48 to 0x38.
+			//
+			// The (numTextureRef, numSampler) byte pair sits at the
+			// start of a small "counts" sub-struct that lives after
+			// the pointer block. Its byte position differs per
+			// version:
+			//   v5–v8: bytes (0xa8, 0xa9) — never empirically tested
+			//          here so we keep the historical offsets.
+			//   v9:    bytes (0x9c, 0x9d) — verified against BigRock
+			//          (Mario Wonder DLC) and the existing v9 corpus.
+			//          The previous code read at (0xa0, 0xa1) and
+			//          returned 0/0, which collapsed bindings to [].
+			//   v10:   bytes (0xa2, 0xa3) — verified against
+			//          DVCommonEnkeiCastleFlower (Echoes of Wisdom);
+			//          v10's two new pointers push the counts struct
+			//          forward by 6 bytes vs v9.
 			const baseShift = major >= 9 ? -8 : 0;
 			const matNameOff = Number(
 				v.getBigInt64(off + 0x10 + baseShift, true),
@@ -1380,9 +1402,17 @@ export async function extractMaterials(blob: Blob): Promise<BfresMaterial[][]> {
 					? Number(v.getBigInt64(off + 0x38, true))
 					: Number(v.getBigInt64(off + 0x50 + baseShift, true));
 			const numTextureRef =
-				major >= 10 ? data[off + 0xa2] : data[off + 0xa8 + baseShift];
+				major >= 10
+					? data[off + 0xa2]
+					: major >= 9
+						? data[off + 0x9c]
+						: data[off + 0xa8];
 			const numSampler =
-				major >= 10 ? data[off + 0xa3] : data[off + 0xa9 + baseShift];
+				major >= 10
+					? data[off + 0xa3]
+					: major >= 9
+						? data[off + 0x9d]
+						: data[off + 0xa9];
 
 			const name = matNames[i] ?? readPoolString(data, matNameOff);
 			const textureRefs: string[] = [];
