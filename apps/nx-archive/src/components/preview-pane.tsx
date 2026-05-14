@@ -153,6 +153,7 @@ import {
   bwavChannelByteRanges,
   parseBwav,
 } from "@tootallnate/bwav"
+import { parseMsbt, type ParsedMsbt } from "@tootallnate/msbt"
 import { parseAwb, type ParsedAwb } from "@tootallnate/awb"
 import { decodeHcaToWavBlob, parseHcaHeader } from "@tootallnate/hca"
 import {
@@ -1568,6 +1569,8 @@ function FilePreview({
       return <NintendoAudioPreview node={node} kind="bfwav" />
     case "bwav-audio":
       return <BwavAudioPreview node={node} />
+    case "msbt-text":
+      return <MsbtTextPreview node={node} />
     case "bfstm-audio":
       return <NintendoAudioPreview node={node} kind="bfstm" />
     case "wem-audio":
@@ -7289,6 +7292,105 @@ function BwavAudioPreview({ node }: { node: Node }) {
         </KvBlock>
       </div>
     </ScrollArea>
+  )
+}
+
+// ====================================================================
+// MSBT — Nintendo localized text resource
+// ====================================================================
+//
+// MSBT files carry the (label, text) pairs that game code references
+// by stable label identifier. We render them as a two-column table:
+// label + decoded text, sorted by the label's text-index so the on-
+// disc ordering is preserved. Unlabeled texts (rare; usually
+// build-tool slop) follow in a separate group.
+
+function MsbtTextPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    const blob = await node.blob!()
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    return parseMsbt(bytes)
+  }, [node.id])
+
+  if (loading) return <LoadingFiller label="Parsing MSBT…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="MSBT — Nintendo localized text" />
+
+        <KvBlock title="Header">
+          <KvRow k="Encoding" v={v.encoding === "utf8" ? "UTF-8" : "UTF-16-LE"} />
+          <KvRow k="Version" v={String(v.version)} />
+          <KvRow k="Sections" v={v.sectionsPresent.join(", ") || "—"} />
+          <KvRow k="Entries" v={v.entries.length.toLocaleString()} />
+          {v.unlabeledTexts.length > 0 && (
+            <KvRow
+              k="Unlabeled texts"
+              v={v.unlabeledTexts.length.toLocaleString()}
+            />
+          )}
+        </KvBlock>
+
+        <MsbtEntriesTable parsed={v} />
+      </div>
+    </ScrollArea>
+  )
+}
+
+function MsbtEntriesTable({ parsed }: { parsed: ParsedMsbt }) {
+  const all = useMemo<Array<{ label: string; textIndex: number; text: string }>>(
+    () => [
+      ...parsed.entries,
+      ...parsed.unlabeledTexts.map((t) => ({
+        label: `<unlabeled #${t.textIndex}>`,
+        textIndex: t.textIndex,
+        text: t.text,
+      })),
+    ],
+    [parsed],
+  )
+  if (all.length === 0) {
+    return (
+      <Alert>
+        <CircleAlertIcon />
+        <AlertTitle>No texts in this file</AlertTitle>
+        <AlertDescription>
+          The TXT2 section was either empty or absent.
+        </AlertDescription>
+      </Alert>
+    )
+  }
+  return (
+    <section className="overflow-hidden rounded-md border bg-card">
+      <table className="w-full text-sm">
+        <thead className="bg-muted/40 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          <tr>
+            <th className="px-3 py-2 text-left">Label</th>
+            <th className="px-3 py-2 text-right">Index</th>
+            <th className="px-3 py-2 text-left">Text</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border">
+          {all.map((row, i) => (
+            <tr key={i} className="hover:bg-accent/40">
+              <td className="px-3 py-1.5 align-top font-mono text-xs">{row.label}</td>
+              <td className="px-3 py-1.5 text-right align-top tabular-nums">
+                {row.textIndex}
+              </td>
+              <td className="whitespace-pre-wrap px-3 py-1.5 align-top">
+                {/* Strip any in-string control codes for first-pass
+                 * visibility — MSBT often embeds {{0E …}} command
+                 * sequences. We keep them visible as raw characters
+                 * so users see something rather than nothing. */}
+                {row.text}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
   )
 }
 
