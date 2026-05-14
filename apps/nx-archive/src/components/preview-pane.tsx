@@ -1573,6 +1573,8 @@ function FilePreview({
       return <MsbtTextPreview node={node} />
     case "ainb-info":
       return <AinbPreview node={node} />
+    case "nrr-info":
+      return <NrrPreview node={node} />
     case "bfstm-audio":
       return <NintendoAudioPreview node={node} kind="bfstm" />
     case "wem-audio":
@@ -7528,6 +7530,122 @@ function AinbPreview({ node }: { node: Node }) {
                   className="px-3 py-1.5 font-mono text-xs hover:bg-accent/40"
                 >
                   {s || <span className="text-muted-foreground italic">(empty)</span>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
+    </ScrollArea>
+  )
+}
+
+// ====================================================================
+// NRR — Switch Nintendo Read-only Resource (NRO hash registry)
+// ====================================================================
+//
+// Per Switchbrew, an NRR is a signed manifest that lists the SHA-256
+// hashes of NROs (Nintendo Relocatable Objects) the title is allowed
+// to load. Layout:
+//
+//   0x000 'NRR0' magic + reserved
+//   0x010 Certification block (0x220 bytes)
+//   0x230 Signature (0x100 bytes)
+//   0x330 u64 ProgramId
+//   0x338 u32 Size
+//   0x33C u8  NrrKind (0 = User, 1 = JitPlugin)
+//   0x340 u32 HashListOffsetAddress (always 0x350)
+//   0x344 u32 NumHash
+//   0x350 NumHash × 0x20-byte SHA-256 hashes
+
+interface NrrSummary {
+  programId: bigint
+  size: number
+  kind: number
+  numHashes: number
+  hashes: string[]
+}
+
+function parseNrr(bytes: Uint8Array): NrrSummary {
+  if (
+    bytes.length < 0x350 ||
+    bytes[0] !== 0x4e ||
+    bytes[1] !== 0x52 ||
+    bytes[2] !== 0x52 ||
+    bytes[3] !== 0x30
+  ) {
+    throw new Error("Not an NRR file (missing 'NRR0' magic)")
+  }
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const programId = dv.getBigUint64(0x330, true)
+  const size = dv.getUint32(0x338, true)
+  const kind = bytes[0x33c]
+  const hashOff = dv.getUint32(0x340, true)
+  const numHash = dv.getUint32(0x344, true)
+  const hashes: string[] = []
+  // Bound the count — a corrupt file could claim millions of hashes.
+  const maxHashesToRead = Math.min(numHash, 8192)
+  for (let i = 0; i < maxHashesToRead; i++) {
+    const off = hashOff + i * 0x20
+    if (off + 0x20 > bytes.length) break
+    let hex = ""
+    for (let j = 0; j < 0x20; j++) {
+      hex += bytes[off + j].toString(16).padStart(2, "0")
+    }
+    hashes.push(hex)
+  }
+  return { programId, size, kind, numHashes: numHash, hashes }
+}
+
+function NrrPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    const blob = await node.blob!()
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    return parseNrr(bytes)
+  }, [node.id])
+
+  if (loading) return <LoadingFiller label="Reading NRR…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="NRR — Nintendo Read-only Resource (NRO hash registry)" />
+
+        <KvBlock title="Header">
+          <KvRow
+            k="Program ID"
+            v={`0x${v.programId.toString(16).padStart(16, "0")}`}
+          />
+          <KvRow k="File size" v={`${v.size.toLocaleString()} bytes`} />
+          <KvRow
+            k="Kind"
+            v={
+              v.kind === 0
+                ? "0 (User)"
+                : v.kind === 1
+                  ? "1 (JitPlugin)"
+                  : `${v.kind} (unknown)`
+            }
+          />
+          <KvRow k="Hash count" v={v.numHashes.toLocaleString()} />
+        </KvBlock>
+
+        {v.hashes.length > 0 && (
+          <section className="overflow-hidden rounded-md border bg-card">
+            <div className="border-b bg-muted/40 px-3 py-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Allowed NRO SHA-256 hashes
+            </div>
+            <ul className="divide-y divide-border">
+              {v.hashes.map((h, i) => (
+                <li
+                  key={i}
+                  className="px-3 py-1.5 font-mono text-[11px] hover:bg-accent/40"
+                >
+                  <span className="mr-2 select-none text-muted-foreground tabular-nums">
+                    {String(i).padStart(3, "0")}
+                  </span>
+                  {h}
                 </li>
               ))}
             </ul>

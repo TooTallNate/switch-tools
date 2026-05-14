@@ -107,6 +107,8 @@ export type PreviewKind =
 	| 'msbt-text'
 	/** TotK / Wonder AI behavior-tree node binary (`.ainb`). */
 	| 'ainb-info'
+	/** Switch NRR0 — registry of NRO SHA-256 hashes a title may load. */
+	| 'nrr-info'
 	/** Switch HD Rumble vibration patterns. */
 	| 'bnvib-audio'
 	/** Nintendo binary YAML — game configs / data tables. */
@@ -278,6 +280,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.bwav')) return 'bwav-audio';
 	if (lower.endsWith('.msbt')) return 'msbt-text';
 	if (lower.endsWith('.ainb')) return 'ainb-info';
+	if (lower.endsWith('.nrr')) return 'nrr-info';
 	if (lower.endsWith('.bfstm') || lower.endsWith('.bfstp')) return 'bfstm-audio';
 	if (lower.endsWith('.wem')) return 'wem-audio';
 	// CRI HCA — standalone tracks (extracted from AWB or hand-named).
