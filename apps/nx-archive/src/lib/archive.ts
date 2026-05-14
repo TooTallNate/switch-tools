@@ -88,6 +88,7 @@ export type NodeKind =
 	| 'zip'
 	| 'sarc'
 	| 'lz4'
+	| 'zstd'
 	| 'unityfs'
 	| 'unity-asset'
 	| 'unity-object'
@@ -322,6 +323,8 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	szs: 'SZS', // Yaz0-compressed SARC, ubiquitous across 1st-party games
 	yaz0: 'YAZ0',
 	lz4: 'LZ4',
+	zs: 'ZSTD', // Nintendo TotK / Wonder convention for Zstd-wrapped resources
+	zst: 'ZSTD', // standard Zstandard suffix (Super Mario 3D All-Stars, Paper Mario TTYD)
 	bundle: 'UnityFS', // Unity Addressables: `*.bundle`
 	unity3d: 'UnityFS', // Legacy Unity AssetBundle extension
 	ab: 'UnityFS', // Common Unity AssetBundle extension (Detective Pikachu, etc.)
@@ -425,7 +428,8 @@ type SniffedFormat =
 	| 'wwise-pck'
 	| 'wwise-bnk'
 	| 'fmod-bank'
-	| 'awb';
+	| 'awb'
+	| 'zstd';
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -462,6 +466,20 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (m4 === 'FWAR') return 'bfwar';
 	if (m4 === 'FRES') return 'bfres';
 	if (m4 === 'AFS2') return 'awb';
+	// Zstandard frame magic: 0x28b52ffd LE — used both by Nintendo's
+	// `.zs` (TotK / Wonder) and by the standard `.zst` suffix
+	// (Paper Mario TTYD, Super Mario 3D All-Stars). The extension
+	// dispatch above catches most of these; this sniff covers files
+	// inside containers that don't carry the suffix.
+	if (
+		head.length >= 4 &&
+		head[0] === 0x28 &&
+		head[1] === 0xb5 &&
+		head[2] === 0x2f &&
+		head[3] === 0xfd
+	) {
+		return 'zstd';
+	}
 	if (m4 === 'AKPK' || m4 === 'KPKA') return 'wwise-pck';
 	if (m4 === 'BKHD') return 'wwise-bnk';
 	// FMOD Studio bank: RIFF + form-type "FEV " at offset 8.
@@ -581,6 +599,8 @@ export async function buildRootNode(
 			return makeSzsNode(id, displayName, blob, ctx);
 		case 'LZ4':
 			return makeLz4Node(id, displayName, blob, ctx);
+		case 'ZSTD':
+			return makeZstdNode(id, displayName, blob, ctx);
 		case 'UnityFS':
 			return makeUnityFsNode(id, displayName, blob, ctx);
 		case 'UE-PAK': {
@@ -2612,6 +2632,58 @@ class LazyDecompressBlob extends Blob {
  * Switch firmware wrapper) since the file extension alone doesn't
  * tell us which Nintendo team built the file.
  */
+/**
+ * Lazy Zstandard-decompressed wrapper. Mirrors `makeLz4Node`:
+ * the decompression is deferred until the user opens or reads the
+ * file (which is what we want — TotK contains 224k `.zs` files and
+ * decompressing them all eagerly would be hostile).
+ *
+ * Naming: we strip the trailing `.zs` / `.zst` suffix so the inner
+ * `childNodeFor()` can dispatch on whatever extension was left
+ * behind. `FileEntry.byml.zs` → `FileEntry.byml` → BYAML preview;
+ * `Cuepoint.zst` → `Cuepoint` → magic-sniff fallthrough.
+ *
+ * Cache: the decompressed payload is held for the lifetime of the
+ * node (typical TotK .zs files are < 1 MB each). For the rare large
+ * cases, GC reclaims when the node is dropped on tree-collapse.
+ */
+function makeZstdNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	let cached: Promise<Blob> | null = null;
+	const decompressOnce = (): Promise<Blob> => {
+		if (!cached) {
+			cached = (async () => {
+				const compressed = new Uint8Array(await blob.arrayBuffer());
+				const decompressed = await zstdDecompressBytes(compressed);
+				return new Blob([decompressed.buffer as ArrayBuffer]);
+			})();
+		}
+		return cached;
+	};
+	// Strip a trailing `.zs` or `.zst` so the inner node has a sensible
+	// name for format-detection (`FileEntry.byml.zs` → `FileEntry.byml`).
+	const innerName = name.replace(/\.zst?$/i, '') || 'decompressed';
+	return {
+		id,
+		name,
+		kind: 'zstd',
+		isContainer: true,
+		size: blob.size,
+		format: 'ZSTD',
+		blob: async () => decompressOnce(),
+		getChildren: async () => {
+			const data = await decompressOnce();
+			return [
+				await childNodeFor(`${id}/${innerName}`, innerName, data, ctx),
+			];
+		},
+	};
+}
+
 function makeLz4Node(
 	id: string,
 	name: string,
@@ -3630,6 +3702,7 @@ async function childNodeFor(
 	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob, ctx);
 	if (ext === 'szs') return makeSzsNode(id, name, blob, ctx);
 	if (ext === 'lz4') return makeLz4Node(id, name, blob, ctx);
+	if (ext === 'zs' || ext === 'zst') return makeZstdNode(id, name, blob, ctx);
 	// `.utoc` standalone (no `.ucas` sibling): we can still browse
 	// the file listing via the directory index, but inner-file
 	// reads will surface a clear error. The "right" path \u2014
@@ -3697,6 +3770,7 @@ async function childNodeFor(
 	if (sniffed === 'romfs') return makeRomfsNode(id, name, blob, ctx);
 	if (sniffed === 'zip') return makeZipNode(id, name, blob, ctx);
 	if (sniffed === 'lz4') return makeLz4Node(id, name, blob, ctx);
+	if (sniffed === 'zstd') return makeZstdNode(id, name, blob, ctx);
 	if (sniffed === 'unityfs') return makeUnityFsNode(id, name, blob, ctx);
 	if (sniffed === 'bars') return makeBarsNode(id, name, blob, ctx);
 	if (sniffed === 'bfsar') return makeBfsarNode(id, name, blob, ctx);
