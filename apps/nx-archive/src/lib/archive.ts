@@ -317,6 +317,7 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	zip: 'ZIP',
 	sarc: 'SARC',
 	pack: 'SARC', // common first-party-game SARC alias
+	arc: 'SARC', // SARC alias used by Pokémon LA, Resident Evil 0 / 1 (rebuild), Pokken, ToS Remastered, etc.
 	szs: 'SZS', // Yaz0-compressed SARC, ubiquitous across 1st-party games
 	yaz0: 'YAZ0',
 	lz4: 'LZ4',
