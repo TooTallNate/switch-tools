@@ -1579,6 +1579,8 @@ function FilePreview({
       return <NintendoWareResourcePreview node={node} kind="ptcl" />
     case "bnsh-info":
       return <NintendoWareResourcePreview node={node} kind="bnsh" />
+    case "bfcpx-info":
+      return <BfcpxPreview node={node} />
     case "bfstm-audio":
       return <NintendoAudioPreview node={node} kind="bfstm" />
     case "wem-audio":
@@ -7650,6 +7652,152 @@ function NrrPreview({ node }: { node: Node }) {
                     {String(i).padStart(3, "0")}
                   </span>
                   {h}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </div>
+    </ScrollArea>
+  )
+}
+
+// ====================================================================
+// BFCPX — NintendoWare composite-font manifest
+// ====================================================================
+//
+// BFCPX (Font Composite-fontPacK eXchange? Nintendo's docs don't
+// publicly name the acronym) is a tiny manifest that tells the
+// game's text-rendering system which source fonts to composite into
+// a single virtual font — typically one ASCII font, one Japanese
+// font, plus extra glyph-supplement fonts.
+//
+// Layout:
+//   0x00 'FCPX' magic
+//   0x04 u16 BOM (0xFEFF)
+//   0x06 u16 headerSize (0x14)
+//   0x08 u32 version
+//   0x0C u32 fileSize
+//   0x10 u16 blockCount
+//   0x12 u16 reserved
+//   0x14..  blocks
+//
+// The body holds a list of (source-font-name + per-font metrics)
+// entries, all referencing strings stored at the end of the file as
+// null-terminated ASCII. We don't currently decode the metric
+// structures (they're title-specific), but we do surface the source
+// font references — that's the useful information.
+
+interface BfcpxSummary {
+  versionHex: string
+  fileSize: number
+  blockCount: number
+  /** Referenced font filenames pulled from the string pool. */
+  fontReferences: string[]
+}
+
+function parseBfcpx(bytes: Uint8Array): BfcpxSummary {
+  if (
+    bytes.length < 0x14 ||
+    bytes[0] !== 0x46 ||
+    bytes[1] !== 0x43 ||
+    bytes[2] !== 0x50 ||
+    bytes[3] !== 0x58
+  ) {
+    throw new Error("Not a BFCPX file (missing 'FCPX' magic)")
+  }
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const bom = dv.getUint16(0x04, true)
+  const le = bom === 0xfffe // file stores 0xFEFF in native order; in LE files bytes are FF FE
+  const versionRaw = dv.getUint32(0x08, le)
+  const fileSize = dv.getUint32(0x0c, le)
+  const blockCount = dv.getUint16(0x10, le)
+
+  // Scan the tail of the file for null-terminated ASCII filenames
+  // ending in a known font extension. Cheap and robust — the on-disc
+  // layout has these strings packed at the end of the file.
+  const fontReferences: string[] = []
+  const seen = new Set<string>()
+  let runStart = -1
+  const isPrintable = (b: number) => b >= 0x20 && b < 0x7f
+  const isFontExt = (s: string) =>
+    /\.(bfttf|bfotf|ttf|otf|bffnt|ttc|otc)$/i.test(s)
+  for (let i = 0; i < bytes.length; i++) {
+    if (isPrintable(bytes[i])) {
+      if (runStart < 0) runStart = i
+    } else if (runStart >= 0) {
+      const len = i - runStart
+      if (len >= 4 && len <= 200) {
+        const s = String.fromCharCode.apply(
+          null,
+          Array.from(bytes.subarray(runStart, i)),
+        )
+        if (isFontExt(s) && !seen.has(s)) {
+          fontReferences.push(s)
+          seen.add(s)
+        }
+      }
+      runStart = -1
+    }
+  }
+
+  return {
+    versionHex: `0x${versionRaw.toString(16).padStart(8, "0")}`,
+    fileSize,
+    blockCount,
+    fontReferences,
+  }
+}
+
+function BfcpxPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    const blob = await node.blob!()
+    const bytes = new Uint8Array(await blob.arrayBuffer())
+    return parseBfcpx(bytes)
+  }, [node.id])
+
+  if (loading) return <LoadingFiller label="Reading BFCPX…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="BFCPX — NintendoWare composite-font manifest" />
+
+        <Alert>
+          <CircleAlertIcon />
+          <AlertTitle>Manifest preview</AlertTitle>
+          <AlertDescription>
+            A BFCPX is a tiny config that tells the game which BFTTF /
+            BFOTF source fonts to merge into a single virtual font (typically
+            ASCII + Japanese + glyph-supplement fonts). We surface the
+            source-font references below; the per-font scale / offset
+            blocks aren&rsquo;t decoded.
+          </AlertDescription>
+        </Alert>
+
+        <KvBlock title="Header">
+          <KvRow k="Version" v={v.versionHex} />
+          <KvRow k="File size" v={`${v.fileSize.toLocaleString()} bytes`} />
+          <KvRow k="Blocks" v={v.blockCount.toLocaleString()} />
+          <KvRow
+            k="Source-font references"
+            v={v.fontReferences.length.toLocaleString()}
+          />
+        </KvBlock>
+
+        {v.fontReferences.length > 0 && (
+          <section className="overflow-hidden rounded-md border bg-card">
+            <div className="border-b bg-muted/40 px-3 py-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Source fonts
+            </div>
+            <ul className="divide-y divide-border">
+              {v.fontReferences.map((s, i) => (
+                <li
+                  key={i}
+                  className="px-3 py-1.5 font-mono text-xs hover:bg-accent/40"
+                >
+                  {s}
                 </li>
               ))}
             </ul>

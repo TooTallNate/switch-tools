@@ -114,6 +114,8 @@ export type PreviewKind =
 	| 'ptcl-info'
 	/** NintendoWare BNSH shader binary (`.bnsh`, `.bnsh_vsh`, `.bnsh_fsh`). */
 	| 'bnsh-info'
+	/** NintendoWare BFCPX composite-font manifest. */
+	| 'bfcpx-info'
 	/** Switch HD Rumble vibration patterns. */
 	| 'bnvib-audio'
 	/** Nintendo binary YAML — game configs / data tables. */
@@ -294,6 +296,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	) {
 		return 'bnsh-info';
 	}
+	if (lower.endsWith('.bfcpx')) return 'bfcpx-info';
 	if (lower.endsWith('.bfstm') || lower.endsWith('.bfstp')) return 'bfstm-audio';
 	if (lower.endsWith('.wem')) return 'wem-audio';
 	// CRI HCA — standalone tracks (extracted from AWB or hand-named).
@@ -637,7 +640,7 @@ export async function parseNpdmForView(blob: Blob): Promise<NpdmView> {
  * preview component registers it with the browser via `FontFace`
  * and renders sample text in the actual font.
  */
-export type FontFormat = 'ttf' | 'otf' | 'woff' | 'woff2' | 'unknown';
+export type FontFormat = 'ttf' | 'otf' | 'ttc' | 'woff' | 'woff2' | 'unknown';
 
 export interface FontView {
 	/** Decoded font bytes ready for `FontFace` and download. */
