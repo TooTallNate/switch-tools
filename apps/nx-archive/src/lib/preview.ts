@@ -291,7 +291,18 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.ubulk')) return 'wem-audio';
 	if (lower.endsWith('.barslist')) return 'barslist-info';
 	if (lower.endsWith('.bnvib')) return 'bnvib-audio';
-	if (lower.endsWith('.byaml') || lower.endsWith('.byml')) return 'byaml-tree';
+	// `.byaml` / `.byml` are the historical extensions; TotK / Mario
+	// Wonder switched to `.bgyml` ("Binary Game YAML") for game-config
+	// resources but the on-disc format is identical (same YB / BY magic,
+	// same encoding). One dispatch routes them all to the BYAML tree
+	// preview.
+	if (
+		lower.endsWith('.byaml') ||
+		lower.endsWith('.byml') ||
+		lower.endsWith('.bgyml')
+	) {
+		return 'byaml-tree';
+	}
 	if (lower.endsWith('.bntx')) return 'bntx-image';
 	if (lower.endsWith('.usm')) return 'usm-video';
 	if (lower.endsWith('.bk2')) return 'bink2-video';
