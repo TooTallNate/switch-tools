@@ -3433,6 +3433,43 @@ async function unitySerializedFileChildren(
 				/* fall through to synthetic name */
 			}
 		}
+		// Fallback: when TypeTrees are stripped (release builds), most
+		// objects start with a `string m_Name` field. Read just that
+		// prefix to get a useful tree label without paying the cost of
+		// a full hardcoded class decode. The reader is identical to
+		// the one in `@tootallnate/unity-asset`'s `UnityReader.string`
+		// (u32 length + UTF-8 bytes), but inlined here so this file
+		// stays free of any per-class layout knowledge — name is the
+		// universal first field, regardless of class.
+		if (!displayName) {
+			try {
+				const head = new Uint8Array(
+					await obj.data.slice(0, Math.min(obj.size, 1024)).arrayBuffer(),
+				);
+				if (head.length >= 4) {
+					const len =
+						head[0]! | (head[1]! << 8) | (head[2]! << 16) | (head[3]! << 24);
+					if (len > 0 && len <= head.length - 4 && len < 256) {
+						const decoder = new TextDecoder('utf-8', { fatal: false });
+						const name = decoder.decode(head.subarray(4, 4 + len));
+						// Sanity-check: m_Name should look like a typical
+						// identifier (printable ASCII + a handful of unicode
+						// scripts). Reject obvious garbage.
+						let printable = 0;
+						for (const c of name) {
+							const cp = c.codePointAt(0)!;
+							if (cp >= 0x20 && cp < 0x7f) printable++;
+							else if (cp >= 0x4e00) printable++; // CJK
+						}
+						if (name.length > 0 && printable / name.length > 0.5) {
+							displayName = name;
+						}
+					}
+				}
+			} catch {
+				/* fall through */
+			}
+		}
 		if (!displayName) displayName = `${className}#${obj.pathId.toString()}`;
 		entries.push({ obj, className, displayName, ext: extHint });
 	}

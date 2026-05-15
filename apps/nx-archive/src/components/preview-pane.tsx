@@ -51,6 +51,13 @@ import {
   ClassId as UnityClassId,
   parseObject as parseUnityObject,
   parseSerializedFile,
+  parseUnityAudioClip,
+  parseUnityFont,
+  parseUnityMeshSummary,
+  parseUnityMonoScript,
+  parseUnitySpriteSummary,
+  parseUnityTextAsset,
+  parseUnityTexture2D,
   TextureFormatName as UnityTextureFormatName,
   type DecodedTexture as UnityDecodedTexture,
   type ParsedSerializedFile,
@@ -9128,9 +9135,10 @@ function TmpFontBookPreview({
         data.atlas.height,
         data.atlas.textureFormat,
         encoded,
+        view.parsed.header.platform,
       )
     },
-    [data],
+    [data, view.parsed.header.platform],
   )
 
   // Sample text the user can edit. Default to the first 96
@@ -9437,6 +9445,46 @@ function TmpFontBookCanvas({
  * AssetBundle manifest, …) can be added here without touching the
  * archive layer or the dispatch in `FilePreview`.
  */
+/**
+ * Decode a Unity object's bytes against the hardcoded class layout
+ * for `className`. Returns the parsed value (shaped the same way the
+ * TypeTree-driven `parseObject` would produce), or `null` when we
+ * don't have a hardcoded reader for this class.
+ *
+ * Used as a fallback when the SerializedFile ships without TypeTrees
+ * (release builds typically strip them) — the resulting value lets
+ * the `UnityObjectClassPreview` dispatch hand off to Texture2D /
+ * AudioClip / Font etc. previews even on stripped bundles.
+ */
+function decodeWellKnownUnityClass(
+  className: string,
+  bytes: Uint8Array,
+  unityVersion: string,
+): unknown {
+  try {
+    switch (className) {
+      case "Texture2D":
+        return parseUnityTexture2D(bytes, unityVersion)
+      case "TextAsset":
+        return parseUnityTextAsset(bytes)
+      case "Font":
+        return parseUnityFont(bytes)
+      case "AudioClip":
+        return parseUnityAudioClip(bytes, unityVersion)
+      case "Mesh":
+        return parseUnityMeshSummary(bytes)
+      case "Sprite":
+        return parseUnitySpriteSummary(bytes)
+      case "MonoScript":
+        return parseUnityMonoScript(bytes)
+      default:
+        return null
+    }
+  } catch (e) {
+    return { __error: (e as Error).message }
+  }
+}
+
 function UnityObjectPreview({
   node,
   root,
@@ -9465,6 +9513,7 @@ function UnityObjectPreview({
         `Unity object pathId=${targetPathId} not found in SerializedFile`,
       )
     }
+    const className = (node.meta?.unityClass as string | undefined) ?? ""
     const ty = parsed.types[obj.typeIndex]
     let value: unknown = null
     if (ty?.typeTree) {
@@ -9475,6 +9524,19 @@ function UnityObjectPreview({
         // available below for inspection.
         value = { __error: (e as Error).message }
       }
+    }
+    // Fallback: when TypeTrees are stripped (release builds usually
+    // do this), invoke the hardcoded class-layout reader for the
+    // well-known engine types. The result is shaped the same way
+    // the TypeTree-driven decode would produce so downstream
+    // consumers (UnityObjectClassPreview) don't have to branch.
+    if (!value) {
+      const objBytes = new Uint8Array(await obj.data.arrayBuffer())
+      value = decodeWellKnownUnityClass(
+        className,
+        objBytes,
+        parsed.header.unityVersion,
+      )
     }
     const name =
       value && typeof value === "object" && "m_Name" in value
@@ -9592,6 +9654,7 @@ function UnityObjectClassPreview({
           decoded={decoded}
           root={root}
           cabId={cabId}
+          platform={parsed.header.platform}
         />
       )
     case "AudioClip":
@@ -9609,6 +9672,7 @@ function UnityObjectClassPreview({
           parsed={parsed}
           root={root}
           cabId={cabId}
+          platform={parsed.header.platform}
         />
       )
     default:
@@ -10174,10 +10238,12 @@ function UnityTexture2DObjectPreview({
   decoded,
   root,
   cabId,
+  platform,
 }: {
   decoded: UnityDecodedObject
   root: Node | null
   cabId: string | undefined
+  platform: number
 }) {
   const v = decoded.value as Record<string, unknown> | null
   // Decode pixels (RGBA8). The actual PNG-encode happens on the
@@ -10201,9 +10267,10 @@ function UnityTexture2DObjectPreview({
       height,
       textureFormat,
       payload,
+      platform,
     )
     return decodedTex
-  }, [decoded.obj.pathId.toString(), cabId])
+  }, [decoded.obj.pathId.toString(), cabId, platform])
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const [pngUrl, setPngUrl] = useState<string | null>(null)
@@ -10366,11 +10433,13 @@ function UnitySpritePreview({
   parsed,
   root,
   cabId,
+  platform,
 }: {
   decoded: UnityDecodedObject
   parsed: ParsedSerializedFile
   root: Node | null
   cabId: string | undefined
+  platform: number
 }) {
   const v = decoded.value as Record<string, unknown> | null
 
@@ -10431,6 +10500,7 @@ function UnitySpritePreview({
       sourceHeight,
       sourceFormat,
       payload,
+      platform,
     )
     // Crop to textureRect. Unity Y-axis is bottom-up, so the
     // textureRect.y is measured from the bottom of the source

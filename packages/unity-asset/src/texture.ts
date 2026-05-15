@@ -4,15 +4,19 @@
  * Unity ships texture pixels in two places: inline in the
  * `image data` field of the Texture2D object, or out-of-band
  * in a `.resS` resource stream referenced via `m_StreamData`.
- * Either way the bytes are GPU-tiled — for Switch (and Linux
- * builds of Unity that share the NVN backend, which is more
- * common than you'd think) that's Tegra X1 block-linear
- * layout, the same swizzle BNTX uses.
  *
- * This module pulls the encoded bytes out of either source,
- * runs them through the Tegra deswizzler, and converts to
- * RGBA8 for the formats we care about (Alpha8, R8, RGBA32,
- * BGRA32). More formats can be wired in later as needed.
+ * **Byte layout differs by platform**. The Switch (build target
+ * 38, and 27 on some Unity versions) tiles texture data with
+ * the Tegra X1 block-linear swizzle — the same layout BNTX uses.
+ * Every other shipping target — desktop (Windows / macOS / Linux),
+ * mobile (Android / iOS for the formats we cover), WebGL — stores
+ * row-major linear pixels with no swizzle. The caller passes the
+ * `platform` field from the SerializedFile header so we route to
+ * the right path.
+ *
+ * The output is RGBA8 for the formats we cover (Alpha8 / R8 /
+ * RGB24 / RGBA32 / ARGB32 / BGRA32). BC / ETC / ASTC paths can
+ * be wired in later by extending `describeFormat`.
  */
 
 import { deswizzle, pickBlockHeight } from "@tootallnate/bntx"
@@ -26,23 +30,35 @@ export interface DecodedTexture {
 }
 
 /**
- * Decode a Texture2D object's pixel data to RGBA8. The
- * `texturePayload` is the raw byte source — typically the
- * concatenation of the inline `image data` and the matching
- * `.resS` slice. For most shipping bundles only one of the
- * two is non-empty.
+ * BuildTarget IDs that use Tegra block-linear texture tiling. All
+ * other targets store textures with linear row-major bytes.
+ *
+ * Per AssetStudio's `BuildTarget.cs` (MIT):
+ *   - 27 Switch (Unity <= 2017.x)
+ *   - 38 Switch (Unity 2018+ once they renumbered)
+ */
+const TEGRA_PLATFORMS = new Set<number>([27, 38])
+
+/**
+ * Decode a Texture2D object's pixel data to RGBA8.
  *
  * Caller responsibilities:
  *   - Provide `width`, `height`, `textureFormat` from the
  *     parsed Texture2D object.
  *   - Provide `payload` covering exactly the mip-0 level's
  *     bytes (mips beyond 0 aren't decoded here yet).
+ *   - Provide `platform` from the SerializedFile header so we
+ *     can decide whether to run the Tegra deswizzler. Omit to
+ *     keep the legacy Switch-first behaviour (deswizzle
+ *     unconditionally); callers that know they're not on Switch
+ *     should always pass it.
  */
 export function decodeUnityTexture2D(
   width: number,
   height: number,
   textureFormat: number,
   payload: Uint8Array,
+  platform?: number,
 ): DecodedTexture {
   const fmt = describeFormat(textureFormat)
   if (!fmt) {
@@ -50,21 +66,30 @@ export function decodeUnityTexture2D(
       `Unity Texture2D: unsupported format ${textureFormat} (${TextureFormatName(textureFormat) ?? "unknown"})`,
     )
   }
-  const widthInBlocks = Math.ceil(width / fmt.blkWidth)
-  const heightInBlocks = Math.ceil(height / fmt.blkHeight)
-  const blockHeight = pickBlockHeight(heightInBlocks)
-  // Deswizzle the GPU-tiled bytes into a row-major buffer of
-  // `bytesPerBlock`-sized cells.
-  const linear = deswizzle({
-    width,
-    height,
-    blkWidth: fmt.blkWidth,
-    blkHeight: fmt.blkHeight,
-    bytesPerBlock: fmt.bytesPerBlock,
-    data: payload,
-    blockHeight,
-  })
-  // Convert to RGBA8 according to the source format.
+  let linear: Uint8Array
+  // Switch builds store textures with Tegra X1 block-linear
+  // swizzle; deswizzle into row-major. Every other target ships
+  // the bytes linear, so we pass them through as-is.
+  //
+  // When the caller omits `platform` we deswizzle to preserve the
+  // pre-platform-aware behaviour (this module originally targeted
+  // Switch-only bundles).
+  if (platform === undefined || TEGRA_PLATFORMS.has(platform)) {
+    const widthInBlocks = Math.ceil(width / fmt.blkWidth)
+    const heightInBlocks = Math.ceil(height / fmt.blkHeight)
+    const blockHeight = pickBlockHeight(heightInBlocks)
+    linear = deswizzle({
+      width,
+      height,
+      blkWidth: fmt.blkWidth,
+      blkHeight: fmt.blkHeight,
+      bytesPerBlock: fmt.bytesPerBlock,
+      data: payload,
+      blockHeight,
+    })
+  } else {
+    linear = payload
+  }
   const pixels = new Uint8Array(width * height * 4)
   fmt.expandToRgba(linear, width, height, pixels)
   return { width, height, pixels }

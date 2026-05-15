@@ -50,16 +50,33 @@ export type { DecodedTexture };
  * / Firefox don't expose `WEBGL_compressed_texture_astc`); the WASM
  * decoder is universal.
  */
+/**
+ * BuildTarget IDs whose textures are stored with Tegra X1
+ * block-linear swizzle. All other targets ship row-major linear
+ * pixels and skip the deswizzle step.
+ */
+const TEGRA_PLATFORMS = new Set<number>([27, 38]);
+
+function isTegraPlatform(platform: number | undefined): boolean {
+	// When the caller doesn't know the platform we conservatively
+	// assume Tegra — this module was originally written for
+	// Switch-only content, and downstream consumers that DO know
+	// they're on desktop now pass the platform field explicitly.
+	if (platform === undefined) return true;
+	return TEGRA_PLATFORMS.has(platform);
+}
+
 export async function decodeTexture2D(
 	width: number,
 	height: number,
 	textureFormat: number,
 	payload: Uint8Array,
+	platform?: number,
 ): Promise<DecodedTexture> {
 	// Software path covers most desktop bundles; fall through on
 	// "unsupported format" to the more elaborate paths.
 	try {
-		return decodeSoftwareTexture2D(width, height, textureFormat, payload);
+		return decodeSoftwareTexture2D(width, height, textureFormat, payload, platform);
 	} catch (err) {
 		// Re-throw anything that isn't an "unsupported format"
 		// failure (e.g. malformed payload, deswizzle error).
@@ -71,44 +88,47 @@ export async function decodeTexture2D(
 	// platform without GPU support, which the WebGL path doesn't.
 	const astc = pickAstcBlockSize(textureFormat);
 	if (astc) {
-		// Switch / Tegra builds store the compressed blocks in a
-		// GPU-tiled (block-linear) layout. Without un-tiling we'd
-		// feed scrambled blocks to the ASTC decoder and produce the
-		// classic horizontal-scan-line tearing on multi-GOB
-		// textures. The same `deswizzle` step is what
-		// `decodeUnityTexture2D` applies for software-decoded
-		// formats; we replicate it here ahead of the WASM call.
-		const heightInBlocks = Math.ceil(height / astc.blockH);
-		const widthInBlocks = Math.ceil(width / astc.blockW);
-		const blockHeight = inferTegraBlockHeight(
-			widthInBlocks,
-			heightInBlocks,
-			16,
-			payload.length,
-		);
-		const linear = deswizzle({
-			width,
-			height,
-			blkWidth: astc.blockW,
-			blkHeight: astc.blockH,
-			bytesPerBlock: 16,
-			data: payload,
-			blockHeight,
-		});
+		// On Switch / Tegra targets the compressed blocks are stored
+		// in a GPU-tiled (block-linear) layout — we have to deswizzle
+		// before handing them to the ASTC decoder or the output is
+		// scrambled. Every other target stores the blocks row-major
+		// and the bytes go to the decoder unchanged.
+		let blockStream: Uint8Array;
+		if (isTegraPlatform(platform)) {
+			const heightInBlocks = Math.ceil(height / astc.blockH);
+			const widthInBlocks = Math.ceil(width / astc.blockW);
+			const blockHeight = inferTegraBlockHeight(
+				widthInBlocks,
+				heightInBlocks,
+				16,
+				payload.length,
+			);
+			blockStream = deswizzle({
+				width,
+				height,
+				blkWidth: astc.blockW,
+				blkHeight: astc.blockH,
+				bytesPerBlock: 16,
+				data: payload,
+				blockHeight,
+			});
+		} else {
+			blockStream = payload;
+		}
 		const pixels = await decodeAstcWasm(
 			width,
 			height,
 			astc.blockW,
 			astc.blockH,
-			linear,
+			blockStream,
 		);
-		// Unity / Tegra textures are stored bottom-up — the same
-		// origin convention OpenGL uses. The WASM decoder writes
-		// rows in the order it received them, so without an
-		// explicit flip the canvas-side preview shows the texture
-		// upside down. Mirror the rows in place so the rest of the
-		// pipeline can treat the result as top-down RGBA8.
-		flipVerticalRgba(pixels, width, height);
+		// Tegra / Unity-on-Switch textures use OpenGL's bottom-up
+		// origin; flip back to top-down so the canvas-side preview
+		// renders right-side up. Desktop / Vulkan / DX targets ship
+		// top-down already, so no flip there.
+		if (isTegraPlatform(platform)) {
+			flipVerticalRgba(pixels, width, height);
+		}
 		return { width, height, pixels };
 	}
 	// Format-to-WebGL-internal mapping for non-ASTC compressed

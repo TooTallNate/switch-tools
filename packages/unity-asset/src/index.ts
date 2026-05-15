@@ -7,6 +7,35 @@ export {
   type DecodedTexture,
 } from "./texture.js"
 
+// Hardcoded class-layout readers for SerializedFiles that ship
+// without TypeTrees (release builds typically strip them). These
+// produce values shaped exactly like the TypeTree-driven
+// `parseObject` would, so the preview pane can consume either.
+export {
+  parseUnityVersion,
+  cmpUnityVersion,
+  uvAtLeast,
+  uvBelow,
+  UnityReader,
+  parseUnityTexture2D,
+  parseUnityTextAsset,
+  parseUnityFont,
+  parseUnityAudioClip,
+  parseUnityMeshSummary,
+  parseUnitySpriteSummary,
+  parseUnityMonoScript,
+  type UnityVersion,
+  type GlTextureSettings,
+  type StreamingInfo,
+  type ParsedUnityTexture2D,
+  type ParsedUnityTextAsset,
+  type ParsedUnityFont,
+  type ParsedUnityAudioClip,
+  type ParsedUnityMeshSummary,
+  type ParsedUnitySpriteSummary,
+  type ParsedUnityMonoScript,
+} from "./classes.js"
+
 /**
  * Parser for Unity SerializedFile assets. A SerializedFile is
  * the on-disk representation of one Unity scene's worth of
