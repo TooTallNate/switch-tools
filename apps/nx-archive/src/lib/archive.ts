@@ -3741,6 +3741,18 @@ async function childNodeFor(
 		return makeAwbNode(id, name, blob, ctx, siblingsToAwbResolver(siblings));
 	}
 	if (ext === 'acb') return makeAcbNode(id, name, blob, ctx, siblings);
+	// Unity standalone-build SerializedFiles: `*.assets` (e.g.
+	// `resources.assets`, `sharedassets0.assets`, `globalgamemanagers.assets`)
+	// and the no-extension scene / global files (`level0`..`levelN`,
+	// `globalgamemanagers`, `mainData`, `customdata`). All use the
+	// Unity SerializedFile format and reference companion `.resS` /
+	// `.resource` files in the same directory.
+	if (ext === 'assets') return makeUnitySerializedFileNode(id, name, blob, ctx);
+	if (
+		/^(?:level\d+|globalgamemanagers|maindata|customdata)$/i.test(name)
+	) {
+		return makeUnitySerializedFileNode(id, name, blob, ctx);
+	}
 	if (ext === 'gfpak') return makeGfpakNode(id, name, blob, ctx);
 	if (ext === 'pck') return makeWwisePckNode(id, name, blob, ctx);
 	if (ext === 'bnk') return makeWwiseBnkNode(id, name, blob, ctx);
