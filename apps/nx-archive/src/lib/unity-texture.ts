@@ -21,6 +21,7 @@
 
 import {
 	decodeUnityTexture2D as decodeSoftwareTexture2D,
+	isTopDownTexturePlatform,
 	TextureFormat,
 	type DecodedTexture,
 } from '@tootallnate/unity-asset';
@@ -122,11 +123,11 @@ export async function decodeTexture2D(
 			astc.blockH,
 			blockStream,
 		);
-		// Tegra / Unity-on-Switch textures use OpenGL's bottom-up
-		// origin; flip back to top-down so the canvas-side preview
-		// renders right-side up. Desktop / Vulkan / DX targets ship
-		// top-down already, so no flip there.
-		if (isTegraPlatform(platform)) {
+		// Unity writes textures bottom-up (OpenGL convention) for
+		// every target except the Direct3D / Metal / GNM family —
+		// see `isTopDownTexturePlatform`. Without the flip, those
+		// builds render upside-down in our canvas-side preview.
+		if (platform !== undefined && !isTopDownTexturePlatform(platform)) {
 			flipVerticalRgba(pixels, width, height);
 		}
 		return { width, height, pixels };
@@ -140,7 +141,11 @@ export async function decodeTexture2D(
 			`Unity Texture2D: unsupported format ${textureFormat} (no software, ASTC, or GPU decoder available).`,
 		);
 	}
-	return decodeOnGpu(width, height, payload, gpu);
+	const gpuPixels = await decodeOnGpu(width, height, payload, gpu);
+	if (platform !== undefined && !isTopDownTexturePlatform(platform)) {
+		flipVerticalRgba(gpuPixels.pixels, width, height);
+	}
+	return gpuPixels;
 }
 
 /**

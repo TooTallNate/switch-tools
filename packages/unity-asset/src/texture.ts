@@ -40,6 +40,59 @@ export interface DecodedTexture {
 const TEGRA_PLATFORMS = new Set<number>([27, 38])
 
 /**
+ * BuildTarget IDs whose cooker writes texture pixels in top-down
+ * (Direct3D / Metal) byte order. Every other target — every
+ * OpenGL / OpenGL-ES / Vulkan target including Linux, modern
+ * macOS, Android, Switch — writes pixels bottom-up, matching
+ * OpenGL's `(0, 0)` = lower-left convention.
+ *
+ * Per AssetStudio's `BuildTarget.cs` (MIT):
+ *   - 5  StandaloneWindows (Direct3D 9 / 11)
+ *   - 19 StandaloneWindows64
+ *   - 21 WSAPlayer
+ *   - 31 XboxOne
+ *   - 33 PS4 (GNM, top-down)
+ *   - 34 PSP2 / Vita
+ *   - 41 Stadia (Vulkan, ships top-down anyway)
+ *   - 44 GameCoreXboxOne / GameCoreScarlett
+ *
+ * When we can't identify the platform (caller didn't pass one)
+ * we fall through to "no flip" to keep the legacy behaviour.
+ */
+const TOP_DOWN_PLATFORMS = new Set<number>([
+	5, 19, 21, 31, 33, 34, 41, 44,
+])
+
+/**
+ * True iff `platform` (Unity BuildTarget code) stores textures
+ * top-down. Returns `false` for unknown / unspecified platforms
+ * — the calling code uses that as "don't apply a Y flip", which
+ * matches the pre-flip historical behaviour.
+ */
+export function isTopDownTexturePlatform(platform: number | undefined): boolean {
+	if (platform === undefined) return false
+	return TOP_DOWN_PLATFORMS.has(platform)
+}
+
+/**
+ * Flip an RGBA8 pixel buffer along the Y-axis in place. Used to
+ * convert Unity's on-disc bottom-up texture data into the
+ * top-down ordering the rest of our pipeline (Canvas2D, PNG
+ * download, sprite crop) expects.
+ */
+function flipVerticalRgba(pixels: Uint8Array, width: number, height: number): void {
+	const rowBytes = width * 4
+	const tmp = new Uint8Array(rowBytes)
+	for (let y = 0; y < Math.floor(height / 2); y++) {
+		const top = y * rowBytes
+		const bottom = (height - 1 - y) * rowBytes
+		tmp.set(pixels.subarray(top, top + rowBytes))
+		pixels.copyWithin(top, bottom, bottom + rowBytes)
+		pixels.set(tmp, bottom)
+	}
+}
+
+/**
  * Decode a Texture2D object's pixel data to RGBA8.
  *
  * Caller responsibilities:
@@ -92,6 +145,14 @@ export function decodeUnityTexture2D(
   }
   const pixels = new Uint8Array(width * height * 4)
   fmt.expandToRgba(linear, width, height, pixels)
+  // Y-flip when the source was stored bottom-up. Unity's cooker
+  // writes textures bottom-up (OpenGL convention) for every target
+  // except a handful of Direct3D / Metal / GNM ones — see
+  // `TOP_DOWN_PLATFORMS`. Without this, Linux / macOS / Switch /
+  // mobile builds render upside-down in our preview.
+  if (platform !== undefined && !isTopDownTexturePlatform(platform)) {
+    flipVerticalRgba(pixels, width, height)
+  }
   return { width, height, pixels }
 }
 

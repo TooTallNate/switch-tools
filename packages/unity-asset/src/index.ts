@@ -3,6 +3,7 @@
 // import surface.
 export {
   decodeUnityTexture2D,
+  isTopDownTexturePlatform,
   TextureFormatName,
   type DecodedTexture,
 } from "./texture.js"
