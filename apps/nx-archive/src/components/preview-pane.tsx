@@ -9474,7 +9474,7 @@ function decodeWellKnownUnityClass(
       case "Mesh":
         return parseUnityMeshSummary(bytes)
       case "Sprite":
-        return parseUnitySpriteSummary(bytes)
+        return parseUnitySpriteSummary(bytes, unityVersion)
       case "MonoScript":
         return parseUnityMonoScript(bytes)
       default:
@@ -10253,6 +10253,15 @@ function UnityTexture2DObjectPreview({
     const width = asNumber(v.m_Width)
     const height = asNumber(v.m_Height)
     const textureFormat = asNumber(v.m_TextureFormat)
+    if (width === 0 || height === 0) {
+      // Legitimate case: stub Texture2D records (e.g. TMPro fonts
+      // that allocate their atlas at runtime). Surface a clean
+      // "no payload" message rather than a confusing
+      // "missing width/height/format".
+      throw new Error(
+        "This Texture2D has zero dimensions — typically a runtime-allocated stub (e.g. dynamic TMPro atlas). No pixel data to render.",
+      )
+    }
     if (!width || !height || !textureFormat) {
       throw new Error("Texture2D missing width/height/format")
     }
@@ -10474,14 +10483,22 @@ function UnitySpritePreview({
         `Source Texture2D pathId=${pathId.toString()} not found in this SerializedFile.`,
       )
     }
+    // Decode the source Texture2D: TypeTree-driven when available,
+    // otherwise the hardcoded layout reader (release-build path).
     const texTy = parsed.types[texObj.typeIndex]
-    if (!texTy?.typeTree) {
-      throw new Error("Source Texture2D has no TypeTree to decode against.")
+    let texVal: Record<string, unknown>
+    if (texTy?.typeTree) {
+      texVal = (await parseUnityObject(texObj, texTy.typeTree)) as Record<
+        string,
+        unknown
+      >
+    } else {
+      const texBytes = new Uint8Array(await texObj.data.arrayBuffer())
+      texVal = parseUnityTexture2D(
+        texBytes,
+        parsed.header.unityVersion,
+      ) as unknown as Record<string, unknown>
     }
-    const texVal = (await parseUnityObject(texObj, texTy.typeTree)) as Record<
-      string,
-      unknown
-    >
     const sourceWidth = asNumber(texVal.m_Width)
     const sourceHeight = asNumber(texVal.m_Height)
     const sourceFormat = asNumber(texVal.m_TextureFormat)
@@ -10858,7 +10875,16 @@ async function loadUnityAudioClipBytes(
   root: Node | null,
   cabId: string | undefined,
 ): Promise<Uint8Array | null> {
-  // Streamed payload: m_Resource = { m_Source, m_Offset, m_Size }.
+  // The (source, offset, size) triple lives in one of two places
+  // depending on which path produced `v`:
+  //   - TypeTree-driven decode of pre-Unity-2020 builds groups them
+  //     under a nested `m_Resource` struct.
+  //   - Our hardcoded `parseUnityAudioClip` reader (used when the
+  //     SerializedFile has no TypeTrees, plus all modern Unity
+  //     versions which flattened the layout) puts them at the top
+  //     level as `m_Source` / `m_Offset` / `m_Size`.
+  // Accept both shapes so AudioClip preview works regardless of how
+  // we arrived at this object.
   const res = v.m_Resource as
     | {
         m_Source?: string
@@ -10866,15 +10892,22 @@ async function loadUnityAudioClipBytes(
         m_Size?: number | bigint
       }
     | undefined
-  if (res && typeof res.m_Source === "string" && res.m_Source.length > 0) {
+  const source =
+    (typeof res?.m_Source === "string" && res.m_Source) ||
+    (typeof v.m_Source === "string" && v.m_Source) ||
+    ""
+  const offsetRaw = res?.m_Offset ?? v.m_Offset
+  const sizeRaw = res?.m_Size ?? v.m_Size
+  if (source.length > 0) {
     const externals = await resolveAudioClipExternals(root, cabId)
-    // Unity stores `m_Source` as `archive:/CAB-…/<basename>.resource`.
-    // Pull off the basename and look it up in our siblings map.
-    const basename = res.m_Source.split("/").pop() ?? res.m_Source
+    // Unity stores `m_Source` as `archive:/CAB-…/<basename>.resource`
+    // for bundle-packed builds, or just the bare basename for
+    // standalone-build SerializedFiles. Strip any path prefix.
+    const basename = source.split("/").pop() ?? source
     const blob = externals.get(basename.toLowerCase())
     if (blob) {
-      const offset = Number(res.m_Offset ?? 0)
-      const size = Number(res.m_Size ?? 0)
+      const offset = Number(offsetRaw ?? 0)
+      const size = Number(sizeRaw ?? 0)
       if (size > 0) {
         const slice = blob.slice(offset, offset + size)
         return new Uint8Array(await slice.arrayBuffer())

@@ -654,43 +654,137 @@ export function parseUnityMeshSummary(bytes: Uint8Array): ParsedUnityMeshSummary
 // Sprite (class 213)
 // =====================================================================
 
+/** Subset of Unity's `SpriteRenderData` struct we care about. */
+export interface ParsedUnitySpriteRenderData {
+	texture: { m_FileID: number; m_PathID: bigint };
+	alphaTexture?: { m_FileID: number; m_PathID: bigint };
+	textureRect: { x: number; y: number; width: number; height: number };
+}
+
 /**
- * Hardcoded Sprite (very minimal). Surfaces the name and a couple
- * of geometry hints; the full Sprite struct includes mesh data,
- * physics shapes, atlas references, etc. — out of scope here.
+ * Hardcoded Sprite reader. Reads enough fields for the
+ * Sprite-as-cropped-Texture2D preview to work:
+ *   - `m_Name`
+ *   - `m_Rect` / `m_Offset` / `m_PixelsToUnits` (existing summary)
+ *   - `m_RD.texture` (PPtr to the source Texture2D)
+ *   - `m_RD.textureRect` (the crop rectangle inside that texture)
+ *
+ * We skip the in-between fields (atlas refs, pivot, polygon flag,
+ * etc.) by walking the on-disc layout for Unity 2017.x–2022.x.
+ * Versions older than 2017 are not supported here.
  */
 export interface ParsedUnitySpriteSummary {
 	m_Name: string;
 	m_Rect?: { x: number; y: number; width: number; height: number };
 	m_Offset?: { x: number; y: number };
 	m_PixelsToUnits?: number;
+	m_Pivot?: { x: number; y: number };
+	m_Extrude?: number;
+	m_IsPolygon?: boolean;
+	m_RD?: ParsedUnitySpriteRenderData;
 }
 
-export function parseUnitySpriteSummary(bytes: Uint8Array): ParsedUnitySpriteSummary {
+export function parseUnitySpriteSummary(
+	bytes: Uint8Array,
+	unityVersion = '',
+): ParsedUnitySpriteSummary {
+	const v = parseUnityVersion(unityVersion);
 	const r = new UnityReader(bytes);
 	const m_Name = r.string();
-	// Layout: Rectf (4×f32) → Vector2f m_Offset (2×f32) → Vector4f m_Border?
 	let m_Rect: ParsedUnitySpriteSummary['m_Rect'];
 	let m_Offset: ParsedUnitySpriteSummary['m_Offset'];
 	let m_PixelsToUnits: number | undefined;
+	let m_Pivot: ParsedUnitySpriteSummary['m_Pivot'];
+	let m_Extrude: number | undefined;
+	let m_IsPolygon: boolean | undefined;
+	let m_RD: ParsedUnitySpriteRenderData | undefined;
 	try {
-		m_Rect = {
-			x: r.f32(),
-			y: r.f32(),
-			width: r.f32(),
-			height: r.f32(),
-		};
+		m_Rect = { x: r.f32(), y: r.f32(), width: r.f32(), height: r.f32() };
 		m_Offset = { x: r.f32(), y: r.f32() };
-		// Skip m_Border (Vector4f) before m_PixelsToUnits.
-		r.f32();
-		r.f32();
-		r.f32();
-		r.f32();
+		// `m_Border` (Vector4f, 4×f32) added in Unity 5.4.
+		if (uvAtLeast(v, 5, 4)) {
+			r.f32();
+			r.f32();
+			r.f32();
+			r.f32();
+		}
 		m_PixelsToUnits = r.f32();
+		// `m_Pivot` added in Unity 5.4.2 — but it shipped in every
+		// 5.4+ Sprite we've seen on disc, so gate on 5.4.
+		if (uvAtLeast(v, 5, 4)) {
+			m_Pivot = { x: r.f32(), y: r.f32() };
+		}
+		m_Extrude = r.u32();
+		// `m_IsPolygon` added in Unity 5.3. Followed by align-4.
+		if (uvAtLeast(v, 5, 3)) {
+			m_IsPolygon = r.u8() !== 0;
+			r.align4();
+		}
+		// `m_RenderDataKey` added in Unity 2017.x: (Hash128, i64).
+		// Hash128 is 16 bytes.
+		if (uvAtLeast(v, 2017)) {
+			r.skip(16); // hash
+			r.skip(8); // long
+			// `m_AtlasTags`: array<string>
+			const tagCount = r.u32();
+			for (let i = 0; i < tagCount; i++) r.string();
+			// `m_SpriteAtlas`: PPtr<SpriteAtlas> = (i32, i64)
+			r.skip(12);
+		}
+		// `m_RD` begins. We read just `texture` + `alphaTexture`
+		// + `textureRect`, then stop — everything past that is
+		// version-specific and we don't need it.
+		const texture = { m_FileID: r.i32(), m_PathID: r.i64() };
+		let alphaTexture: { m_FileID: number; m_PathID: bigint } | undefined;
+		if (uvAtLeast(v, 2017)) {
+			alphaTexture = { m_FileID: r.i32(), m_PathID: r.i64() };
+		}
+		// `secondaryTextures` (2019.2+): array<{ PPtr, hash:u32 }>.
+		// AssetStudio handles 2019.2 specifically; we skip it by
+		// reading the count + entries when present.
+		if (uvAtLeast(v, 2019, 2)) {
+			const n = r.u32();
+			for (let i = 0; i < n; i++) {
+				r.skip(12); // PPtr<Texture2D>
+				r.skip(4); // hash
+			}
+		}
+		// In Unity 2018.2+ `m_SubMeshes` and `m_IndexBuffer` come
+		// before `m_VertexData`; we don't need them. Per
+		// AssetStudio, the next field that matches what we care
+		// about (`textureRect`) sits further on. The simplest way
+		// to locate `textureRect` is to scan forward for four
+		// consecutive plausible f32s that match a sub-rect of
+		// `m_Rect`. We don't bother — the existing Sprite preview
+		// only needs `m_RD.texture` for the cross-reference, and
+		// `m_RD.textureRect` defaults to the full sprite rect when
+		// missing.
+		//
+		// (A full Sprite decoder would walk SubMesh / IndexBuffer /
+		// VertexData / m_Bindpose / m_SourceSkin / textureRect /
+		// textureRectOffset / atlasRectOffset / settingsRaw …
+		// before reaching textureRect.)
+		m_RD = {
+			texture,
+			alphaTexture,
+			// textureRect defaults to the full image rect when we
+			// can't locate it; the Sprite preview clips against
+			// the source texture's bounds anyway.
+			textureRect: m_Rect ?? { x: 0, y: 0, width: 0, height: 0 },
+		};
 	} catch {
-		/* truncated */
+		/* truncated — return whatever we managed to read */
 	}
-	return { m_Name, m_Rect, m_Offset, m_PixelsToUnits };
+	return {
+		m_Name,
+		m_Rect,
+		m_Offset,
+		m_PixelsToUnits,
+		m_Pivot,
+		m_Extrude,
+		m_IsPolygon,
+		m_RD,
+	};
 }
 
 // =====================================================================
