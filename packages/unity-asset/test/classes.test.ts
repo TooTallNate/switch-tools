@@ -238,9 +238,12 @@ describe('parseUnityTexture2D', () => {
 // ---------------------------------------------------------------------
 
 describe('parseUnityFont', () => {
-	it('finds an OTF blob embedded in arbitrary surrounding fields', () => {
-		// Build: name + line-spacing + 32 bytes of arbitrary fields +
-		// length-prefixed 'OTTO' magic + 8 bytes payload.
+	it('finds a length-prefixed OTF blob past arbitrary surrounding fields', () => {
+		// Layout: name + line-spacing + 32 bytes of arbitrary fields +
+		// length-prefixed payload of 4096 bytes (4 OTTO bytes + filler).
+		// Crossing the MIN_FONT_BYTES = 1024 threshold ensures the
+		// "tight match" first pass accepts the candidate; a tail < 64
+		// bytes keeps it inside the trailer-length window.
 		const buf: number[] = [];
 		const pushU32 = (n: number) =>
 			buf.push(n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >> 24) & 0xff);
@@ -250,17 +253,14 @@ describe('parseUnityFont', () => {
 			while (buf.length % 4 !== 0) buf.push(0);
 		};
 		pushString('MyFont');
-		// m_LineSpacing (f32)
 		const f32buf = new Uint8Array(4);
 		new DataView(f32buf.buffer).setFloat32(0, 1.5, true);
 		for (const b of f32buf) buf.push(b);
-		// 32 bytes of arbitrary fields (PPtrs, etc.). The scanner
-		// has to skip past these and find the sfnt magic on its own.
+		// 32 bytes of arbitrary mid-object fields.
 		for (let i = 0; i < 32; i++) buf.push(i & 0xff);
-		// font data: length-prefixed
-		const fontPayload = new Uint8Array(12);
-		fontPayload.set([0x4f, 0x54, 0x54, 0x4f]); // OTTO
-		for (let i = 4; i < 12; i++) fontPayload[i] = i;
+		const fontPayload = new Uint8Array(4096);
+		fontPayload.set([0x4f, 0x54, 0x54, 0x4f]);
+		for (let i = 4; i < fontPayload.length; i++) fontPayload[i] = i & 0xff;
 		pushU32(fontPayload.length);
 		for (const b of fontPayload) buf.push(b);
 		const bytes = new Uint8Array(buf);
@@ -273,7 +273,48 @@ describe('parseUnityFont', () => {
 			0x54,
 			0x4f,
 		]);
-		expect(f.m_FontData!.length).toBe(12);
+		expect(f.m_FontData!.length).toBe(4096);
+	});
+
+	it("ignores spurious sfnt-magic byte sequences inside other fields", () => {
+		// Build a Font where the m_Name length itself looks like the
+		// start of an sfnt magic. Without the "minimum font size"
+		// guard the heuristic would happily return a 17-byte "font"
+		// starting at the name field. Mirrors the kq_20.13's
+		// `Vermin-Vibes-1989` false-positive case.
+		const buf: number[] = [];
+		const pushU32 = (n: number) =>
+			buf.push(n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >> 24) & 0xff);
+		// Name is exactly 17 chars; padded m_Name field is 4 + 20 = 24
+		// bytes. Then we emit the line-spacing + 1024 bytes of
+		// arbitrary data containing what LOOKS like a font header at a
+		// non-aligned position.
+		const name = 'A'.repeat(17);
+		pushU32(name.length);
+		for (const c of name) buf.push(c.charCodeAt(0));
+		while (buf.length % 4 !== 0) buf.push(0);
+		// m_LineSpacing
+		for (let i = 0; i < 4; i++) buf.push(0);
+		// 1024 bytes of arbitrary fields. Embed the false-positive
+		// pattern `00 01 00 00` at a 4-byte boundary; the preceding
+		// u32 names a tiny size (well below the 1024-byte minimum)
+		// so the new heuristic rejects it.
+		for (let i = 0; i < 1024; i++) buf.push(0);
+		// Drop in a "fake" magic + tiny prefix
+		const fakeOff = 100;
+		buf[fakeOff - 4] = 0x40;
+		buf[fakeOff - 3] = 0;
+		buf[fakeOff - 2] = 0;
+		buf[fakeOff - 1] = 0;
+		buf[fakeOff + 0] = 0x00;
+		buf[fakeOff + 1] = 0x01;
+		buf[fakeOff + 2] = 0x00;
+		buf[fakeOff + 3] = 0x00;
+		const f = parseUnityFont(new Uint8Array(buf));
+		expect(f.m_Name).toBe(name);
+		// The false-positive magic at offset 100 announces 64 bytes,
+		// far below MIN_FONT_BYTES = 1024 — rejected.
+		expect(f.m_FontData).toBeUndefined();
 	});
 
 	it('returns no font data when no sfnt magic is present', () => {

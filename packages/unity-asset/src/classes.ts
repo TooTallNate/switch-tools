@@ -460,12 +460,33 @@ export function parseUnityFont(bytes: Uint8Array): ParsedUnityFont {
 	} catch {
 		/* truncated */
 	}
-	// Heuristic: scan for a u32-length-prefixed sfnt magic in the
-	// remaining bytes. We look for:
-	//   - "OTTO" → OpenType-CFF
-	//   - "true" or "typ1" → TrueType
-	//   - "\x00\x01\x00\x00" → TTF v1.0
-	//   - "ttcf" → TrueType collection
+	// `m_FontData` is the LAST byte-array field in Unity's `Font`
+	// object (followed only by `m_Descent` / `m_DefaultStyle` /
+	// `m_FontNames` / a few small fixed-size fields in newer
+	// versions). The on-disc layout is therefore:
+	//
+	//   ... [variable-length fields we don't decode] ...
+	//   u32 m_FontData_length
+	//   bytes m_FontData_length × <sfnt-magic + glyf/CFF data>
+	//   [optional trailer fields]
+	//
+	// Heuristic: walk every 4-byte-aligned position from the post-
+	// header region forward, treating the u32 there as a candidate
+	// length and the following 4 bytes as a candidate sfnt magic.
+	// A real `m_FontData` length will satisfy:
+	//   - `magic` is one of the known sfnt tags (OTTO / 00010000 /
+	//     true / typ1 / ttcf).
+	//   - `length` is large enough to plausibly hold a font (>= 1 KB)
+	//     and points within the buffer.
+	//   - The end of the candidate payload sits within ~32 bytes of
+	//     the buffer end (room for the small trailer fields).
+	//
+	// The previous heuristic looked only at the 4 bytes before the
+	// magic and accepted any length, which made it match the
+	// length-prefix of an unrelated `m_Name` (e.g. for
+	// `Vermin-Vibes-1989`, the m_Name length 0x11 appears just
+	// before garbage that happens to start with `00 01 00 00` —
+	// false positive).
 	const SFNT_MAGICS = [
 		[0x4f, 0x54, 0x54, 0x4f], // OTTO
 		[0x00, 0x01, 0x00, 0x00], // TTF v1.0
@@ -473,7 +494,14 @@ export function parseUnityFont(bytes: Uint8Array): ParsedUnityFont {
 		[0x74, 0x79, 0x70, 0x31], // typ1
 		[0x74, 0x74, 0x63, 0x66], // ttcf
 	];
-	for (let i = 0; i + 8 < bytes.length; i++) {
+	const MIN_FONT_BYTES = 1024;
+	const MAX_TRAILER_BYTES = 64;
+	const fromOffset = Math.max(r.offset, 4);
+	// Sweep 4-byte aligned positions only — Unity's writer aligns
+	// every field/array to 4, so the real magic always lands on a
+	// 4-byte boundary.
+	const start = (fromOffset + 3) & ~3;
+	for (let i = start; i + 8 < bytes.length; i += 4) {
 		const b0 = bytes[i];
 		const b1 = bytes[i + 1];
 		const b2 = bytes[i + 2];
@@ -482,20 +510,51 @@ export function parseUnityFont(bytes: Uint8Array): ParsedUnityFont {
 			(m) => m[0] === b0 && m[1] === b1 && m[2] === b2 && m[3] === b3,
 		);
 		if (!isMagic) continue;
-		// Check the u32 immediately before this position for a plausible
-		// length (= bytes.length - i, or close to it).
-		if (i >= 4) {
-			const lenLo = bytes[i - 4];
-			const lenHi1 = bytes[i - 3];
-			const lenHi2 = bytes[i - 2];
-			const lenHi3 = bytes[i - 1];
-			const len = lenLo | (lenHi1 << 8) | (lenHi2 << 16) | (lenHi3 << 24);
-			if (len > 0 && len <= bytes.length - i) {
-				return { m_Name, m_LineSpacing, m_FontData: bytes.subarray(i, i + len) };
-			}
+		if (i < 4) continue;
+		const len =
+			bytes[i - 4]! |
+			(bytes[i - 3]! << 8) |
+			(bytes[i - 2]! << 16) |
+			(bytes[i - 1]! << 24);
+		if (
+			len >= MIN_FONT_BYTES &&
+			i + len <= bytes.length &&
+			bytes.length - (i + len) <= MAX_TRAILER_BYTES
+		) {
+			return {
+				m_Name,
+				m_LineSpacing,
+				m_FontData: bytes.subarray(i, i + len),
+			};
 		}
-		// No valid u32 prefix; assume the rest of the buffer.
-		return { m_Name, m_LineSpacing, m_FontData: bytes.subarray(i) };
+	}
+	// Fallback: an earlier, looser pass. Some fonts come through
+	// without a tight length match (e.g. when m_FontData isn't the
+	// last field for the Unity version in use). Accept any sfnt-
+	// magic at a 4-byte boundary whose preceding u32 names a
+	// plausible length pointing inside the buffer.
+	for (let i = start; i + 8 < bytes.length; i += 4) {
+		const b0 = bytes[i];
+		const b1 = bytes[i + 1];
+		const b2 = bytes[i + 2];
+		const b3 = bytes[i + 3];
+		const isMagic = SFNT_MAGICS.some(
+			(m) => m[0] === b0 && m[1] === b1 && m[2] === b2 && m[3] === b3,
+		);
+		if (!isMagic) continue;
+		if (i < 4) continue;
+		const len =
+			bytes[i - 4]! |
+			(bytes[i - 3]! << 8) |
+			(bytes[i - 2]! << 16) |
+			(bytes[i - 1]! << 24);
+		if (len >= MIN_FONT_BYTES && i + len <= bytes.length) {
+			return {
+				m_Name,
+				m_LineSpacing,
+				m_FontData: bytes.subarray(i, i + len),
+			};
+		}
 	}
 	return { m_Name, m_LineSpacing };
 }
