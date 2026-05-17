@@ -1882,6 +1882,44 @@ function useAsyncWithProgress<T>(
 
 // -------- Specific previews --------
 
+/**
+ * Build a `URL.createObjectURL`-compatible `Blob` from anything
+ * `node.blob()` returns, preserving laziness when we can.
+ *
+ * `node.blob()` may return either a real `Blob` (most common —
+ * RomFS slices, decrypted NCA sections, NSP entries) or a duck-
+ * typed lazy facade from `makeLazyBlob` (ZIP entries with
+ * deferred DEFLATE, UnityFS LZ4 / LZMA streams).
+ * `URL.createObjectURL` does a real `instanceof Blob` check and
+ * rejects facades, so we have to detect and handle each case
+ * differently:
+ *
+ *   - Real `Blob` (size already known, bytes randomly
+ *     accessible): re-tag the MIME via `Blob.slice(0, size, mime)`
+ *     — this is a view, no copy. The <audio> / <video> element
+ *     will stream from it via Range requests; the whole file
+ *     never sits in memory.
+ *   - Lazy facade: there's no Range-readable backing storage,
+ *     so we have to materialise. Force the full bytes through
+ *     `arrayBuffer()`, then build a fresh real `Blob`. Memory
+ *     cost ≈ file size. The caller is expected to gate this
+ *     behind a size check appropriate to the preview kind.
+ */
+async function makePreviewBlob(blob: Blob, mime: string): Promise<Blob> {
+  // `instanceof Blob` works for genuine Blob / File subclass
+  // instances. Our lazy facade fails this check despite being
+  // structurally Blob-shaped.
+  if (typeof Blob !== "undefined" && blob instanceof Blob) {
+    return blob.type === mime ? blob : blob.slice(0, blob.size, mime)
+  }
+  // Lazy facade — materialise via the existing helper (which
+  // prefers `Response.blob()` streaming when the facade exposes
+  // `stream()`, keeping peak memory at one chunk rather than the
+  // full file) and re-tag the MIME without copying.
+  const real = await materializeAsBlob(blob)
+  return real.type === mime ? real : real.slice(0, real.size, mime)
+}
+
 function ImagePreview({ node }: { node: Node }) {
   const { loading, data, error } = useAsync(async () => {
     const blob = await node.blob!()
@@ -1894,9 +1932,7 @@ function ImagePreview({ node }: { node: Node }) {
     // Switch app icons (icon_*.dat) are JPEGs.
     const isSwitchIconDat = /^icon_.*\.dat$/i.test(node.name)
     const mime = isSwitchIconDat ? "image/jpeg" : IMAGE_MIME[ext] ?? "image/png"
-    // Re-tag the source Blob without copying its bytes — see the
-    // MediaPreview comment for why this matters for laziness.
-    const typed = blob.type === mime ? blob : blob.slice(0, blob.size, mime)
+    const typed = await makePreviewBlob(blob, mime)
     return URL.createObjectURL(typed)
   }, [node.id])
 
@@ -1938,15 +1974,13 @@ function MediaPreview({
     const ext = extOf(node.name)
     const mime =
       kind === "audio" ? AUDIO_MIME[ext] ?? "audio/*" : VIDEO_MIME[ext] ?? "video/*"
-    // `Blob.slice(start, end, mime)` creates a new Blob view with
-    // the desired MIME type without copying the underlying bytes.
-    // For lazy blobs (RomFS slices, decrypted NCA sections) this
-    // means the <audio> / <video> element can stream from the
-    // original source via Range requests, never materialising the
-    // whole file in memory. The previous `new Blob([await
-    // blob.arrayBuffer()])` round-trip forced the full payload
-    // into a Uint8Array and was the reason the size cap existed.
-    const typed = blob.type === mime ? blob : blob.slice(0, blob.size, mime)
+    // For real Blobs (RomFS slices, decrypted NCA sections, NSP
+    // entries) this is a lazy view — the <audio> / <video> element
+    // streams from the source via Range requests and never holds
+    // the whole file in memory. For lazy-facade Blobs (e.g. ZIP /
+    // UnityFS entries that require DEFLATE / LZ4 decompression
+    // upfront), `makePreviewBlob` materialises into a real Blob.
+    const typed = await makePreviewBlob(blob, mime)
     return URL.createObjectURL(typed)
   }, [node.id])
 
