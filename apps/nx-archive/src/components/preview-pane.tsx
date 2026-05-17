@@ -243,8 +243,25 @@ import { loadStoredBink2Wasm } from "~/lib/bink2-store"
 
 const TEXT_PREVIEW_LIMIT = 1 * 1024 * 1024 // 1 MB
 const HEX_PREVIEW_LIMIT = 4 * 1024 // 4 KB hex window
-const IMAGE_PREVIEW_LIMIT = 32 * 1024 * 1024
-const MEDIA_PREVIEW_LIMIT = 200 * 1024 * 1024
+/**
+ * Hard cap for `<img>` previews. The browser decodes lazily once
+ * the element renders, so we can be generous; the practical limit
+ * is the decoded pixel size (Chrome's canvas caps around 32k×32k).
+ * 512 MB covers any reasonable game asset (HDR LUTs, full-screen
+ * 8k backgrounds) without letting an accidentally-routed 50 GB
+ * RomFS slip through.
+ */
+const IMAGE_PREVIEW_LIMIT = 512 * 1024 * 1024
+/**
+ * Hard cap for `<audio>` / `<video>` previews. The element streams
+ * from a blob URL via Range requests and never needs the whole
+ * file in memory, so this can be generous — pick a value that's
+ * still under typical `Blob.slice` quotas (Firefox 2 GB, Chrome
+ * 32 GB on 64-bit). 8 GB covers full game cutscenes and feature-
+ * length recordings while leaving headroom for the rest of the
+ * UI's allocations.
+ */
+const MEDIA_PREVIEW_LIMIT = 8 * 1024 * 1024 * 1024
 /** Above this we skip JSON/YAML parsing for the tree view and fall through to the source view. */
 const TREE_PARSE_LIMIT = 4 * 1024 * 1024 // 4 MB
 
@@ -1877,8 +1894,10 @@ function ImagePreview({ node }: { node: Node }) {
     // Switch app icons (icon_*.dat) are JPEGs.
     const isSwitchIconDat = /^icon_.*\.dat$/i.test(node.name)
     const mime = isSwitchIconDat ? "image/jpeg" : IMAGE_MIME[ext] ?? "image/png"
-    const b = new Blob([await blob.arrayBuffer()], { type: mime })
-    return URL.createObjectURL(b)
+    // Re-tag the source Blob without copying its bytes — see the
+    // MediaPreview comment for why this matters for laziness.
+    const typed = blob.type === mime ? blob : blob.slice(0, blob.size, mime)
+    return URL.createObjectURL(typed)
   }, [node.id])
 
   useEffect(() => {
@@ -1919,8 +1938,16 @@ function MediaPreview({
     const ext = extOf(node.name)
     const mime =
       kind === "audio" ? AUDIO_MIME[ext] ?? "audio/*" : VIDEO_MIME[ext] ?? "video/*"
-    const b = new Blob([await blob.arrayBuffer()], { type: mime })
-    return URL.createObjectURL(b)
+    // `Blob.slice(start, end, mime)` creates a new Blob view with
+    // the desired MIME type without copying the underlying bytes.
+    // For lazy blobs (RomFS slices, decrypted NCA sections) this
+    // means the <audio> / <video> element can stream from the
+    // original source via Range requests, never materialising the
+    // whole file in memory. The previous `new Blob([await
+    // blob.arrayBuffer()])` round-trip forced the full payload
+    // into a Uint8Array and was the reason the size cap existed.
+    const typed = blob.type === mime ? blob : blob.slice(0, blob.size, mime)
+    return URL.createObjectURL(typed)
   }, [node.id])
 
   useEffect(() => {
