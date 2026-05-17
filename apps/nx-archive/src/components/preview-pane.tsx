@@ -13645,7 +13645,19 @@ function DownloadButton({
   const onClick = async () => {
     if (busy) return
     setBusy(true)
+    const t0 = performance.now()
     const id = toast.loading(`Preparing ${fileName}…`)
+    const mark = (label: string): void => {
+      // Diagnostic timing — leave the trace in for now so we can
+      // confirm where time is going on user reports of slow
+      // downloads. Cheap to leave on; toggle with a localStorage
+      // flag if it gets noisy.
+      // eslint-disable-next-line no-console
+      console.log(
+        `[download:${fileName}] ${label} +${Math.round(performance.now() - t0)}ms`,
+      )
+    }
+    mark("start")
     // rAF-throttled progress updates so the toast doesn't re-render
     // 60+ times a second while a multi-GB NCZ is decompressing.
     let pending: ProgressEvent | null = null
@@ -13662,12 +13674,15 @@ function DownloadButton({
         : `Preparing ${fileName} — ${formatBytesShort(e.bytesOut)} processed`
       toast.loading(label, { id })
     }
+    let progressEventCount = 0
     const onProgress: OnProgress = (e) => {
+      progressEventCount++
       pending = e
       if (rafId === null) rafId = requestAnimationFrame(flush)
     }
     try {
       const blob = await blobFn({ onProgress })
+      mark(`blobFn resolved (progress events: ${progressEventCount})`)
       if (rafId !== null) {
         cancelAnimationFrame(rafId)
         rafId = null
@@ -13689,13 +13704,16 @@ function DownloadButton({
         a.remove()
       }
       const isReal = typeof Blob !== "undefined" && blob instanceof Blob
+      mark(`type-check: isReal=${isReal} vfs=${isVfsAvailable()}`)
       if (isReal) {
         // Real Blob — direct blob URL is the cheapest path. The
         // browser already supports Range / streaming downloads
         // natively for blob: URLs. Revoke after a short delay so
         // the download manager has time to latch on.
         const url = URL.createObjectURL(blob)
+        mark("createObjectURL")
         click(url)
+        mark("click")
         setTimeout(() => URL.revokeObjectURL(url), 1500)
       } else if (isVfsAvailable()) {
         // Lazy facade + SW available — let the SW stream bytes
@@ -13709,12 +13727,16 @@ function DownloadButton({
           blob.type || "application/octet-stream",
           fileName,
         )
+        mark(`registerBlobAsVfsResource → ${vfsUrl ? "ok" : "null"}`)
         if (vfsUrl) {
           click(vfsUrl)
+          mark("click")
         } else {
           // Defensive: vfs registration failed despite the
           // availability check. Fall through to materialisation.
+          mark("MATERIALIZE (vfs returned null)")
           const realBlob = await materializeAsBlob(blob)
+          mark("materializeAsBlob done")
           const url = URL.createObjectURL(realBlob)
           click(url)
           setTimeout(() => URL.revokeObjectURL(url), 1500)
@@ -13722,12 +13744,15 @@ function DownloadButton({
       } else {
         // Lazy facade + no SW — fall back to materialising. This
         // is the slow path that buffers the whole file in memory.
+        mark("MATERIALIZE (no SW)")
         const realBlob = await materializeAsBlob(blob)
+        mark("materializeAsBlob done")
         const url = URL.createObjectURL(realBlob)
         click(url)
         setTimeout(() => URL.revokeObjectURL(url), 1500)
       }
       toast.success(`Downloaded ${fileName}`, { id })
+      mark("toast.success")
     } catch (err) {
       if (rafId !== null) cancelAnimationFrame(rafId)
       toast.error(
