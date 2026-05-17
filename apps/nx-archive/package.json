@@ -36,6 +36,7 @@
     "@tootallnate/bfwav": "workspace:*",
     "@tootallnate/bwav": "workspace:*",
     "@tootallnate/msbt": "workspace:*",
+    "@tootallnate/bink1-wasm": "workspace:*",
     "@tootallnate/bink2-wasm": "workspace:*",
     "@tootallnate/bmfont": "workspace:*",
     "@tootallnate/bntx": "workspace:*",

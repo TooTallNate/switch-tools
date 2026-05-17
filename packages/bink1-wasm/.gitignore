@@ -1,0 +1,9 @@
+# The compiled `bink1.wasm` IS committed (LGPL allows redistribution).
+# All other build outputs and the cloned ffmpeg source are not.
+build/
+dist/
+node_modules/
+
+# Don't ignore the artifact even though it lands inside a usually-ignored path
+# (the file is committed at src/bink1.wasm and copied to dist/ during `pnpm build`).
+!src/bink1.wasm

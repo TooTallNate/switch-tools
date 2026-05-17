@@ -1,0 +1,15 @@
+diff --git a/libavutil/file_open.c b/libavutil/file_open.c
+index 9aa4e4a..274ac4e 100644
+--- a/libavutil/file_open.c
++++ b/libavutil/file_open.c
+@@ -108,6 +108,10 @@ static const AVClass file_log_ctx_class = {
+     .parent_log_context_offset = offsetof(FileLogContext, log_ctx),
+ };
+ 
++#ifdef __wasi__
++extern int mkstemp(char *);
++#endif
++
+ int avpriv_tempfile(const char *prefix, char **filename, int log_offset, void *log_ctx)
+ {
+     FileLogContext file_log_ctx = { &file_log_ctx_class, log_offset, log_ctx };

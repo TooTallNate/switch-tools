@@ -262,6 +262,9 @@ importers:
       '@tootallnate/bfwav':
         specifier: workspace:*
         version: link:../../packages/bfwav
+      '@tootallnate/bink1-wasm':
+        specifier: workspace:*
+        version: link:../../packages/bink1-wasm
       '@tootallnate/bink2-wasm':
         specifier: workspace:*
         version: link:../../packages/bink2-wasm
@@ -596,6 +599,15 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.9.3
+
+  packages/bink1-wasm:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
   packages/bink2-wasm:
     devDependencies:
