@@ -279,6 +279,10 @@ function onSwMessage(event: MessageEvent): void {
  * Convenience: register a `Blob`-shaped value (real or facade)
  * as a vfs resource and return its URL.
  *
+ * Wraps the blob's `slice` / `stream` API in a chunked cache so
+ * small Range requests don't repeatedly pay the Web Crypto /
+ * decompression fixed-cost overhead. See {@link wrapWithChunkCache}.
+ *
  * The resource's `read(start, end)` calls `blob.slice(start,
  * end).stream()` to get chunks. For real Blobs this is a lazy
  * view; for facades (NCA AES-CTR sections, ZIP DEFLATE) the
@@ -290,27 +294,195 @@ export function registerBlobAsVfsResource(
 	filename?: string,
 ): string | null {
 	if (!state.swReady) return null;
-	return registerVfsResource({
-		size: blob.size,
-		mime,
-		filename,
-		async *read(start, end) {
-			// blob.slice() is a view for real Blobs; lazy facades
-			// chain through their own slice() implementation. Either
-			// way the returned blob's stream() yields the requested
-			// range only.
-			const sliced = blob.slice(start, end);
-			if (typeof sliced.stream === 'function') {
-				const reader = sliced.stream().getReader();
-				for (;;) {
-					const { value, done } = await reader.read();
-					if (done) break;
-					if (value) yield value;
+	return registerVfsResource(
+		wrapWithChunkCache({
+			size: blob.size,
+			mime,
+			filename,
+			async *read(start, end) {
+				// blob.slice() is a view for real Blobs; lazy facades
+				// chain through their own slice() implementation. Either
+				// way the returned blob's stream() yields the requested
+				// range only.
+				const sliced = blob.slice(start, end);
+				if (typeof sliced.stream === 'function') {
+					const reader = sliced.stream().getReader();
+					for (;;) {
+						const { value, done } = await reader.read();
+						if (done) break;
+						if (value) yield value;
+					}
+				} else {
+					const buf = await sliced.arrayBuffer();
+					yield new Uint8Array(buf);
 				}
-			} else {
-				const buf = await sliced.arrayBuffer();
-				yield new Uint8Array(buf);
+			},
+		}),
+	);
+}
+
+// ============================================================================
+// Chunked read-ahead cache
+// ============================================================================
+
+/**
+ * Cache chunk size. Reads are aligned UP to this size, decrypted /
+ * decompressed once, and served from memory thereafter. 4 MiB is
+ * a good compromise:
+ *
+ *   - Big enough to amortise Web Crypto's per-call overhead
+ *     (each `crypto.subtle.encrypt` adds 5-10ms of fixed cost
+ *     regardless of payload size — for AES-CTR over ~1 KB MP4
+ *     sample atoms that's ruinous).
+ *   - Small enough that the first chunk arrives in under ~100ms
+ *     on typical hardware, so the play-press latency is bounded.
+ *   - A multiple of the AES block size (16 B), so chunk reads
+ *     align with the underlying section's block boundaries.
+ *   - Roughly a single HTTP Range scrub-ahead window for a 4K
+ *     video at typical bitrates — most sequential playback ends
+ *     up entirely cache-resident.
+ */
+const CACHE_CHUNK_SIZE = 4 * 1024 * 1024;
+
+/**
+ * Per-resource cache memory budget. When the sum of all chunks
+ * for a single resource exceeds this, the oldest unused chunks
+ * are evicted (LRU). Multiple resources can be active at once;
+ * each gets its own budget.
+ *
+ * 64 MiB allows ~16 chunks of read-ahead per resource — plenty
+ * for sustained sequential playback while still leaving room
+ * for other previews and the rest of the app's allocations.
+ */
+const CACHE_BUDGET_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Wrap a {@link VfsResource} with a chunked read-ahead cache.
+ *
+ * Each call to `read(start, end)` is split into one or more
+ * `CACHE_CHUNK_SIZE`-aligned chunks. Chunks are cached in a
+ * per-resource LRU keyed on `chunkIndex = floor(start /
+ * CACHE_CHUNK_SIZE)`; subsequent reads for any byte range
+ * within those chunks return from memory.
+ *
+ * Concurrent reads for the same chunk share the in-flight
+ * Promise — no double decryption.
+ *
+ * Why this matters: <video> elements parse MP4 atom tables at
+ * playback start, issuing hundreds of small (1-10 KB) Range
+ * requests against random offsets in the file. Without this
+ * cache, each request triggers a fresh `crypto.subtle.encrypt`
+ * call with significant fixed-cost overhead — making the
+ * play-press latency on a lazy AES-CTR facade feel sluggish
+ * even though the actual decrypt math is trivial.
+ */
+function wrapWithChunkCache(resource: VfsResource): VfsResource {
+	interface CacheEntry {
+		/** Set during decryption; resolves to the chunk's bytes once ready. */
+		promise: Promise<Uint8Array>;
+		/** Filled in after `promise` resolves so we can size the LRU. */
+		bytes: Uint8Array | null;
+		/** Monotonic tick used by the LRU to age entries. */
+		lastUsed: number;
+	}
+	const cache = new Map<number, CacheEntry>();
+	let tick = 0;
+	let cachedBytes = 0;
+
+	const readChunkBytes = async (chunkIndex: number): Promise<Uint8Array> => {
+		const chunkStart = chunkIndex * CACHE_CHUNK_SIZE;
+		const chunkEnd = Math.min(chunkStart + CACHE_CHUNK_SIZE, resource.size);
+		// Pull the whole chunk through the underlying reader. We
+		// concatenate yields because callers may produce arbitrary
+		// chunk sizes (LazyCtrSection's stream() emits 64 KB
+		// pieces, for example).
+		const pieces: Uint8Array[] = [];
+		let total = 0;
+		for await (const piece of resource.read(chunkStart, chunkEnd)) {
+			pieces.push(piece);
+			total += piece.byteLength;
+		}
+		const out = new Uint8Array(chunkEnd - chunkStart);
+		let off = 0;
+		for (const p of pieces) {
+			out.set(p, off);
+			off += p.byteLength;
+		}
+		// Underlying reader may have produced fewer bytes than we
+		// asked for (e.g. malformed source) — trim if necessary.
+		return total < out.length ? out.subarray(0, total) : out;
+	};
+
+	const getChunk = (chunkIndex: number): Promise<Uint8Array> => {
+		const existing = cache.get(chunkIndex);
+		if (existing) {
+			existing.lastUsed = ++tick;
+			return existing.promise;
+		}
+		const promise = readChunkBytes(chunkIndex);
+		const entry: CacheEntry = {
+			promise,
+			bytes: null,
+			lastUsed: ++tick,
+		};
+		cache.set(chunkIndex, entry);
+		// Fill in the size + run eviction once the bytes land.
+		void promise
+			.then((bytes) => {
+				entry.bytes = bytes;
+				cachedBytes += bytes.byteLength;
+				evictIfNeeded();
+			})
+			.catch(() => {
+				// Failed read — drop the entry so we don't memoise
+				// the error forever. The next request will retry.
+				cache.delete(chunkIndex);
+			});
+		return promise;
+	};
+
+	const evictIfNeeded = (): void => {
+		if (cachedBytes <= CACHE_BUDGET_BYTES) return;
+		// Sort by lastUsed ascending and drop the oldest until we
+		// fit. This is O(N log N) per eviction but N is bounded by
+		// `CACHE_BUDGET_BYTES / CACHE_CHUNK_SIZE` ≈ 16, so it's
+		// effectively constant time.
+		const entries = [...cache.entries()].sort(
+			(a, b) => a[1].lastUsed - b[1].lastUsed,
+		);
+		for (const [idx, entry] of entries) {
+			if (cachedBytes <= CACHE_BUDGET_BYTES) break;
+			if (!entry.bytes) continue; // still in flight, can't evict
+			cache.delete(idx);
+			cachedBytes -= entry.bytes.byteLength;
+		}
+	};
+
+	return {
+		size: resource.size,
+		mime: resource.mime,
+		filename: resource.filename,
+		async *read(start, end) {
+			// Walk the requested byte range chunk by chunk.
+			let cursor = start;
+			while (cursor < end) {
+				const chunkIndex = Math.floor(cursor / CACHE_CHUNK_SIZE);
+				const chunkStart = chunkIndex * CACHE_CHUNK_SIZE;
+				const chunkBytes = await getChunk(chunkIndex);
+				const offsetInChunk = cursor - chunkStart;
+				const bytesAvailable = chunkBytes.byteLength - offsetInChunk;
+				if (bytesAvailable <= 0) {
+					// Truncated source — nothing more to yield.
+					return;
+				}
+				const wanted = end - cursor;
+				const len = Math.min(bytesAvailable, wanted);
+				yield chunkBytes.subarray(
+					offsetInChunk,
+					offsetInChunk + len,
+				);
+				cursor += len;
 			}
 		},
-	});
+	};
 }
