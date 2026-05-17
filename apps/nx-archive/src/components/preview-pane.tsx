@@ -2946,11 +2946,13 @@ function FontPreview({ node }: { node: Node }) {
       ? "TrueType"
       : v.format === "otf"
         ? "OpenType (CFF)"
-        : v.format === "woff"
-          ? "WOFF (zlib-wrapped sfnt)"
-          : v.format === "woff2"
-            ? "WOFF2 (Brotli-wrapped sfnt)"
-            : "Unknown sfnt"
+        : v.format === "ttc"
+          ? `TrueType Collection (${v.ttcSubfontCount ?? "?"} sub-font${v.ttcSubfontCount === 1 ? "" : "s"})`
+          : v.format === "woff"
+            ? "WOFF (zlib-wrapped sfnt)"
+            : v.format === "woff2"
+              ? "WOFF2 (Brotli-wrapped sfnt)"
+              : "Unknown sfnt"
 
   // Pick the most descriptive name for the header — full name first,
   // then the typographic family + subfamily, then plain family.
@@ -2996,6 +2998,18 @@ function FontPreview({ node }: { node: Node }) {
             k={v.wasObfuscated ? "Original size" : "Size"}
             v={formatBytes(v.size)}
           />
+          {v.format === "ttc" && v.extractedSize !== undefined && (
+            <>
+              <KvRow
+                k="Showing"
+                v={`sub-font #${(v.ttcIndex ?? 0) + 1} of ${v.ttcSubfontCount ?? "?"} (${v.containedFormat?.toUpperCase() ?? "?"})`}
+              />
+              <KvRow
+                k="Sub-font size"
+                v={formatBytes(v.extractedSize)}
+              />
+            </>
+          )}
           {v.wasObfuscated && (
             <KvRow
               k="Header size check"
@@ -3072,8 +3086,11 @@ function FontPreview({ node }: { node: Node }) {
         {/* For BFTTF inputs, offer an explicit deobfuscated-export
             button. Plain TTF / OTF inputs already have the standard
             "Download" button in the header — no separate export
-            section needed since the bytes are identical. */}
-        {v.wasObfuscated && (
+            section needed since the bytes are identical. For TTC
+            inputs, expose a "save as .ttf" for the currently-shown
+            sub-font (the header's Download still grabs the full
+            collection). */}
+        {(v.wasObfuscated || v.format === "ttc") && (
           <section className="flex flex-col gap-2">
             <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
               Export
@@ -3096,9 +3113,30 @@ function FontDownloadAsTtfButton({
   view: FontView
 }) {
   const [busy, setBusy] = useState(false)
-  // Strip the .bfttf / .bfotf extension and replace with .ttf / .otf.
-  const ext = view.format === "otf" ? "otf" : "ttf"
-  const stripped = node.name.replace(/\.(bfttf|bfotf)$/i, "")
+  // Pick the right extension for the actual `view.font` payload:
+  //   - BFTTF / BFOTF: .ttf / .otf for the deobfuscated bytes
+  //   - TTC: extension matches the extracted sub-font format
+  //          (almost always TTF; OTF is possible if the collection
+  //          mixed flavours)
+  //   - Plain TTF / OTF: unchanged (this code path isn't reached
+  //          for those — the header Download is what's used)
+  const ext =
+    view.format === "ttc"
+      ? view.containedFormat ?? "ttf"
+      : view.format === "otf"
+        ? "otf"
+        : "ttf"
+  // For TTC: strip `.ttc` and append the sub-font index so multi-
+  // font collections don't all save as the same filename.
+  let stripped: string
+  if (view.format === "ttc") {
+    const base = node.name.replace(/\.(ttc|otc)$/i, "")
+    const idx = (view.ttcIndex ?? 0) + 1
+    const n = view.ttcSubfontCount ?? 1
+    stripped = n > 1 ? `${base}.subfont-${idx}` : base
+  } else {
+    stripped = node.name.replace(/\.(bfttf|bfotf)$/i, "")
+  }
   const fileName = `${stripped}.${ext}`
 
   const onClick = async () => {
@@ -3126,10 +3164,17 @@ function FontDownloadAsTtfButton({
     }
   }
 
+  // Label is friendlier for TTC ("Save sub-font as .ttf") so the
+  // user knows it's not the whole collection.
+  const label =
+    view.format === "ttc"
+      ? `Save sub-font as .${ext}`
+      : `Download as .${ext}`
+
   return (
     <Button onClick={onClick} disabled={busy} variant="default">
       {busy ? <Spinner data-icon="inline-start" /> : <DownloadIcon data-icon="inline-start" />}
-      Download as .{ext}
+      {label}
     </Button>
   )
 }

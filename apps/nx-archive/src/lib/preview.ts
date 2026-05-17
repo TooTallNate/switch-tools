@@ -657,12 +657,38 @@ export async function parseNpdmForView(blob: Blob): Promise<NpdmView> {
 export type FontFormat = 'ttf' | 'otf' | 'ttc' | 'woff' | 'woff2' | 'unknown';
 
 export interface FontView {
-	/** Decoded font bytes ready for `FontFace` and download. */
+	/**
+	 * Decoded font bytes ready for `FontFace` and download.
+	 *
+	 * For TTC inputs this is a single sub-font extracted from the
+	 * collection (the one selected by `ttcIndex`), not the
+	 * original collection bytes — `FontFace` rejects TTCs with
+	 * "Invalid source buffer".
+	 */
 	font: Blob;
 	/** Sniffed font format. */
 	format: FontFormat;
-	/** Size of the decoded font in bytes. */
+	/**
+	 * For `format === 'ttc'`: the sub-font format actually
+	 * served via `font` (almost always `'ttf'`). Undefined for
+	 * non-TTC inputs.
+	 */
+	containedFormat?: 'ttf' | 'otf';
+	/** For `format === 'ttc'`: number of sub-fonts in the collection. */
+	ttcSubfontCount?: number;
+	/** For `format === 'ttc'`: which sub-font index `font` was extracted from. */
+	ttcIndex?: number;
+	/**
+	 * Size of the decoded font in bytes. For TTC inputs this is
+	 * the size of the original collection — the displayed
+	 * "container" size — not the extracted sub-font.
+	 */
 	size: number;
+	/**
+	 * For TTC inputs: size of the extracted sub-font in bytes
+	 * (matches `font.size`). Undefined otherwise.
+	 */
+	extractedSize?: number;
 	/** Names extracted from the font's sfnt `name` table. */
 	names: TtfNameTable;
 	/**
@@ -775,6 +801,30 @@ export async function parseFontForView(blob: Blob): Promise<FontView> {
 	// Plain sfnt path: sniff the format from the first 4 bytes,
 	// pick a sensible MIME type, and read the name table directly.
 	const format = sniffSfntFormat(bytes);
+	if (format === 'ttc') {
+		// Collections need a sub-font extracted for `FontFace`:
+		// the browser rejects raw TTCs with "Invalid source buffer".
+		// We hand back sub-font 0 by default and surface the
+		// sub-font count so the UI can show a "TTC contains N
+		// fonts" badge.
+		const subfontCount = readTtcSubfontCount(bytes);
+		const extracted = extractTtcSubfont(bytes, 0);
+		const containedFormat = sniffSfntFormat(extracted) === 'otf' ? 'otf' : 'ttf';
+		const mime = containedFormat === 'otf' ? 'font/otf' : 'font/ttf';
+		const font = new Blob([extracted as BlobPart], { type: mime });
+		return {
+			font,
+			format: 'ttc',
+			containedFormat,
+			ttcSubfontCount: subfontCount,
+			ttcIndex: 0,
+			size: bytes.length,
+			extractedSize: extracted.length,
+			names: readTtfNameTable(extracted),
+			wasObfuscated: false,
+			headerSizeOk: true,
+		};
+	}
 	const mime =
 		format === 'otf'
 			? 'font/otf'
@@ -795,6 +845,159 @@ export async function parseFontForView(blob: Blob): Promise<FontView> {
 }
 
 /**
+ * Read the `numFonts` field from a TTC header. Returns 0 if the
+ * bytes don't look like a TTC.
+ */
+export function readTtcSubfontCount(bytes: Uint8Array): number {
+	if (bytes.length < 12) return 0;
+	const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const magic = v.getUint32(0, /*littleEndian*/ false);
+	if (magic !== 0x74746366 /* 'ttcf' */) return 0;
+	return v.getUint32(8, false);
+}
+
+/**
+ * Extract a single sub-font from a TTF / OTF Collection (TTC)
+ * into a standalone sfnt byte buffer suitable for `FontFace`.
+ *
+ * Spec reference: OpenType "Font Collections" (`ttcf` header) +
+ * the regular sfnt "Offset Table" / "Table Record" layout. The
+ * key wrinkle is that table offsets inside a TTC sub-font's
+ * Table Records are **absolute** within the TTC file, not
+ * relative to the sub-font's Offset Table. We rebuild a flat
+ * sfnt by:
+ *
+ *   1. Reading the chosen sub-font's Offset Table + Table Records
+ *      from `ttcOffsets[index]`.
+ *   2. Copying each table's body (using the absolute offsets in
+ *      the source) into a fresh buffer.
+ *   3. Writing a new Offset Table + Table Records pointing at the
+ *      copied table bodies' positions in the new buffer.
+ *
+ * Tables shared between sub-fonts in the source TTC are
+ * de-duplicated in the source but the extracted standalone copy
+ * is self-contained, so a `glyf`-sharing pair of fonts will both
+ * carry their own copy of the shared table once split.
+ *
+ * Throws if `index` is out of range, the magic doesn't match, or
+ * any referenced table runs past the end of the input bytes.
+ */
+export function extractTtcSubfont(ttcBytes: Uint8Array, index: number): Uint8Array {
+	if (ttcBytes.length < 12) {
+		throw new Error('TTC too short to contain a valid header');
+	}
+	const v = new DataView(ttcBytes.buffer, ttcBytes.byteOffset, ttcBytes.byteLength);
+	const magic = v.getUint32(0, false);
+	if (magic !== 0x74746366 /* 'ttcf' */) {
+		throw new Error(`Not a TTC (magic 0x${magic.toString(16).padStart(8, '0')})`);
+	}
+	const numFonts = v.getUint32(8, false);
+	if (index < 0 || index >= numFonts) {
+		throw new Error(`TTC sub-font index ${index} out of range (numFonts=${numFonts})`);
+	}
+	const offsetTableStart = v.getUint32(12 + index * 4, false);
+	if (offsetTableStart + 12 > ttcBytes.length) {
+		throw new Error(`Sub-font ${index} Offset Table runs past end of TTC`);
+	}
+	const sfntVersion = v.getUint32(offsetTableStart + 0, false);
+	const numTables = v.getUint16(offsetTableStart + 4, false);
+	const tableRecordsStart = offsetTableStart + 12;
+	if (tableRecordsStart + numTables * 16 > ttcBytes.length) {
+		throw new Error(`Sub-font ${index} Table Records run past end of TTC`);
+	}
+
+	// Read each Table Record, capture (tag, sourceOffset, length, checksum).
+	interface SourceRecord {
+		tag: number;
+		checksum: number;
+		sourceOffset: number;
+		length: number;
+	}
+	const records: SourceRecord[] = new Array(numTables);
+	for (let i = 0; i < numTables; i++) {
+		const recOff = tableRecordsStart + i * 16;
+		const tag = v.getUint32(recOff + 0, false);
+		const checksum = v.getUint32(recOff + 4, false);
+		const sourceOffset = v.getUint32(recOff + 8, false);
+		const length = v.getUint32(recOff + 12, false);
+		if (sourceOffset + length > ttcBytes.length) {
+			throw new Error(
+				`Sub-font ${index} table '${tagToString(tag)}' runs past end of TTC (` +
+					`offset=${sourceOffset}, length=${length}, total=${ttcBytes.length})`,
+			);
+		}
+		records[i] = { tag, checksum, sourceOffset, length };
+	}
+
+	// Sort records by tag for deterministic output (also matches
+	// the convention most font tools use, though the spec doesn't
+	// require it).
+	const sorted = [...records].sort((a, b) => a.tag - b.tag);
+
+	// Compute layout of the standalone sfnt:
+	//   [Offset Table: 12 bytes]
+	//   [Table Records: numTables * 16 bytes]
+	//   [Table bodies, each padded to a 4-byte boundary]
+	const headerSize = 12 + numTables * 16;
+	let totalSize = headerSize;
+	const newOffsets: number[] = new Array(sorted.length);
+	for (let i = 0; i < sorted.length; i++) {
+		// Pad to 4 bytes between tables.
+		const aligned = (totalSize + 3) & ~3;
+		newOffsets[i] = aligned;
+		totalSize = aligned + sorted[i].length;
+	}
+	// Pad final size to 4 bytes as well so the file is well-formed.
+	totalSize = (totalSize + 3) & ~3;
+
+	const out = new Uint8Array(totalSize);
+	const ov = new DataView(out.buffer, out.byteOffset, out.byteLength);
+
+	// Offset Table.
+	ov.setUint32(0, sfntVersion, false);
+	ov.setUint16(4, numTables, false);
+	// searchRange = (largest power of 2 ≤ numTables) * 16
+	let pow2 = 1;
+	while (pow2 * 2 <= numTables) pow2 *= 2;
+	const searchRange = pow2 * 16;
+	let entrySelector = 0;
+	let t = pow2;
+	while (t > 1) {
+		entrySelector++;
+		t >>= 1;
+	}
+	const rangeShift = numTables * 16 - searchRange;
+	ov.setUint16(6, searchRange, false);
+	ov.setUint16(8, entrySelector, false);
+	ov.setUint16(10, rangeShift, false);
+
+	// Table Records + table bodies.
+	for (let i = 0; i < sorted.length; i++) {
+		const rec = sorted[i];
+		const recOff = 12 + i * 16;
+		ov.setUint32(recOff + 0, rec.tag, false);
+		ov.setUint32(recOff + 4, rec.checksum, false);
+		ov.setUint32(recOff + 8, newOffsets[i], false);
+		ov.setUint32(recOff + 12, rec.length, false);
+		// Copy the table body.
+		out.set(
+			ttcBytes.subarray(rec.sourceOffset, rec.sourceOffset + rec.length),
+			newOffsets[i],
+		);
+	}
+	return out;
+}
+
+function tagToString(tag: number): string {
+	return String.fromCharCode(
+		(tag >>> 24) & 0xff,
+		(tag >>> 16) & 0xff,
+		(tag >>> 8) & 0xff,
+		tag & 0xff,
+	);
+}
+
+/**
  * Identify a WOFF / WOFF2 wrapper from the first 4 bytes.
  * `wOFF` = `0x774F4646` = WOFF 1, zlib-compressed tables.
  * `wOF2` = `0x774F4632` = WOFF 2, Brotli-compressed payload
@@ -808,6 +1011,28 @@ function sniffWoffMagic(bytes: Uint8Array): 'woff' | 'woff2' | null {
 	if (tag === 0x774f4646) return 'woff';
 	if (tag === 0x774f4632) return 'woff2';
 	return null;
+}
+
+/**
+ * sfnt-format magic sniffer.
+ *
+ * - `'ttf'`: classic TrueType (`0x00010000`, `'true'`, `'typ1'`)
+ * - `'otf'`: PostScript-flavoured OpenType (`'OTTO'`)
+ * - `'ttc'`: TrueType / OpenType collection (`'ttcf'`) — contains
+ *   one or more sub-fonts. Browsers' `FontFace` does NOT accept
+ *   collections directly; use {@link extractTtcSubfont} to pull
+ *   out a standalone sfnt.
+ */
+function sniffSfntFormat(bytes: Uint8Array): 'ttf' | 'otf' | 'ttc' | 'unknown' {
+	if (bytes.length < 4) return 'unknown';
+	const tag =
+		(bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
+	if (tag === 0x00010000) return 'ttf';
+	if (tag === 0x4f54544f /* "OTTO" */) return 'otf';
+	if (tag === 0x74727565 /* "true" */) return 'ttf';
+	if (tag === 0x74797031 /* "typ1" */) return 'ttf';
+	if (tag === 0x74746366 /* "ttcf" */) return 'ttc';
+	return 'unknown';
 }
 
 /**
@@ -1109,25 +1334,7 @@ function readUIntBase128(
 	return null; // ran past 5 bytes without terminator
 }
 
-/**
- * Sniff `'ttf' | 'otf' | 'unknown'` from the first 4 bytes of an
- * sfnt-format font payload (TTF: 0x00010000 or "true" / "typ1";
- * OTF: "OTTO"; "ttcf" / "OTTO" wrapped in a TTC). TTC collections
- * have magic `ttcf` and contain multiple sub-fonts; we report them
- * as `'ttf'` since the contained sub-fonts are TTF-flavoured —
- * `FontFace` will pick the first one.
- */
-function sniffSfntFormat(bytes: Uint8Array): 'ttf' | 'otf' | 'unknown' {
-	if (bytes.length < 4) return 'unknown';
-	const tag =
-		(bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
-	if (tag === 0x00010000) return 'ttf';
-	if (tag === 0x4f54544f /* "OTTO" */) return 'otf';
-	if (tag === 0x74727565 /* "true" */) return 'ttf';
-	if (tag === 0x74797031 /* "typ1" */) return 'ttf';
-	if (tag === 0x74746366 /* "ttcf" */) return 'ttf';
-	return 'unknown';
-}
+
 
 /**
  * Read the `name` table out of an sfnt-format font (TTF or OTF) and
