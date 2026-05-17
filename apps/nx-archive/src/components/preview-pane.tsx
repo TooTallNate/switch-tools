@@ -1905,36 +1905,76 @@ function useAsyncWithProgress<T>(
  *     cost ≈ file size. The caller is expected to gate this
  *     behind a size check appropriate to the preview kind.
  */
-async function makePreviewBlob(blob: Blob, mime: string): Promise<Blob> {
+async function makePreviewBlob(
+  blob: Blob,
+  mime: string,
+  onProgress?: (bytesRead: number, bytesTotal: number) => void,
+): Promise<Blob> {
   // `instanceof Blob` works for genuine Blob / File subclass
   // instances. Our lazy facade fails this check despite being
   // structurally Blob-shaped.
   if (typeof Blob !== "undefined" && blob instanceof Blob) {
+    // Real Blob — no materialisation needed. Report completion so
+    // the UI can transition out of "preparing" immediately even
+    // though there was no actual work.
+    onProgress?.(blob.size, blob.size)
     return blob.type === mime ? blob : blob.slice(0, blob.size, mime)
   }
-  // Lazy facade — materialise via the existing helper (which
-  // prefers `Response.blob()` streaming when the facade exposes
-  // `stream()`, keeping peak memory at one chunk rather than the
-  // full file) and re-tag the MIME without copying.
-  const real = await materializeAsBlob(blob)
-  return real.type === mime ? real : real.slice(0, real.size, mime)
+  // Lazy facade — materialise its stream chunk-by-chunk, reporting
+  // progress as bytes flow through. This is the slow path for NCA
+  // sections (multi-hundred-MB AES-CTR decryption) and ZIP /
+  // UnityFS entries (DEFLATE / LZ4 decompression).
+  const total = blob.size
+  if (typeof blob.stream !== "function") {
+    // No stream() — fall back to a non-progressive arrayBuffer.
+    const buf = await blob.arrayBuffer()
+    onProgress?.(total, total)
+    return new Blob([buf], { type: mime })
+  }
+  const chunks: Uint8Array[] = []
+  let bytesRead = 0
+  const reader = blob.stream().getReader()
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    if (value) {
+      chunks.push(value)
+      bytesRead += value.byteLength
+      onProgress?.(bytesRead, total)
+    }
+  }
+  return new Blob(chunks as BlobPart[], { type: mime })
 }
 
 function ImagePreview({ node }: { node: Node }) {
-  const { loading, data, error } = useAsync(async () => {
-    const blob = await node.blob!()
-    if (blob.size > IMAGE_PREVIEW_LIMIT) {
-      throw new Error(
-        `Image too large to preview (${formatBytes(blob.size)}). Download to view.`,
+  // Progressive loader so large lazy-facade images (NCA AES-CTR
+  // sections, ZIP entries that need DEFLATE) show a real progress
+  // bar instead of a bare spinner. Real Blobs flash through this
+  // path instantly.
+  const { loading, data, error, progress } = useAsyncWithProgress(
+    async (onProgress) => {
+      const blob = await node.blob!()
+      if (blob.size > IMAGE_PREVIEW_LIMIT) {
+        throw new Error(
+          `Image too large to preview (${formatBytes(blob.size)}). Download to view.`,
+        )
+      }
+      const ext = extOf(node.name)
+      // Switch app icons (icon_*.dat) are JPEGs.
+      const isSwitchIconDat = /^icon_.*\.dat$/i.test(node.name)
+      const mime = isSwitchIconDat ? "image/jpeg" : IMAGE_MIME[ext] ?? "image/png"
+      const typed = await makePreviewBlob(blob, mime, (bytesRead, total) =>
+        onProgress({
+          bytesIn: bytesRead,
+          bytesOut: bytesRead,
+          bytesInTotal: total,
+          bytesOutTotal: total,
+        }),
       )
-    }
-    const ext = extOf(node.name)
-    // Switch app icons (icon_*.dat) are JPEGs.
-    const isSwitchIconDat = /^icon_.*\.dat$/i.test(node.name)
-    const mime = isSwitchIconDat ? "image/jpeg" : IMAGE_MIME[ext] ?? "image/png"
-    const typed = await makePreviewBlob(blob, mime)
-    return URL.createObjectURL(typed)
-  }, [node.id])
+      return URL.createObjectURL(typed)
+    },
+    [node.id],
+  )
 
   useEffect(() => {
     return () => {
@@ -1942,7 +1982,8 @@ function ImagePreview({ node }: { node: Node }) {
     }
   }, [data])
 
-  if (loading) return <LoadingFiller label="Decoding image…" />
+  if (loading)
+    return <ProgressFiller label="Preparing image preview…" progress={progress} />
   if (error) return <ErrorFiller error={error} />
   return (
     <ScrollArea className="h-full">
@@ -1964,25 +2005,44 @@ function MediaPreview({
   node: Node
   kind: "audio" | "video"
 }) {
-  const { loading, data, error } = useAsync(async () => {
-    const blob = await node.blob!()
-    if (blob.size > MEDIA_PREVIEW_LIMIT) {
-      throw new Error(
-        `Media file too large to preview (${formatBytes(blob.size)}). Download to view.`,
+  // Use the progressive loader so the user gets a byte-level
+  // progress bar while the lazy facade (NCA section AES-CTR
+  // decryption, ZIP DEFLATE, UnityFS LZ4) materialises into a
+  // real Blob. For files that are already real Blobs the
+  // materialisation is a no-op and the loader transitions
+  // straight to `data` without dwelling in the progress state.
+  const { loading, data, error, progress } = useAsyncWithProgress(
+    async (onProgress) => {
+      const blob = await node.blob!()
+      if (blob.size > MEDIA_PREVIEW_LIMIT) {
+        throw new Error(
+          `Media file too large to preview (${formatBytes(blob.size)}). Download to view.`,
+        )
+      }
+      const ext = extOf(node.name)
+      const mime =
+        kind === "audio"
+          ? AUDIO_MIME[ext] ?? "audio/*"
+          : VIDEO_MIME[ext] ?? "video/*"
+      // For real Blobs (RomFS slices, decrypted NCA sections, NSP
+      // entries) this is a lazy view — the <audio> / <video> element
+      // streams from the source via Range requests and never holds
+      // the whole file in memory. For lazy-facade Blobs (NCA section
+      // facades, ZIP / UnityFS entries) `makePreviewBlob`
+      // materialises chunk-by-chunk and reports bytes through to
+      // the progress UI.
+      const typed = await makePreviewBlob(blob, mime, (bytesRead, total) =>
+        onProgress({
+          bytesIn: bytesRead,
+          bytesOut: bytesRead,
+          bytesInTotal: total,
+          bytesOutTotal: total,
+        }),
       )
-    }
-    const ext = extOf(node.name)
-    const mime =
-      kind === "audio" ? AUDIO_MIME[ext] ?? "audio/*" : VIDEO_MIME[ext] ?? "video/*"
-    // For real Blobs (RomFS slices, decrypted NCA sections, NSP
-    // entries) this is a lazy view — the <audio> / <video> element
-    // streams from the source via Range requests and never holds
-    // the whole file in memory. For lazy-facade Blobs (e.g. ZIP /
-    // UnityFS entries that require DEFLATE / LZ4 decompression
-    // upfront), `makePreviewBlob` materialises into a real Blob.
-    const typed = await makePreviewBlob(blob, mime)
-    return URL.createObjectURL(typed)
-  }, [node.id])
+      return URL.createObjectURL(typed)
+    },
+    [node.id],
+  )
 
   useEffect(() => {
     return () => {
@@ -1990,7 +2050,13 @@ function MediaPreview({
     }
   }, [data])
 
-  if (loading) return <LoadingFiller label={`Decoding ${kind}…`} />
+  if (loading)
+    return (
+      <ProgressFiller
+        label={`Preparing ${kind} preview…`}
+        progress={progress}
+      />
+    )
   if (error) return <ErrorFiller error={error} />
   return (
     <div className="flex h-full items-center justify-center bg-muted/40 p-6">
