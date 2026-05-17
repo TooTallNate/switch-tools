@@ -4,6 +4,7 @@ import {
   ChevronLeftIcon,
   CircleAlertIcon,
   DownloadIcon,
+  FileArchiveIcon,
   FileSearchIcon,
   GlobeIcon,
   HomeIcon,
@@ -222,6 +223,11 @@ import {
   type OnProgress,
 } from "~/lib/progress"
 import { encodeBink1ToMp4, type Bink1EncodeProgress } from "~/lib/bink1-encode"
+import {
+  saveNodeAsZip,
+  hasFileSystemSavePicker,
+  type ZipExportProgress,
+} from "~/lib/zip-export"
 import bink1WasmUrl from "@tootallnate/bink1-wasm/bink1.wasm?url"
 import { parseIdFont, type ParsedIdFont } from "@tootallnate/idfont"
 import {
@@ -401,6 +407,11 @@ function PreviewContent({
 }
 
 function PreviewHeader({ node }: { node: Node }) {
+  // Any node that exposes children acts as a "directory archive" —
+  // its contents can be exported as a zip. Pure leaf files just get
+  // a download button. Some nodes (e.g. the archive-root NSP) expose
+  // both children AND a raw container blob; we show both buttons.
+  const canExport = !!node.getChildren
   return (
     <div className="flex shrink-0 items-start justify-between gap-3 border-b bg-card px-4 py-2.5">
       <div className="min-w-0 flex-1">
@@ -415,8 +426,124 @@ function PreviewHeader({ node }: { node: Node }) {
           <span className="truncate font-mono opacity-60">{node.id}</span>
         </div>
       </div>
-      {node.blob && <DownloadButton blobFn={node.blob} fileName={node.name} />}
+      <div className="flex shrink-0 items-center gap-2">
+        {canExport && <ExportZipButton node={node} />}
+        {node.blob && <DownloadButton blobFn={node.blob} fileName={node.name} />}
+      </div>
     </div>
+  )
+}
+
+/**
+ * Button + progress toast for streaming the subtree under a
+ * container `Node` to a ZIP file. Uses the File System Access API
+ * when available (no memory cap); falls back to an in-memory blob
+ * URL download otherwise.
+ */
+function ExportZipButton({ node }: { node: Node }) {
+  const [busy, setBusy] = useState(false)
+  const abortRef = useRef<AbortController | null>(null)
+  const suggestedName = useMemo(() => {
+    // Strip filesystem-hostile chars and append .zip.
+    const base = node.name.replace(/[\/\\:*?"<>|]+/g, "_") || "archive"
+    return base.endsWith(".zip") ? base : `${base}.zip`
+  }, [node.name])
+
+  const onClick = useCallback(async () => {
+    if (busy) return
+    setBusy(true)
+    const aborter = new AbortController()
+    abortRef.current = aborter
+    const id = toast.loading(`Exporting ${suggestedName}…`, {
+      duration: Infinity,
+      action: {
+        label: "Cancel",
+        onClick: () => aborter.abort(),
+      },
+    })
+    // Throttle progress toast updates to ~5 per second.
+    let pending: ZipExportProgress | null = null
+    let rafId: number | null = null
+    const flush = () => {
+      rafId = null
+      if (!pending) return
+      const p = pending
+      pending = null
+      const speed = p.bytesPerSecond > 0
+        ? ` · ${formatBytes(p.bytesPerSecond)}/s`
+        : ""
+      const fileCount = `${p.filesDone.toLocaleString()} files`
+      const bytes = formatBytes(p.bytesRead)
+      toast.loading(
+        `Exporting ${suggestedName} — ${fileCount} · ${bytes}${speed}`,
+        {
+          id,
+          duration: Infinity,
+          action: {
+            label: "Cancel",
+            onClick: () => aborter.abort(),
+          },
+        },
+      )
+    }
+    try {
+      const result = await saveNodeAsZip(node, suggestedName, {
+        signal: aborter.signal,
+        onProgress: (p) => {
+          pending = p
+          if (rafId === null) rafId = requestAnimationFrame(flush)
+        },
+      })
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId)
+        rafId = null
+      }
+      if (!result) {
+        // User cancelled the save picker.
+        toast.dismiss(id)
+        return
+      }
+      toast.success(
+        `Exported ${result.files.toLocaleString()} files (${formatBytes(result.uncompressedBytes)}) to ${suggestedName}`,
+        { id, duration: 6000 },
+      )
+    } catch (err) {
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      if (err instanceof Error && err.name === "AbortError") {
+        toast.warning(`Export cancelled`, { id, duration: 4000 })
+      } else {
+        toast.error(
+          `Export failed: ${err instanceof Error ? err.message : String(err)}`,
+          { id, duration: 8000 },
+        )
+      }
+    } finally {
+      abortRef.current = null
+      setBusy(false)
+    }
+  }, [busy, node, suggestedName])
+
+  // Tooltip-ish text via title attribute. Conveys whether the
+  // export will stream straight to disk or buffer in RAM.
+  const title = hasFileSystemSavePicker()
+    ? "Export this archive's contents as a ZIP (streamed to disk)"
+    : "Export this archive's contents as a ZIP (buffered in memory — large archives may run out of RAM)"
+
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={onClick}
+      disabled={busy}
+      title={title}
+    >
+      {busy ? (
+        <Spinner data-icon="inline-start" />
+      ) : (
+        <FileArchiveIcon data-icon="inline-start" />
+      )}
+      Export ZIP
+    </Button>
   )
 }
 
