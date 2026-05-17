@@ -985,6 +985,11 @@ export function extractTtcSubfont(ttcBytes: Uint8Array, index: number): Uint8Arr
 			newOffsets[i],
 		);
 	}
+	// Repair any cmap format-4 length under-reporting in-place. This
+	// is a no-op for well-formed fonts; older Asian fonts (e.g.
+	// DynaLab DFYuan used in FFX HD Remaster) need it to pass
+	// OTS / FontFace validation.
+	repairSfntCmap(out);
 	return out;
 }
 
@@ -995,6 +1000,222 @@ function tagToString(tag: number): string {
 		(tag >>> 8) & 0xff,
 		tag & 0xff,
 	);
+}
+
+/**
+ * Set of OpenType table tags that {@link stripOptionalSfntTables} will
+ * remove on demand. These are layout / shaping / hinting tables
+ * that aren't required for the font to render at all — losing
+ * them only affects ligatures, kerning, and complex-script
+ * shaping. Useful as a fallback when the browser rejects a
+ * malformed-but-otherwise-renderable font.
+ */
+const OPTIONAL_SFNT_TABLES = [
+	'GSUB', // Glyph substitution (ligatures, alternates)
+	'GPOS', // Glyph positioning (kerning, mark positioning)
+	'GDEF', // Glyph definitions (used by GSUB/GPOS)
+	'BASE', // Baseline data
+	'JSTF', // Justification
+	'kern', // Legacy kerning
+	'mort', // Apple legacy morphological substitution
+	'morx', // Apple extended morphological substitution
+	'feat', // Apple feature table
+	'prop', // Apple glyph properties
+	'fvar', // Variable font axes (we render at the default)
+	'gvar', // Variable font glyph deltas
+	'avar', // Variable font axis remap
+	'HVAR', // Variable font horizontal metrics deltas
+	'VVAR', // Variable font vertical metrics deltas
+	'MVAR', // Variable font metric value deltas
+	'STAT', // Style attributes
+] as const;
+
+/**
+ * Return a new sfnt byte buffer with the named tables removed.
+ * Used by the FontFace fallback path to drop layout / shaping
+ * tables that the browser's font sanitizer (OTS) rejected on
+ * the first try.
+ *
+ * Works in two passes:
+ *
+ *   1. Walk the input directory; record the table records we
+ *      keep + their existing offsets.
+ *   2. Lay out a new sfnt with a smaller directory + the kept
+ *      tables' bytes copied across, at fresh 4-byte-aligned
+ *      offsets.
+ *
+ * Returns the original buffer unchanged if no listed tables
+ * were present.
+ */
+export function stripOptionalSfntTables(
+	sfntBytes: Uint8Array,
+	tagsToStrip: readonly string[] = OPTIONAL_SFNT_TABLES,
+): Uint8Array {
+	if (sfntBytes.length < 12) return sfntBytes;
+	const view = new DataView(sfntBytes.buffer, sfntBytes.byteOffset, sfntBytes.byteLength);
+	const sfntVersion = view.getUint32(0, false);
+	const numTables = view.getUint16(4, false);
+	const stripSet = new Set<number>();
+	for (const t of tagsToStrip) {
+		stripSet.add(
+			(t.charCodeAt(0) << 24) |
+				(t.charCodeAt(1) << 16) |
+				(t.charCodeAt(2) << 8) |
+				t.charCodeAt(3),
+		);
+	}
+	interface KeepRecord {
+		tag: number;
+		checksum: number;
+		sourceOffset: number;
+		length: number;
+	}
+	const kept: KeepRecord[] = [];
+	let droppedAny = false;
+	for (let i = 0; i < numTables; i++) {
+		const recOff = 12 + i * 16;
+		const tag = view.getUint32(recOff + 0, false);
+		const checksum = view.getUint32(recOff + 4, false);
+		const sourceOffset = view.getUint32(recOff + 8, false);
+		const length = view.getUint32(recOff + 12, false);
+		if (stripSet.has(tag)) {
+			droppedAny = true;
+			continue;
+		}
+		kept.push({ tag, checksum, sourceOffset, length });
+	}
+	if (!droppedAny) return sfntBytes;
+	// Recompute layout.
+	const newNumTables = kept.length;
+	const headerSize = 12 + newNumTables * 16;
+	let totalSize = headerSize;
+	const newOffsets: number[] = new Array(newNumTables);
+	for (let i = 0; i < newNumTables; i++) {
+		const aligned = (totalSize + 3) & ~3;
+		newOffsets[i] = aligned;
+		totalSize = aligned + kept[i].length;
+	}
+	totalSize = (totalSize + 3) & ~3;
+	const out = new Uint8Array(totalSize);
+	const ov = new DataView(out.buffer, out.byteOffset, out.byteLength);
+	ov.setUint32(0, sfntVersion, false);
+	ov.setUint16(4, newNumTables, false);
+	let pow2 = 1;
+	while (pow2 * 2 <= newNumTables) pow2 *= 2;
+	const searchRange = pow2 * 16;
+	let entrySelector = 0;
+	let t2 = pow2;
+	while (t2 > 1) {
+		entrySelector++;
+		t2 >>= 1;
+	}
+	ov.setUint16(6, searchRange, false);
+	ov.setUint16(8, entrySelector, false);
+	ov.setUint16(10, newNumTables * 16 - searchRange, false);
+	for (let i = 0; i < newNumTables; i++) {
+		const rec = kept[i];
+		const recOff = 12 + i * 16;
+		ov.setUint32(recOff + 0, rec.tag, false);
+		ov.setUint32(recOff + 4, rec.checksum, false);
+		ov.setUint32(recOff + 8, newOffsets[i], false);
+		ov.setUint32(recOff + 12, rec.length, false);
+		out.set(
+			sfntBytes.subarray(rec.sourceOffset, rec.sourceOffset + rec.length),
+			newOffsets[i],
+		);
+	}
+	return out;
+}
+
+/**
+ * Repair a known cmap format-4 spec violation seen in older Asian
+ * fonts (e.g. DynaLab DFYuan, used by FFX HD Remaster):
+ *
+ * The format-4 subtable's `length` field can under-report the
+ * subtable's actual extent by a few bytes, leaving the final
+ * `idRangeOffset` reference pointing exactly at the declared end
+ * of the subtable. The OpenType Sanitizer (used by Chrome,
+ * Firefox, Safari for FontFace validation) rejects this with
+ * "bad glyph id offset (N > N)".
+ *
+ * Most native font renderers (FreeType, GDI, CoreText) tolerate
+ * this. The repair is to bump the declared subtable length to
+ * cover all references — provided the bytes are actually present
+ * in the parent cmap table (the source TTCs we've seen include
+ * the trailing bytes; the spec violation is the length field
+ * specifically).
+ *
+ * Operates in-place on `sfntBytes` (a freshly-rebuilt sfnt from
+ * `extractTtcSubfont`). Walks the table directory to find the
+ * `cmap` table, then walks the cmap subtables and fixes any
+ * under-reported format-4 lengths.
+ *
+ * Returns the (possibly slightly larger) byte buffer — the only
+ * thing that might change size is the cmap subtable's `length`
+ * field, which is u16; we don't grow the table, so the returned
+ * buffer is the same as the input.
+ */
+function repairSfntCmap(sfntBytes: Uint8Array): void {
+	if (sfntBytes.length < 12) return;
+	const view = new DataView(sfntBytes.buffer, sfntBytes.byteOffset, sfntBytes.byteLength);
+	const numTables = view.getUint16(4, false);
+	let cmapOff = -1;
+	let cmapLen = 0;
+	for (let i = 0; i < numTables; i++) {
+		const recOff = 12 + i * 16;
+		const tag = view.getUint32(recOff + 0, false);
+		if (tag === 0x636d6170 /* 'cmap' */) {
+			cmapOff = view.getUint32(recOff + 8, false);
+			cmapLen = view.getUint32(recOff + 12, false);
+			break;
+		}
+	}
+	if (cmapOff < 0 || cmapOff + 4 > sfntBytes.length) return;
+	const cmapVersion = view.getUint16(cmapOff, false);
+	if (cmapVersion !== 0) return;
+	const numSubtables = view.getUint16(cmapOff + 2, false);
+	for (let i = 0; i < numSubtables; i++) {
+		const erOff = cmapOff + 4 + i * 8;
+		if (erOff + 8 > sfntBytes.length) break;
+		const subOff = cmapOff + view.getUint32(erOff + 4, false);
+		if (subOff + 14 > sfntBytes.length) continue;
+		const format = view.getUint16(subOff, false);
+		if (format !== 4) continue;
+		const declaredLen = view.getUint16(subOff + 2, false);
+		const segCount = view.getUint16(subOff + 6, false) >>> 1;
+		if (segCount < 1) continue;
+		const endCountStart = subOff + 14;
+		const startCountStart = endCountStart + segCount * 2 + 2;
+		const idDeltaStart = startCountStart + segCount * 2;
+		const idRangeOffsetStart = idDeltaStart + segCount * 2;
+		if (idRangeOffsetStart + segCount * 2 > sfntBytes.length) continue;
+		// Highest glyph_id_offset referenced across all segments.
+		let maxOff = 0;
+		for (let s = 0; s < segCount; s++) {
+			const idRangeOff = view.getUint16(idRangeOffsetStart + s * 2, false);
+			if (idRangeOff === 0) continue;
+			const startCode = view.getUint16(startCountStart + s * 2, false);
+			const endCode = view.getUint16(endCountStart + s * 2, false);
+			if (endCode < startCode) continue;
+			const rangeDelta = endCode - startCode;
+			// id_range_offset_offset is relative to the start of the subtable.
+			const idRangeOffOff = (idRangeOffsetStart + s * 2) - subOff;
+			const glyphIdOff = idRangeOffOff + idRangeOff + rangeDelta * 2;
+			if (glyphIdOff > maxOff) maxOff = glyphIdOff;
+		}
+		// OTS requires `glyphIdOff + 1 < length` (i.e. at least 2 bytes
+		// must be readable). So minimum length is `maxOff + 2`.
+		const minLen = maxOff + 2;
+		if (minLen > declaredLen) {
+			// Cap to what's actually present in the cmap table. If we
+			// can't fit the references, leave the bytes alone — the
+			// repair would just push the failure elsewhere.
+			const maxAllowed = Math.min(0xffff, cmapLen - (subOff - cmapOff));
+			if (minLen <= maxAllowed) {
+				view.setUint16(subOff + 2, minLen, false);
+			}
+		}
+	}
 }
 
 /**

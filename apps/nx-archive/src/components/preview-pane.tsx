@@ -187,6 +187,7 @@ import {
   type WemView,
   type FmodSampleView,
   parseFontForView,
+  stripOptionalSfntTables,
   parseCnmtForView,
   parseNacpForView,
   parseNpdmForView,
@@ -2908,27 +2909,81 @@ function FontPreview({ node }: { node: Node }) {
   // own family so multiple previews can coexist.
   const [fontFamily, setFontFamily] = useState<string | null>(null)
   const [fontError, setFontError] = useState<string | null>(null)
+  // True when we had to strip GSUB / GPOS / GDEF (etc.) from the
+  // font to get the browser's font sanitizer to accept it. The
+  // metadata block surfaces this so the user knows the preview is
+  // shaping-table-free (still renders fine for non-Arabic /
+  // non-Indic scripts).
+  const [strippedOptionalTables, setStrippedOptionalTables] = useState(false)
   useEffect(() => {
     if (!data) {
       setFontFamily(null)
       setFontError(null)
+      setStrippedOptionalTables(false)
       return
     }
     let cancelled = false
     let registered: FontFace | null = null
     const family = `nx-archive-font-${Math.random().toString(36).slice(2, 10)}`
     ;(async () => {
+      const buf = new Uint8Array(await data.font.arrayBuffer())
+      // First attempt: load the bytes verbatim. This is what works
+      // for the overwhelming majority of fonts and avoids touching
+      // GSUB/GPOS unnecessarily.
       try {
-        const buf = await data.font.arrayBuffer()
-        const face = new FontFace(family, buf)
+        const face = new FontFace(family, buf.slice().buffer)
         await face.load()
         if (cancelled) return
         document.fonts.add(face)
         registered = face
         setFontFamily(family)
-      } catch (err) {
-        if (!cancelled) {
-          setFontError(err instanceof Error ? err.message : String(err))
+        setStrippedOptionalTables(false)
+        return
+      } catch (firstErr) {
+        if (cancelled) return
+        // Second attempt: strip the layout / shaping tables that
+        // OTS commonly chokes on (GSUB / GPOS / GDEF / mort /
+        // morx / kern / etc.) and retry. Older Asian fonts (notably
+        // DynaLab DFYuan / DFHei used by FFX HD Remaster) ship with
+        // tables that violate OTS's strict parser even though
+        // FreeType / GDI / CoreText accept them.
+        // We only attempt this for sfnt-shaped payloads (TTF/OTF
+        // bytes — both straight inputs and TTC sub-fonts qualify).
+        // WOFF / WOFF2 are wrapped formats and would need
+        // de/recompression to surgery; skip the retry for those.
+        const looksLikeSfnt =
+          buf.length >= 4 &&
+          (((buf[0] === 0x00 && buf[1] === 0x01 && buf[2] === 0x00 && buf[3] === 0x00) ||
+            (buf[0] === 0x4f && buf[1] === 0x54 && buf[2] === 0x54 && buf[3] === 0x4f)))
+        if (!looksLikeSfnt) {
+          setFontError(firstErr instanceof Error ? firstErr.message : String(firstErr))
+          return
+        }
+        try {
+          const stripped = stripOptionalSfntTables(buf)
+          if (stripped.length === buf.length) {
+            // Nothing to strip — the first failure wasn't caused
+            // by an optional table. Bubble up the original error.
+            setFontError(firstErr instanceof Error ? firstErr.message : String(firstErr))
+            return
+          }
+          const face = new FontFace(family, stripped.slice().buffer)
+          await face.load()
+          if (cancelled) return
+          document.fonts.add(face)
+          registered = face
+          setFontFamily(family)
+          setStrippedOptionalTables(true)
+        } catch (secondErr) {
+          if (cancelled) return
+          // Both attempts failed. Surface the original error
+          // since it's usually the most informative.
+          setFontError(firstErr instanceof Error ? firstErr.message : String(firstErr))
+          // (Also log the secondary failure to the console for
+          // anyone digging into a corrupt font.)
+          console.warn(
+            `[FontPreview] Retry without optional tables also failed: ${secondErr instanceof Error ? secondErr.message : secondErr}`,
+          )
         }
       }
     })()
@@ -3028,6 +3083,20 @@ function FontPreview({ node }: { node: Node }) {
               <CircleAlertIcon />
               <AlertTitle>Couldn’t register the font with the browser</AlertTitle>
               <AlertDescription>{fontError}</AlertDescription>
+            </Alert>
+          )}
+          {fontFamily && strippedOptionalTables && (
+            <Alert>
+              <CircleAlertIcon />
+              <AlertTitle>Preview is rendered without shaping tables</AlertTitle>
+              <AlertDescription>
+                This font&rsquo;s GSUB / GPOS / kerning tables couldn&rsquo;t
+                be parsed by the browser&rsquo;s font sanitizer, so they were
+                stripped for the preview. Glyphs render correctly; ligatures
+                and kerning are unavailable. The downloadable bytes still
+                include the original tables — only the in-browser preview is
+                affected.
+              </AlertDescription>
             </Alert>
           )}
           {!fontFamily && !fontError && (
