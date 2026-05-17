@@ -54,7 +54,7 @@
 // Browsers byte-diff the SW script to detect updates, so any
 // material change here forces a re-install. The constant doubles
 // as a tag for diagnostic logging.
-const SW_VERSION = 'nx-archive-vfs-v2';
+const SW_VERSION = 'nx-archive-vfs-v3';
 
 self.addEventListener('install', (event) => {
 	// Take over immediately so reloads don't have to wait for the
@@ -75,8 +75,17 @@ self.addEventListener('activate', (event) => {
  * is detected; we activate right away.
  */
 self.addEventListener('message', (event) => {
-	if (event.data && event.data.type === 'skip-waiting') {
+	if (!event.data) return;
+	if (event.data.type === 'skip-waiting') {
 		self.skipWaiting();
+	}
+	if (event.data.type === 'claim-clients') {
+		// Belt-and-braces for first-visit installs where the page
+		// loaded uncontrolled. The activate-time clients.claim()
+		// SHOULD handle this, but Firefox in particular has been
+		// observed to leave the page uncontrolled until something
+		// nudges the SW. Re-claim on demand.
+		event.waitUntil(self.clients.claim());
 	}
 });
 

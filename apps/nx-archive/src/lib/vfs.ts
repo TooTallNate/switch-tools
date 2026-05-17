@@ -204,66 +204,124 @@ export function initVfs(): Promise<boolean> {
 			return false;
 		}
 		try {
+			// Attach the message handler FIRST so we don't miss any
+			// messages that come in while we're waiting for the SW
+			// to take control.
+			navigator.serviceWorker.addEventListener('message', onSwMessage);
+
 			const reg = await navigator.serviceWorker.register('/sw.js', {
 				scope: '/',
 			});
-			// If a new SW is installing, ask it to skip-waiting so we
-			// can use it immediately rather than waiting for all old
-			// tabs to close.
-			if (reg.waiting) reg.waiting.postMessage({ type: 'skip-waiting' });
-			reg.addEventListener('updatefound', () => {
-				const w = reg.installing;
+
+			// Drive any installing SW to skip the waiting phase so it
+			// activates immediately, even when older tabs of this app
+			// are still open with the previous SW. `skipWaiting()` in
+			// the SW pairs with this; the message is what lets it run
+			// AT install time rather than at next navigation.
+			const tellWorkerToSkip = (w: ServiceWorker | null): void => {
 				if (!w) return;
-				w.addEventListener('statechange', () => {
-					if (w.state === 'installed' && navigator.serviceWorker.controller) {
-						w.postMessage({ type: 'skip-waiting' });
-					}
-				});
+				if (w.state === 'installed' || w.state === 'activating') {
+					w.postMessage({ type: 'skip-waiting' });
+				} else {
+					w.addEventListener('statechange', () => {
+						if (w.state === 'installed') {
+							w.postMessage({ type: 'skip-waiting' });
+						}
+					});
+				}
+			};
+			tellWorkerToSkip(reg.installing);
+			tellWorkerToSkip(reg.waiting);
+			reg.addEventListener('updatefound', () => {
+				tellWorkerToSkip(reg.installing);
 			});
-			// We need this page to be CONTROLLED by the SW before
-			// minting any /vfs/ URLs — only then will fetches against
-			// those URLs route through the SW. `controller` is set
-			// when the page is loaded under an active SW, OR when the
-			// SW takes control via `clients.claim()` (which our SW's
-			// `activate` handler does). `register()` resolving doesn't
-			// guarantee either.
+
+			// Now wait for the page to be CONTROLLED by an active SW.
+			// Three possible paths to the goal state:
+			//
+			//   1. `navigator.serviceWorker.controller` is already set
+			//      (page was loaded under an active SW from a previous
+			//      visit). Done immediately.
+			//   2. `controllerchange` fires — the SW called
+			//      `clients.claim()` on activate.
+			//   3. We poll periodically as a safety net for browsers
+			//      that fire `controllerchange` slightly outside the
+			//      window between our pre-check and listener attach.
+			//
+			// We ALSO nudge the SW with a `claim-clients` message
+			// once it's activated, in case its activate-time
+			// `clients.claim()` already ran without effect (observed
+			// in Firefox under some conditions where the page loaded
+			// uncontrolled and the activate event fired before our
+			// listeners were attached). The SW responds by calling
+			// `clients.claim()` again, which triggers
+			// `controllerchange` on this page.
 			if (!navigator.serviceWorker.controller) {
-				await Promise.race([
-					new Promise<void>((resolve) => {
-						const handler = (): void => {
-							if (navigator.serviceWorker.controller) {
-								navigator.serviceWorker.removeEventListener(
-									'controllerchange',
-									handler,
-								);
-								resolve();
-							}
-						};
-						navigator.serviceWorker.addEventListener(
-							'controllerchange',
-							handler,
-						);
-					}),
-					// Cap the wait so a stuck registration doesn't keep
-					// the app blocked forever. After 5 s give up; the
-					// fallback path will materialise lazy facades the
-					// old way.
-					new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
-				]);
+				// Wait for an active worker to exist (might still be
+				// installing on a fresh visit), then ask it to claim.
+				navigator.serviceWorker.ready
+					.then((readyReg) => {
+						if (readyReg.active && !navigator.serviceWorker.controller) {
+							readyReg.active.postMessage({ type: 'claim-clients' });
+						}
+					})
+					.catch(() => {
+						/* ignore — the wait below will time out */
+					});
+				await waitForController(15_000);
 			}
 			if (!navigator.serviceWorker.controller) {
-				console.warn('[vfs] service worker registered but not controlling this page');
+				console.warn(
+					'[vfs] service worker registered but not controlling this page',
+				);
 				return false;
 			}
 		} catch (err) {
 			console.warn('[vfs] service worker registration failed:', err);
 			return false;
 		}
-		navigator.serviceWorker.addEventListener('message', onSwMessage);
 		state.swReady = true;
 		return true;
 	})();
 	return initPromise;
+}
+
+/**
+ * Wait until this page has an active controlling service worker
+ * (i.e. `navigator.serviceWorker.controller` is non-null). Polls
+ * every 100 ms in addition to listening for `controllerchange`
+ * so we don't miss an event that fires between the two checks.
+ *
+ * Resolves either when the controller appears or when `timeoutMs`
+ * elapses. Returns no signal; callers should re-check
+ * `navigator.serviceWorker.controller` after.
+ */
+async function waitForController(timeoutMs: number): Promise<void> {
+	if (navigator.serviceWorker.controller) return;
+	await new Promise<void>((resolve) => {
+		let settled = false;
+		const finish = (): void => {
+			if (settled) return;
+			settled = true;
+			navigator.serviceWorker.removeEventListener(
+				'controllerchange',
+				onChange,
+			);
+			clearInterval(poll);
+			clearTimeout(timer);
+			resolve();
+		};
+		const onChange = (): void => {
+			if (navigator.serviceWorker.controller) finish();
+		};
+		navigator.serviceWorker.addEventListener('controllerchange', onChange);
+		// Polling safety net.
+		const poll = setInterval(() => {
+			if (navigator.serviceWorker.controller) finish();
+		}, 100);
+		// Hard timeout.
+		const timer = setTimeout(finish, timeoutMs);
+	});
 }
 
 /**
