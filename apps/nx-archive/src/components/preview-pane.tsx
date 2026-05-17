@@ -13645,19 +13645,7 @@ function DownloadButton({
   const onClick = async () => {
     if (busy) return
     setBusy(true)
-    const t0 = performance.now()
     const id = toast.loading(`Preparing ${fileName}…`)
-    const mark = (label: string): void => {
-      // Diagnostic timing — leave the trace in for now so we can
-      // confirm where time is going on user reports of slow
-      // downloads. Cheap to leave on; toggle with a localStorage
-      // flag if it gets noisy.
-      // eslint-disable-next-line no-console
-      console.log(
-        `[download:${fileName}] ${label} +${Math.round(performance.now() - t0)}ms`,
-      )
-    }
-    mark("start")
     // rAF-throttled progress updates so the toast doesn't re-render
     // 60+ times a second while a multi-GB NCZ is decompressing.
     let pending: ProgressEvent | null = null
@@ -13674,26 +13662,24 @@ function DownloadButton({
         : `Preparing ${fileName} — ${formatBytesShort(e.bytesOut)} processed`
       toast.loading(label, { id })
     }
-    let progressEventCount = 0
     const onProgress: OnProgress = (e) => {
-      progressEventCount++
       pending = e
       if (rafId === null) rafId = requestAnimationFrame(flush)
     }
     try {
       const blob = await blobFn({ onProgress })
-      mark(`blobFn resolved (progress events: ${progressEventCount})`)
       if (rafId !== null) {
         cancelAnimationFrame(rafId)
         rafId = null
       }
-      // Prefer the service-worker path: register the blob as a
-      // /vfs/<id> resource and click an <a download> pointing at
-      // it. The browser streams the bytes straight through the SW
-      // into its download manager (and ultimately to disk) — no
-      // intermediate in-memory copy, even for multi-GB sources.
-      // Falls back to materialising + classic blob URL when the SW
-      // isn't ready.
+      // Three-path download click, in preference order:
+      //   1. Real Blob → URL.createObjectURL (browser supports
+      //      streaming downloads natively for blob: URLs).
+      //   2. Lazy facade + SW available → /vfs/<id> URL streamed
+      //      through the SW into the browser's download manager.
+      //      No intermediate in-memory copy, no size cap.
+      //   3. Lazy facade + no SW → materialise + classic blob URL.
+      //      Slow fallback for first-load races / older browsers.
       const click = (url: string): void => {
         const a = document.createElement("a")
         a.href = url
@@ -13704,55 +13690,36 @@ function DownloadButton({
         a.remove()
       }
       const isReal = typeof Blob !== "undefined" && blob instanceof Blob
-      mark(`type-check: isReal=${isReal} vfs=${isVfsAvailable()}`)
       if (isReal) {
-        // Real Blob — direct blob URL is the cheapest path. The
-        // browser already supports Range / streaming downloads
-        // natively for blob: URLs. Revoke after a short delay so
-        // the download manager has time to latch on.
         const url = URL.createObjectURL(blob)
-        mark("createObjectURL")
         click(url)
-        mark("click")
         setTimeout(() => URL.revokeObjectURL(url), 1500)
       } else if (isVfsAvailable()) {
-        // Lazy facade + SW available — let the SW stream bytes
-        // through the browser's download manager (straight to
-        // disk, no intermediate in-memory copy, no size cap).
-        // We intentionally don't auto-unregister: a multi-GB
-        // download may take minutes and the registry entry is
-        // tiny. It'll be GC'd when the tab closes.
+        // Don't auto-unregister: a multi-GB download may take
+        // minutes and the registry entry is tiny. GC'd when the
+        // tab closes.
         const vfsUrl = registerBlobAsVfsResource(
           blob,
           blob.type || "application/octet-stream",
           fileName,
         )
-        mark(`registerBlobAsVfsResource → ${vfsUrl ? "ok" : "null"}`)
         if (vfsUrl) {
           click(vfsUrl)
-          mark("click")
         } else {
-          // Defensive: vfs registration failed despite the
-          // availability check. Fall through to materialisation.
-          mark("MATERIALIZE (vfs returned null)")
+          // Defensive: vfs availability flipped between the
+          // check and the registration. Fall through.
           const realBlob = await materializeAsBlob(blob)
-          mark("materializeAsBlob done")
           const url = URL.createObjectURL(realBlob)
           click(url)
           setTimeout(() => URL.revokeObjectURL(url), 1500)
         }
       } else {
-        // Lazy facade + no SW — fall back to materialising. This
-        // is the slow path that buffers the whole file in memory.
-        mark("MATERIALIZE (no SW)")
         const realBlob = await materializeAsBlob(blob)
-        mark("materializeAsBlob done")
         const url = URL.createObjectURL(realBlob)
         click(url)
         setTimeout(() => URL.revokeObjectURL(url), 1500)
       }
       toast.success(`Downloaded ${fileName}`, { id })
-      mark("toast.success")
     } catch (err) {
       if (rafId !== null) cancelAnimationFrame(rafId)
       toast.error(
