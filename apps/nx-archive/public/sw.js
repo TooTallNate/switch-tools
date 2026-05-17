@@ -51,7 +51,10 @@
  */
 
 // Cache version — bumped to invalidate the SW when this file changes.
-const SW_VERSION = 'nx-archive-vfs-v1';
+// Browsers byte-diff the SW script to detect updates, so any
+// material change here forces a re-install. The constant doubles
+// as a tag for diagnostic logging.
+const SW_VERSION = 'nx-archive-vfs-v2';
 
 self.addEventListener('install', (event) => {
 	// Take over immediately so reloads don't have to wait for the
@@ -122,25 +125,7 @@ self.addEventListener('fetch', (event) => {
  * `Response` (potentially partial, depending on the Range header).
  */
 async function handleVfsFetch(event, resourceId) {
-	// Locate the client (tab/window) that registered this resource.
-	// `event.clientId` is the most reliable identifier; fall back
-	// to walking all clients (`event.resultingClientId` is set only
-	// on navigations).
-	let client = null;
-	if (event.clientId) {
-		client = await self.clients.get(event.clientId);
-	}
-	if (!client) {
-		// Walk every controlled client and pick the first one — for
-		// the common single-tab case this is what we want. For
-		// multi-tab we'll need a smarter routing scheme, but the
-		// resourceId space is per-page so collisions are rare.
-		const all = await self.clients.matchAll({
-			type: 'window',
-			includeUncontrolled: true,
-		});
-		if (all.length > 0) client = all[0];
-	}
+	const client = await findRegistryClient(event);
 	if (!client) {
 		return new Response('vfs: no client available', { status: 503 });
 	}
@@ -324,17 +309,7 @@ async function handleVfsFetch(event, resourceId) {
  * complexity here.
  */
 async function handleHtdocsFetch(event, bundleId, path) {
-	let client = null;
-	if (event.clientId) {
-		client = await self.clients.get(event.clientId);
-	}
-	if (!client) {
-		const all = await self.clients.matchAll({
-			type: 'window',
-			includeUncontrolled: true,
-		});
-		if (all.length > 0) client = all[0];
-	}
+	const client = await findRegistryClient(event);
 	if (!client) {
 		return new Response('vfs: no client available', { status: 503 });
 	}
@@ -375,6 +350,48 @@ async function handleHtdocsFetch(event, bundleId, path) {
 			}
 		}, 30_000);
 	});
+}
+
+/**
+ * Locate the page that holds the JS registry of vfs resources /
+ * htdocs bundles for this request.
+ *
+ * Why this isn't just `clients.get(event.clientId)`: when a
+ * subresource (CSS / image / nested fetch) is requested by an
+ * iframe we're serving, `event.clientId` is the IFRAME's client
+ * — not the parent page. The iframe has no JS registry; its
+ * `message` events are ignored. We need to route to the top-
+ * level window that registered the bundle.
+ *
+ * Strategy: prefer top-level WindowClients (`frameType ===
+ * 'top-level'`); fall back to any window client if none are
+ * top-level (rare, e.g. during a tab being restored). Returns
+ * `null` if there are no clients at all (page being torn down).
+ */
+async function findRegistryClient(event) {
+	const all = await self.clients.matchAll({
+		type: 'window',
+		includeUncontrolled: true,
+	});
+	// Prefer the top-level frame that's currently focused — if the
+	// user has multiple tabs open with this app, this routes the
+	// request to the tab they're actively looking at.
+	const tops = all.filter((c) => c.frameType === 'top-level');
+	const focused = tops.find((c) => c.focused);
+	if (focused) return focused;
+	if (tops.length > 0) return tops[0];
+	// As a last resort, accept any window client (auxiliary
+	// popups, etc.). Iframes don't have registries so they
+	// can't help, but a non-top-level window client at least
+	// has JS we can post to.
+	if (all.length > 0) return all[0];
+	// Try `event.clientId` directly in case there's some context
+	// the matchAll missed.
+	if (event.clientId) {
+		const c = await self.clients.get(event.clientId);
+		if (c) return c;
+	}
+	return null;
 }
 
 function parseRangeHeader(value) {

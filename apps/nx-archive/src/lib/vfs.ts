@@ -394,8 +394,12 @@ function handleHtdocsRequest(event: MessageEvent): void {
 		}
 		try {
 			let bytes: Uint8Array;
-			let mime = file.mime;
-			if (file.mime === 'text/html' && bundle.rewriteHtml) {
+			const mime = file.mime;
+			// Match `text/html` and `text/html;charset=…` (the bundle's
+			// MIME helper appends charset). Same for any other HTML
+			// flavour that might appear.
+			const isHtml = /^text\/html\b/i.test(mime);
+			if (isHtml && bundle.rewriteHtml) {
 				const html = await file.blob.text();
 				const rewritten = bundle.rewriteHtml(path, html);
 				bytes = new TextEncoder().encode(rewritten);
