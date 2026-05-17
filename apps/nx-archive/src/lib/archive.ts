@@ -17,6 +17,7 @@ import { parseXci } from '@tootallnate/xci';
 import { decode as romfsDecode, type RomFsEntry } from '@tootallnate/romfs';
 import { decompressNcz, isNcz, type OnProgress } from '@tootallnate/ncz';
 import { parseSarc, type SarcEntry } from '@tootallnate/sarc';
+import { parseVbf, type VbfFileEntry } from '@tootallnate/vbf';
 import {
 	parseIdTechResources,
 	type IdTechResourceEntry,
@@ -91,6 +92,12 @@ export type NodeKind =
 	| 'xci-partition'
 	| 'zip'
 	| 'sarc'
+	/**
+	 * Virtuos Big File (`.vbf`, magic `SRYK`). Used by the Final
+	 * Fantasy X / X-2 HD Remaster and Final Fantasy XII The Zodiac
+	 * Age. Decompresses zlib-chunked content lazily on read.
+	 */
+	| 'vbf'
 	| 'lz4'
 	| 'zstd'
 	| 'unityfs'
@@ -379,6 +386,7 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	hca: 'HCA', // CRI High Compression Audio
 	resources: 'idTech-Resources', // DOOM 3 BFG / RAGE / Wolfenstein TNO container (magic 0xD000000D)
 	bimage: 'idTech-bimage', // BFG-era preprocessed texture format
+	vbf: 'VBF', // Virtuos Big File — FFX/X-2 HD Remaster, FFXII TZA
 };
 
 /**
@@ -446,7 +454,8 @@ type SniffedFormat =
 	| 'zstd'
 	| 'idtech-resources'
 	| 'idfont'
-	| 'bimage';
+	| 'bimage'
+	| 'vbf';
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -477,6 +486,7 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (m4 === 'HFS0') return 'hfs0';
 	if (m4 === 'IVFC') return 'romfs';
 	if (m4 === 'SARC') return 'sarc';
+	if (m4 === 'SRYK') return 'vbf';
 	if (m4 === 'Yaz0') return 'szs'; // we treat all Yaz0 as SZS-style for browsing
 	if (m4 === 'BARS') return 'bars';
 	if (m4 === 'FSAR') return 'bfsar';
@@ -624,6 +634,8 @@ export async function buildRootNode(
 			return makeZipNode(id, displayName, blob, ctx);
 		case 'SARC':
 			return makeSarcNode(id, displayName, blob, ctx);
+		case 'VBF':
+			return makeVbfNode(id, displayName, blob, ctx);
 		case 'idTech-Resources':
 			return makeIdTechResourcesNode(id, displayName, blob, ctx);
 		case 'SZS':
@@ -1881,6 +1893,110 @@ async function idTechResourcesEntriesToNodes(
 				// Route through childNodeFor so nested formats (.bik
 				// videos, embedded SARCs, etc.) light up. The entry's
 				// `data` is already a lazy Blob slice into the source.
+				return childNodeFor(childId, name, file.data, ctx);
+			}),
+		);
+	};
+
+	return treeToNodes(parentId, root);
+}
+
+// ----- VBF (Virtuos Big File) -----
+
+/**
+ * Virtuos Big File archive (`.vbf`, magic `SRYK`). Used by the
+ * Final Fantasy X / X-2 HD Remaster and Final Fantasy XII The
+ * Zodiac Age. Files inside are zlib-chunked; the entries are
+ * exposed as lazy `Blob`-shaped facades that decompress on
+ * read, so opening this node is cheap regardless of archive
+ * size (a typical FFX vbf is ~5 GB with ~35 k files).
+ */
+function makeVbfNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'vbf',
+		isContainer: true,
+		size: blob.size,
+		format: 'VBF',
+		blob: async () => blob,
+		getChildren: async () => {
+			const parsed = await parseVbf(blob);
+			return vbfEntriesToNodes(id, parsed.entries, ctx);
+		},
+	};
+}
+
+/**
+ * Convert flat VBF entries (full slash-delimited paths) into a
+ * hierarchical `Node` tree. Same shape as the SARC version
+ * above. The per-file `data` field is already a lazy
+ * decompressing facade, so nested children also get free
+ * laziness — opening a deep directory doesn't materialise any
+ * file bodies until the user actually downloads / previews one.
+ */
+async function vbfEntriesToNodes(
+	parentId: string,
+	entries: VbfFileEntry[],
+	ctx: ArchiveContext,
+): Promise<Node[]> {
+	type Tree = Map<string, { dir?: Tree; file?: VbfFileEntry }>;
+	const root: Tree = new Map();
+	for (const entry of entries) {
+		const parts = entry.name.split('/').filter((p) => p.length > 0);
+		if (parts.length === 0) continue;
+		let cur = root;
+		for (let i = 0; i < parts.length; i++) {
+			const part = parts[i];
+			const isLast = i === parts.length - 1;
+			let node = cur.get(part);
+			if (!node) {
+				node = {};
+				cur.set(part, node);
+			}
+			if (isLast) {
+				node.file = entry;
+			} else {
+				if (!node.dir) node.dir = new Map();
+				cur = node.dir;
+			}
+		}
+	}
+
+	const treeToNodes = async (
+		treeId: string,
+		t: Tree,
+	): Promise<Node[]> => {
+		const names = [...t.keys()].sort((a, b) => {
+			const aIsDir = !!t.get(a)!.dir;
+			const bIsDir = !!t.get(b)!.dir;
+			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+			return humanCompare(a, b);
+		});
+		return Promise.all(
+			names.map(async (name): Promise<Node> => {
+				const child = t.get(name)!;
+				const childId = `${treeId}/${name}`;
+				if (child.dir) {
+					const subNodes = await treeToNodes(childId, child.dir);
+					return childDirectoryNodeFor({
+						id: childId,
+						name,
+						getChildren: async () => subNodes,
+					});
+				}
+				const file = child.file!;
+				// Route through childNodeFor so any sniffable nested
+				// formats (DDS / phyre textures, embedded SARCs,
+				// etc.) become traversable. VBF's `data` is a lazy
+				// chunk-decompressing facade; nested container
+				// parsers will see it as a real Blob via `.slice()`
+				// / `.arrayBuffer()` / `.stream()`.
 				return childNodeFor(childId, name, file.data, ctx);
 			}),
 		);
@@ -3874,6 +3990,7 @@ async function childNodeFor(
 	if (ext === 'xci') return makeXciNode(id, name, blob, ctx);
 	if (ext === 'zip') return makeZipNode(id, name, blob, ctx);
 	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob, ctx);
+	if (ext === 'vbf') return makeVbfNode(id, name, blob, ctx);
 	if (ext === 'resources') return makeIdTechResourcesNode(id, name, blob, ctx);
 	if (ext === 'szs') return makeSzsNode(id, name, blob, ctx);
 	if (ext === 'lz4') return makeLz4Node(id, name, blob, ctx);
@@ -3951,6 +4068,7 @@ async function childNodeFor(
 	// effectively free) and handles the long tail uniformly.
 	const sniffed = await sniffMagicCheap(blob);
 	if (sniffed === 'sarc') return makeSarcNode(id, name, blob, ctx);
+	if (sniffed === 'vbf') return makeVbfNode(id, name, blob, ctx);
 	if (sniffed === 'idtech-resources') return makeIdTechResourcesNode(id, name, blob, ctx);
 	if (sniffed === 'szs') return makeSzsNode(id, name, blob, ctx);
 	if (sniffed === 'pfs0') return makePfs0Node(id, name, blob, ctx, 'PFS0');

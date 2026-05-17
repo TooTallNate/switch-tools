@@ -370,6 +370,9 @@ importers:
       '@tootallnate/usm':
         specifier: workspace:*
         version: link:../../packages/usm
+      '@tootallnate/vbf':
+        specifier: workspace:*
+        version: link:../../packages/vbf
       '@tootallnate/wem':
         specifier: workspace:*
         version: link:../../packages/wem
@@ -923,6 +926,16 @@ importers:
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
   packages/usm:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/vbf:
+    dependencies:
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.2
     devDependencies:
       typescript:
         specifier: ^5.3.3

@@ -70,6 +70,7 @@
     "@tootallnate/unity-asset": "workspace:*",
     "@tootallnate/upak": "workspace:*",
     "@tootallnate/usm": "workspace:*",
+    "@tootallnate/vbf": "workspace:*",
     "@tootallnate/wem": "workspace:*",
     "@tootallnate/wem-vorbis": "workspace:*",
     "@tootallnate/wwise-bnk": "workspace:*",

@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/vbf",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for Virtuos Big File archives (.vbf, magic 'SRYK') used by the Final Fantasy X/X-2 HD Remaster and Final Fantasy XII The Zodiac Age. Lazy zlib-chunked file access.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/vbf"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
