@@ -1,0 +1,301 @@
+/* Service worker that backs the nx-archive virtual filesystem
+ * (`/vfs/<resourceId>/<filename>` URLs).
+ *
+ * Background: many of our preview / download paths produce
+ * `Blob`-shaped facades whose bytes are the deterministic result
+ * of decrypting (AES-CTR, AES-XTS) or decompressing (DEFLATE,
+ * LZ4, LZMA, zstd, Yaz0) some underlying file. `Blob` itself is
+ * opaque to JS, so the only way to hand its bytes to native
+ * consumers (<video>, <img>, <a download>, fetch()) is via
+ * `URL.createObjectURL`, which requires the *whole* payload to
+ * sit in browser-managed memory first. That materialisation is
+ * what made the 231 MB FFX MP4 feel slow.
+ *
+ * The trick: register this service worker, then mint URLs that
+ * the SW intercepts. Each fetch is forwarded to the originating
+ * client (the page that registered the resource) via postMessage
+ * over a `MessageChannel`. The client reads the requested byte
+ * range from the underlying lazy facade and pumps chunks back
+ * through the channel; the SW relays them into a `ReadableStream`
+ * the browser consumes. The result:
+ *
+ *   - <video> seeks via HTTP Range requests, fetched only as
+ *     needed. A 5 GB file plays without ever materialising in
+ *     memory.
+ *   - <a download> streams straight to disk through the browser's
+ *     own download manager.
+ *   - <img>, <iframe>, fetch() all just work.
+ *
+ * Protocol (SW ↔ client, per request):
+ *
+ *   SW → client (postMessage with transferred MessagePort):
+ *     {
+ *       type: 'vfs-request',
+ *       resourceId: string,        // identifies which lazy resource
+ *       rangeStart: number,        // inclusive
+ *       rangeEnd: number,          // exclusive
+ *       requestId: string,         // correlation id, opaque
+ *     }
+ *
+ *   Client → SW (on the MessagePort):
+ *     { type: 'chunk', requestId, data: ArrayBuffer (transferred) }
+ *     { type: 'end', requestId }                  // success
+ *     { type: 'error', requestId, message: string }  // failure
+ *
+ *   Client may send 'metadata' first to update the size / mime:
+ *     { type: 'metadata', requestId, totalSize: number, mime: string }
+ *
+ * The client may produce metadata immediately when a request
+ * comes in for the first time (so the SW knows Content-Length /
+ * Content-Type) and stream bytes thereafter.
+ */
+
+// Cache version — bumped to invalidate the SW when this file changes.
+const SW_VERSION = 'nx-archive-vfs-v1';
+
+self.addEventListener('install', (event) => {
+	// Take over immediately so reloads don't have to wait for the
+	// previous SW to die. The page also calls `skipWaiting()` from
+	// the activation handshake; this is belt-and-braces.
+	event.waitUntil(self.skipWaiting());
+});
+
+self.addEventListener('activate', (event) => {
+	// Claim all clients (open tabs) so they can start using the
+	// /vfs/ URLs immediately rather than waiting until next navigation.
+	event.waitUntil(self.clients.claim());
+});
+
+/**
+ * Allow the page to trigger an immediate update path without a
+ * navigation. The page posts {type:'skip-waiting'} when a new SW
+ * is detected; we activate right away.
+ */
+self.addEventListener('message', (event) => {
+	if (event.data && event.data.type === 'skip-waiting') {
+		self.skipWaiting();
+	}
+});
+
+self.addEventListener('fetch', (event) => {
+	const url = new URL(event.request.url);
+	if (!url.pathname.startsWith('/vfs/')) return;
+
+	// Path shape: /vfs/<resourceId>/<filename>
+	// We use the leading segment as the resourceId. The filename
+	// suffix is purely for download UX (the browser uses it as
+	// the default save name when <a download> doesn't override).
+	const rest = url.pathname.slice('/vfs/'.length);
+	const slash = rest.indexOf('/');
+	const resourceId = slash >= 0 ? rest.slice(0, slash) : rest;
+	if (!resourceId) return;
+
+	event.respondWith(handleVfsFetch(event, resourceId));
+});
+
+/**
+ * Look up the originating client for this fetch and ask it to
+ * stream bytes through a `MessagePort`. Returns the assembled
+ * `Response` (potentially partial, depending on the Range header).
+ */
+async function handleVfsFetch(event, resourceId) {
+	// Locate the client (tab/window) that registered this resource.
+	// `event.clientId` is the most reliable identifier; fall back
+	// to walking all clients (`event.resultingClientId` is set only
+	// on navigations).
+	let client = null;
+	if (event.clientId) {
+		client = await self.clients.get(event.clientId);
+	}
+	if (!client) {
+		// Walk every controlled client and pick the first one — for
+		// the common single-tab case this is what we want. For
+		// multi-tab we'll need a smarter routing scheme, but the
+		// resourceId space is per-page so collisions are rare.
+		const all = await self.clients.matchAll({
+			type: 'window',
+			includeUncontrolled: true,
+		});
+		if (all.length > 0) client = all[0];
+	}
+	if (!client) {
+		return new Response('vfs: no client available', { status: 503 });
+	}
+
+	// Parse Range header. We only honour single-range requests
+	// (`bytes=N-M`) which is what every browser issues for media /
+	// download streams.
+	const rangeHeader = event.request.headers.get('range');
+	const requestedRange = parseRangeHeader(rangeHeader);
+
+	// Set up the MessageChannel: SW listens on `port1`, client
+	// writes on `port2`. We don't yet know the resource's size, so
+	// we kick off the request without a definite range; the client
+	// will reply with a 'metadata' message first, and we'll re-issue
+	// the actual byte range once the size is known.
+	const channel = new MessageChannel();
+	const requestId = crypto.randomUUID();
+
+	// Promise that resolves to {response, headers} once metadata
+	// arrives, then is piped into a ReadableStream as chunks land.
+	return new Promise((resolveResponse) => {
+		let resolved = false;
+		let totalSize = null;
+		let mime = 'application/octet-stream';
+		let filename = null;
+		let bytesEmitted = 0;
+		let actualStart = 0;
+		let actualEnd = 0;
+		let streamController = null;
+
+		channel.port1.onmessage = (msg) => {
+			const m = msg.data;
+			if (!m || m.requestId !== requestId) return;
+			if (m.type === 'metadata') {
+				totalSize = m.totalSize;
+				mime = m.mime || mime;
+				filename = m.filename || null;
+				// Resolve the byte range now that we know the size.
+				if (requestedRange) {
+					actualStart = clampUint(requestedRange.start ?? 0, 0, totalSize);
+					if (requestedRange.end !== undefined) {
+						actualEnd = clampUint(requestedRange.end + 1, actualStart, totalSize);
+					} else {
+						actualEnd = totalSize;
+					}
+				} else {
+					actualStart = 0;
+					actualEnd = totalSize;
+				}
+				if (actualStart >= totalSize && totalSize > 0) {
+					resolved = true;
+					resolveResponse(
+						new Response(null, {
+							status: 416,
+							headers: { 'Content-Range': `bytes */${totalSize}` },
+						}),
+					);
+					try { channel.port1.close(); } catch {}
+					return;
+				}
+				// Now ask the client for the resolved range.
+				channel.port1.postMessage({
+					type: 'start-stream',
+					requestId,
+					rangeStart: actualStart,
+					rangeEnd: actualEnd,
+				});
+				const headers = new Headers();
+				headers.set('Content-Type', mime);
+				headers.set('Content-Length', String(actualEnd - actualStart));
+				headers.set('Accept-Ranges', 'bytes');
+				headers.set('Cache-Control', 'no-store');
+				if (filename) {
+					// Suggest the filename for downloads. The browser
+					// also honours the <a download> attribute, which
+					// takes precedence; this is for direct-URL saves.
+					headers.set(
+						'Content-Disposition',
+						`attachment; filename*=UTF-8''${encodeRfc5987(filename)}`,
+					);
+				}
+				let status = 200;
+				if (requestedRange) {
+					status = 206;
+					headers.set(
+						'Content-Range',
+						`bytes ${actualStart}-${actualEnd - 1}/${totalSize}`,
+					);
+				}
+				const stream = new ReadableStream({
+					start(controller) {
+						streamController = controller;
+					},
+					cancel(reason) {
+						// Consumer aborted (seek away, tab close).
+						// Tell the client to stop producing.
+						try {
+							channel.port1.postMessage({ type: 'cancel', requestId });
+						} catch {}
+						try { channel.port1.close(); } catch {}
+					},
+				});
+				resolved = true;
+				resolveResponse(new Response(stream, { status, headers }));
+				return;
+			}
+			if (m.type === 'chunk' && streamController) {
+				const data = m.data;
+				bytesEmitted += data.byteLength;
+				try {
+					streamController.enqueue(new Uint8Array(data));
+				} catch {
+					// Consumer already closed; ignore.
+				}
+				return;
+			}
+			if (m.type === 'end' && streamController) {
+				try { streamController.close(); } catch {}
+				try { channel.port1.close(); } catch {}
+				return;
+			}
+			if (m.type === 'error') {
+				if (streamController) {
+					try { streamController.error(new Error(m.message)); } catch {}
+				}
+				if (!resolved) {
+					resolved = true;
+					resolveResponse(
+						new Response(`vfs: ${m.message}`, { status: 500 }),
+					);
+				}
+				try { channel.port1.close(); } catch {}
+				return;
+			}
+		};
+
+		// Kick off the conversation by transferring the port to the
+		// client. The client will reply with metadata first.
+		client.postMessage(
+			{
+				type: 'vfs-request',
+				resourceId,
+				requestId,
+				rangeHeader: rangeHeader ?? null,
+			},
+			[channel.port2],
+		);
+
+		// Watchdog: if the client doesn't respond within 30 s, give
+		// up. This usually means the resource was unregistered or
+		// the page navigated away.
+		setTimeout(() => {
+			if (!resolved) {
+				resolved = true;
+				resolveResponse(
+					new Response('vfs: client timeout', { status: 504 }),
+				);
+				try { channel.port1.close(); } catch {}
+			}
+		}, 30_000);
+	});
+}
+
+function parseRangeHeader(value) {
+	if (!value) return null;
+	const m = /^bytes=(\d+)-(\d*)$/.exec(value);
+	if (!m) return null;
+	const start = parseInt(m[1], 10);
+	const end = m[2] === '' ? undefined : parseInt(m[2], 10);
+	if (!Number.isFinite(start)) return null;
+	if (end !== undefined && (!Number.isFinite(end) || end < start)) return null;
+	return { start, end };
+}
+
+function clampUint(n, lo, hi) {
+	return Math.max(lo, Math.min(hi, n | 0));
+}
+
+function encodeRfc5987(s) {
+	return encodeURIComponent(s).replace(/['()]/g, escape).replace(/\*/g, '%2A');
+}

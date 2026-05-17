@@ -20,6 +20,11 @@
  */
 
 import type { Node } from './archive';
+import {
+	isVfsAvailable,
+	registerBlobAsVfsResource,
+	unregisterVfsResource,
+} from './vfs';
 
 /** A flat (path → Blob) view of an `.htdocs` tree. */
 export type HtdocsFiles = Map<string, Blob>;
@@ -168,25 +173,58 @@ export class HtdocsBundle {
 	}
 
 	/**
-	 * Materialize every file in the htdocs tree into a real `Blob` (with
-	 * the correct MIME) and produce a stable object URL for each. Also
-	 * scans for `regions.js` files and parses each into a {@link RegionsTable}.
+	 * Produce a stable URL for every file in the htdocs tree, plus a
+	 * real `Blob` snapshot (the iframe rewrites that need to query
+	 * file contents — like the `regions.js` parser — read through
+	 * the Blob).
+	 *
+	 * URL strategy:
+	 *
+	 *   - When the service worker (`/sw.js`) is registered, each
+	 *     file gets a `/vfs/<id>/<path>` URL that the SW streams on
+	 *     demand. Bundle build is effectively free — no per-file
+	 *     decryption / inflation; that work happens lazily when the
+	 *     iframe first fetches the resource.
+	 *   - When the SW isn't available, we fall back to materialising
+	 *     each file into a real `Blob` + `URL.createObjectURL`. This
+	 *     pays the full decryption / inflation cost up-front for the
+	 *     whole bundle.
+	 *
+	 * Also scans for `regions.js` files and parses each into a
+	 * {@link RegionsTable}; this requires reading the file bytes
+	 * (so we always materialise regions.js even on the vfs path).
 	 */
 	static async build(files: HtdocsFiles): Promise<HtdocsBundle> {
 		const realFiles = new Map<string, Blob>();
 		const urls = new Map<string, string>();
 		const regionsByDir = new Map<string, RegionsTable>();
 		const regionsTexts = new Map<string, string>();
+		const vfsActive = isVfsAvailable();
 		for (const [path, blob] of files) {
-			// Read the bytes through the public `Blob` API. For real
-			// `Blob`s this is a cheap reference; for lazy facades this is
-			// where decryption happens.
+			const mime = mimeTypeFor(path);
+			const filename = path.split('/').pop() ?? path;
+			const isRegionsJs = /(?:^|\/)regions\.js$/i.test(path);
+			if (vfsActive && !isRegionsJs) {
+				// Lazy vfs URL: the SW will pull bytes on demand when
+				// the iframe fetches this resource. We don't
+				// materialise the blob in JS at all.
+				const vfsUrl = registerBlobAsVfsResource(blob, mime, filename);
+				if (vfsUrl) {
+					urls.set(path, vfsUrl);
+					realFiles.set(path, blob);
+					continue;
+				}
+				// vfs registration failed (shouldn't happen if
+				// isVfsAvailable returned true, but be defensive)
+				// — fall through to materialisation.
+			}
+			// Materialisation path: needed when the SW isn't ready
+			// AND for regions.js (which we always parse below).
 			const bytes = await blob.arrayBuffer();
-			const real = new Blob([bytes], { type: mimeTypeFor(path) });
+			const real = new Blob([bytes], { type: mime });
 			realFiles.set(path, real);
 			urls.set(path, URL.createObjectURL(real));
-			// Stash the text of every `regions.js` for parsing below.
-			if (/(?:^|\/)regions\.js$/i.test(path)) {
+			if (isRegionsJs) {
 				regionsTexts.set(path, new TextDecoder('utf-8').decode(bytes));
 			}
 		}
@@ -252,7 +290,13 @@ export class HtdocsBundle {
 	}
 
 	dispose(): void {
-		for (const url of this.urls.values()) URL.revokeObjectURL(url);
+		for (const url of this.urls.values()) {
+			if (url.includes('/vfs/')) {
+				unregisterVfsResource(url);
+			} else {
+				URL.revokeObjectURL(url);
+			}
+		}
 		this.urls.clear();
 		this.files.clear();
 	}

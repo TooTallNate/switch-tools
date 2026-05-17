@@ -229,6 +229,11 @@ import {
   hasFileSystemSavePicker,
   type ZipExportProgress,
 } from "~/lib/zip-export"
+import {
+  isVfsAvailable,
+  registerBlobAsVfsResource,
+  unregisterVfsResource,
+} from "~/lib/vfs"
 import bink1WasmUrl from "@tootallnate/bink1-wasm/bink1.wasm?url"
 import { parseIdFont, type ParsedIdFont } from "@tootallnate/idfont"
 import {
@@ -1946,11 +1951,71 @@ async function makePreviewBlob(
   return new Blob(chunks as BlobPart[], { type: mime })
 }
 
+/**
+ * Return a URL for previewing `blob` with the given `mime`.
+ *
+ * Three paths, in preference order:
+ *
+ *   1. **Real `Blob`** — `URL.createObjectURL(blob.slice(0, size,
+ *      mime))`. Browser-native Range support, zero copy. This is
+ *      the fast path for files that come out of RomFS / NSP /
+ *      already-decrypted sources.
+ *   2. **Lazy facade + service worker available** — register the
+ *      facade as a `/vfs/<id>` resource. The browser streams via
+ *      HTTP Range requests against the SW, which pulls bytes from
+ *      the facade as needed. <video> seek works on multi-GB
+ *      files; downloads stream straight to disk; peak memory is
+ *      one chunk regardless of file size.
+ *   3. **Lazy facade + no service worker** (older browser, page
+ *      load race, registration failed) — materialise the facade
+ *      chunk-by-chunk into a real Blob and use
+ *      `URL.createObjectURL`. Reports byte progress through
+ *      `onProgress` so the UI can show a progress bar. This is
+ *      the path that's slow for big files; the SW eliminates it.
+ *
+ * Returns `{ url, dispose }`: callers must invoke `dispose()`
+ * when the URL is no longer needed (unmount, node change) so
+ * the underlying registration or blob URL is released.
+ */
+async function makePreviewUrl(
+  blob: Blob,
+  mime: string,
+  filename: string,
+  onProgress?: (bytesRead: number, bytesTotal: number) => void,
+): Promise<{ url: string; dispose: () => void }> {
+  // Path 1: real Blob — direct blob URL is cheapest and already
+  // supports Range requests natively via the browser's blob
+  // machinery. No vfs overhead.
+  if (typeof Blob !== "undefined" && blob instanceof Blob) {
+    onProgress?.(blob.size, blob.size)
+    const typed = blob.type === mime ? blob : blob.slice(0, blob.size, mime)
+    const url = URL.createObjectURL(typed)
+    return { url, dispose: () => URL.revokeObjectURL(url) }
+  }
+  // Path 2: lazy facade + SW — let the SW serve byte ranges on
+  // demand. No materialisation, no progress (because there's no
+  // upfront work — the SW pulls bytes as the consumer requests
+  // them).
+  if (isVfsAvailable()) {
+    const url = registerBlobAsVfsResource(blob, mime, filename)
+    if (url) {
+      onProgress?.(blob.size, blob.size)
+      return { url, dispose: () => unregisterVfsResource(url) }
+    }
+  }
+  // Path 3: lazy facade + no SW — fall back to materialising.
+  // This is the slow path the SW exists to avoid.
+  const real = await makePreviewBlob(blob, mime, onProgress)
+  const url = URL.createObjectURL(real)
+  return { url, dispose: () => URL.revokeObjectURL(url) }
+}
+
 function ImagePreview({ node }: { node: Node }) {
-  // Progressive loader so large lazy-facade images (NCA AES-CTR
-  // sections, ZIP entries that need DEFLATE) show a real progress
-  // bar instead of a bare spinner. Real Blobs flash through this
-  // path instantly.
+  // Resolve to a `{url, dispose}` pair. When the SW is active
+  // and the source is a lazy facade, the url streams via Range
+  // requests from the SW and the dispose unregisters it; when
+  // the SW isn't available the fallback materialises into a
+  // real Blob + classic blob URL.
   const { loading, data, error, progress } = useAsyncWithProgress(
     async (onProgress) => {
       const blob = await node.blob!()
@@ -1963,7 +2028,7 @@ function ImagePreview({ node }: { node: Node }) {
       // Switch app icons (icon_*.dat) are JPEGs.
       const isSwitchIconDat = /^icon_.*\.dat$/i.test(node.name)
       const mime = isSwitchIconDat ? "image/jpeg" : IMAGE_MIME[ext] ?? "image/png"
-      const typed = await makePreviewBlob(blob, mime, (bytesRead, total) =>
+      return makePreviewUrl(blob, mime, node.name, (bytesRead, total) =>
         onProgress({
           bytesIn: bytesRead,
           bytesOut: bytesRead,
@@ -1971,14 +2036,13 @@ function ImagePreview({ node }: { node: Node }) {
           bytesOutTotal: total,
         }),
       )
-      return URL.createObjectURL(typed)
     },
     [node.id],
   )
 
   useEffect(() => {
     return () => {
-      if (data) URL.revokeObjectURL(data)
+      if (data) data.dispose()
     }
   }, [data])
 
@@ -1989,7 +2053,7 @@ function ImagePreview({ node }: { node: Node }) {
     <ScrollArea className="h-full">
       <div className="flex min-h-full items-center justify-center bg-muted/40 p-6">
         <img
-          src={data!}
+          src={data!.url}
           alt={node.name}
           className="max-h-[calc(100vh-12rem)] max-w-full rounded-md ring-1 ring-foreground/10"
         />
@@ -2005,12 +2069,13 @@ function MediaPreview({
   node: Node
   kind: "audio" | "video"
 }) {
-  // Use the progressive loader so the user gets a byte-level
-  // progress bar while the lazy facade (NCA section AES-CTR
-  // decryption, ZIP DEFLATE, UnityFS LZ4) materialises into a
-  // real Blob. For files that are already real Blobs the
-  // materialisation is a no-op and the loader transitions
-  // straight to `data` without dwelling in the progress state.
+  // When the service worker is registered (the typical case),
+  // the URL is /vfs/<id> and the <video>/<audio> element streams
+  // via HTTP Range requests against the SW — even multi-GB
+  // sources never sit in memory. When the SW isn't ready
+  // `makePreviewUrl` falls back to materialising into a real
+  // Blob + URL.createObjectURL, with byte progress reported
+  // through to the progress bar.
   const { loading, data, error, progress } = useAsyncWithProgress(
     async (onProgress) => {
       const blob = await node.blob!()
@@ -2024,14 +2089,7 @@ function MediaPreview({
         kind === "audio"
           ? AUDIO_MIME[ext] ?? "audio/*"
           : VIDEO_MIME[ext] ?? "video/*"
-      // For real Blobs (RomFS slices, decrypted NCA sections, NSP
-      // entries) this is a lazy view — the <audio> / <video> element
-      // streams from the source via Range requests and never holds
-      // the whole file in memory. For lazy-facade Blobs (NCA section
-      // facades, ZIP / UnityFS entries) `makePreviewBlob`
-      // materialises chunk-by-chunk and reports bytes through to
-      // the progress UI.
-      const typed = await makePreviewBlob(blob, mime, (bytesRead, total) =>
+      return makePreviewUrl(blob, mime, node.name, (bytesRead, total) =>
         onProgress({
           bytesIn: bytesRead,
           bytesOut: bytesRead,
@@ -2039,14 +2097,13 @@ function MediaPreview({
           bytesOutTotal: total,
         }),
       )
-      return URL.createObjectURL(typed)
     },
     [node.id],
   )
 
   useEffect(() => {
     return () => {
-      if (data) URL.revokeObjectURL(data)
+      if (data) data.dispose()
     }
   }, [data])
 
@@ -2061,10 +2118,10 @@ function MediaPreview({
   return (
     <div className="flex h-full items-center justify-center bg-muted/40 p-6">
       {kind === "audio" ? (
-        <audio src={data!} controls className="w-full max-w-md" />
+        <audio src={data!.url} controls className="w-full max-w-md" />
       ) : (
         <video
-          src={data!}
+          src={data!.url}
           controls
           className="max-h-full max-w-full rounded-md ring-1 ring-foreground/10"
         />
@@ -13559,17 +13616,61 @@ function DownloadButton({
         cancelAnimationFrame(rafId)
         rafId = null
       }
-      const realBlob = await materializeAsBlob(blob)
-      const url = URL.createObjectURL(realBlob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = fileName
-      a.style.display = "none"
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      // Revoke after the click is consumed
-      setTimeout(() => URL.revokeObjectURL(url), 1500)
+      // Prefer the service-worker path: register the blob as a
+      // /vfs/<id> resource and click an <a download> pointing at
+      // it. The browser streams the bytes straight through the SW
+      // into its download manager (and ultimately to disk) — no
+      // intermediate in-memory copy, even for multi-GB sources.
+      // Falls back to materialising + classic blob URL when the SW
+      // isn't ready.
+      const click = (url: string): void => {
+        const a = document.createElement("a")
+        a.href = url
+        a.download = fileName
+        a.style.display = "none"
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+      }
+      const isReal = typeof Blob !== "undefined" && blob instanceof Blob
+      if (isReal) {
+        // Real Blob — direct blob URL is the cheapest path. The
+        // browser already supports Range / streaming downloads
+        // natively for blob: URLs. Revoke after a short delay so
+        // the download manager has time to latch on.
+        const url = URL.createObjectURL(blob)
+        click(url)
+        setTimeout(() => URL.revokeObjectURL(url), 1500)
+      } else if (isVfsAvailable()) {
+        // Lazy facade + SW available — let the SW stream bytes
+        // through the browser's download manager (straight to
+        // disk, no intermediate in-memory copy, no size cap).
+        // We intentionally don't auto-unregister: a multi-GB
+        // download may take minutes and the registry entry is
+        // tiny. It'll be GC'd when the tab closes.
+        const vfsUrl = registerBlobAsVfsResource(
+          blob,
+          blob.type || "application/octet-stream",
+          fileName,
+        )
+        if (vfsUrl) {
+          click(vfsUrl)
+        } else {
+          // Defensive: vfs registration failed despite the
+          // availability check. Fall through to materialisation.
+          const realBlob = await materializeAsBlob(blob)
+          const url = URL.createObjectURL(realBlob)
+          click(url)
+          setTimeout(() => URL.revokeObjectURL(url), 1500)
+        }
+      } else {
+        // Lazy facade + no SW — fall back to materialising. This
+        // is the slow path that buffers the whole file in memory.
+        const realBlob = await materializeAsBlob(blob)
+        const url = URL.createObjectURL(realBlob)
+        click(url)
+        setTimeout(() => URL.revokeObjectURL(url), 1500)
+      }
       toast.success(`Downloaded ${fileName}`, { id })
     } catch (err) {
       if (rafId !== null) cancelAnimationFrame(rafId)
