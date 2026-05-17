@@ -378,6 +378,7 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	acb: 'ACB', // CRI Audio Cue Binary (cue manifest; pairs with .awb sibling)
 	hca: 'HCA', // CRI High Compression Audio
 	resources: 'idTech-Resources', // DOOM 3 BFG / RAGE / Wolfenstein TNO container (magic 0xD000000D)
+	bimage: 'idTech-bimage', // BFG-era preprocessed texture format
 };
 
 /**
@@ -443,7 +444,9 @@ type SniffedFormat =
 	| 'fmod-bank'
 	| 'awb'
 	| 'zstd'
-	| 'idtech-resources';
+	| 'idtech-resources'
+	| 'idfont'
+	| 'bimage';
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -542,6 +545,15 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	// idTech BFG-era `.resources` archive: magic 0xD000000D (big-endian).
 	if (head[0] === 0xd0 && head[1] === 0x00 && head[2] === 0x00 && head[3] === 0x0d) {
 		return 'idtech-resources';
+	}
+	// idTech BFG bitmap-font metrics: magic 'idf*' (`0x6964662A`).
+	if (head[0] === 0x69 && head[1] === 0x64 && head[2] === 0x66 && head[3] === 0x2a) {
+		return 'idfont';
+	}
+	// idTech BFG `.bimage`: magic at offset 8 (after 8-byte sourceFileTime).
+	if (head.length >= 12 &&
+	    head[8] === 0x0a && head[9] === 0x4d && head[10] === 0x49 && head[11] === 0x42) {
+		return 'bimage';
 	}
 	return null;
 }
@@ -3959,6 +3971,33 @@ async function childNodeFor(
 	if (sniffed === 'wwise-pck') return makeWwisePckNode(id, name, blob, ctx);
 	if (sniffed === 'wwise-bnk') return makeWwiseBnkNode(id, name, blob, ctx);
 	if (sniffed === 'fmod-bank') return makeFmodBankNode(id, name, blob, ctx);
+	// idTech BFG bitmap font + texture atlas: leaf files routed via
+	// `meta` tags so the preview pane can pick them out of the
+	// generic `.dat` / arbitrary-extension stream.
+	if (sniffed === 'idfont') {
+		return {
+			id,
+			name,
+			kind: 'file',
+			isContainer: false,
+			size: blob.size,
+			format: 'idTech-Font',
+			meta: { idfont: true },
+			blob: async () => blob,
+		};
+	}
+	if (sniffed === 'bimage') {
+		return {
+			id,
+			name,
+			kind: 'file',
+			isContainer: false,
+			size: blob.size,
+			format: 'idTech-bimage',
+			meta: { bimage: true },
+			blob: async () => blob,
+		};
+	}
 
 	// Generic file
 	return {

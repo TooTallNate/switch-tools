@@ -223,6 +223,14 @@ import {
 } from "~/lib/progress"
 import { encodeBink1ToMp4, type Bink1EncodeProgress } from "~/lib/bink1-encode"
 import bink1WasmUrl from "@tootallnate/bink1-wasm/bink1.wasm?url"
+import { parseIdFont, type ParsedIdFont } from "@tootallnate/idfont"
+import {
+  parseBimage,
+  BimageColorFormat,
+  BimageFormat,
+  type ParsedBimage,
+} from "@tootallnate/bimage"
+import { decodeBC1, decodeBC3 } from "@tootallnate/bcn"
 import { encodeBink2ToMp4, type Bink2EncodeProgress } from "~/lib/bink2-encode"
 import { loadStoredBink2Wasm } from "~/lib/bink2-store"
 
@@ -333,6 +341,11 @@ function PreviewContent({
       // `archive.ts` instead.
       if (node.kind === "unity-asset") return "unity-asset"
       if (node.kind === "unity-object") return "unity-object"
+      // idTech BFG font metrics + preprocessed textures are sniffed
+      // at tree-build time (`.dat` and `.bimage` extensions are too
+      // generic for `detectPreviewKind` to route safely on name alone).
+      if (node.meta?.idfont) return "idfont"
+      if (node.meta?.bimage) return "bimage"
       return detectPreviewKind(node.name)
     },
     [isFile, node.name, node.meta, node.kind],
@@ -1610,6 +1623,10 @@ function FilePreview({
       return <UsmPreview node={node} />
     case "bink1-video":
       return <Bink1Preview node={node} />
+    case "idfont":
+      return <IdFontPreview node={node} root={root} />
+    case "bimage":
+      return <BimagePreview node={node} />
     case "bink2-video":
       return (
         <Bink2Preview
@@ -8764,6 +8781,599 @@ function Bink1Preview({ node }: { node: Node }) {
       </div>
     </ScrollArea>
   )
+}
+
+// ====================================================================
+// idTech BFG `.bimage` preview — preprocessed texture container
+// ====================================================================
+//
+// Standalone preview for `.bimage` files outside of a font pairing.
+// Decodes the base mip (DXT1 / DXT5 / RGBA8 / Alpha) and renders it
+// straight into a canvas. Color-format hints (NormalDXT5, YCoCgDXT5)
+// are surfaced in the metadata block but the decoded RGB bytes are
+// shown raw — they're useful for spotting what kind of texture this
+// is (normal map, font atlas, diffuse) before deciding to dig
+// deeper. Mip chains are listed but only the base level is
+// rendered.
+
+interface BimageView {
+  info: ParsedBimage
+  base: { width: number; height: number; pixels: Uint8Array } | null
+  /** Decoder error (e.g. unsupported format). */
+  error: string | null
+}
+
+function BimagePreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async (): Promise<BimageView> => {
+    const blob = await node.blob!()
+    const info = await parseBimage(blob)
+    let base: BimageView["base"] = null
+    let err: string | null = null
+    try {
+      const decoded = await decodeBimageMip0(info)
+      base = decoded
+    } catch (e) {
+      err = e instanceof Error ? e.message : String(e)
+    }
+    return { info, base, error: err }
+  }, [node.id])
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  useEffect(() => {
+    if (!data?.base || !canvasRef.current) return
+    const c = canvasRef.current
+    c.width = data.base.width
+    c.height = data.base.height
+    const ctx = c.getContext("2d")
+    if (!ctx) return
+    const imageData = ctx.createImageData(data.base.width, data.base.height)
+    imageData.data.set(data.base.pixels)
+    ctx.putImageData(imageData, 0, 0)
+  }, [data])
+
+  if (loading) return <LoadingFiller label="Decoding bimage…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="idTech BFG preprocessed texture" />
+
+        <KvBlock title="Texture">
+          <KvRow
+            k="Dimensions"
+            v={`${v.info.width} × ${v.info.height}`}
+          />
+          <KvRow k="Format" v={BimageFormat[v.info.format] ?? "unknown"} />
+          <KvRow
+            k="Color format"
+            v={BimageColorFormat[v.info.colorFormat] ?? "unknown"}
+          />
+          <KvRow k="Texture type" v={v.info.textureType === 1 ? "2D" : "Cubic"} />
+          <KvRow k="Mip levels" v={`${v.info.numLevels}`} />
+        </KvBlock>
+
+        {v.error && (
+          <Alert>
+            <CircleAlertIcon />
+            <AlertTitle>Couldn't decode pixels</AlertTitle>
+            <AlertDescription>{v.error}</AlertDescription>
+          </Alert>
+        )}
+
+        {v.base && (
+          <section className="flex flex-col gap-2">
+            <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+              Base mip
+            </h3>
+            <div className="rounded-md border bg-card p-4">
+              <canvas
+                ref={canvasRef}
+                className="block max-w-full"
+                style={{
+                  imageRendering: "pixelated",
+                  background:
+                    "repeating-conic-gradient(#1a1a1a 0% 25%, #2a2a2a 0% 50%) 0 0 / 16px 16px",
+                }}
+              />
+            </div>
+          </section>
+        )}
+      </div>
+    </ScrollArea>
+  )
+}
+
+/**
+ * Decode the base mip of a parsed bimage into RGBA8. Handles the
+ * formats actually seen in DOOM 3 BFG Switch / RAGE; throws for
+ * anything else.
+ */
+async function decodeBimageMip0(
+  info: ParsedBimage,
+): Promise<{ width: number; height: number; pixels: Uint8Array }> {
+  const mip0 = info.mips[0]
+  const bytes = new Uint8Array(await mip0.data.arrayBuffer())
+  if (info.format === BimageFormat.DXT1) {
+    return decodeBC1(bytes, mip0.width, mip0.height)
+  }
+  if (info.format === BimageFormat.DXT5) {
+    return decodeBC3(bytes, mip0.width, mip0.height)
+  }
+  if (info.format === BimageFormat.RGBA8) {
+    return {
+      width: mip0.width,
+      height: mip0.height,
+      pixels: bytes.slice(0, mip0.width * mip0.height * 4),
+    }
+  }
+  if (info.format === BimageFormat.Alpha) {
+    const w = mip0.width
+    const h = mip0.height
+    const out = new Uint8Array(w * h * 4)
+    for (let i = 0; i < w * h; i++) {
+      const a = bytes[i]
+      out[i * 4] = 255
+      out[i * 4 + 1] = 255
+      out[i * 4 + 2] = 255
+      out[i * 4 + 3] = a
+    }
+    return { width: w, height: h, pixels: out }
+  }
+  if (info.format === BimageFormat.LUM8 || info.format === BimageFormat.INT8) {
+    const w = mip0.width
+    const h = mip0.height
+    const out = new Uint8Array(w * h * 4)
+    for (let i = 0; i < w * h; i++) {
+      const v = bytes[i]
+      out[i * 4] = v
+      out[i * 4 + 1] = v
+      out[i * 4 + 2] = v
+      out[i * 4 + 3] = info.format === BimageFormat.INT8 ? v : 255
+    }
+    return { width: w, height: h, pixels: out }
+  }
+  throw new Error(
+    `Unsupported bimage format ${BimageFormat[info.format] ?? info.format}`,
+  )
+}
+
+// ====================================================================
+// idTech BFG bitmap-font preview (`newfonts/<Family>/48.dat`)
+// ====================================================================
+//
+// The `48.dat` file alone is metrics-only — pixel data lives in a
+// sibling `.bimage` atlas at `generated/images/newfonts/<family>/48#__0400.bimage`
+// (lowercased family name). We walk up the node ancestry to find
+// the closest `.resources` container, fetch the atlas by computed
+// path, decode the BC1 (DXT1) blocks, apply the BFG-specific
+// `CFM_GREEN_ALPHA` channel trick (alpha was copied to the green
+// channel pre-compression), and render the resulting glyph atlas
+// + a sample-text canvas using the parsed metrics.
+
+interface IdFontView {
+  font: ParsedIdFont
+  /** The font name (directory) extracted from the node's path. */
+  familyName: string
+  /** Decoded RGBA atlas (alpha channel reconstructed from green). */
+  atlas: { width: number; height: number; pixels: Uint8Array } | null
+  /** Parsed bimage metadata (when atlas was found). */
+  atlasInfo: ParsedBimage | null
+  /** Error message if the atlas couldn't be located / decoded. */
+  atlasError: string | null
+}
+
+/**
+ * Walk the archive tree from `root` to find the `.bimage` atlas
+ * paired with `node` (an idTech BFG `48.dat`). Returns the atlas
+ * Blob, or `null` if the expected sibling can't be found.
+ */
+async function findIdFontAtlas(
+  node: Node,
+  root: Node | null,
+  familyName: string,
+): Promise<Blob | null> {
+  if (!root) return null
+  // Locate the closest `.resources` ancestor (or the root itself).
+  // node.id looks like `/foo.nsp/.../base/_common.resources/newfonts/Sarasori_Rg/48.dat`.
+  const segments = node.id.split("/")
+  let ancestorEnd = -1
+  for (let i = segments.length - 1; i >= 0; i--) {
+    if (/\.resources$/i.test(segments[i])) {
+      ancestorEnd = i
+      break
+    }
+  }
+  if (ancestorEnd < 0) {
+    // Loose `.dat` outside any `.resources`: nothing to look up.
+    return null
+  }
+  const ancestorId = segments.slice(0, ancestorEnd + 1).join("/")
+  // Walk root to find the ancestor node.
+  const findById = async (n: Node, target: string): Promise<Node | null> => {
+    if (n.id === target) return n
+    if (!target.startsWith(n.id + "/") && n.id !== "") return null
+    let cur: Node = n
+    while (cur.id !== target) {
+      if (!cur.getChildren) return null
+      const kids = cur._children ?? (cur._children = await cur.getChildren())
+      let next: Node | null = null
+      for (const k of kids) {
+        if (k.id === target || target.startsWith(k.id + "/")) {
+          if (!next || k.id.length > next.id.length) next = k
+        }
+      }
+      if (!next) return null
+      cur = next
+    }
+    return cur
+  }
+  const ancestor = await findById(root, ancestorId)
+  if (!ancestor) return null
+  // The atlas path inside the .resources is:
+  //   generated/images/newfonts/<familyLowercase>/48#__0400.bimage
+  // We've expanded the directory tree to plain dirs, so the `#`
+  // and `__` stay as filename characters. The lookup is
+  // case-insensitive (id's runtime lowercases all paths).
+  const targetPath = `generated/images/newfonts/${familyName.toLowerCase()}/48#__0400.bimage`
+  // BFS through the ancestor's tree to find a node whose path
+  // relative to the ancestor matches `targetPath` case-insensitively.
+  const ancestorIdLen = ancestor.id.length
+  const queue: Node[] = [ancestor]
+  while (queue.length) {
+    const cur = queue.shift()!
+    if (cur.id !== ancestor.id) {
+      const rel = cur.id.slice(ancestorIdLen + 1).toLowerCase()
+      if (rel === targetPath && cur.blob) {
+        return cur.blob()
+      }
+    }
+    if (cur.getChildren && cur !== ancestor) {
+      // Optimisation: only descend into directories whose name
+      // matches the expected path prefix. This keeps the BFS
+      // bounded to the `generated/images/newfonts/<font>/` chain.
+      const rel = cur.id.slice(ancestorIdLen + 1).toLowerCase()
+      if (!targetPath.startsWith(rel + "/")) continue
+    }
+    if (cur.getChildren) {
+      const kids = cur._children ?? (cur._children = await cur.getChildren())
+      queue.push(...kids)
+    }
+  }
+  return null
+}
+
+/**
+ * Decode the atlas Blob to RGBA8 pixels, applying the BFG-specific
+ * channel post-processing implied by `colorFormat`:
+ *
+ *   - `CFM_GREEN_ALPHA`: the alpha channel was moved to green
+ *     pre-compression; after decode, treat green as the alpha mask
+ *     and replicate it to R/G/B (so the glyphs render as a
+ *     monochrome alpha-masked image).
+ *
+ * Other color formats fall back to the raw decoded bytes — they're
+ * less common for fonts but we don't actively misrender them.
+ */
+async function decodeBimageForFontAtlas(
+  bimageBlob: Blob,
+): Promise<{
+  width: number
+  height: number
+  pixels: Uint8Array
+  info: ParsedBimage
+}> {
+  const info = await parseBimage(bimageBlob)
+  const mip0 = info.mips[0]
+  const mip0Bytes = new Uint8Array(await mip0.data.arrayBuffer())
+  let decoded: { width: number; height: number; pixels: Uint8Array }
+  if (info.format === BimageFormat.DXT1) {
+    decoded = decodeBC1(mip0Bytes, mip0.width, mip0.height)
+  } else if (info.format === BimageFormat.DXT5) {
+    decoded = decodeBC3(mip0Bytes, mip0.width, mip0.height)
+  } else if (info.format === BimageFormat.RGBA8) {
+    decoded = {
+      width: mip0.width,
+      height: mip0.height,
+      pixels: mip0Bytes.slice(0, mip0.width * mip0.height * 4),
+    }
+  } else if (info.format === BimageFormat.Alpha) {
+    // Single-channel alpha: replicate into RGBA.
+    const w = mip0.width
+    const h = mip0.height
+    const out = new Uint8Array(w * h * 4)
+    for (let i = 0; i < w * h; i++) {
+      const a = mip0Bytes[i]
+      out[i * 4] = 255
+      out[i * 4 + 1] = 255
+      out[i * 4 + 2] = 255
+      out[i * 4 + 3] = a
+    }
+    decoded = { width: w, height: h, pixels: out }
+  } else {
+    throw new Error(
+      `Unsupported bimage format ${BimageFormat[info.format]} (${info.format}) for font atlas`,
+    )
+  }
+
+  // BFG fonts copy the alpha channel into green pre-DXT1 compression
+  // (CFM_GREEN_ALPHA). Reconstruct: green → alpha; R=G=B=green for
+  // monochrome rendering.
+  if (info.colorFormat === BimageColorFormat.GreenAlpha) {
+    const px = decoded.pixels
+    for (let i = 0; i < px.length; i += 4) {
+      const g = px[i + 1]
+      px[i] = g
+      px[i + 1] = g
+      px[i + 2] = g
+      px[i + 3] = g
+    }
+  }
+  return {
+    width: decoded.width,
+    height: decoded.height,
+    pixels: decoded.pixels,
+    info,
+  }
+}
+
+/** Extract the font family name from `…/newfonts/<Family>/48.dat`. */
+function familyFromNodeId(id: string): string {
+  const segments = id.split("/")
+  // Find the segment after `newfonts`.
+  for (let i = 0; i < segments.length - 1; i++) {
+    if (segments[i].toLowerCase() === "newfonts") {
+      return segments[i + 1] ?? ""
+    }
+  }
+  // Fallback: parent directory of the .dat file.
+  return segments[segments.length - 2] ?? ""
+}
+
+function IdFontPreview({
+  node,
+  root,
+}: {
+  node: Node
+  root: Node | null
+}) {
+  const { loading, data, error } = useAsync(async (): Promise<IdFontView> => {
+    const fontBlob = await node.blob!()
+    const font = await parseIdFont(fontBlob)
+    const familyName = familyFromNodeId(node.id)
+    let atlas: { width: number; height: number; pixels: Uint8Array } | null =
+      null
+    let atlasInfo: ParsedBimage | null = null
+    let atlasError: string | null = null
+    try {
+      const atlasBlob = await findIdFontAtlas(node, root, familyName)
+      if (atlasBlob) {
+        const decoded = await decodeBimageForFontAtlas(atlasBlob)
+        atlas = {
+          width: decoded.width,
+          height: decoded.height,
+          pixels: decoded.pixels,
+        }
+        atlasInfo = decoded.info
+      } else {
+        atlasError =
+          "Sibling .bimage atlas not found — preview shows metrics only."
+      }
+    } catch (e) {
+      atlasError = e instanceof Error ? e.message : String(e)
+    }
+    return { font, familyName, atlas, atlasInfo, atlasError }
+  }, [node.id])
+
+  // Sample-text canvas: render once whenever font + atlas land.
+  const sampleCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const atlasCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  useEffect(() => {
+    if (!data) return
+    drawAtlasCanvas(atlasCanvasRef.current, data)
+    drawSampleCanvas(sampleCanvasRef.current, data)
+  }, [data])
+
+  if (loading) return <LoadingFiller label="Decoding idTech font…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const f = v.font
+
+  // Build a brief char-range summary by clustering contiguous
+  // codepoint runs. Useful when the font has a tail of selective
+  // CJK characters (DFP Heisei).
+  const ranges: Array<{ from: number; to: number }> = []
+  for (const cp of f.codepoints) {
+    const last = ranges[ranges.length - 1]
+    if (last && cp === last.to + 1) {
+      last.to = cp
+    } else {
+      ranges.push({ from: cp, to: cp })
+    }
+  }
+
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title={`idTech BFG bitmap font — ${v.familyName}`} />
+
+        <KvBlock title="Font">
+          <KvRow k="Family" v={v.familyName} />
+          <KvRow k="Point size" v={`${f.pointSize}`} />
+          <KvRow k="Ascender" v={`${f.ascender} px`} />
+          <KvRow k="Descender" v={`${f.descender} px`} />
+          <KvRow k="Glyphs" v={`${f.glyphs.length}`} />
+          <KvRow
+            k="Codepoint range"
+            v={`${f.codepoints[0]} – ${f.codepoints[f.codepoints.length - 1]}`}
+          />
+          <KvRow k="Contiguous ranges" v={`${ranges.length}`} />
+        </KvBlock>
+
+        {v.atlasInfo && (
+          <KvBlock title="Atlas">
+            <KvRow
+              k="Dimensions"
+              v={`${v.atlasInfo.width} × ${v.atlasInfo.height}`}
+            />
+            <KvRow k="Format" v={BimageFormat[v.atlasInfo.format] ?? "unknown"} />
+            <KvRow
+              k="Color format"
+              v={BimageColorFormat[v.atlasInfo.colorFormat] ?? "unknown"}
+            />
+            <KvRow k="Mip levels" v={`${v.atlasInfo.numLevels}`} />
+          </KvBlock>
+        )}
+
+        {v.atlasError && (
+          <Alert>
+            <CircleAlertIcon />
+            <AlertTitle>Atlas not loaded</AlertTitle>
+            <AlertDescription>{v.atlasError}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Sample text canvas */}
+        {v.atlas && (
+          <section className="flex flex-col gap-2">
+            <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+              Sample
+            </h3>
+            <div className="rounded-md border bg-card p-4">
+              <canvas
+                ref={sampleCanvasRef}
+                className="block max-w-full"
+                style={{
+                  imageRendering: "pixelated",
+                  background:
+                    "repeating-conic-gradient(#1a1a1a 0% 25%, #2a2a2a 0% 50%) 0 0 / 16px 16px",
+                }}
+              />
+            </div>
+          </section>
+        )}
+
+        {/* Atlas */}
+        {v.atlas && (
+          <section className="flex flex-col gap-2">
+            <h3 className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+              Glyph atlas
+            </h3>
+            <div className="rounded-md border bg-card p-4">
+              <canvas
+                ref={atlasCanvasRef}
+                className="block max-w-full"
+                style={{
+                  imageRendering: "pixelated",
+                  background:
+                    "repeating-conic-gradient(#1a1a1a 0% 25%, #2a2a2a 0% 50%) 0 0 / 16px 16px",
+                }}
+              />
+            </div>
+          </section>
+        )}
+      </div>
+    </ScrollArea>
+  )
+}
+
+/**
+ * Paint the decoded atlas pixels (already RGBA with alpha
+ * reconstructed from green for CFM_GREEN_ALPHA fonts) directly
+ * into the target canvas.
+ */
+function drawAtlasCanvas(
+  canvas: HTMLCanvasElement | null,
+  v: IdFontView,
+): void {
+  if (!canvas || !v.atlas) return
+  canvas.width = v.atlas.width
+  canvas.height = v.atlas.height
+  const ctx = canvas.getContext("2d")
+  if (!ctx) return
+  const imageData = ctx.createImageData(v.atlas.width, v.atlas.height)
+  imageData.data.set(v.atlas.pixels)
+  ctx.putImageData(imageData, 0, 0)
+}
+
+/**
+ * Paint a sample-text string using the parsed glyph metrics +
+ * atlas. Each glyph is blitted from its atlas (s,t) position to
+ * the canvas using the per-glyph `top`/`left` offsets relative to
+ * the baseline + `xSkip` for the pen advance.
+ */
+function drawSampleCanvas(
+  canvas: HTMLCanvasElement | null,
+  v: IdFontView,
+): void {
+  if (!canvas || !v.atlas) return
+  const sample = "The quick brown fox jumps over the lazy dog.\n0123456789 !?.,;:()"
+  const lines = sample.split("\n")
+
+  // Two passes: first compute the laid-out bounding box so we can
+  // size the canvas, then render. The visible region per glyph
+  // starts `glyph.left` pixels right of the pen and `glyph.top`
+  // pixels above the baseline.
+  const lineHeight = v.font.ascender - v.font.descender
+  let maxWidth = 0
+  for (const line of lines) {
+    let x = 0
+    for (const ch of line) {
+      const g = v.font.byCodepoint.get(ch.codePointAt(0)!)
+      if (g) x += g.xSkip
+    }
+    if (x > maxWidth) maxWidth = x
+  }
+  const padding = 8
+  const W = Math.max(64, maxWidth + padding * 2)
+  const H = padding * 2 + lineHeight * lines.length
+  canvas.width = W
+  canvas.height = H
+  const ctx = canvas.getContext("2d")
+  if (!ctx) return
+
+  // Source: put the atlas in an offscreen canvas so we can use
+  // drawImage for sub-rect blits.
+  const src = document.createElement("canvas")
+  src.width = v.atlas.width
+  src.height = v.atlas.height
+  const sctx = src.getContext("2d")
+  if (!sctx) return
+  const srcImage = sctx.createImageData(v.atlas.width, v.atlas.height)
+  srcImage.data.set(v.atlas.pixels)
+  sctx.putImageData(srcImage, 0, 0)
+
+  ctx.clearRect(0, 0, W, H)
+  // Render each line. Baseline is at `padding + ascender + lineIndex * lineHeight`.
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li]
+    const baselineY = padding + v.font.ascender + li * lineHeight
+    let penX = padding
+    for (const ch of line) {
+      const cp = ch.codePointAt(0)!
+      const g = v.font.byCodepoint.get(cp)
+      if (!g) {
+        penX += v.font.pointSize / 3
+        continue
+      }
+      if (g.width > 0 && g.height > 0) {
+        const dx = penX + g.left
+        const dy = baselineY - g.top
+        ctx.drawImage(
+          src,
+          g.s,
+          g.t,
+          g.width,
+          g.height,
+          dx,
+          dy,
+          g.width,
+          g.height,
+        )
+      }
+      penX += g.xSkip
+    }
+  }
 }
 
 // ====================================================================

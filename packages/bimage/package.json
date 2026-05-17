@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/bimage",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for idTech BFG `.bimage` files (preprocessed textures used by DOOM 3 BFG / RAGE / Wolfenstein: The New Order). Returns format-tagged mip levels; pixel decoding is left to format-specific libraries.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/bimage"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

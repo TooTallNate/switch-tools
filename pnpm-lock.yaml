@@ -262,6 +262,9 @@ importers:
       '@tootallnate/bfwav':
         specifier: workspace:*
         version: link:../../packages/bfwav
+      '@tootallnate/bimage':
+        specifier: workspace:*
+        version: link:../../packages/bimage
       '@tootallnate/bink1-wasm':
         specifier: workspace:*
         version: link:../../packages/bink1-wasm
@@ -307,6 +310,9 @@ importers:
       '@tootallnate/hfs0':
         specifier: workspace:*
         version: link:../../packages/hfs0
+      '@tootallnate/idfont':
+        specifier: workspace:*
+        version: link:../../packages/idfont
       '@tootallnate/idtech-resources':
         specifier: workspace:*
         version: link:../../packages/idtech-resources
@@ -603,6 +609,12 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/bimage:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/bink1-wasm:
     devDependencies:
       typescript:
@@ -733,6 +745,12 @@ importers:
         version: 5.9.3
 
   packages/hfs0:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/idfont:
     devDependencies:
       typescript:
         specifier: ^5.3.3

@@ -126,6 +126,17 @@ export type PreviewKind =
 	| 'usm-video'
 	/** Bink 1 (`.bik`) video — decode via shipped WASM, re-encode to MP4. */
 	| 'bink1-video'
+	/**
+	 * idTech BFG bitmap font metrics (`newfonts/<Family>/48.dat`).
+	 * Decoded alongside the matching `.bimage` atlas to render a
+	 * live preview of the font's glyphs.
+	 */
+	| 'idfont'
+	/**
+	 * idTech BFG preprocessed texture (`.bimage`). Header + per-mip
+	 * decode, rendered as a flat image.
+	 */
+	| 'bimage'
 	/** Bink 2 (`.bk2`) video — decode via user-supplied WASM, re-encode to MP4. */
 	| 'bink2-video'
 	/** Unity SerializedFile (`CAB-…` inside an AssetBundle). */
