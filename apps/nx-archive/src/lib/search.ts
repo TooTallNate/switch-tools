@@ -1,5 +1,5 @@
 /**
- * Filename-only fuzzy search across the archive tree.
+ * Filename-only search across the archive tree.
  *
  * Two pieces:
  *
@@ -9,13 +9,17 @@
  *    (the latter skips potentially-expensive NCA / NCZ expansion
  *    unless the user has already triggered it interactively).
  *
- * 2. {@link fuzzyMatch} — an fzf-style scoring function. Given a
- *    needle and a haystack, returns `null` if the needle's characters
- *    can't be found in order in the haystack, or a `{ score, ranges }`
- *    object marking which characters were the matches. Higher score =
- *    better match, with bonuses for contiguous runs, prefix matches,
- *    and word boundaries — so `mnnro` against `["main.nro", "minor.txt",
- *    "config/random.nro"]` ranks `main.nro` first.
+ * 2. {@link fuzzyMatch} — a strict **substring-or-acronym** match.
+ *    The previous fzf-style fuzzy match allowed arbitrary gaps,
+ *    which produced too many low-quality results (e.g. `bik`
+ *    matching `bombdrop_index_keys.json` because the three letters
+ *    happened to appear in order). The new rule is much more
+ *    predictable: either the needle is a contiguous substring of
+ *    the filename, or every needle character lands on a word
+ *    boundary (start, after `/_-.` or ` `, or camelCase
+ *    transitions) so `pst` matches `PauseScreenText`. Substring
+ *    matches always outrank acronym matches; within each category
+ *    matches closer to the filename and at boundaries rank higher.
  *
  * Combine them: walk the tree once (expensive on first call, cached
  * thereafter via `node._children`), score every visited node's name,
@@ -152,7 +156,7 @@ export async function* walkTree(
 }
 
 // ============================================================================
-// Fuzzy matching (fzf-lite)
+// Substring-or-acronym matching
 // ============================================================================
 
 export interface MatchResult {
@@ -169,24 +173,35 @@ export interface MatchResult {
 }
 
 /**
- * Score how well `needle` matches `haystack` using an fzf-style
- * algorithm:
+ * Match `needle` against `haystack` using a strict
+ * **substring-or-acronym** rule:
  *
- *   - Characters of the needle must appear in `haystack` in order
- *     (gaps allowed).
- *   - Contiguous matches score better than gappy ones.
- *   - Prefix matches (haystack[0]) get a bonus.
- *   - Word-boundary matches (after `/`, `_`, `-`, `.`, ` `, or a
- *     transition from lower→upper) get a bonus.
+ *   - **Substring match**: the needle appears as a contiguous
+ *     case-insensitive substring of the haystack. Covers the
+ *     overwhelming majority of real searches (`bik`, `.mp4`,
+ *     `cutscene`, `materials/`, etc.).
+ *   - **Acronym match**: the needle's characters appear in
+ *     order in the haystack, AND every matched character lands
+ *     at a "word boundary" — start of the haystack, the start of
+ *     the filename portion (after the last `/`), immediately after
+ *     a separator (`/`, `_`, `-`, `.`, ` `), or at a camelCase
+ *     transition. So `pst` matches `PauseScreenText` and `mn`
+ *     matches `main.nro`, but `bik` does NOT match a random
+ *     filename where `b`, `i`, `k` happen to occur far apart.
  *
- * Returns `null` if `haystack` doesn't contain all needle characters
- * in order. Empty needle returns score=0 with no indexes (so callers
- * can use it as a "match all" sentinel).
+ * Returns `null` for non-matches. Empty needle returns
+ * `score=0` (match-all sentinel for incremental typing).
  *
- * This is greedy left-to-right rather than full optimal-parsing —
- * fzf does optimal parsing (DP) for its top-N, but for our scale
- * (a few thousand filenames per archive) the greedy version is
- * plenty good and runs in O(n) per filename.
+ * Substring matches outrank acronym matches; within each rule,
+ * matches closer to the filename (vs. directory components) and
+ * matches at boundaries rank higher.
+ *
+ * This is intentionally stricter than the previous fzf-style
+ * fuzzy match, which allowed arbitrary gaps and produced too
+ * many low-quality results (e.g. `bik` matching
+ * `bombdrop_index_keys.json` because the three letters happened
+ * to appear in order). Use whole-substring or
+ * acronym/initial-letter typing for predictable results.
  */
 export function fuzzyMatch(needle: string, haystack: string): MatchResult | null {
 	if (needle.length === 0) return { score: 0, indexes: [] };
@@ -195,46 +210,98 @@ export function fuzzyMatch(needle: string, haystack: string): MatchResult | null
 	const needleLower = needle.toLowerCase();
 	const haystackLower = haystack.toLowerCase();
 
-	const indexes: number[] = [];
+	// 1. Try substring match first (always preferred when available).
+	const substringIdx = haystackLower.indexOf(needleLower);
+	if (substringIdx >= 0) {
+		const indexes: number[] = new Array(needle.length);
+		for (let i = 0; i < needle.length; i++) indexes[i] = substringIdx + i;
+		// Substring matches get a big base bonus so they always
+		// outrank acronym matches.
+		const score = SUBSTRING_BASE_BONUS + scoreMatch(haystack, indexes);
+		return { score, indexes };
+	}
+
+	// 2. Try acronym match — each needle char must land on a word
+	// boundary. We walk haystack left-to-right collecting candidate
+	// positions (haystack[0] and any char immediately after a
+	// separator or at a camelCase transition) and consume needle
+	// chars greedily from those.
+	const acronym = matchAcronym(needleLower, haystackLower, haystack);
+	if (acronym !== null) {
+		const score = scoreMatch(haystack, acronym);
+		return { score, indexes: acronym };
+	}
+
+	return null;
+}
+
+/**
+ * Returns matched indexes when every character of `needleLower`
+ * lands on a word boundary in `haystackLower`, in order. The
+ * `haystackOriginal` (preserved casing) is used for the camelCase
+ * boundary check. Returns `null` if no such ordering exists.
+ *
+ * Walks haystack greedily — the same boundary character can only
+ * be consumed once, so a needle longer than the haystack's
+ * boundary count will never match.
+ */
+function matchAcronym(
+	needleLower: string,
+	haystackLower: string,
+	haystackOriginal: string,
+): number[] | null {
+	const out: number[] = [];
 	let nIdx = 0;
 	for (let hIdx = 0; hIdx < haystackLower.length && nIdx < needleLower.length; hIdx++) {
+		if (!isWordBoundary(haystackOriginal, hIdx)) continue;
 		if (haystackLower[hIdx] === needleLower[nIdx]) {
-			indexes.push(hIdx);
+			out.push(hIdx);
 			nIdx++;
 		}
 	}
 	if (nIdx < needleLower.length) return null;
-
-	// --- Greedy back-pass to coalesce contiguous match runs. ---
-	// The forward pass picks the earliest match for each needle char,
-	// which is fine for correctness but loses runs like "main" against
-	// "..main..bar". Walk backwards: for each needle char, find the
-	// LATEST possible position that still leaves room for the rest.
-	// This produces match runs that prefer to land contiguously near
-	// the end, which matches fzf's behaviour.
-	const tightened = tightenMatch(needleLower, haystackLower);
-	const finalIndexes = tightened ?? indexes;
-
-	const score = scoreMatch(haystack, finalIndexes);
-	return { score, indexes: finalIndexes };
+	return out;
 }
 
 /**
- * For each needle character, find the latest haystack position
- * that still allows the rest of the needle to fit. Returns indexes
- * tightened to the right (i.e. preferring the latest contiguous run).
+ * True when `haystack[i]` starts a "word" — i.e. is one of:
+ *
+ *   - The very first character.
+ *   - Immediately preceded by a separator (`/`, `_`, `-`, `.`, ` `).
+ *   - An uppercase letter immediately preceded by a lowercase
+ *     letter or digit (camelCase / PascalCase boundary).
+ *   - A digit immediately preceded by a letter (e.g. the `4` in
+ *     `Player4` is a token start — supports queries like
+ *     `mp4` matching `MediaPlayer4`).
+ *   - A letter immediately preceded by a digit (e.g. the `K`
+ *     in `4K` — supports `4K` queries).
  */
-function tightenMatch(needle: string, haystack: string): number[] | null {
-	const indexes: number[] = new Array(needle.length);
-	let hIdx = haystack.length - 1;
-	for (let nIdx = needle.length - 1; nIdx >= 0; nIdx--) {
-		while (hIdx >= 0 && haystack[hIdx] !== needle[nIdx]) hIdx--;
-		if (hIdx < 0) return null;
-		indexes[nIdx] = hIdx;
-		hIdx--;
+function isWordBoundary(haystack: string, i: number): boolean {
+	if (i === 0) return true;
+	const prev = haystack[i - 1];
+	if (prev === '/' || prev === '_' || prev === '-' || prev === '.' || prev === ' ')
+		return true;
+	const ch = haystack[i];
+	const prevIsLetter = isAsciiLetter(prev);
+	const prevIsDigit = prev >= '0' && prev <= '9';
+	const chIsLetter = isAsciiLetter(ch);
+	const chIsDigit = ch >= '0' && ch <= '9';
+	// camelCase / PascalCase: lower|digit → Upper.
+	if (chIsLetter && ch >= 'A' && ch <= 'Z' && ((prev >= 'a' && prev <= 'z') || prevIsDigit)) {
+		return true;
 	}
-	return indexes;
+	// letter → digit transition (e.g. Player4).
+	if (chIsDigit && prevIsLetter) return true;
+	// digit → letter transition (e.g. 4K).
+	if (chIsLetter && prevIsDigit) return true;
+	return false;
 }
+
+function isAsciiLetter(ch: string): boolean {
+	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+}
+
+const SUBSTRING_BASE_BONUS = 1000;
 
 /** Score a match given the haystack and the matched-character indexes. */
 function scoreMatch(haystack: string, indexes: number[]): number {
