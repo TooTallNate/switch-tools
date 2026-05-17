@@ -10733,8 +10733,12 @@ function UnityTextAssetPreview({
       </section>
     )
   }
-  // Try JSON pretty-printing — fall back to raw text on parse error.
-  let display = text
+  // Try parsing as JSON. When successful, the JSON tree renders
+  // through `<JsonInspector>` (react-inspector) so the user can
+  // collapse / expand nested objects interactively instead of
+  // scrolling through a flat pretty-printed block. Falls back to
+  // monospace text on parse error or for non-JSON content.
+  let parsedJson: unknown = undefined
   let format: "json" | "text" = "text"
   if (text.length <= TEXT_PREVIEW_LIMIT) {
     const trimmed = text.trim()
@@ -10743,10 +10747,10 @@ function UnityTextAssetPreview({
       (trimmed.startsWith("[") && trimmed.endsWith("]"))
     ) {
       try {
-        display = JSON.stringify(JSON.parse(trimmed), null, 2)
+        parsedJson = JSON.parse(trimmed)
         format = "json"
       } catch {
-        /* leave raw */
+        /* leave as text */
       }
     }
   }
@@ -10768,15 +10772,21 @@ function UnityTextAssetPreview({
           {formatBytes(byteLength)}
         </div>
       </div>
-      <pre className="max-h-[60vh] overflow-auto rounded-md border bg-background p-3 font-mono text-xs leading-relaxed">
-        {truncated
-          ? `${display.slice(0, TEXT_PREVIEW_LIMIT)}\n\n… (truncated; use the Save button below for full content)`
-          : display}
-      </pre>
+      {format === "json" ? (
+        <div className="max-h-[60vh] overflow-auto">
+          <JsonInspector data={parsedJson} expandLevel={1} />
+        </div>
+      ) : (
+        <pre className="max-h-[60vh] overflow-auto rounded-md border bg-background p-3 font-mono text-xs leading-relaxed">
+          {truncated
+            ? `${text.slice(0, TEXT_PREVIEW_LIMIT)}\n\n… (truncated; use the Save button below for full content)`
+            : text}
+        </pre>
+      )}
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>
           {format === "json"
-            ? "Auto-formatted JSON — original bytes preserved on download."
+            ? "Auto-parsed JSON — original bytes preserved on download."
             : "Plain text content from `m_Script`."}
         </span>
         <button
