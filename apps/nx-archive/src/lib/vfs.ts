@@ -108,14 +108,84 @@ export function unregisterVfsResource(url: string | null | undefined): void {
 	state.resources.delete(m[1]);
 }
 
+/**
+ * Register an htdocs-style bundle. Returns the bundle id, which
+ * the caller composes with file paths to mint URLs:
+ *
+ *   const id = registerVfsBundle(bundle);
+ *   iframe.src = `/htdocs/${id}/index.html`;
+ *
+ * Returns `null` when the SW isn't available.
+ */
+export function registerVfsBundle(bundle: VfsBundle): string | null {
+	if (!state.swReady) return null;
+	const id = crypto.randomUUID();
+	state.bundles.set(id, bundle);
+	return id;
+}
+
+/**
+ * Build a complete URL for a path inside a previously-registered
+ * bundle. Convenience wrapper around the path concatenation +
+ * URL encoding.
+ */
+export function vfsBundleUrl(bundleId: string, path: string): string {
+	// Each path segment gets URL-encoded so spaces / unicode in
+	// htdocs filenames survive the round-trip.
+	const safe = path
+		.split('/')
+		.filter((s) => s.length > 0)
+		.map((s) => encodeURIComponent(s))
+		.join('/');
+	return `${location.origin}/htdocs/${bundleId}/${safe}`;
+}
+
+/**
+ * Drop a previously-registered bundle. Idempotent. After this,
+ * any in-flight fetches for the bundle's paths return 404.
+ */
+export function unregisterVfsBundle(bundleId: string | null | undefined): void {
+	if (!bundleId) return;
+	state.bundles.delete(bundleId);
+}
+
+/**
+ * A bundle of related files served at `/htdocs/<bundleId>/<path>`.
+ * Used by the htdocs preview to expose a Switch offline manual's
+ * directory tree to a real iframe without first materialising
+ * every file's bytes into memory.
+ *
+ * Unlike a single {@link VfsResource}, bundles have:
+ *
+ *   - A directory of paths, each pointing at a `Blob` (real or
+ *     facade) for that file's bytes.
+ *   - A `rewriteHtml(path, html)` hook so the bundle's HTML
+ *     documents can be transformed at the byte boundary — we
+ *     inject the `window.nx` shim and navigation bridge there.
+ *   - A MIME-type lookup keyed on path (the SW uses this so the
+ *     iframe sees the right Content-Type for `.css` etc).
+ */
+export interface VfsBundle {
+	/** Look up a file by its in-bundle path. Returns null for unknown paths. */
+	lookup(path: string): { blob: Blob; mime: string } | null;
+	/**
+	 * Optional transformer for HTML responses. Called with the
+	 * file's bytes already decoded as a UTF-8 string; the returned
+	 * string is what the SW sends as the response body.
+	 */
+	rewriteHtml?(path: string, html: string): string;
+}
+
 interface VfsState {
 	swReady: boolean;
 	resources: Map<string, VfsResource>;
+	bundles: Map<string, VfsBundle>;
 }
 
 const state: VfsState = {
 	swReady: false,
 	resources: new Map(),
+	bundles: new Map(),
 };
 
 /**
@@ -216,7 +286,19 @@ export function initVfs(): Promise<boolean> {
  */
 function onSwMessage(event: MessageEvent): void {
 	const m = event.data;
-	if (!m || m.type !== 'vfs-request') return;
+	if (!m) return;
+	if (m.type === 'vfs-request') {
+		handleVfsRequest(event);
+		return;
+	}
+	if (m.type === 'htdocs-request') {
+		handleHtdocsRequest(event);
+		return;
+	}
+}
+
+function handleVfsRequest(event: MessageEvent): void {
+	const m = event.data;
 	const port = event.ports[0];
 	if (!port) return;
 	const { resourceId, requestId } = m;
@@ -273,6 +355,71 @@ function onSwMessage(event: MessageEvent): void {
 		}
 	});
 	port.start();
+}
+
+/**
+ * Resolve a bundle lookup and reply with the file's bytes +
+ * MIME. HTML files are passed through the bundle's optional
+ * `rewriteHtml` hook so the htdocs preview can inject the
+ * `window.nx` shim before any of the page's own scripts run.
+ *
+ * Bundle responses are sent as a single message (not streamed)
+ * because manual files are small in practice — a few MB of
+ * HTML/CSS/JPEGs total. If a bundle ever grows large enough for
+ * this to matter we can switch to the streaming protocol used by
+ * `vfs-request`.
+ */
+function handleHtdocsRequest(event: MessageEvent): void {
+	const { bundleId, path, requestId } = event.data;
+	const port = event.ports[0];
+	if (!port) return;
+	(async () => {
+		const bundle = state.bundles.get(bundleId);
+		if (!bundle) {
+			port.postMessage({
+				type: 'error',
+				requestId,
+				message: `bundle ${bundleId} not registered`,
+			});
+			return;
+		}
+		const file = bundle.lookup(path);
+		if (!file) {
+			port.postMessage({
+				type: 'not-found',
+				requestId,
+				message: `bundle ${bundleId}: file ${path} not found`,
+			});
+			return;
+		}
+		try {
+			let bytes: Uint8Array;
+			let mime = file.mime;
+			if (file.mime === 'text/html' && bundle.rewriteHtml) {
+				const html = await file.blob.text();
+				const rewritten = bundle.rewriteHtml(path, html);
+				bytes = new TextEncoder().encode(rewritten);
+			} else {
+				const buf = await file.blob.arrayBuffer();
+				bytes = new Uint8Array(buf);
+			}
+			// Transfer the ArrayBuffer for a zero-copy hand-off.
+			const ab = new ArrayBuffer(bytes.byteLength);
+			new Uint8Array(ab).set(bytes);
+			port.postMessage(
+				{ type: 'response', requestId, data: ab, mime },
+				[ab],
+			);
+		} catch (err) {
+			port.postMessage({
+				type: 'error',
+				requestId,
+				message: err instanceof Error ? err.message : String(err),
+			});
+		} finally {
+			try { port.close(); } catch { /* ignore */ }
+		}
+	})();
 }
 
 /**

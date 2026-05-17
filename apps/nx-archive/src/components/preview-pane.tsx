@@ -668,7 +668,7 @@ function HtdocsPreview({
     setBundleError(null)
     const loadFiles = filesProvider ?? (() => flattenHtdocsFromNode(node))
     loadFiles()
-      .then((files) => HtdocsBundle.build(files))
+      .then((files) => HtdocsBundle.build(files, { bridgeName: NX_BRIDGE }))
       .then((b) => {
         if (cancelled) {
           b.dispose()
@@ -808,9 +808,29 @@ function HtdocsPreview({
       const d = e.data
       if (!d || typeof d !== "object" || d.kind !== NX_BRIDGE) return
       switch (d.type) {
-        case "ready":
+        case "ready": {
           appendLog("ready", d.url)
+          // For SW-backed bundles the iframe navigates natively on
+          // anchor click. The bootstrap script in each rewritten
+          // page posts `ready` with `location.pathname +
+          // location.search`; we parse out the bundle-relative
+          // path and update `currentPath` so the toolbar /
+          // breadcrumb / Source view stay in sync.
+          if (bundle?.bundleId && typeof d.url === "string") {
+            const prefix = `/htdocs/${bundle.bundleId}/`
+            const u = d.url.split("?")[0]
+            if (u.startsWith(prefix)) {
+              const path = decodeURIComponent(u.slice(prefix.length))
+              if (path && path !== currentPath) {
+                if (currentPath) {
+                  setHistory((h) => [...h, currentPath])
+                }
+                setCurrentPath(path)
+              }
+            }
+          }
           break
+        }
         case "debug":
           appendLog("[debug]", String(d.message ?? ""))
           break
@@ -872,15 +892,36 @@ function HtdocsPreview({
     return () => window.removeEventListener("message", onMessage)
   }, [appendLog, bundle, currentPath, entryPoint])
 
-  // Compute the iframe document. We re-rewrite the HTML every time the
-  // user navigates within the bundle (each page has its own base path
-  // for resolving relative URLs) AND every time the chosen region
-  // changes (the rewriter injects a `location.search = '?r=N'`
-  // override that gets baked into the bootstrap script).
+  // Compute the iframe document. Two strategies:
+  //
+  //   1. SW-backed bundle (`bundle.bundleId` set): use the
+  //      iframe's `src=` attribute pointing at `/htdocs/<id>/<path>`.
+  //      The SW serves all subresources, relative URLs resolve
+  //      against the iframe's base URL, and navigation between
+  //      bundle pages happens naturally. We don't compute a
+  //      srcDoc string in this mode.
+  //   2. Fallback (no SW): rewrite the HTML to substitute blob:
+  //      URLs for every resource reference, and feed it through
+  //      `srcDoc=`. The expensive legacy path.
   const [iframeSrcDoc, setIframeSrcDoc] = useState<string | null>(null)
+  const iframeSrc = useMemo(() => {
+    if (!bundle || !currentPath || !bundle.bundleId) return null
+    const url = bundle.urlFor(currentPath)
+    if (!url) return null
+    // Bake the region into the iframe URL's query string when
+    // we're on a router page. Switch manuals' router scripts read
+    // `location.search` to pick the regional target; with a real
+    // URL we can do this natively instead of the awkward
+    // `window.location.search` override the fallback path uses.
+    if (isRouterPage && regionKey) {
+      return `${url}?r=${encodeURIComponent(regionKey)}`
+    }
+    return url
+  }, [bundle, currentPath, isRouterPage, regionKey])
   useEffect(() => {
     let cancelled = false
-    if (!bundle || !currentPath) {
+    if (!bundle || !currentPath || bundle.bundleId) {
+      // SW path doesn't need srcDoc.
       setIframeSrcDoc(null)
       return
     }
@@ -907,7 +948,7 @@ function HtdocsPreview({
     return () => {
       cancelled = true
     }
-  }, [bundle, currentPath, regionsTable, regionKey])
+  }, [bundle, currentPath, regionsTable, regionKey, isRouterPage])
 
   if (bundleError) {
     return (
@@ -1047,6 +1088,21 @@ function HtdocsPreview({
             <HtdocsSourceView
               bundle={bundle}
               path={currentPath}
+            />
+          ) : iframeSrc ? (
+            <iframe
+              key={iframeSrc}
+              src={iframeSrc}
+              title={`htdocs: ${currentPath}`}
+              // Real-URL iframe (SW-backed bundle). Subresources
+              // (CSS, images, scripts) and navigation between
+              // bundle pages all go through the service worker.
+              // No sandbox restrictions needed beyond the same set
+              // we use for the fallback path — the iframe is
+              // same-origin, which is required for window.parent
+              // postMessage to work for the nx bridge.
+              sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+              className="size-full border-0 bg-white"
             />
           ) : iframeSrcDoc ? (
             <iframe

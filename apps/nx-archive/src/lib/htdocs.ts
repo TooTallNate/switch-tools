@@ -22,8 +22,10 @@
 import type { Node } from './archive';
 import {
 	isVfsAvailable,
-	registerBlobAsVfsResource,
-	unregisterVfsResource,
+	registerVfsBundle,
+	unregisterVfsBundle,
+	vfsBundleUrl,
+	type VfsBundle,
 } from './vfs';
 
 /** A flat (path → Blob) view of an `.htdocs` tree. */
@@ -133,23 +135,39 @@ export interface RegionsTable {
 }
 
 /**
- * A `{ path → object-URL }` index plus the original Blob for each file.
- * Object URLs are typed (we set the right MIME) so the iframe loads
- * scripts/CSS/etc. correctly.
+ * A bundle of files exposed to a sandboxed iframe.
  *
- * Construct via the static {@link build} method, which is asynchronous
- * because RomFS files coming out of an encrypted NCA are *lazy
- * decryption facades* — they implement the `Blob` interface but aren't
- * real `Blob` instances, and `URL.createObjectURL` (and the `Blob(...)`
- * constructor's `BlobPart` list) require real `Blob`s. Materializing
- * each file once at bundle-build time gets us a real Blob with the
- * right MIME for free, and htdocs trees are small in practice (a few
- * MB of HTML/CSS/JPEGs).
+ * Two backends:
  *
- * Call `dispose()` to revoke every URL when finished.
+ *   - **Service worker** (preferred): the bundle registers with
+ *     `/htdocs/<bundleId>/<path>` URLs. The SW intercepts fetches
+ *     and asks us for bytes on demand — no upfront materialisation,
+ *     supports arbitrary navigation between bundle pages, relative
+ *     URLs (`./style.css`) resolve naturally against the iframe's
+ *     base URL. This is the path that powers the live preview.
+ *   - **Blob URLs** (fallback): each file gets materialised into a
+ *     real `Blob` + `URL.createObjectURL`. Required when the SW
+ *     isn't registered (private-mode Safari, first-load races,
+ *     test environments). Resource references in HTML are
+ *     rewritten to point at the minted blob URLs.
+ *
+ * Construct via the static {@link build} method. Always call
+ * `dispose()` when finished so the SW registration / blob URLs
+ * are released.
  */
 export class HtdocsBundle {
+	/**
+	 * Map of path → URL the iframe can fetch. SW-backed bundles
+	 * use `/htdocs/<bundleId>/<path>` URLs; the fallback path uses
+	 * `URL.createObjectURL`-minted blob URLs.
+	 */
 	readonly urls: Map<string, string>;
+	/**
+	 * Map of path → Blob. Always present — we keep the original
+	 * Blob references regardless of URL strategy, so the Source
+	 * view can read raw bytes and the navigation bridge can look
+	 * up the *current* document's HTML for rewriting.
+	 */
 	readonly files: Map<string, Blob>;
 	/**
 	 * Map of directory path → parsed `regions.js` table found inside it.
@@ -161,71 +179,69 @@ export class HtdocsBundle {
 	 * region picker when an HTML file in the same directory is loaded.
 	 */
 	readonly regionsByDir: Map<string, RegionsTable>;
+	/**
+	 * When using the service-worker backend, this is the bundle's
+	 * vfs id; `null` when the fallback (blob URLs) path is active.
+	 * The preview component reads this so it can construct iframe
+	 * `src=` URLs directly instead of going through `urlFor`.
+	 */
+	readonly bundleId: string | null;
+	/**
+	 * Optional HTML rewriter installed during build. Used by the
+	 * SW to transform HTML responses (inject the `window.nx` shim
+	 * + navigation bridge) without baking the result into the
+	 * stored bytes. The fallback path applies this same hook
+	 * manually before minting each HTML file's blob URL.
+	 */
+	private htmlRewriter: ((path: string, html: string) => string) | null;
 
 	private constructor(
 		files: Map<string, Blob>,
 		urls: Map<string, string>,
 		regionsByDir: Map<string, RegionsTable>,
+		bundleId: string | null,
+		htmlRewriter: ((path: string, html: string) => string) | null,
 	) {
 		this.files = files;
 		this.urls = urls;
 		this.regionsByDir = regionsByDir;
+		this.bundleId = bundleId;
+		this.htmlRewriter = htmlRewriter;
 	}
 
 	/**
-	 * Produce a stable URL for every file in the htdocs tree, plus a
-	 * real `Blob` snapshot (the iframe rewrites that need to query
-	 * file contents — like the `regions.js` parser — read through
-	 * the Blob).
+	 * Build a bundle from a `path → Blob` map. Scans for
+	 * `regions.js` files (parsing requires the bytes; we always
+	 * materialise those) and picks a URL strategy based on whether
+	 * the service worker is registered.
 	 *
-	 * URL strategy:
-	 *
-	 *   - When the service worker (`/sw.js`) is registered, each
-	 *     file gets a `/vfs/<id>/<path>` URL that the SW streams on
-	 *     demand. Bundle build is effectively free — no per-file
-	 *     decryption / inflation; that work happens lazily when the
-	 *     iframe first fetches the resource.
-	 *   - When the SW isn't available, we fall back to materialising
-	 *     each file into a real `Blob` + `URL.createObjectURL`. This
-	 *     pays the full decryption / inflation cost up-front for the
-	 *     whole bundle.
-	 *
-	 * Also scans for `regions.js` files and parses each into a
-	 * {@link RegionsTable}; this requires reading the file bytes
-	 * (so we always materialise regions.js even on the vfs path).
+	 * `bridgeName` is the `postMessage` namespace used by the
+	 * injected `window.nx` shim to communicate with the parent
+	 * page. Must match what the host's message listener filters on.
 	 */
-	static async build(files: HtdocsFiles): Promise<HtdocsBundle> {
-		const realFiles = new Map<string, Blob>();
+	static async build(
+		files: HtdocsFiles,
+		opts: { bridgeName?: string } = {},
+	): Promise<HtdocsBundle> {
+		const bridgeName = opts.bridgeName ?? 'nx-archive:htdocs-bridge';
+		const fileMap = new Map<string, Blob>();
 		const urls = new Map<string, string>();
 		const regionsByDir = new Map<string, RegionsTable>();
 		const regionsTexts = new Map<string, string>();
-		const vfsActive = isVfsAvailable();
+		// Always parse regions.js (we need the bytes regardless of
+		// backend). Pull these out first so we don't have to read
+		// them again later.
 		for (const [path, blob] of files) {
-			const mime = mimeTypeFor(path);
-			const filename = path.split('/').pop() ?? path;
-			const isRegionsJs = /(?:^|\/)regions\.js$/i.test(path);
-			if (vfsActive && !isRegionsJs) {
-				// Lazy vfs URL: the SW will pull bytes on demand when
-				// the iframe fetches this resource. We don't
-				// materialise the blob in JS at all.
-				const vfsUrl = registerBlobAsVfsResource(blob, mime, filename);
-				if (vfsUrl) {
-					urls.set(path, vfsUrl);
-					realFiles.set(path, blob);
-					continue;
+			fileMap.set(path, blob);
+			if (/(?:^|\/)regions\.js$/i.test(path)) {
+				try {
+					regionsTexts.set(
+						path,
+						new TextDecoder('utf-8').decode(await blob.arrayBuffer()),
+					);
+				} catch {
+					/* ignore — regions.js parsing is best-effort */
 				}
-				// vfs registration failed (shouldn't happen if
-				// isVfsAvailable returned true, but be defensive)
-				// — fall through to materialisation.
-			}
-			// Materialisation path: needed when the SW isn't ready
-			// AND for regions.js (which we always parse below).
-			const bytes = await blob.arrayBuffer();
-			const real = new Blob([bytes], { type: mime });
-			realFiles.set(path, real);
-			urls.set(path, URL.createObjectURL(real));
-			if (isRegionsJs) {
-				regionsTexts.set(path, new TextDecoder('utf-8').decode(bytes));
 			}
 		}
 		for (const [path, text] of regionsTexts) {
@@ -240,7 +256,75 @@ export class HtdocsBundle {
 				defaultKey: pickDefaultRegionKey(parsed),
 			});
 		}
-		return new HtdocsBundle(realFiles, urls, regionsByDir);
+
+		// HTML rewriter — injects the bootstrap script. Set lazily
+		// on the instance below so it can close over `bundle`. We
+		// can't construct it here because the bundle's path
+		// resolution depends on having an HtdocsBundle in hand.
+		let rewriter: ((path: string, html: string) => string) | null = null;
+		let bundleId: string | null = null;
+
+		// Try the service-worker backend first. If the SW isn't
+		// ready, fall back to materialising every file as a blob URL.
+		if (isVfsAvailable()) {
+			// Defer URL minting — they depend on `bundleId`. The
+			// rewriter is also deferred so it can refer to `bundle`
+			// for path resolution.
+			const placeholder = new HtdocsBundle(
+				fileMap,
+				urls,
+				regionsByDir,
+				null,
+				null,
+			);
+			rewriter = (path, html) =>
+				rewriteHtmlForVfsBundle(html, path, placeholder, bridgeName);
+			const vfsBundle: VfsBundle = {
+				lookup(path) {
+					const blob = fileMap.get(placeholder.normalizePath(path));
+					if (!blob) return null;
+					return { blob, mime: mimeTypeFor(path) };
+				},
+				rewriteHtml: rewriter,
+			};
+			const id = registerVfsBundle(vfsBundle);
+			if (id) {
+				bundleId = id;
+				for (const path of fileMap.keys()) {
+					urls.set(path, vfsBundleUrl(id, path));
+				}
+				// Build the real bundle, swapping in the resolved fields
+				// — but we need to carry forward `urls` and `regionsByDir`
+				// which the placeholder already pointed at.
+				placeholder.assignBackend(bundleId, rewriter);
+				return placeholder;
+			}
+			// Registration failed despite isVfsAvailable() — fall through.
+		}
+
+		// Fallback: materialise every file into a real Blob + blob
+		// URL. Larger upfront cost (every file decrypted now) but
+		// works without the SW.
+		for (const [path, blob] of files) {
+			const bytes = await blob.arrayBuffer();
+			const real = new Blob([bytes], { type: mimeTypeFor(path) });
+			fileMap.set(path, real);
+			urls.set(path, URL.createObjectURL(real));
+		}
+		return new HtdocsBundle(fileMap, urls, regionsByDir, null, null);
+	}
+
+	/**
+	 * Internal setter for fields that have to be resolved after the
+	 * placeholder instance exists. Should only be called from
+	 * `build()`.
+	 */
+	private assignBackend(
+		bundleId: string,
+		rewriter: (path: string, html: string) => string,
+	): void {
+		(this as { bundleId: string | null }).bundleId = bundleId;
+		this.htmlRewriter = rewriter;
 	}
 
 	urlFor(path: string): string | undefined {
@@ -249,6 +333,21 @@ export class HtdocsBundle {
 
 	hasFile(path: string): boolean {
 		return this.urls.has(this.normalizePath(path));
+	}
+
+	/**
+	 * Apply the bundle's HTML rewrite hook to `html` (typically the
+	 * current document's source). When the SW backend is active
+	 * this is the same transformation the SW applies before
+	 * serving HTML — exposed so the Source view can render the
+	 * rewritten output, and so callers without SW access can
+	 * still produce a fully-bootstrapped HTML string.
+	 *
+	 * Returns the input unchanged when no rewriter is installed
+	 * (legacy path, no SW).
+	 */
+	applyHtmlRewrite(path: string, html: string): string {
+		return this.htmlRewriter ? this.htmlRewriter(path, html) : html;
 	}
 
 	/**
@@ -290,12 +389,13 @@ export class HtdocsBundle {
 	}
 
 	dispose(): void {
-		for (const url of this.urls.values()) {
-			if (url.includes('/vfs/')) {
-				unregisterVfsResource(url);
-			} else {
-				URL.revokeObjectURL(url);
-			}
+		if (this.bundleId) {
+			unregisterVfsBundle(this.bundleId);
+			// SW-backed bundles don't have blob URLs to revoke; the
+			// `/htdocs/<id>/…` URLs become 404s once the bundle is
+			// unregistered, which is the desired teardown.
+		} else {
+			for (const url of this.urls.values()) URL.revokeObjectURL(url);
 		}
 		this.urls.clear();
 		this.files.clear();
@@ -543,6 +643,72 @@ export function rewriteHtml(
 	const head = doc.head ?? doc.documentElement;
 	head.insertBefore(bootstrap, head.firstChild);
 
+	return '<!doctype html>\n' + doc.documentElement.outerHTML;
+}
+
+/**
+ * Bootstrap-only HTML rewriter for the service-worker backed
+ * bundle path. Doesn't touch resource URLs — relative paths
+ * (`./style.css`, `<a href="other.html">`) resolve naturally
+ * because the iframe is served from `/htdocs/<bundleId>/...`
+ * on the same origin as our parent page and the SW.
+ *
+ * What it DOES inject (as the very first child of `<head>`):
+ *
+ *   - The `window.nx` shim, so manuals that call
+ *     `window.nx.footer.unsetAssign(…)` inline at parse time
+ *     don't ReferenceError.
+ *   - The same navigation bridge as the fallback rewriter —
+ *     anchor clicks `postMessage` their target href to the
+ *     parent so the host can keep its breadcrumb / history
+ *     state in sync. (The browser also performs the navigation
+ *     itself; the parent uses the message purely for
+ *     bookkeeping.)
+ *   - Optional `location.search` override for region-routed
+ *     manuals whose router scripts gate on `?r=N`. We could
+ *     instead encode the region in the iframe's URL directly
+ *     (and we do — see `HtdocsPreview`'s iframe `src` query
+ *     string), but injecting an override too is belt-and-braces
+ *     for older manuals that read `window.location.search`
+ *     before our query-string-bearing src takes effect.
+ */
+function rewriteHtmlForVfsBundle(
+	html: string,
+	_documentPath: string,
+	_bundle: HtdocsBundle,
+	bridgeName: string,
+): string {
+	const parser = new DOMParser();
+	const doc = parser.parseFromString(html, 'text/html');
+	const bootstrap = doc.createElement('script');
+	bootstrap.textContent = `(function(){
+		const bridge = ${JSON.stringify(bridgeName)};
+		${buildNxShim(bridgeName)}
+		// Announce the current URL to the parent so it can update
+		// its breadcrumb / history state. Fires on every page load
+		// (i.e. after every navigation the browser performs natively
+		// in response to an anchor click).
+		function __nxReady() {
+			try {
+				window.parent.postMessage(
+					{ kind: bridge, type: 'ready', url: location.pathname + location.search },
+					'*',
+				);
+			} catch (e) {}
+		}
+		if (document.readyState === 'loading') {
+			document.addEventListener('DOMContentLoaded', __nxReady, { once: true });
+		} else {
+			__nxReady();
+		}
+		// Navigation: let the browser handle anchor clicks natively
+		// — the iframe is at a real URL and the SW serves new pages
+		// the same way it served the current one. We don't intercept
+		// or preventDefault; the parent finds out about the
+		// navigation via the next __nxReady() post.
+	})();`;
+	const head = doc.head ?? doc.documentElement;
+	head.insertBefore(bootstrap, head.firstChild);
 	return '<!doctype html>\n' + doc.documentElement.outerHTML;
 }
 

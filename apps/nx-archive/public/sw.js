@@ -79,18 +79,41 @@ self.addEventListener('message', (event) => {
 
 self.addEventListener('fetch', (event) => {
 	const url = new URL(event.request.url);
-	if (!url.pathname.startsWith('/vfs/')) return;
 
-	// Path shape: /vfs/<resourceId>/<filename>
-	// We use the leading segment as the resourceId. The filename
-	// suffix is purely for download UX (the browser uses it as
-	// the default save name when <a download> doesn't override).
-	const rest = url.pathname.slice('/vfs/'.length);
-	const slash = rest.indexOf('/');
-	const resourceId = slash >= 0 ? rest.slice(0, slash) : rest;
-	if (!resourceId) return;
+	// /vfs/<resourceId>/<filename> — per-resource streaming.
+	if (url.pathname.startsWith('/vfs/')) {
+		const rest = url.pathname.slice('/vfs/'.length);
+		const slash = rest.indexOf('/');
+		const resourceId = slash >= 0 ? rest.slice(0, slash) : rest;
+		if (!resourceId) return;
+		event.respondWith(handleVfsFetch(event, resourceId));
+		return;
+	}
 
-	event.respondWith(handleVfsFetch(event, resourceId));
+	// /htdocs/<bundleId>/<path...> — bundle file lookup. Serves
+	// the iframe document AND all of its subresources from one
+	// origin so relative URLs (`./style.css`) and natural
+	// navigations (`<a href="./other.html">`) just work.
+	if (url.pathname.startsWith('/htdocs/')) {
+		const rest = url.pathname.slice('/htdocs/'.length);
+		const slash = rest.indexOf('/');
+		if (slash < 0) {
+			// No file path component — redirect to index.html so
+			// `iframe.src="/htdocs/<id>/"` works.
+			event.respondWith(
+				new Response(null, {
+					status: 302,
+					headers: { Location: `${url.pathname.replace(/\/?$/, '/')}index.html` },
+				}),
+			);
+			return;
+		}
+		const bundleId = rest.slice(0, slash);
+		const filePath = decodeURIComponent(rest.slice(slash + 1));
+		if (!bundleId || !filePath) return;
+		event.respondWith(handleHtdocsFetch(event, bundleId, filePath));
+		return;
+	}
 });
 
 /**
@@ -275,6 +298,79 @@ async function handleVfsFetch(event, resourceId) {
 				resolveResponse(
 					new Response('vfs: client timeout', { status: 504 }),
 				);
+				try { channel.port1.close(); } catch {}
+			}
+		}, 30_000);
+	});
+}
+
+/**
+ * Serve a single file from a registered htdocs bundle. The flow
+ * is much simpler than handleVfsFetch:
+ *
+ *   1. Find the originating client.
+ *   2. Send `{ type: 'htdocs-request', bundleId, path, requestId }`
+ *      over a MessagePort.
+ *   3. Wait for the client's response:
+ *        - `response`: a single transferred ArrayBuffer of the
+ *          file's bytes (possibly HTML-rewritten on the client
+ *          side) + the resolved MIME type. Pack into a Response
+ *          and we're done.
+ *        - `not-found`: 404.
+ *        - `error`: 500.
+ *
+ * No streaming, no Range parsing — htdocs files are uniformly
+ * small (HTML/CSS/JPEGs), and we have nothing to gain from the
+ * complexity here.
+ */
+async function handleHtdocsFetch(event, bundleId, path) {
+	let client = null;
+	if (event.clientId) {
+		client = await self.clients.get(event.clientId);
+	}
+	if (!client) {
+		const all = await self.clients.matchAll({
+			type: 'window',
+			includeUncontrolled: true,
+		});
+		if (all.length > 0) client = all[0];
+	}
+	if (!client) {
+		return new Response('vfs: no client available', { status: 503 });
+	}
+
+	const channel = new MessageChannel();
+	const requestId = crypto.randomUUID();
+
+	return new Promise((resolve) => {
+		let settled = false;
+		channel.port1.onmessage = (msg) => {
+			const m = msg.data;
+			if (!m || m.requestId !== requestId || settled) return;
+			settled = true;
+			if (m.type === 'response') {
+				const headers = new Headers();
+				headers.set('Content-Type', m.mime || 'application/octet-stream');
+				headers.set('Content-Length', String(m.data.byteLength));
+				headers.set('Cache-Control', 'no-store');
+				resolve(new Response(m.data, { status: 200, headers }));
+			} else if (m.type === 'not-found') {
+				resolve(new Response(m.message ?? 'not found', { status: 404 }));
+			} else {
+				resolve(
+					new Response(`vfs: ${m.message ?? 'error'}`, { status: 500 }),
+				);
+			}
+			try { channel.port1.close(); } catch {}
+		};
+		client.postMessage(
+			{ type: 'htdocs-request', bundleId, path, requestId },
+			[channel.port2],
+		);
+		setTimeout(() => {
+			if (!settled) {
+				settled = true;
+				resolve(new Response('vfs: client timeout', { status: 504 }));
 				try { channel.port1.close(); } catch {}
 			}
 		}, 30_000);
