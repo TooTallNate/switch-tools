@@ -17,6 +17,10 @@ import { parseXci } from '@tootallnate/xci';
 import { decode as romfsDecode, type RomFsEntry } from '@tootallnate/romfs';
 import { decompressNcz, isNcz, type OnProgress } from '@tootallnate/ncz';
 import { parseSarc, type SarcEntry } from '@tootallnate/sarc';
+import {
+	parseIdTechResources,
+	type IdTechResourceEntry,
+} from '@tootallnate/idtech-resources';
 import { decompressYaz0 } from '@tootallnate/yaz0';
 import { decompressLz4, type Lz4Variant } from '@tootallnate/lz4';
 import { parseBars, type BarsEntry } from '@tootallnate/bars';
@@ -104,6 +108,13 @@ export type NodeKind =
 	| 'fmod-bank'
 	| 'iostore'
 	| 'upak'
+	/**
+	 * idTech BFG-era `.resources` archive (DOOM 3 BFG, RAGE,
+	 * Wolfenstein: The New Order). Flat list of file entries with
+	 * full-path names; we synthesise a directory tree at the
+	 * forward-slash separators.
+	 */
+	| 'idtech-resources'
 	/**
 	 * A user-selected directory from the local filesystem. Functions
 	 * like an "ad-hoc PFS0" — its children are the files inside, with
@@ -366,6 +377,7 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	awb: 'AWB', // CRI AFS2 audio wave bank
 	acb: 'ACB', // CRI Audio Cue Binary (cue manifest; pairs with .awb sibling)
 	hca: 'HCA', // CRI High Compression Audio
+	resources: 'idTech-Resources', // DOOM 3 BFG / RAGE / Wolfenstein TNO container (magic 0xD000000D)
 };
 
 /**
@@ -430,7 +442,8 @@ type SniffedFormat =
 	| 'wwise-bnk'
 	| 'fmod-bank'
 	| 'awb'
-	| 'zstd';
+	| 'zstd'
+	| 'idtech-resources';
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -526,6 +539,10 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (head[0] === 0x02 && head[1] === 0x21 && head[2] === 0x4c && head[3] === 0x18) {
 		return 'lz4';
 	}
+	// idTech BFG-era `.resources` archive: magic 0xD000000D (big-endian).
+	if (head[0] === 0xd0 && head[1] === 0x00 && head[2] === 0x00 && head[3] === 0x0d) {
+		return 'idtech-resources';
+	}
 	return null;
 }
 
@@ -595,6 +612,8 @@ export async function buildRootNode(
 			return makeZipNode(id, displayName, blob, ctx);
 		case 'SARC':
 			return makeSarcNode(id, displayName, blob, ctx);
+		case 'idTech-Resources':
+			return makeIdTechResourcesNode(id, displayName, blob, ctx);
 		case 'SZS':
 		case 'YAZ0':
 			return makeSzsNode(id, displayName, blob, ctx);
@@ -1745,6 +1764,111 @@ async function sarcEntriesToNodes(
 				// LZ4 / etc. become traversable inside the SARC.
 				// SARC entries already are real Blob slices so the
 				// data is genuinely lazy without any facade.
+				return childNodeFor(childId, name, file.data, ctx);
+			}),
+		);
+	};
+
+	return treeToNodes(parentId, root);
+}
+
+// ----- idTech BFG `.resources` -----
+
+/**
+ * DOOM 3 BFG / RAGE / Wolfenstein TNO `.resources` archive.
+ *
+ * Flat list of full path entries (slash- or backslash-separated)
+ * with uncompressed file bodies. We parse the header + table lazily
+ * the first time the user expands the node, then route children
+ * through `childNodeFor` so nested formats (e.g. `.bik` videos
+ * inside DOOM 3 BFG) light up automatically.
+ */
+function makeIdTechResourcesNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'idtech-resources',
+		isContainer: true,
+		size: blob.size,
+		format: 'idTech-Resources',
+		blob: async () => blob,
+		getChildren: async () => {
+			const parsed = await parseIdTechResources(blob);
+			return idTechResourcesEntriesToNodes(id, parsed.entries, ctx);
+		},
+	};
+}
+
+/**
+ * Convert flat-path `.resources` entries into a hierarchical
+ * `Node` tree, splitting on forward / backward slashes.
+ * idTech's runtime normalises backslashes to forward slashes
+ * (and lowercases for hash lookups) — we do the same when building
+ * the tree so e.g. `materials\Adam.mtr` and `materials/Adam.mtr`
+ * always end up in the same `materials/` directory.
+ */
+async function idTechResourcesEntriesToNodes(
+	parentId: string,
+	entries: IdTechResourceEntry[],
+	ctx: ArchiveContext,
+): Promise<Node[]> {
+	type Tree = Map<string, { dir?: Tree; file?: IdTechResourceEntry }>;
+	const root: Tree = new Map();
+	for (const entry of entries) {
+		const parts = entry.name
+			.replace(/\\/g, '/')
+			.split('/')
+			.filter((p) => p.length > 0);
+		if (parts.length === 0) continue;
+		let cur = root;
+		for (let i = 0; i < parts.length; i++) {
+			const part = parts[i];
+			const isLast = i === parts.length - 1;
+			let node = cur.get(part);
+			if (!node) {
+				node = {};
+				cur.set(part, node);
+			}
+			if (isLast) {
+				node.file = entry;
+			} else {
+				if (!node.dir) node.dir = new Map();
+				cur = node.dir;
+			}
+		}
+	}
+
+	const treeToNodes = async (
+		treeId: string,
+		t: Tree,
+	): Promise<Node[]> => {
+		const names = [...t.keys()].sort((a, b) => {
+			const aIsDir = !!t.get(a)!.dir;
+			const bIsDir = !!t.get(b)!.dir;
+			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+			return humanCompare(a, b);
+		});
+		return Promise.all(
+			names.map(async (name): Promise<Node> => {
+				const child = t.get(name)!;
+				const childId = `${treeId}/${name}`;
+				if (child.dir) {
+					const subNodes = await treeToNodes(childId, child.dir);
+					return childDirectoryNodeFor({
+						id: childId,
+						name,
+						getChildren: async () => subNodes,
+					});
+				}
+				const file = child.file!;
+				// Route through childNodeFor so nested formats (.bik
+				// videos, embedded SARCs, etc.) light up. The entry's
+				// `data` is already a lazy Blob slice into the source.
 				return childNodeFor(childId, name, file.data, ctx);
 			}),
 		);
@@ -3738,6 +3862,7 @@ async function childNodeFor(
 	if (ext === 'xci') return makeXciNode(id, name, blob, ctx);
 	if (ext === 'zip') return makeZipNode(id, name, blob, ctx);
 	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob, ctx);
+	if (ext === 'resources') return makeIdTechResourcesNode(id, name, blob, ctx);
 	if (ext === 'szs') return makeSzsNode(id, name, blob, ctx);
 	if (ext === 'lz4') return makeLz4Node(id, name, blob, ctx);
 	if (ext === 'zs' || ext === 'zst') return makeZstdNode(id, name, blob, ctx);
@@ -3814,6 +3939,7 @@ async function childNodeFor(
 	// effectively free) and handles the long tail uniformly.
 	const sniffed = await sniffMagicCheap(blob);
 	if (sniffed === 'sarc') return makeSarcNode(id, name, blob, ctx);
+	if (sniffed === 'idtech-resources') return makeIdTechResourcesNode(id, name, blob, ctx);
 	if (sniffed === 'szs') return makeSzsNode(id, name, blob, ctx);
 	if (sniffed === 'pfs0') return makePfs0Node(id, name, blob, ctx, 'PFS0');
 	if (sniffed === 'hfs0') return makeHfs0Node(id, name, blob, ctx);

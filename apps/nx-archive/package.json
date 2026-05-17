@@ -50,6 +50,7 @@
     "@tootallnate/gfpak": "workspace:*",
     "@tootallnate/hca": "workspace:*",
     "@tootallnate/hfs0": "workspace:*",
+    "@tootallnate/idtech-resources": "workspace:*",
     "@tootallnate/iostore": "workspace:*",
     "@tootallnate/lz4": "workspace:^",
     "@tootallnate/nacp": "workspace:*",
