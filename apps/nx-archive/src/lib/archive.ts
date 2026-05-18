@@ -118,6 +118,14 @@ export type NodeKind =
 	 * handles them transparently.
 	 */
 	| 'square-wd'
+	/**
+	 * Sony PhyreEngine binary container (`.phyre`, magic `RYHP`).
+	 * Used by FFX/X-2 HD Remaster (and FFXII TZA) for textures,
+	 * meshes, shaders. We decode the texture variants
+	 * (`.dds.phyre`) to RGBA8 for preview and offer a "Save as
+	 * .dds" download.
+	 */
+	| 'phyre'
 	| 'lz4'
 	| 'zstd'
 	| 'unityfs'
@@ -409,6 +417,7 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	vbf: 'VBF', // Virtuos Big File — FFX/X-2 HD Remaster, FFXII TZA
 	wd: 'WD', // Square wave bank — FFXI/X/X-2/Crystal Chronicles
 	'square-wd': 'WD', // alias used by the magic sniffer (returns 'square-wd')
+	phyre: 'Phyre', // Sony PhyreEngine container — FFX/X-2 HD, FFXII TZA
 };
 
 /**
@@ -478,7 +487,8 @@ type SniffedFormat =
 	| 'idfont'
 	| 'bimage'
 	| 'vbf'
-	| 'square-wd';
+	| 'square-wd'
+	| 'phyre';
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -510,6 +520,7 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (m4 === 'IVFC') return 'romfs';
 	if (m4 === 'SARC') return 'sarc';
 	if (m4 === 'SRYK') return 'vbf';
+	if (m4 === 'RYHP') return 'phyre'; // Sony PhyreEngine — LE magic 0x50485952
 	if (m4 === 'Yaz0') return 'szs'; // we treat all Yaz0 as SZS-style for browsing
 	if (m4 === 'BARS') return 'bars';
 	if (m4 === 'FSAR') return 'bfsar';

@@ -1,0 +1,34 @@
+{
+  "name": "@tootallnate/phyre",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for Sony PhyreEngine's self-describing binary container format (magic 'RYHP'). Used by FFX/X-2 HD Remaster, FFXII The Zodiac Age, and other Sony-middleware titles on PS3/PS4/Vita/Switch. Walks the embedded class namespace to extract texture metadata (PTexture2D) + raw pixel payloads, with built-in conversion to standard DDS for use in Photoshop / Noesis / etc.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "phyreengine",
+    "phyre",
+    "sony",
+    "playstation",
+    "switch",
+    "final-fantasy",
+    "texture",
+    "dds"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/phyre"
+  },
+  "dependencies": {
+    "@tootallnate/bntx": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

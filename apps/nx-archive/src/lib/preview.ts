@@ -49,7 +49,32 @@ import {
 	decodeBntxLayer,
 	type ParsedBntx,
 	type BntxTexture,
+	decodeBC1,
+	decodeBC2,
+	decodeBC3,
+	decodeBC4,
+	decodeBC5,
+	decodeBC7,
 } from '@tootallnate/bntx';
+import {
+	parsePhyre,
+	findTexture,
+	extractTexturePixels,
+	deswizzleNvnMip,
+	encodeAsDds,
+	bytesForMipLevel,
+	findMesh,
+	extractPositions,
+	extractIndices,
+	extractUVs,
+	extractNormals,
+	findAssetReferences,
+	type ParsedPhyre,
+	type PhyreTexture,
+	type PhyreMesh,
+	type PhyreMeshSegment,
+	type PhyreAssetReference,
+} from '@tootallnate/phyre';
 import { getAstcBlockDecoder } from './astc';
 import { parseBfres, type ParsedBfres } from '@tootallnate/bfres';
 import {
@@ -122,6 +147,10 @@ export type PreviewKind =
 	| 'byaml-tree'
 	/** Nintendo texture format (BC1/3/4/5/7, RGBA8, etc.). */
 	| 'bntx-image'
+	/** Sony PhyreEngine (`.phyre`) texture — FFX/X-2 HD, FFXII TZA. */
+	| 'phyre-image'
+	/** Sony PhyreEngine (`.dae.phyre`) 3D mesh — FFX/X-2 HD characters, weapons, maps. */
+	| 'phyre-mesh'
 	/** CRI Sofdec2 USM video container (VP9 / H.264 + HCA / ADX / PCM). */
 	| 'usm-video'
 	/** Bink 1 (`.bik`) video — decode via shipped WASM, re-encode to MP4. */
@@ -339,6 +368,11 @@ export function detectPreviewKind(name: string): PreviewKind {
 		return 'byaml-tree';
 	}
 	if (lower.endsWith('.bntx')) return 'bntx-image';
+	// PhyreEngine: split by sub-extension. `.dds.phyre` -> textures;
+	// `.dae.phyre` -> 3D meshes. `.fx.phyre` (shaders) and
+	// `.ags.phyre` (animations) fall through to hex.
+	if (lower.endsWith('.dds.phyre')) return 'phyre-image';
+	if (lower.endsWith('.dae.phyre')) return 'phyre-mesh';
 	if (lower.endsWith('.usm')) return 'usm-video';
 	if (lower.endsWith('.bik')) return 'bink1-video';
 	if (lower.endsWith('.bk2')) return 'bink2-video';
@@ -1966,6 +2000,270 @@ export async function parseBntxForView(blob: Blob): Promise<BntxView> {
 		: undefined;
 	const decoded = decodeBntxLayer(bytes, texture, 0, { astcDecoder });
 	return { parsed, texture, pixels: decoded.pixels };
+}
+
+// ----- PhyreEngine texture preview -----
+
+export interface PhyreView {
+	parsed: ParsedPhyre;
+	texture: PhyreTexture;
+	/** Decoded RGBA8 pixels for mip 0 (row-major, top-left origin). */
+	pixels: Uint8Array;
+	/** The raw DDS bytes (header + pixel data) for "Save as .dds". */
+	dds: Uint8Array;
+}
+
+/**
+ * Decode mip 0 of a PhyreEngine NVN (Switch) texture into RGBA8
+ * for canvas display. Also returns a standard DDS blob for the
+ * "Save as .dds" download link.
+ *
+ * Currently supports the formats we've seen in FFX HD Remaster:
+ * DXT1, DXT3, DXT5, BC4, BC5, BC7 (all NVN-deswizzled) plus
+ * RGBA8 / ARGB8 uncompressed. Other formats throw.
+ */
+export async function parsePhyreForView(blob: Blob): Promise<PhyreView> {
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	const parsed = parsePhyre(bytes);
+	const texture = findTexture(parsed);
+	if (!texture) {
+		throw new Error('PhyreEngine file contains no texture');
+	}
+	// Slice out mip 0's swizzled bytes (the entire pixel payload for
+	// single-mip textures, the first chunk for mipmapped ones).
+	const allPixels = extractTexturePixels(parsed, texture);
+	const swizzledMip0 =
+		texture.mipmapCount > 0
+			? allPixels // multi-mip: pass everything; deswizzleNvnMip reads only what it needs
+			: allPixels;
+	// Deswizzle mip 0 using the phyre-NVN block-height heuristic.
+	const linear = deswizzleNvnMip({
+		format: texture.format,
+		width: texture.width,
+		height: texture.height,
+		data: swizzledMip0,
+	});
+	// Decode the linear blocks into RGBA8 for canvas display.
+	const w = texture.width;
+	const h = texture.height;
+	let pixels: Uint8Array;
+	switch (texture.format) {
+		case 'DXT1':
+			pixels = decodeBC1(linear, w, h);
+			break;
+		case 'DXT3':
+			pixels = decodeBC2(linear, w, h);
+			break;
+		case 'DXT5':
+			pixels = decodeBC3(linear, w, h);
+			break;
+		case 'BC4':
+			pixels = decodeBC4(linear, w, h, { signed: false, mode: 'rgb' });
+			break;
+		case 'BC5':
+			pixels = decodeBC5(linear, w, h, { signed: false, mode: 'normal' });
+			break;
+		case 'BC7':
+			pixels = decodeBC7(linear, w, h);
+			break;
+		case 'RGBA8': {
+			// PhyreEngine stores RGBA8 as B,G,R,A in memory (DDS ARGB8888
+			// convention). Swap to canvas-friendly R,G,B,A.
+			pixels = new Uint8Array(w * h * 4);
+			for (let i = 0; i < w * h; i++) {
+				pixels[i * 4 + 0] = linear[i * 4 + 2];
+				pixels[i * 4 + 1] = linear[i * 4 + 1];
+				pixels[i * 4 + 2] = linear[i * 4 + 0];
+				pixels[i * 4 + 3] = linear[i * 4 + 3];
+			}
+			break;
+		}
+		case 'ARGB8': {
+			// Same byte order as 'RGBA8' above (PhyreEngine treats them
+			// interchangeably as far as in-memory layout goes).
+			pixels = new Uint8Array(w * h * 4);
+			for (let i = 0; i < w * h; i++) {
+				pixels[i * 4 + 0] = linear[i * 4 + 2];
+				pixels[i * 4 + 1] = linear[i * 4 + 1];
+				pixels[i * 4 + 2] = linear[i * 4 + 0];
+				pixels[i * 4 + 3] = linear[i * 4 + 3];
+			}
+			break;
+		}
+		default:
+			throw new Error(
+				`Unsupported PhyreEngine format ${texture.format}. ` +
+					`Supported: DXT1, DXT3, DXT5, BC4, BC5, BC7, RGBA8, ARGB8.`,
+			);
+	}
+	// PhyreEngine stores texture rows in upside-down (DDS) order
+	// relative to the standard canvas top-left origin. Flip the
+	// decoded RGBA rows so the preview displays right-side-up.
+	flipRgbaRowsInPlace(pixels, w, h);
+	// Build a DDS for the download link. DDS readers expect the
+	// upside-down orientation that PhyreEngine already stores, so
+	// we pass the pre-deswizzled `linear` bytes through unchanged.
+	const texForDds = {
+		...texture,
+		mipmapCount: 0,
+		maxMipLevel: 0,
+		pixelDataSize: linear.byteLength,
+	};
+	const dds = encodeAsDds(texForDds, linear);
+	return { parsed, texture, pixels, dds };
+}
+
+/**
+ * Vertical flip of an RGBA8 buffer in-place. Used by the phyre
+ * preview to convert from DDS-style bottom-up rows to canvas
+ * top-down rows.
+ */
+function flipRgbaRowsInPlace(rgba: Uint8Array, width: number, height: number): void {
+	if (height < 2) return;
+	const rowBytes = width * 4;
+	const tmp = new Uint8Array(rowBytes);
+	for (let y = 0; y < height >> 1; y++) {
+		const top = y * rowBytes;
+		const bot = (height - 1 - y) * rowBytes;
+		tmp.set(rgba.subarray(top, top + rowBytes));
+		rgba.copyWithin(top, bot, bot + rowBytes);
+		rgba.set(tmp, bot);
+	}
+}
+
+// Reference `bytesForMipLevel` so the import isn't dead-code-pruned
+// by IDE auto-cleanup tools. (Future multi-mip preview will use it.)
+void bytesForMipLevel;
+
+// ----- PhyreEngine mesh preview -----
+
+export interface PhyreMeshSegmentView {
+	segment: PhyreMeshSegment;
+	positions: Float32Array;
+	indices: Uint16Array | Uint32Array;
+	/** UV coordinates (vec2 per vertex), or null if the segment has no UV stream. */
+	uvs: Float32Array | null;
+	/** Vertex normals (vec3 per vertex), or null if the segment has no normal stream. */
+	normals: Float32Array | null;
+}
+
+export interface PhyreMeshView {
+	parsed: ParsedPhyre;
+	mesh: PhyreMesh;
+	segments: PhyreMeshSegmentView[];
+	/** Bounding box of all positions across all segments. */
+	bbox: { min: [number, number, number]; max: [number, number, number] };
+	/** Center point = (min + max) / 2. */
+	center: [number, number, number];
+	/** Longest axis of the bounding box. */
+	size: number;
+	/**
+	 * Asset references parsed out of the model's
+	 * `PAssetReference` / `PAssetReferenceImport` array tails.
+	 * Used to find sibling `.dds.phyre` texture files for the
+	 * material slots. The viewer treats `isTexture` references
+	 * as resolution candidates; the rest (animation sets, mesh
+	 * nodes, material names) are surfaced for the metadata
+	 * panel only.
+	 */
+	assetRefs: PhyreAssetReference[];
+}
+
+/**
+ * Parse a `.dae.phyre` and return per-segment vertex positions +
+ * indices ready to feed into a Three.js `BufferGeometry`. Also
+ * computes the bounding box for camera framing.
+ */
+export async function parsePhyreMeshForView(blob: Blob): Promise<PhyreMeshView> {
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	const parsed = parsePhyre(bytes);
+	const mesh = findMesh(parsed);
+	if (!mesh) {
+		throw new Error('PhyreEngine file contains no mesh');
+	}
+	const segments: PhyreMeshSegmentView[] = [];
+	let xMin = Infinity, yMin = Infinity, zMin = Infinity;
+	let xMax = -Infinity, yMax = -Infinity, zMax = -Infinity;
+	for (const seg of mesh.segments) {
+		const positions = extractPositions(parsed, seg);
+		const indices = extractIndices(parsed, seg);
+		const uvs = extractUVs(parsed, seg);
+		const normals = extractNormals(parsed, seg);
+		for (let i = 0; i < positions.length; i += 3) {
+			const x = positions[i];
+			const y = positions[i + 1];
+			const z = positions[i + 2];
+			if (x < xMin) xMin = x;
+			if (y < yMin) yMin = y;
+			if (z < zMin) zMin = z;
+			if (x > xMax) xMax = x;
+			if (y > yMax) yMax = y;
+			if (z > zMax) zMax = z;
+		}
+		segments.push({ segment: seg, positions, indices, uvs, normals });
+	}
+	// Defensive: if no vertices were emitted, fall back to a unit
+	// box so the renderer can still frame the empty scene.
+	if (!Number.isFinite(xMin)) {
+		xMin = yMin = zMin = -1;
+		xMax = yMax = zMax = 1;
+	}
+	const bbox = {
+		min: [xMin, yMin, zMin] as [number, number, number],
+		max: [xMax, yMax, zMax] as [number, number, number],
+	};
+	const center: [number, number, number] = [
+		(xMin + xMax) / 2,
+		(yMin + yMax) / 2,
+		(zMin + zMax) / 2,
+	];
+	const size = Math.max(xMax - xMin, yMax - yMin, zMax - zMin);
+	const assetRefs = findAssetReferences(parsed);
+	return { parsed, mesh, segments, bbox, center, size, assetRefs };
+}
+
+/**
+ * Decode a sibling `.dds.phyre` texture blob into the shape the
+ * generic {@link MeshViewer} expects (the same `DecodedTexture`
+ * interface UE materials use). Used by the PhyreEngine mesh
+ * viewer to apply material textures resolved via
+ * {@link findAssetReferences}.
+ *
+ * `parsePhyreForView` returns pixels in canvas-top-down order.
+ * We pass that straight through to Three.js, which has its own
+ * `texture.flipY = true` upload flag — it flips on GPU upload,
+ * landing pixels bottom-up in texture space. PhyreEngine UVs
+ * are Maya-style (V=0 at bottom), so V=0 then samples the
+ * bottom row → matches the engine's authoring intent.
+ *
+ * Errors are caught and the texture is skipped — partial
+ * material coverage is better than nothing when one texture
+ * fails to decode.
+ */
+export async function decodePhyreTextureForMaterial(
+	blob: Blob,
+	packagePath: string,
+): Promise<{
+	packagePath: string;
+	width: number;
+	height: number;
+	pixels: Uint8Array;
+	pixelFormat: string;
+	normalReconstructed: boolean;
+} | null> {
+	try {
+		const view = await parsePhyreForView(blob);
+		return {
+			packagePath,
+			width: view.texture.width,
+			height: view.texture.height,
+			pixels: view.pixels,
+			pixelFormat: view.texture.format,
+			normalReconstructed: false,
+		};
+	} catch {
+		return null;
+	}
 }
 
 // ----- BFRES metadata preview -----

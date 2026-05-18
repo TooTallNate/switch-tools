@@ -59,6 +59,15 @@ export interface DecodedTexture {
 	pixelFormat: string;
 	/** True when the decoder applied normal-map Z reconstruction. */
 	normalReconstructed: boolean;
+	/**
+	 * Whether Three.js should Y-flip the pixels on GPU upload.
+	 * Defaults to `true` (UE convention: pixels stored bottom-
+	 * up, model UV uses V=0 at bottom — Maya style). Set to
+	 * `false` for engines whose textures are already top-down
+	 * AND whose UVs use V=0 at top (DirectX style). Optional
+	 * for backwards compatibility with existing decoders.
+	 */
+	flipY?: boolean;
 }
 
 /**

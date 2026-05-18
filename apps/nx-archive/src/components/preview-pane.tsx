@@ -66,6 +66,7 @@ import {
 } from "@tootallnate/unity-asset"
 import { decodeTexture2D as decodeUnityTexture2D } from "~/lib/unity-texture"
 import { StaticMeshViewer } from "./static-mesh-viewer"
+import { PhyreMeshViewer } from "./phyre-mesh-viewer"
 import {
   decodeUeMip,
   describePixelFormat,
@@ -179,6 +180,8 @@ import {
   parseBfwavForAudioView,
   parseBfresForView,
   parseBntxForView,
+  parsePhyreForView,
+  parsePhyreMeshForView,
   parseBnvibForView,
   parseByamlForView,
   parseWemForAudioView,
@@ -1825,6 +1828,10 @@ function FilePreview({
       return <ByamlPreview node={node} />
     case "bntx-image":
       return <BntxPreview node={node} />
+    case "phyre-image":
+      return <PhyrePreview node={node} />
+    case "phyre-mesh":
+      return <PhyreMeshPreview node={node} root={root} />
     case "usm-video":
       return <UsmPreview node={node} />
     case "bink1-video":
@@ -13472,6 +13479,162 @@ function BntxImageSection({
         )}
       </div>
     </section>
+  )
+}
+
+function PhyrePreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parsePhyreForView(await node.blob!())
+  }, [node.id])
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [pngUrl, setPngUrl] = useState<string | null>(null)
+  const [ddsUrl, setDdsUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!data) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const w = data.texture.width
+    const h = data.texture.height
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    const imageData = ctx.createImageData(w, h)
+    imageData.data.set(data.pixels)
+    ctx.putImageData(imageData, 0, 0)
+    canvas.toBlob((b) => {
+      if (b) setPngUrl(URL.createObjectURL(b))
+    }, "image/png")
+    // Wrap the DDS bytes for the secondary download link.
+    const ddsBlob = new Blob([new Uint8Array(data.dds)], {
+      type: "image/vnd.ms-dds",
+    })
+    setDdsUrl(URL.createObjectURL(ddsBlob))
+    return () => {
+      setPngUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+      setDdsUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+    }
+  }, [data])
+  if (loading) return <LoadingFiller label="Decoding PhyreEngine texture…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const baseName = node.name.replace(/\.phyre$/i, "").replace(/\.dds$/i, "")
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="PhyreEngine — Sony self-describing container" />
+        <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+          <div
+            className="overflow-auto rounded-md border"
+            style={{
+              background:
+                "repeating-conic-gradient(rgb(36, 36, 36) 0% 25%, rgb(20, 20, 20) 0% 50%) 50% / 16px 16px",
+              maxHeight: "70vh",
+            }}
+          >
+            <canvas
+              ref={canvasRef}
+              className="block max-w-full"
+              style={{
+                imageRendering:
+                  v.texture.width <= 256 && v.texture.height <= 256
+                    ? "pixelated"
+                    : "auto",
+              }}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>
+              Decoded {v.texture.format} → 8-bit RGBA ({v.texture.width} × {v.texture.height})
+            </span>
+            <div className="flex items-center gap-2">
+              {ddsUrl && (
+                <a
+                  href={ddsUrl}
+                  download={baseName + ".dds"}
+                  className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+                >
+                  Save .dds
+                </a>
+              )}
+              {pngUrl && (
+                <a
+                  href={pngUrl}
+                  download={baseName + ".png"}
+                  className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+                >
+                  Save .png
+                </a>
+              )}
+            </div>
+          </div>
+        </section>
+        <KvBlock title="Texture">
+          <KvRow k="Format" v={v.texture.format} />
+          <KvRow
+            k="Dimensions"
+            v={`${v.texture.width} × ${v.texture.height} px`}
+          />
+          <KvRow k="Mip levels" v={String(v.texture.mipmapCount + 1)} />
+          <KvRow k="Texture flags" v={`0x${v.texture.textureFlags.toString(16)}`} />
+          <KvRow k="Pixel data" v={formatBytes(v.texture.pixelDataSize)} />
+        </KvBlock>
+        <KvBlock title="Container">
+          <KvRow k="Platform" v={v.parsed.header.platformId.replace(/\0/g, "·")} />
+          <KvRow k="Header size" v={`${v.parsed.header.size} B`} />
+          <KvRow k="Instances" v={String(v.parsed.instances.length)} />
+          <KvRow k="Classes in namespace" v={String(v.parsed.namespace.classes.length)} />
+        </KvBlock>
+      </div>
+    </ScrollArea>
+  )
+}
+
+function PhyreMeshPreview({
+  node,
+  root,
+}: {
+  node: Node
+  root: Node | null
+}) {
+  const { loading, data, error } = useAsync(async () => {
+    return parsePhyreMeshForView(await node.blob!())
+  }, [node.id])
+  if (loading) return <LoadingFiller label="Decoding PhyreEngine mesh…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const totalVerts = v.segments.reduce((s, x) => s + x.segment.vertexCount, 0)
+  const totalTris = v.segments.reduce(
+    (s, x) => s + Math.floor(x.segment.indexCount / 3),
+    0,
+  )
+  const texRefs = v.assetRefs.filter((r) => r.isTexture)
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">
+          PhyreEngine 3D Model
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          {v.segments.length} segment{v.segments.length === 1 ? "" : "s"} ·{" "}
+          {totalVerts.toLocaleString()} vertices ·{" "}
+          {totalTris.toLocaleString()} triangles
+          {texRefs.length > 0
+            ? ` · ${texRefs.length} texture${texRefs.length === 1 ? "" : "s"}`
+            : ""}
+          {" · drag to orbit, scroll to zoom"}
+        </p>
+      </div>
+      <div className="flex-1 p-3">
+        <PhyreMeshViewer node={node} root={root} view={v} />
+      </div>
+    </div>
   )
 }
 
