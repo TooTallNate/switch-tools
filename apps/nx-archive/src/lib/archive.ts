@@ -19,6 +19,17 @@ import { decompressNcz, isNcz, type OnProgress } from '@tootallnate/ncz';
 import { parseSarc, type SarcEntry } from '@tootallnate/sarc';
 import { parseVbf, type VbfFileEntry } from '@tootallnate/vbf';
 import {
+	parseWd,
+	decodeWaveToWav,
+	waveDurationSeconds,
+	type WdBank,
+	type WdWave,
+} from '@tootallnate/square-wd';
+import {
+	psAdpcmBytesToSamples,
+	PS_ADPCM_FRAME_SIZE,
+} from '@tootallnate/ps-adpcm';
+import {
 	parseIdTechResources,
 	type IdTechResourceEntry,
 } from '@tootallnate/idtech-resources';
@@ -98,6 +109,15 @@ export type NodeKind =
 	 * Age. Decompresses zlib-chunked content lazily on read.
 	 */
 	| 'vbf'
+	/**
+	 * Square wave bank (`.wd`, magic `WD\0\0`). Used by FFXI (PS2),
+	 * FFX (PS2/HD/Switch), FFX-2 (PS2/Vita), and FF Crystal
+	 * Chronicles (GameCube). A flat list of mono PS-ADPCM (LE) or
+	 * DSP-ADPCM (BE) sound effects + voice samples. We expose each
+	 * wave as a virtual `.wav` child so the existing audio preview
+	 * handles them transparently.
+	 */
+	| 'square-wd'
 	| 'lz4'
 	| 'zstd'
 	| 'unityfs'
@@ -387,6 +407,8 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	resources: 'idTech-Resources', // DOOM 3 BFG / RAGE / Wolfenstein TNO container (magic 0xD000000D)
 	bimage: 'idTech-bimage', // BFG-era preprocessed texture format
 	vbf: 'VBF', // Virtuos Big File — FFX/X-2 HD Remaster, FFXII TZA
+	wd: 'WD', // Square wave bank — FFXI/X/X-2/Crystal Chronicles
+	'square-wd': 'WD', // alias used by the magic sniffer (returns 'square-wd')
 };
 
 /**
@@ -455,7 +477,8 @@ type SniffedFormat =
 	| 'idtech-resources'
 	| 'idfont'
 	| 'bimage'
-	| 'vbf';
+	| 'vbf'
+	| 'square-wd';
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -493,6 +516,18 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (m4 === 'FWAR') return 'bfwar';
 	if (m4 === 'FRES') return 'bfres';
 	if (m4 === 'AFS2') return 'awb';
+	// Square `.wd` wave bank: byte pattern 'W' 'D' 0 0. The
+	// trailing nulls would break a plain TextDecoder match, so
+	// check the bytes directly.
+	if (
+		head.length >= 4 &&
+		head[0] === 0x57 &&
+		head[1] === 0x44 &&
+		head[2] === 0x00 &&
+		head[3] === 0x00
+	) {
+		return 'square-wd';
+	}
 	// Zstandard frame magic: 0x28b52ffd LE — used both by Nintendo's
 	// `.zs` (TotK / Wonder) and by the standard `.zst` suffix
 	// (Paper Mario TTYD, Super Mario 3D All-Stars). The extension
@@ -636,6 +671,8 @@ export async function buildRootNode(
 			return makeSarcNode(id, displayName, blob, ctx);
 		case 'VBF':
 			return makeVbfNode(id, displayName, blob, ctx);
+		case 'WD':
+			return makeSquareWdNode(id, displayName, blob, ctx);
 		case 'idTech-Resources':
 			return makeIdTechResourcesNode(id, displayName, blob, ctx);
 		case 'SZS':
@@ -2010,6 +2047,96 @@ async function vbfEntriesToNodes(
 
 	return treeToNodes(parentId, root);
 }
+
+// ----- Square `.WD` wave bank -----
+
+/**
+ * Make a node for a Square `.wd` wave bank. The bank parses
+ * cheaply (a few KB of header + entry table), so we read it
+ * upfront and synthesise one virtual `<index>.wav` child per
+ * wave. Each child's blob is built lazily: the ADPCM bytes are
+ * already a Blob slice, but the actual decode + WAV wrapping
+ * only happens when the user previews or downloads a wave.
+ *
+ * Naming: `<basename>_<index>.wav` so a 36-wave bank produces
+ * `wave0028_000.wav` … `wave0028_035.wav`. We don't have human-
+ * readable cue names for these (the bank format predates them);
+ * the index + sample rate in the metadata is the best we can
+ * do for orientation.
+ */
+function makeSquareWdNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	void ctx;
+	return {
+		id,
+		name,
+		kind: 'square-wd',
+		isContainer: true,
+		size: blob.size,
+		format: 'WD',
+		blob: async () => blob,
+		getChildren: async () => {
+			const bytes = new Uint8Array(await blob.arrayBuffer());
+			const bank = parseWd(bytes);
+			// Width for zero-padded indices so directory listings
+			// sort naturally (000.wav < 001.wav < 010.wav).
+			const width = Math.max(3, String(bank.waves.length).length);
+			// Base name without the `.wd` extension for nicer
+			// child filenames.
+			const baseName = name.replace(/\.wd$/i, '');
+			return bank.waves.map((w): Node => {
+				const idxStr = String(w.index).padStart(width, '0');
+				const childName = `${baseName}_${idxStr}.wav`;
+				const childId = `${id}/${childName}`;
+				// Compute the WAV size upfront without decoding —
+				// PS-ADPCM is a fixed 16:28 byte:sample ratio, so
+				// the sample count (and hence the final WAV size)
+				// is known purely from the ADPCM byte length.
+				const samples = wdWaveSampleCount(w, bank);
+				const wavSize = 44 + samples * 2;
+				return {
+					id: childId,
+					name: childName,
+					kind: 'file',
+					isContainer: false,
+					size: wavSize,
+					format: 'WAV',
+					meta: {
+						wdIndex: w.index,
+						wdSampleRate: w.sampleRate,
+						wdDurationSeconds: waveDurationSeconds(w, bank),
+						wdSourceCodec: bank.codec,
+					},
+					blob: async () => {
+						const wavBytes = await decodeWaveToWav(w, bank);
+						return new Blob([wavBytes as BlobPart], {
+							type: 'audio/wav',
+						});
+					},
+				};
+			});
+		},
+	};
+}
+
+/**
+ * Sample count helper that doesn't need to do the decompression.
+ * Mirrors what {@link decodeWaveToPcmAsync} would produce.
+ */
+function wdWaveSampleCount(wave: WdWave, bank: Pick<WdBank, 'codec'>): number {
+	if (bank.codec === 'ps-adpcm') {
+		return psAdpcmBytesToSamples(wave.data.byteLength);
+	}
+	// DSP-ADPCM: 14 samples per 8 bytes
+	return Math.floor(wave.data.byteLength / 8) * 14;
+}
+
+// Avoid unused-import warning until DSP path needs the constant.
+void PS_ADPCM_FRAME_SIZE;
 
 // ----- SZS / Yaz0 -----
 
@@ -4033,6 +4160,7 @@ async function childNodeFor(
 	if (ext === 'zip') return makeZipNode(id, name, blob, ctx);
 	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob, ctx);
 	if (ext === 'vbf') return makeVbfNode(id, name, blob, ctx);
+	if (ext === 'wd') return makeSquareWdNode(id, name, blob, ctx);
 	if (ext === 'resources') return makeIdTechResourcesNode(id, name, blob, ctx);
 	if (ext === 'szs') return makeSzsNode(id, name, blob, ctx);
 	if (ext === 'lz4') return makeLz4Node(id, name, blob, ctx);
@@ -4126,6 +4254,7 @@ async function childNodeFor(
 	const sniffed = await sniffMagicCheap(blob);
 	if (sniffed === 'sarc') return makeSarcNode(id, name, blob, ctx);
 	if (sniffed === 'vbf') return makeVbfNode(id, name, blob, ctx);
+	if (sniffed === 'square-wd') return makeSquareWdNode(id, name, blob, ctx);
 	if (sniffed === 'idtech-resources') return makeIdTechResourcesNode(id, name, blob, ctx);
 	if (sniffed === 'szs') return makeSzsNode(id, name, blob, ctx);
 	if (sniffed === 'pfs0') return makePfs0Node(id, name, blob, ctx, 'PFS0');

@@ -1,0 +1,33 @@
+{
+  "name": "@tootallnate/square-wd",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for Square's '.WD' wave-bank format. Used by Final Fantasy XI/X/X-2/Crystal Chronicles to ship hundreds of sound effects + voice samples in a single container. Each bank's entries decode to PS-ADPCM (PS2/PSP/Vita) or DSP-ADPCM (GameCube); produces ready-to-play 16-bit PCM samples or wraps them as WAV blobs.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "square",
+    "final-fantasy",
+    "wave-bank",
+    "audio",
+    "ps-adpcm",
+    "dsp-adpcm"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/square-wd"
+  },
+  "dependencies": {
+    "@tootallnate/dsp-adpcm": "workspace:*",
+    "@tootallnate/ps-adpcm": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
