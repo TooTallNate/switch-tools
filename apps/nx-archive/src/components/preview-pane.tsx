@@ -3767,7 +3767,15 @@ function BmfontPreview({
       parsed.pages.map(async (name) => {
         const sibling = siblings.get(name.toLowerCase())
         if (!sibling) return null
-        const url = URL.createObjectURL(sibling)
+        // Page atlas blobs may come back as lazy facades (RomFS
+        // / ZIP / IoStore entries) instead of real `Blob`
+        // instances. `URL.createObjectURL` does a strict
+        // `instanceof Blob` check and rejects facades with an
+        // "Overload resolution failed" error, so materialise
+        // first via `makePreviewBlob`. The PNG atlases are
+        // typically a few hundred KB — no progress UI needed.
+        const real = await makePreviewBlob(sibling, "image/png")
+        const url = URL.createObjectURL(real)
         blobUrls.push(url)
         return loadImage(url)
       }),
