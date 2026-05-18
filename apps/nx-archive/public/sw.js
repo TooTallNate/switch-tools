@@ -54,7 +54,7 @@
 // Browsers byte-diff the SW script to detect updates, so any
 // material change here forces a re-install. The constant doubles
 // as a tag for diagnostic logging.
-const SW_VERSION = 'nx-archive-vfs-v3';
+const SW_VERSION = 'nx-archive-vfs-v5';
 
 self.addEventListener('install', (event) => {
 	// Take over immediately so reloads don't have to wait for the

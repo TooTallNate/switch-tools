@@ -13680,7 +13680,23 @@ function DownloadButton({
       //      No intermediate in-memory copy, no size cap.
       //   3. Lazy facade + no SW → materialise + classic blob URL.
       //      Slow fallback for first-load races / older browsers.
-      const click = (url: string): void => {
+      // Two ways to trigger a download:
+      //
+      //   - `<a href download>` click: works for `blob:` URLs in
+      //     every browser. The browser honours the `download`
+      //     attribute without a network round-trip.
+      //
+      //   - Hidden-iframe navigation: required for `/vfs/` URLs
+      //     in Chrome. Chrome's `<a download>` implementation
+      //     bypasses the service worker for the resulting fetch
+      //     (the SW is not invoked at all — confirmed by zero
+      //     `fetch` events firing for download-attribute clicks
+      //     on SW-controlled URLs). Firefox correctly routes the
+      //     fetch through the SW. The iframe workaround uses a
+      //     plain navigation, which DOES go through the SW; the
+      //     SW returns a response with `Content-Disposition:
+      //     attachment` and the browser saves it as a download.
+      const clickAnchor = (url: string): void => {
         const a = document.createElement("a")
         a.href = url
         a.download = fileName
@@ -13689,10 +13705,30 @@ function DownloadButton({
         a.click()
         a.remove()
       }
+      const navigateInIframe = (url: string): void => {
+        // The iframe stays in the DOM so the navigation completes
+        // (a parent that unmounts the iframe mid-stream would
+        // abort the download). We rely on the SW's Content-
+        // Disposition: attachment response to make the iframe
+        // navigation NOT replace the page — instead the browser
+        // pops up "Save As" while the iframe stays idle on its
+        // about:blank starting document.
+        const iframe = document.createElement("iframe")
+        iframe.style.display = "none"
+        iframe.src = url
+        document.body.appendChild(iframe)
+        // The iframe is now driving the download. Keep it around
+        // long enough for the browser to commit the response
+        // headers, then clean up. 60 s is generous for the
+        // initial response — the actual byte streaming happens
+        // through the browser's download manager and continues
+        // independently of the iframe.
+        setTimeout(() => iframe.remove(), 60_000)
+      }
       const isReal = typeof Blob !== "undefined" && blob instanceof Blob
       if (isReal) {
         const url = URL.createObjectURL(blob)
-        click(url)
+        clickAnchor(url)
         setTimeout(() => URL.revokeObjectURL(url), 1500)
       } else if (isVfsAvailable()) {
         // Don't auto-unregister: a multi-GB download may take
@@ -13704,19 +13740,19 @@ function DownloadButton({
           fileName,
         )
         if (vfsUrl) {
-          click(vfsUrl)
+          navigateInIframe(vfsUrl)
         } else {
           // Defensive: vfs availability flipped between the
           // check and the registration. Fall through.
           const realBlob = await materializeAsBlob(blob)
           const url = URL.createObjectURL(realBlob)
-          click(url)
+          clickAnchor(url)
           setTimeout(() => URL.revokeObjectURL(url), 1500)
         }
       } else {
         const realBlob = await materializeAsBlob(blob)
         const url = URL.createObjectURL(realBlob)
-        click(url)
+        clickAnchor(url)
         setTimeout(() => URL.revokeObjectURL(url), 1500)
       }
       toast.success(`Downloaded ${fileName}`, { id })
