@@ -505,15 +505,28 @@ function MidiMetadata({ view }: { view: MidiView }) {
 
 /**
  * Walk up from the MIDI file's archive context to find sibling
- * `.sf2` files. For FF7's `midi.lgp` (which contains only MIDI
- * data) the SF2 files live in the same parent directory as the
- * LGP. We scan that directory + 1 level up.
+ * `.sf2` files (or `.sf3` / `.dls`, which spessasynth_lib also
+ * accepts). The FF7 PC layout is:
+ *
+ *     midi/
+ *       midi.lgp        ← the user is previewing a .mid INSIDE here
+ *       sf2/
+ *         ff7.sf2
+ *         ff7m.sf2
+ *
+ * So the SoundFonts are NOT siblings of the MIDI file — they
+ * live in a sibling directory of the LGP that the MIDI was
+ * extracted from. We walk up to each ancestor of the selected
+ * node and scan ONE level into each of its child directories,
+ * collecting every SoundFont we find. We stop at the first
+ * ancestor that yields at least one candidate so we don't
+ * scan the entire archive root for one-off files in unrelated
+ * directories.
  */
 async function findSiblingSoundFonts(
   root: Node,
   selected: Node,
 ): Promise<Array<{ node: Node; name: string }>> {
-  const candidates: Array<{ node: Node; name: string }> = []
   const ids: string[] = []
   let cur = selected.id
   while (cur && cur !== root.id) {
@@ -521,20 +534,64 @@ async function findSiblingSoundFonts(
     if (slash <= 0) break
     cur = cur.slice(0, slash)
     ids.push(cur)
-    if (ids.length >= 3) break // limit search depth
+    if (ids.length >= 4) break // limit ancestor depth
+  }
+  const matches = (n: Node) => {
+    const lower = n.name.toLowerCase()
+    return (
+      (lower.endsWith(".sf2") ||
+        lower.endsWith(".sf3") ||
+        lower.endsWith(".dls")) &&
+      !!n.blob
+    )
   }
   for (const id of ids) {
     const node = await findNodeById(root, id)
     if (!node?.getChildren) continue
-    const kids = node._children ?? (node._children = await node.getChildren())
+    const candidates = await scanForSoundFonts(node, matches, 2)
+    if (candidates.length > 0) return candidates
+  }
+  return []
+}
+
+/**
+ * Scan `node` and its descendant *directories* for files
+ * matching `pred`, up to `maxDepth` levels deep.
+ *
+ * Only `kind === 'directory'` children get descended into —
+ * nested archives (LGP, SARC, ZIP, …) are skipped because we
+ * don't want to materialise their child lists during sibling
+ * discovery (and the user almost certainly doesn't want a
+ * SoundFont packed inside an unrelated archive auto-selected
+ * either).
+ *
+ * Returned in encounter order so the dropdown picks the first
+ * one (which the auto-selection logic also uses).
+ */
+async function scanForSoundFonts(
+  node: Node,
+  pred: (n: Node) => boolean,
+  maxDepth: number,
+): Promise<Array<{ node: Node; name: string }>> {
+  const out: Array<{ node: Node; name: string }> = []
+  const queue: Array<{ node: Node; depth: number }> = [{ node, depth: 0 }]
+  while (queue.length > 0) {
+    const { node: cur, depth } = queue.shift()!
+    if (!cur.getChildren) continue
+    const kids = cur._children ?? (cur._children = await cur.getChildren())
     for (const k of kids) {
-      if (k.name.toLowerCase().endsWith(".sf2") && k.blob) {
-        candidates.push({ node: k, name: k.name })
+      if (pred(k)) {
+        out.push({ node: k, name: k.name })
+      } else if (
+        depth + 1 <= maxDepth &&
+        k.kind === "directory" &&
+        k.getChildren
+      ) {
+        queue.push({ node: k, depth: depth + 1 })
       }
     }
-    if (candidates.length > 0) break
   }
-  return candidates
+  return out
 }
 
 async function findNodeById(
