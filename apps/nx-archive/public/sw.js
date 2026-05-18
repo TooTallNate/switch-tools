@@ -54,7 +54,7 @@
 // Browsers byte-diff the SW script to detect updates, so any
 // material change here forces a re-install. The constant doubles
 // as a tag for diagnostic logging.
-const SW_VERSION = 'nx-archive-vfs-v5';
+const SW_VERSION = 'nx-archive-vfs-v6';
 
 self.addEventListener('install', (event) => {
 	// Take over immediately so reloads don't have to wait for the
@@ -98,7 +98,20 @@ self.addEventListener('fetch', (event) => {
 		const slash = rest.indexOf('/');
 		const resourceId = slash >= 0 ? rest.slice(0, slash) : rest;
 		if (!resourceId) return;
-		event.respondWith(handleVfsFetch(event, resourceId));
+		// Wrap with a `.catch` so any unexpected rejection in
+		// `handleVfsFetch` surfaces as a 500 Response rather than
+		// causing Firefox to log "ServiceWorker intercepted the
+		// request and encountered an unexpected error". Real
+		// internal errors still appear in the Network tab as
+		// failed requests with the captured message.
+		event.respondWith(
+			handleVfsFetch(event, resourceId).catch((err) =>
+				new Response(
+					`vfs: internal error: ${err instanceof Error ? err.message : String(err)}`,
+					{ status: 500 },
+				),
+			),
+		);
 		return;
 	}
 
@@ -123,7 +136,15 @@ self.addEventListener('fetch', (event) => {
 		const bundleId = rest.slice(0, slash);
 		const filePath = decodeURIComponent(rest.slice(slash + 1));
 		if (!bundleId || !filePath) return;
-		event.respondWith(handleHtdocsFetch(event, bundleId, filePath));
+		// Same safety net as the /vfs/ path above.
+		event.respondWith(
+			handleHtdocsFetch(event, bundleId, filePath).catch((err) =>
+				new Response(
+					`htdocs: internal error: ${err instanceof Error ? err.message : String(err)}`,
+					{ status: 500 },
+				),
+			),
+		);
 		return;
 	}
 });
@@ -257,14 +278,45 @@ async function handleVfsFetch(event, resourceId) {
 				return;
 			}
 			if (m.type === 'error') {
-				if (streamController) {
-					try { streamController.error(new Error(m.message)); } catch {}
-				}
 				if (!resolved) {
+					// We never sent a Response, so a real HTTP status
+					// code is the right answer. Distinguish "resource
+					// gone" (404 — expected when the preview unmounts
+					// during an in-flight fetch) from other errors
+					// (500) so devtools' Network tab makes that
+					// distinction visible.
 					resolved = true;
+					const status = isResourceGoneMessage(m.message) ? 404 : 500;
 					resolveResponse(
-						new Response(`vfs: ${m.message}`, { status: 500 }),
+						new Response(`vfs: ${m.message}`, { status }),
 					);
+					try { channel.port1.close(); } catch {}
+					return;
+				}
+				// `resolved === true`: the Response body stream is
+				// already in flight. The most common late-error case
+				// is "resource gone" — the consumer (an <audio>
+				// element being torn down, say) already initiated the
+				// cancel, the SW relayed it, but the client had a
+				// concurrent read in flight that the cancel didn't
+				// reach in time. From the consumer's point of view
+				// the stream is already done.
+				//
+				// Calling `streamController.error()` here causes
+				// Firefox to log "ServiceWorker intercepted the
+				// request and encountered an unexpected error", even
+				// though nothing user-visible breaks. Close the
+				// stream cleanly instead — the consumer either
+				// already gave up (cancel) or sees a truncated body
+				// (better than a hard error for an unmounted
+				// component).
+				//
+				// Genuine read errors (e.g. AES key mismatch
+				// surfaced mid-stream) DO still error the
+				// underlying media element, but via the natural
+				// truncated-body path rather than a SW-stream error.
+				if (streamController) {
+					try { streamController.close(); } catch {}
 				}
 				try { channel.port1.close(); } catch {}
 				return;
@@ -273,15 +325,35 @@ async function handleVfsFetch(event, resourceId) {
 
 		// Kick off the conversation by transferring the port to the
 		// client. The client will reply with metadata first.
-		client.postMessage(
-			{
-				type: 'vfs-request',
-				resourceId,
-				requestId,
-				rangeHeader: rangeHeader ?? null,
-			},
-			[channel.port2],
-		);
+		//
+		// `postMessage` to a closed client throws synchronously
+		// (the client closed between `findRegistryClient` returning
+		// and now — rare, but observable when a tab is closed
+		// mid-fetch). We catch and surface as a clean 503 instead
+		// of letting the rejection reach `event.respondWith` —
+		// otherwise Firefox logs the request as "encountered an
+		// unexpected error" even though there's nothing the user
+		// can do about it.
+		try {
+			client.postMessage(
+				{
+					type: 'vfs-request',
+					resourceId,
+					requestId,
+					rangeHeader: rangeHeader ?? null,
+				},
+				[channel.port2],
+			);
+		} catch (err) {
+			if (!resolved) {
+				resolved = true;
+				resolveResponse(
+					new Response('vfs: client unavailable', { status: 503 }),
+				);
+			}
+			try { channel.port1.close(); } catch {}
+			return;
+		}
 
 		// Watchdog: if the client doesn't respond within 30 s, give
 		// up. This usually means the resource was unregistered or
@@ -401,6 +473,19 @@ async function findRegistryClient(event) {
 		if (c) return c;
 	}
 	return null;
+}
+
+/**
+ * Heuristic: does this error message look like the client
+ * couldn't find the resource (i.e. it was unregistered between
+ * the SW receiving the fetch event and the client looking it
+ * up)? Used to surface 404 instead of 500 and to suppress the
+ * Firefox "encountered an unexpected error" log for the
+ * routine unmount-races that produce these messages.
+ */
+function isResourceGoneMessage(message) {
+	if (typeof message !== 'string') return false;
+	return /not registered|resource gone/i.test(message);
 }
 
 function parseRangeHeader(value) {

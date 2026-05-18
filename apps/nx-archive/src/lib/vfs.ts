@@ -397,17 +397,39 @@ function handleVfsRequest(event: MessageEvent): void {
 				// we shouldn't detach).
 				const ab = new ArrayBuffer(chunk.byteLength);
 				new Uint8Array(ab).set(chunk);
-				port.postMessage({ type: 'chunk', requestId, data: ab }, [ab]);
+				try {
+					port.postMessage({ type: 'chunk', requestId, data: ab }, [ab]);
+				} catch {
+					// Port closed mid-stream — the consumer cancelled
+					// and the SW relayed the cancel by closing the
+					// port. Treat as a clean abort, not an error.
+					cancelled = true;
+					break;
+				}
 			}
 			if (!cancelled) {
-				port.postMessage({ type: 'end', requestId });
+				try { port.postMessage({ type: 'end', requestId }); } catch { /* ignore */ }
 			}
 		} catch (err) {
-			port.postMessage({
-				type: 'error',
-				requestId,
-				message: err instanceof Error ? err.message : String(err),
-			});
+			// `resource.read()` itself threw — either a real decode
+			// error (key mismatch, bad bytes) OR the resource was
+			// unregistered between the lookup and the read (the
+			// `resource` variable closed over the registry entry,
+			// but the underlying source — typically an NCA section
+			// — might still error if its key was evicted).
+			//
+			// Either way, surface to the SW. If the port is already
+			// closed (cancel race) the postMessage is a silent
+			// no-op per spec, so we don't need to guard.
+			if (!cancelled) {
+				try {
+					port.postMessage({
+						type: 'error',
+						requestId,
+						message: err instanceof Error ? err.message : String(err),
+					});
+				} catch { /* port closed */ }
+			}
 		} finally {
 			try { port.close(); } catch { /* ignore */ }
 		}
