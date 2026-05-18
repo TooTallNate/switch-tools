@@ -289,16 +289,23 @@ function ArchiveApp() {
                 its content's intrinsic width, defeating each row's
                 `flex-1 truncate` on the filename.
               */}
+              {/*
+                Padding moved off the inner wrapper: the FileTree is
+                virtualized, with rows absolutely positioned within a
+                spacer the height of the full virtual content. Any
+                non-zero padding around that spacer offsets the rows
+                from the scroll element's top by exactly that amount,
+                which throws off the virtualizer's measurement. The
+                tree handles its own row indentation internally.
+              */}
               <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block">
-                <div className="p-2">
-                  <FileTree
-                    key={`tree-${reloadCounter}`}
-                    root={opened.root}
-                    selectedId={selected?.id}
-                    onSelect={setSelected}
-                    search={searchFilter}
-                  />
-                </div>
+                <FileTree
+                  key={`tree-${reloadCounter}`}
+                  root={opened.root}
+                  selectedId={selected?.id}
+                  onSelect={setSelected}
+                  search={searchFilter}
+                />
               </ScrollArea>
               {searchFilter &&
                 (searchState.matches.length > 0 || searchState.walking) && (
