@@ -1837,9 +1837,9 @@ function FilePreview({
     case "ff7-tex":
       return <Ff7TexPreview node={node} />
     case "ff7-hrc":
-      return <Ff7HrcPreview node={node} />
+      return <Ff7HrcPreview node={node} root={root} />
     case "ff7-rsd":
-      return <Ff7RsdPreview node={node} />
+      return <Ff7RsdPreview node={node} root={root} />
     case "barslist-info":
       return <BarslistPreview node={node} />
     case "bnvib-audio":
