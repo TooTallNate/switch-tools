@@ -3,6 +3,7 @@ import { parseHrc, isHrc } from '../src/hrc.js';
 import { parseRsd, isRsd } from '../src/rsd.js';
 import { parsePMesh, isPMesh, extractTrianglesForGroup } from '../src/p.js';
 import { parseTex, isTex } from '../src/tex.js';
+import { parseAnim, isAnim, AnimParseError } from '../src/a.js';
 
 const enc = new TextEncoder();
 
@@ -252,5 +253,65 @@ describe('TEX parser', () => {
 			0, 255, 0, 255,
 			0, 0, 255, 255,
 		]);
+	});
+});
+
+describe('Animation parser', () => {
+	/** Build a minimal 1-frame, 2-bone .a file. */
+	function makeMinimalA(): Uint8Array {
+		const HEADER = 36;
+		const FRAME = 24 + 2 * 12;
+		const out = new Uint8Array(HEADER + FRAME);
+		const v = new DataView(out.buffer);
+		v.setUint32(0, 1, true); // version
+		v.setUint32(4, 1, true); // frames
+		v.setUint32(8, 2, true); // bones
+		out[12] = 1; // rotation order Y
+		out[13] = 0; // X
+		out[14] = 2; // Z
+		out[15] = 0; // unused
+		// Frame 0
+		let off = HEADER;
+		v.setFloat32(off + 0, 10, true); // root rot α
+		v.setFloat32(off + 4, 20, true); // root rot β
+		v.setFloat32(off + 8, 30, true); // root rot γ
+		v.setFloat32(off + 12, 1, true); // root trans x
+		v.setFloat32(off + 16, 2, true); // root trans y
+		v.setFloat32(off + 20, 3, true); // root trans z
+		// Bone 0
+		v.setFloat32(off + 24, 45, true);
+		v.setFloat32(off + 28, 0, true);
+		v.setFloat32(off + 32, 0, true);
+		// Bone 1
+		v.setFloat32(off + 36, 0, true);
+		v.setFloat32(off + 40, 90, true);
+		v.setFloat32(off + 44, 0, true);
+		return out;
+	}
+
+	it('recognises a valid .a animation', () => {
+		const bytes = makeMinimalA();
+		expect(isAnim(bytes)).toBe(true);
+		expect(isAnim(new Uint8Array(10))).toBe(false);
+	});
+
+	it('parses header + per-frame bone rotations', () => {
+		const bytes = makeMinimalA();
+		const parsed = parseAnim(bytes);
+		expect(parsed.framesCount).toBe(1);
+		expect(parsed.bonesCount).toBe(2);
+		expect(parsed.rotationOrder).toEqual([1, 0, 2]);
+		expect(parsed.frames).toHaveLength(1);
+		const f = parsed.frames[0]!;
+		expect(f.rootRotation).toEqual([10, 20, 30]);
+		expect(f.rootTranslation).toEqual([1, 2, 3]);
+		expect(f.boneRotations).toHaveLength(2);
+		expect(f.boneRotations[0]).toEqual([45, 0, 0]);
+		expect(f.boneRotations[1]).toEqual([0, 90, 0]);
+	});
+
+	it('throws on size mismatch', () => {
+		const bytes = makeMinimalA().slice(0, 30);
+		expect(() => parseAnim(bytes)).toThrowError(AnimParseError);
 	});
 });

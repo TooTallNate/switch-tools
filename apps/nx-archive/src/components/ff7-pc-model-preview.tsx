@@ -7,24 +7,26 @@
  *   - `.tex` texture
  *
  * The HRC preview is the showcase: it follows each bone's RSD
- * reference to its `.p` mesh + `.tex` textures, places the
- * meshes at their bone-bind-pose positions, and renders the
- * full assembled character through the shared {@link MeshViewer}.
- * Falling back to a structured listing when the sibling files
- * aren't available (e.g. when the HRC was opened standalone
- * outside the LGP).
+ * reference to its `.p` mesh + `.tex` textures, scans sibling
+ * `.a` animation files for matching bone counts, and renders
+ * the assembled character through the shared {@link MeshViewer}.
+ * Picks a 1-frame `.a` as the default bind pose; switching to
+ * a multi-frame `.a` enables real-time skeletal playback via
+ * the viewer's animation transport.
  *
- * The RSD preview surfaces the resolved sibling-file names plus
- * an inline mesh preview if the sibling `.p` is reachable.
- *
- * The P preview renders one mesh in the shared `MeshViewer`
- * (one group flattened into a flat triangle list).
- *
- * The TEX preview shows the decoded image on a transparency-
- * checkerboarded canvas with a `Save .png` link.
+ * Without any sibling animation, the preview falls back to a
+ * by-name heuristic that puts each bone in a reasonable
+ * anatomical direction (spine up, arms sideways, legs down).
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
+import * as THREE from "three"
 
 import type { Node } from "~/lib/archive"
 import {
@@ -40,9 +42,12 @@ import {
 } from "~/lib/preview"
 import { formatBytes } from "~/lib/utils"
 import type { DecodedTexture } from "~/lib/uasset-material-chain"
+import { parseAnim, type ParsedAnim } from "@tootallnate/ff7-pc-model"
 
 import {
   MeshViewer,
+  type MeshViewerAnimation,
+  type MeshViewerAnimationDriver,
   type RenderableMesh,
   type RenderableMeshLOD,
   type RenderableMeshSection,
@@ -55,12 +60,7 @@ import { ErrorFiller, LoadingFiller, useAsync } from "./preview-pane"
 
 /**
  * Resolve a sibling file by base name (case-insensitive) inside
- * the same parent directory as `selected`. Used by the HRC
- * composite preview to find `.rsd` / `.p` / `.tex` files
- * referenced by name.
- *
- * Walks the parent node's children list (one level only).
- * Returns `null` if the name isn't found.
+ * the same parent directory as `selected`.
  */
 async function findSiblingByBaseName(
   root: Node | null,
@@ -82,10 +82,25 @@ async function findSiblingByBaseName(
 }
 
 /**
- * Walk the archive tree to find a node by id. Same shape as the
- * helper used in the phyre / midi previews; keeping a copy here
- * avoids a cross-file circular import.
+ * List every sibling whose name matches a predicate. Used to
+ * discover `.a` animation files alongside an HRC inside its
+ * LGP container.
  */
+async function findSiblingsByPredicate(
+  root: Node | null,
+  selected: Node,
+  pred: (n: Node) => boolean,
+): Promise<Node[]> {
+  if (!root) return []
+  const slash = selected.id.lastIndexOf("/")
+  if (slash <= 0) return []
+  const parentId = selected.id.slice(0, slash)
+  const parent = await findNodeById(root, parentId)
+  if (!parent?.getChildren) return []
+  const kids = parent._children ?? (parent._children = await parent.getChildren())
+  return kids.filter(pred)
+}
+
 async function findNodeById(
   root: Node,
   target: string,
@@ -115,24 +130,19 @@ async function findNodeById(
 // ===========================================================================
 
 /**
- * Resolved data for one bone in the assembled character:
- * world-space pivot position (after walking the bone chain
- * from `root`) and the geometry/textures attached at that pivot.
+ * Resolved data for one bone in the assembled character: bone
+ * length, the meshes attached to it (with their pre-transformed
+ * "local" vertex coordinates), and the index of the parent bone
+ * in the flat bone list (`-1` = root).
  */
 interface ResolvedBone {
   name: string
   parent: string
-  /** Bind-pose direction this bone extends from its parent. */
-  direction: [number, number, number]
-  /** World-space pivot at the *child* end of this bone (origin
-   *  for any descendants). The bone's mesh is anchored at the
-   *  PARENT's pivot, not this one. */
-  pivot: [number, number, number]
-  /** World-space pivot at the *parent* end of this bone (where
-   *  the bone's own mesh is anchored). */
-  parentPivot: [number, number, number]
-  /** One entry per attached RSD reference. Empty for bones that
-   *  only define a joint without geometry. */
+  /** Index of `parent` in the bones array; `-1` when parent is `root`. */
+  parentIndex: number
+  /** Bone segment length from parent's pivot to this bone's pivot. */
+  length: number
+  /** RSD-referenced meshes attached AT THIS BONE's pivot. */
   meshes: ResolvedBoneMesh[]
 }
 
@@ -140,9 +150,16 @@ interface ResolvedBoneMesh {
   rsdName: string
   rsd: Ff7RsdView | null
   mesh: Ff7PView | null
-  /** Per-texture decoded RGBA (top-down origin). Null entries
-   *  for texture references the sibling lookup couldn't find. */
+  /** Per-texture decoded RGBA (top-down origin). */
   textures: Array<Ff7TexView | null>
+}
+
+/** Discovered sibling `.a` animation file. */
+interface AvailableAnim {
+  node: Node
+  name: string
+  framesCount: number
+  bonesCount: number
 }
 
 interface AssembledHrcView {
@@ -150,103 +167,31 @@ interface AssembledHrcView {
   bones: ResolvedBone[]
   /** True when at least one bone resolved geometry. */
   hasGeometry: boolean
-  /** Reasons sibling lookups failed, for the diagnostics panel. */
+  /** All sibling `.a` files matching the HRC's bone count. */
+  availableAnims: AvailableAnim[]
+  /** Reasons sibling lookups failed (for the diagnostics panel). */
   warnings: string[]
 }
 
 /**
- * Default anatomical direction for an FF7 character bone, used
- * when no `.a` animation file is available to supply a real
- * bind pose. The HRC alone only stores bone LENGTHS — the
- * orientation of each bone comes from its animation, and in
- * the bind pose all bones share the same local direction
- * (effectively collapsed onto a line).
- *
- * To get a recognisable rest pose, we pick a per-bone direction
- * by name. Naming conventions in the FF7 character corpus are
- * extremely consistent (every character uses the same bone
- * names), so the heuristic catches the vast majority of models.
- */
-function defaultBoneDirection(name: string): [number, number, number] {
-  const n = name.toLowerCase()
-  // Spine — extends upward (+Z).
-  if (n === "hip" || n === "chest" || n === "head") return [0, 0, 1]
-  // Pelvis offsets + legs — extend downward (-Z).
-  if (
-    n.includes("femur") ||
-    n.includes("tibia") ||
-    n.includes("foot") ||
-    (n.endsWith("_hip") && n !== "hip")
-  ) {
-    return [0, 0, -1]
-  }
-  // Left-side arm chain — extends along player's left (+X).
-  if (n.startsWith("l_")) return [1, 0, 0]
-  // Right-side arm chain — −X.
-  if (n.startsWith("r_")) return [-1, 0, 0]
-  // Unknown — keep along the spine axis.
-  return [0, 0, 1]
-}
-
-/**
- * Rotate a mesh-local vertex from its native +Z-extending frame
- * into the bone's world-direction frame. The four supported
- * directions are all axis-aligned, so this is a fixed 3×3
- * rotation matrix lookup with no trig.
- */
-function rotateToBoneDir(
-  dir: [number, number, number],
-  x: number,
-  y: number,
-  z: number,
-): [number, number, number] {
-  if (dir[2] === 1) return [x, y, z] // +Z — identity
-  if (dir[2] === -1) return [-x, y, -z] // -Z — flip Z (and X to preserve handedness)
-  if (dir[0] === 1) return [z, y, -x] // +X — rotate −90° around Y
-  if (dir[0] === -1) return [-z, y, x] // -X — rotate +90° around Y
-  return [x, y, z]
-}
-
-/**
- * Walk the HRC's bone hierarchy, resolving RSD/P/TEX siblings
- * via the archive parent directory.
- *
- * Each bone is given an anatomical bind-pose direction via
- * {@link defaultBoneDirection} (spine up, legs down, arms
- * sideways). Pivots accumulate along those directions; each
- * bone's mesh lives in the bone's local +Z frame and gets
- * rotated into the world direction by {@link rotateToBoneDir}.
- *
- * The result is a recognisable T-pose / standing-rest pose
- * even without an associated `.a` animation file. When `.a`
- * decoding is added later, the first-frame rotations from
- * the animation will replace `defaultBoneDirection`.
+ * Walk the HRC + resolve all sibling assets. Doesn't bake any
+ * vertex positions yet — that happens in
+ * {@link buildCompositeRig} (one-time) and {@link applyFrameToGeometry}
+ * (per-frame).
  */
 async function assembleHrcCharacter(
   hrc: Ff7HrcView,
   root: Node | null,
   selected: Node,
 ): Promise<AssembledHrcView> {
-  const pivots = new Map<string, [number, number, number]>()
-  pivots.set("root", [0, 0, 0])
-  // Walk in HRC declaration order — parents always come before
-  // their children in well-formed FF7 skeletons.
-  for (const bone of hrc.bones) {
-    const parent = pivots.get(bone.parent) ?? [0, 0, 0]
-    const d = defaultBoneDirection(bone.name)
-    pivots.set(bone.name, [
-      parent[0] + d[0] * bone.length,
-      parent[1] + d[1] * bone.length,
-      parent[2] + d[2] * bone.length,
-    ])
-  }
-
   const warnings: string[] = []
   const bones: ResolvedBone[] = []
+  const nameToIndex = new Map<string, number>()
+  for (let i = 0; i < hrc.bones.length; i++) {
+    nameToIndex.set(hrc.bones[i]!.name, i)
+  }
+
   for (const bone of hrc.bones) {
-    const pivot = pivots.get(bone.name)!
-    const parentPivot = pivots.get(bone.parent) ?? [0, 0, 0]
-    const direction = defaultBoneDirection(bone.name)
     const meshes: ResolvedBoneMesh[] = []
     for (const rsdName of bone.rsds) {
       const rsdNode = await findSiblingByBaseName(
@@ -307,34 +252,101 @@ async function assembleHrcCharacter(
     bones.push({
       name: bone.name,
       parent: bone.parent,
-      direction,
-      pivot,
-      parentPivot,
+      parentIndex: nameToIndex.get(bone.parent) ?? -1,
+      length: bone.length,
       meshes,
     })
   }
+
+  // Sniff sibling `.a` files with matching bone count. Read each
+  // file's header only (36 bytes) — actually parsing the frames
+  // is deferred until the user picks one for playback.
+  const availableAnims: AvailableAnim[] = []
+  const aNodes = await findSiblingsByPredicate(root, selected, (n) =>
+    n.name.toLowerCase().endsWith(".a") && !!n.blob,
+  )
+  for (const n of aNodes) {
+    try {
+      const blob = await n.blob!()
+      const head = new Uint8Array(await blob.slice(0, 36).arrayBuffer())
+      if (head.byteLength < 36) continue
+      const v = new DataView(
+        head.buffer,
+        head.byteOffset,
+        head.byteLength,
+      )
+      const version = v.getUint32(0, true)
+      if (version !== 1) continue
+      const framesCount = v.getUint32(4, true)
+      const bonesCount = v.getUint32(8, true)
+      if (bonesCount !== hrc.boneCount) continue
+      availableAnims.push({
+        node: n,
+        name: n.name.replace(/\.a$/i, ""),
+        framesCount,
+        bonesCount,
+      })
+    } catch {
+      /* skip unreadable */
+    }
+  }
+  // Sort: 1-frame animations (bind poses) first, then by frame
+  // count ascending so common "stand / walk / run" triplets stay
+  // together.
+  availableAnims.sort((a, b) => {
+    if ((a.framesCount === 1) !== (b.framesCount === 1)) {
+      return a.framesCount === 1 ? -1 : 1
+    }
+    return a.framesCount - b.framesCount
+  })
+
   const hasGeometry = bones.some((b) => b.meshes.some((m) => m.mesh != null))
-  return { hrc, bones, hasGeometry, warnings }
+  return { hrc, bones, hasGeometry, availableAnims, warnings }
+}
+
+// ===========================================================================
+// Composite mesh builder
+// ===========================================================================
+
+/**
+ * One mesh-piece anchored to a specific bone. Holds the
+ * untransformed local vertex positions + normals, the vertex
+ * range in the flat composite buffer, and the bone index.
+ */
+interface RigMeshPiece {
+  /** Index into `AssembledHrcView.bones`. */
+  boneIndex: number
+  /** Local-frame positions, vec3-interleaved. */
+  localPositions: Float32Array
+  /** Local-frame normals, vec3-interleaved. */
+  localNormals: Float32Array
+  /** First vertex index in the composite buffer. */
+  vertexStart: number
+  /** Vertex count (= localPositions.length / 3). */
+  vertexCount: number
+  /** Section index in the composite mesh (also material slot). */
+  sectionIndex: number
 }
 
 /**
- * Build a single `RenderableMesh` from an assembled HRC: every
- * bone's mesh is translated into world space by adding the
- * bone's pivot to each vertex position, and emitted as its own
- * section so the shared MeshViewer can render per-material
- * texture slots.
- *
- * Texture indices on each section are GLOBAL across the whole
- * character, so the `materialDiffuseTextures` we pass to the
- * MeshViewer is a flat list indexed by global section index.
- * `texturesByGlobalIndex` returns that flat list.
+ * The static rig: a `RenderableMesh` whose positions buffer is
+ * zero-initialised; plus the metadata needed to repaint that
+ * buffer for any animation frame.
  */
-function buildCompositeMesh(assembled: AssembledHrcView): {
+interface BuiltRig {
   mesh: RenderableMesh
+  /** Flat list of mesh pieces, in section-emission order. */
+  pieces: RigMeshPiece[]
+  /** Material textures by section/material index. */
   textures: Array<DecodedTexture | null>
-} {
-  // First pass: count total verts + indices + sections, allocate
-  // typed arrays.
+}
+
+/**
+ * Build the static rig: emit one section per bone-mesh-group
+ * with placeholder positions. Local vertex data is retained so
+ * the per-frame skinner can transform them into world space.
+ */
+function buildCompositeRig(assembled: AssembledHrcView): BuiltRig | null {
   let totalVerts = 0
   let totalTris = 0
   let totalSections = 0
@@ -348,55 +360,40 @@ function buildCompositeMesh(assembled: AssembledHrcView): {
       }
     }
   }
+  if (totalSections === 0) return null
+
   const positions = new Float32Array(totalVerts * 3)
   const normals = new Float32Array(totalVerts * 3)
   const uvs = new Float32Array(totalVerts * 2)
+  // Per-vertex baked colors from the P file (BGRA8 → RGB float).
+  // FF7 PC field models bake per-vertex lighting at author time;
+  // untextured polygon groups render with these colors instead
+  // of relying on real-time lighting.
+  const colors = new Float32Array(totalVerts * 3)
   const indices = new Uint32Array(totalTris * 3)
   const sections: RenderableMeshSection[] = []
   const textures: Array<DecodedTexture | null> = []
+  const pieces: RigMeshPiece[] = []
 
   let vertCursor = 0
   let idxCursor = 0
   let hasAnyUv = false
   let materialSlot = 0
-  for (const bone of assembled.bones) {
-    const [px, py, pz] = bone.parentPivot
+  for (let bi = 0; bi < assembled.bones.length; bi++) {
+    const bone = assembled.bones[bi]!
     for (const m of bone.meshes) {
       if (!m.mesh) continue
       for (const g of m.mesh.groups) {
         const tris = ff7ExtractTriangles(m.mesh, g)
-        // The bone's mesh is authored in a frame where the bone
-        // extends along +Z. Rotate that local frame into the
-        // bone's bind-pose direction, then translate to the
-        // parent's pivot (where the bone is anchored). Apply the
-        // same rotation to the normals so lighting comes out
-        // right.
-        for (let i = 0; i < tris.positions.length; i += 3) {
-          const [rx, ry, rz] = rotateToBoneDir(
-            bone.direction,
-            tris.positions[i]!,
-            tris.positions[i + 1]!,
-            tris.positions[i + 2]!,
-          )
-          positions[(vertCursor + i / 3) * 3 + 0] = rx + px
-          positions[(vertCursor + i / 3) * 3 + 1] = ry + py
-          positions[(vertCursor + i / 3) * 3 + 2] = rz + pz
-        }
-        for (let i = 0; i < tris.normals.length; i += 3) {
-          const [nx, ny, nz] = rotateToBoneDir(
-            bone.direction,
-            tris.normals[i]!,
-            tris.normals[i + 1]!,
-            tris.normals[i + 2]!,
-          )
-          normals[(vertCursor + i / 3) * 3 + 0] = nx
-          normals[(vertCursor + i / 3) * 3 + 1] = ny
-          normals[(vertCursor + i / 3) * 3 + 2] = nz
-        }
+        const vc = tris.positions.length / 3
+        // Retain local-frame positions + normals for per-frame
+        // skinning. We don't write them into the composite
+        // buffer here — `applyFrameToGeometry` does that.
         if (tris.texCoords) {
           uvs.set(tris.texCoords, vertCursor * 2)
           hasAnyUv = true
         }
+        colors.set(tris.colors, vertCursor * 3)
         for (let i = 0; i < tris.indices.length; i++) {
           indices[idxCursor + i] = tris.indices[i]! + vertCursor
         }
@@ -405,10 +402,7 @@ function buildCompositeMesh(assembled: AssembledHrcView): {
           firstIndex: idxCursor,
           numTriangles: Math.floor(tris.indices.length / 3),
         })
-        // Resolve the texture for this section. The P group
-        // `textureNumber` indexes into the RSD's texture list;
-        // we flatten the (RSD, slot) pair into a global
-        // material slot.
+        // Resolve the texture for this section.
         let decoded: DecodedTexture | null = null
         if (g.areTexturesUsed && g.textureNumber < m.textures.length) {
           const tex = m.textures[g.textureNumber]
@@ -420,16 +414,20 @@ function buildCompositeMesh(assembled: AssembledHrcView): {
               pixels: tex.pixels,
               pixelFormat: tex.paletted ? "TEX8" : `TEX${tex.bitsPerPixel}`,
               normalReconstructed: false,
-              // FF7 TEX is already top-down + UVs put V=0 at top
-              // of the texture. Three.js's default `flipY=true`
-              // would put V=0 at the bottom on GPU, which gives
-              // mirrored textures. Disable the flip.
               flipY: false,
             }
           }
         }
         textures.push(decoded)
-        vertCursor += tris.positions.length / 3
+        pieces.push({
+          boneIndex: bi,
+          localPositions: tris.positions,
+          localNormals: tris.normals,
+          vertexStart: vertCursor,
+          vertexCount: vc,
+          sectionIndex: materialSlot,
+        })
+        vertCursor += vc
         idxCursor += tris.indices.length
         materialSlot++
       }
@@ -441,22 +439,229 @@ function buildCompositeMesh(assembled: AssembledHrcView): {
     positions,
     normals,
     uv: hasAnyUv ? uvs : undefined,
+    colors,
     indices,
     sections,
     label: `${vertCursor.toLocaleString()} verts, ${(idxCursor / 3).toLocaleString()} tris`,
   }
-  const renderable: RenderableMesh = {
+  const mesh: RenderableMesh = {
     lods: [lod],
-    // FF7 bones extend along +Z, which becomes +Y up after the
-    // viewer's z-up rotation. The bind pose has head at +Y after
-    // rotation, BUT chr/npc skeletons are authored with feet at
-    // +Z and head near root — so the assembled body extends
-    // *downward* from root. Flip Y to put head up.
+    // FF7 PC characters are authored Z-up; the viewer rotates
+    // -90° around X to display Y-up. Flip Y is enabled by
+    // default because the bind pose (especially aafe.a style)
+    // has the model standing on +Z = top after rotation.
     upAxis: "z-up",
     flipYDefault: true,
   }
-  return { mesh: renderable, textures }
+  return { mesh, pieces, textures }
 }
+
+// ===========================================================================
+// Skinning: compute per-bone matrices for a frame, apply to geometry
+// ===========================================================================
+
+/** Per-bone transform stack — one 4x4 world matrix per bone. */
+type BoneMatrices = THREE.Matrix4[]
+
+/**
+ * Compute world-space matrices for every bone in the skeleton.
+ *
+ * `frame` (when non-null) supplies per-bone Euler rotations
+ * + a root translation; without it bones use identity rotation
+ * (T-pose with only the upright X-flip applied at the root).
+ *
+ * Each bone's frame is:
+ *
+ *     M_B = M_parent · T(0, 0, -parent.length) · R(boneRotation)
+ *
+ * The translation along the parent's local -Z axis matches
+ * FF7's bone-extension convention (verified against kujata's
+ * ff7-to-gltf.js).
+ *
+ * The parent's bone *length* is what positions the child at the
+ * end of the parent's segment; the child's *own* rotation
+ * orients its local frame.
+ *
+ * The root bone (parent == 'root') is offset by the frame's
+ * root-translation. The root rotation is applied to the whole
+ * skeleton via the first bone's frame.
+ */
+function computeBoneMatrices(
+  bones: ResolvedBone[],
+  frame: ParsedAnim["frames"][number] | null,
+  rotationOrder: ParsedAnim["rotationOrder"] | null,
+): BoneMatrices {
+  const matrices: BoneMatrices = new Array(bones.length)
+  // FF7 PC field models always use intrinsic Euler order "YXZ"
+  // (kujata, FF7ToBlender). The `rotation_order` byte triple in
+  // the corpus is always [1, 0, 2] which maps to YXZ; defensively
+  // we still derive from the header.
+  const eulerOrder = rotationOrderToEulerString(rotationOrder)
+
+  const tmpRot = new THREE.Matrix4()
+  const tmpEuler = new THREE.Euler()
+  const tmpTrans = new THREE.Matrix4()
+
+  // Root transform: translation × rotation, with +180° added to
+  // X so the model stands upright. FF7 is -Y-up, three.js is
+  // +Y-up — the 180° X-flip resolves the mismatch (matches
+  // kujata's `ROOT_X_ROTATION_DEGREES = 180.0`).
+  const rootTrans = new THREE.Matrix4()
+  const rootRot = new THREE.Matrix4()
+  if (frame) {
+    rootTrans.makeTranslation(
+      frame.rootTranslation[0],
+      frame.rootTranslation[1],
+      frame.rootTranslation[2],
+    )
+    const [a, b, c] = frame.rootRotation
+    tmpEuler.set(
+      THREE.MathUtils.degToRad(a + 180),
+      THREE.MathUtils.degToRad(b),
+      THREE.MathUtils.degToRad(c),
+      eulerOrder,
+    )
+    rootRot.makeRotationFromEuler(tmpEuler)
+  } else {
+    // No animation loaded: apply only the upright flip.
+    tmpEuler.set(Math.PI, 0, 0, eulerOrder)
+    rootRot.makeRotationFromEuler(tmpEuler)
+  }
+  const rootMat = new THREE.Matrix4().multiplyMatrices(rootTrans, rootRot)
+
+  for (let i = 0; i < bones.length; i++) {
+    const bone = bones[i]!
+    const parentMat = bone.parentIndex >= 0 ? matrices[bone.parentIndex]! : rootMat
+
+    // Per-bone rotation from the animation, or identity when
+    // none is loaded (the "rest pose" — bones extend straight
+    // along their authored axis).
+    if (frame) {
+      const [a, b, c] = frame.boneRotations[i] ?? [0, 0, 0]
+      tmpEuler.set(
+        THREE.MathUtils.degToRad(a),
+        THREE.MathUtils.degToRad(b),
+        THREE.MathUtils.degToRad(c),
+        eulerOrder,
+      )
+      tmpRot.makeRotationFromEuler(tmpEuler)
+    } else {
+      tmpRot.identity()
+    }
+
+    // FF7 bones extend along their LOCAL -Z axis (kujata). The
+    // child bone sits at the parent's `(0, 0, -parent.length)`
+    // in the parent's local frame.
+    const parentLength =
+      bone.parentIndex >= 0 ? bones[bone.parentIndex]!.length : 0
+    tmpTrans.makeTranslation(0, 0, -parentLength)
+
+    const m = new THREE.Matrix4()
+    m.multiplyMatrices(parentMat, tmpTrans)
+    m.multiply(tmpRot)
+    matrices[i] = m
+  }
+  return matrices
+}
+
+/**
+ * Map an FF7 rotation_order byte triple to a three.js Euler
+ * order string. The mapping:
+ *
+ *   axis 0 → X
+ *   axis 1 → Y
+ *   axis 2 → Z
+ *
+ * The three byte values are the AXES IN APPLICATION ORDER, so
+ * we concatenate their letters.
+ */
+function rotationOrderToEulerString(
+  order: ParsedAnim["rotationOrder"] | null,
+): THREE.EulerOrder {
+  if (!order) return "YXZ"
+  const letters = order.map((n) => (n === 0 ? "X" : n === 1 ? "Y" : "Z")).join("")
+  // three.js valid orders are XYZ, XZY, YXZ, YZX, ZXY, ZYX.
+  switch (letters) {
+    case "XYZ":
+    case "XZY":
+    case "YXZ":
+    case "YZX":
+    case "ZXY":
+    case "ZYX":
+      return letters as THREE.EulerOrder
+    default:
+      return "YXZ"
+  }
+}
+
+/**
+ * Apply bone matrices to a composite geometry's position
+ * buffer (in place). Each piece's local positions/normals are
+ * transformed by its bone's world matrix and written into the
+ * piece's vertex range.
+ *
+ * Marks both `position` and `normal` attributes with
+ * `.needsUpdate = true` so Three.js re-uploads them to the GPU
+ * next render.
+ */
+function applyFrameToGeometry(
+  geometry: THREE.BufferGeometry,
+  pieces: RigMeshPiece[],
+  matrices: BoneMatrices,
+): void {
+  const posAttr = geometry.getAttribute("position") as
+    | THREE.BufferAttribute
+    | undefined
+  const normAttr = geometry.getAttribute("normal") as
+    | THREE.BufferAttribute
+    | undefined
+  if (!posAttr) return
+  const posArr = posAttr.array as Float32Array
+  const normArr = normAttr?.array as Float32Array | undefined
+  // The normal matrix is the inverse-transpose of the upper-3×3
+  // of the bone matrix; for rigid rotations this is just the
+  // rotation itself, so we can reuse `boneMat` directly.
+  const v = new THREE.Vector3()
+  const n = new THREE.Vector3()
+  for (const piece of pieces) {
+    const m = matrices[piece.boneIndex]!
+    for (let i = 0; i < piece.vertexCount; i++) {
+      const li = i * 3
+      const gi = (piece.vertexStart + i) * 3
+      v.set(
+        piece.localPositions[li]!,
+        piece.localPositions[li + 1]!,
+        piece.localPositions[li + 2]!,
+      )
+      v.applyMatrix4(m)
+      posArr[gi] = v.x
+      posArr[gi + 1] = v.y
+      posArr[gi + 2] = v.z
+      if (normArr) {
+        n.set(
+          piece.localNormals[li]!,
+          piece.localNormals[li + 1]!,
+          piece.localNormals[li + 2]!,
+        )
+        // Rotate normals (drop translation by setting w=0 implicitly).
+        n.transformDirection(m)
+        normArr[gi] = n.x
+        normArr[gi + 1] = n.y
+        normArr[gi + 2] = n.z
+      }
+    }
+  }
+  posAttr.needsUpdate = true
+  if (normAttr) normAttr.needsUpdate = true
+  // The bounding sphere stays roughly correct after skinning;
+  // recompute it cheaply so the camera-frame fit doesn't drift
+  // over time.
+  geometry.computeBoundingSphere()
+}
+
+// ===========================================================================
+// React components
+// ===========================================================================
 
 export function Ff7HrcPreview({
   node,
@@ -465,14 +670,10 @@ export function Ff7HrcPreview({
   node: Node
   root: Node | null
 }) {
-  // Step 1: parse the HRC (cheap).
   const { loading, data: hrc, error } = useAsync(async () => {
     return parseFf7HrcForView(await node.blob!())
   }, [node.id])
 
-  // Step 2: walk the bone chain + load sibling RSDs/Ps/TEXs.
-  // Expensive — only happens once per HRC, and the user can
-  // jump straight to the text-tree view if the assembly fails.
   const {
     loading: assembling,
     data: assembled,
@@ -496,6 +697,9 @@ export function Ff7HrcPreview({
           <p className="text-xs text-muted-foreground">
             FF7 skeleton: <code className="font-mono">{v.skeletonName}</code> ·{" "}
             {v.boneCount} bone{v.boneCount === 1 ? "" : "s"}
+            {assembled?.availableAnims.length
+              ? ` · ${assembled.availableAnims.length} matching animation${assembled.availableAnims.length === 1 ? "" : "s"}`
+              : ""}
           </p>
         </div>
         <div className="flex items-center gap-1 text-xs">
@@ -540,10 +744,110 @@ function CompositeMeshSection({
   assembleError: Error | null
   node: Node
 }) {
-  const built = useMemo(() => {
+  // Build the static rig once per assembled-character; per-frame
+  // mutations happen inside the animation driver.
+  const rig = useMemo(() => {
     if (!assembled || !assembled.hasGeometry) return null
-    return buildCompositeMesh(assembled)
+    return buildCompositeRig(assembled)
   }, [assembled])
+
+  // Cache of fully-parsed `.a` animations, lazily loaded on
+  // first selection.
+  const animCacheRef = useRef<Map<string, ParsedAnim>>(new Map())
+  // The driver re-creates if the available-anims list changes
+  // (different HRC opened or new siblings discovered). The
+  // viewer's animation transport uses the FIRST animation as
+  // the default "selected" entry.
+  const driver = useMemo<MeshViewerAnimationDriver | null>(() => {
+    if (!assembled || !rig) return null
+    const animations: MeshViewerAnimation[] = assembled.availableAnims.map(
+      (a) => ({
+        name: `${a.name} (${a.framesCount}f)`,
+        frameCount: Math.max(1, a.framesCount),
+        loop: a.framesCount > 1,
+      }),
+    )
+    return {
+      category: "animation",
+      animations,
+      sample(index, frame, ctx) {
+        if (!ctx.geometry) return
+        const animDescriptor =
+          index >= 0 && index < assembled.availableAnims.length
+            ? assembled.availableAnims[index]
+            : null
+        let parsed: ParsedAnim | null = null
+        if (animDescriptor) {
+          parsed = animCacheRef.current.get(animDescriptor.name) ?? null
+          if (!parsed) {
+            // Schedule a lazy load; the next sample call will
+            // pick it up. For the very first sample call after
+            // selection we render the fallback bind pose.
+            void (async () => {
+              try {
+                const blob = await animDescriptor.node.blob!()
+                const bytes = new Uint8Array(await blob.arrayBuffer())
+                animCacheRef.current.set(animDescriptor.name, parseAnim(bytes))
+                // Force a re-sample by mutating the geometry now
+                // that the data is available. The viewer's rAF
+                // loop will pick up the updated geometry on its
+                // next tick.
+                const pa = animCacheRef.current.get(animDescriptor.name)
+                if (pa) {
+                  const matrices = computeBoneMatrices(
+                    assembled.bones,
+                    pa.frames[
+                      Math.min(Math.floor(frame), pa.frames.length - 1)
+                    ] ?? null,
+                    pa.rotationOrder,
+                  )
+                  applyFrameToGeometry(ctx.geometry!, rig.pieces, matrices)
+                }
+              } catch {
+                /* drop unparseable animations silently */
+              }
+            })()
+            return
+          }
+        }
+        // Interpolate frame index between integer frames. The
+        // driver receives a floating-point `frame` value
+        // (rAF-driven), so for visual smoothness we lerp Euler
+        // rotations between the bracketing keyframes. FF7
+        // animations were authored at 15 fps but the viewer
+        // ticks at 60 fps — without this we'd see judder.
+        const fr = parsed
+          ? sampleAnimFrame(parsed, frame)
+          : null
+        const matrices = computeBoneMatrices(
+          assembled.bones,
+          fr,
+          parsed?.rotationOrder ?? null,
+        )
+        applyFrameToGeometry(ctx.geometry, rig.pieces, matrices)
+      },
+    }
+  }, [assembled, rig])
+
+  // First render of the geometry: apply the bind pose (either
+  // the first available 1-frame `.a` or the fallback heuristic).
+  // We watch for the FIRST geometry handoff via a ref + an
+  // effect that runs after the viewer has constructed it.
+  useEffect(() => {
+    if (!rig || !assembled || !driver) return
+    // The driver's `sample` will be called by the viewer
+    // automatically when an animation is selected. Until then,
+    // we want the rig in its bind pose so the model isn't a
+    // collapsed dot at the origin. The viewer's animation
+    // dropdown defaults to "no animation" — but we want the
+    // FIRST one selected. The viewer doesn't currently support
+    // a pre-selected index, so we apply the bind pose directly
+    // via the rig's underlying typed arrays. This runs before
+    // the WebGL renderer is attached, so no `needsUpdate`
+    // needed.
+    const matrices = computeBoneMatrices(assembled.bones, null, null)
+    applyMatricesToTypedArrays(rig, matrices)
+  }, [rig, assembled, driver])
 
   if (assembling) return <LoadingFiller label="Assembling character…" />
   if (assembleError) return <ErrorFiller error={assembleError} />
@@ -575,16 +879,27 @@ function CompositeMeshSection({
     )
   }
 
-  const lod = built!.mesh.lods[0]!
+  const lod = rig!.mesh.lods[0]!
   return (
     <section className="flex flex-1 flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span>
-          {assembled.bones.filter((b) => b.meshes.some((m) => m.mesh)).length}{" "}
+          {
+            assembled.bones.filter((b) => b.meshes.some((m) => m.mesh))
+              .length
+          }{" "}
           rendered bone
-          {assembled.bones.filter((b) => b.meshes.some((m) => m.mesh)).length === 1 ? "" : "s"}{" "}
+          {assembled.bones.filter((b) => b.meshes.some((m) => m.mesh))
+            .length === 1
+            ? ""
+            : "s"}{" "}
           · {lod.numVertices.toLocaleString()} verts ·{" "}
           {(lod.indices.length / 3).toLocaleString()} triangles
+          {assembled.availableAnims.length > 0 ? (
+            <> · {assembled.availableAnims.length} animation
+              {assembled.availableAnims.length === 1 ? "" : "s"}
+            </>
+          ) : null}
         </span>
         {assembled.warnings.length > 0 && (
           <details className="ml-auto">
@@ -605,13 +920,112 @@ function CompositeMeshSection({
       </div>
       <div className="min-h-[480px] flex-1">
         <MeshViewer
-          mesh={built!.mesh}
-          materialDiffuseTextures={built!.textures}
+          mesh={rig!.mesh}
+          materialDiffuseTextures={rig!.textures}
+          animationDrivers={driver ? [driver] : undefined}
           baseName={node.name}
         />
       </div>
     </section>
   )
+}
+
+/**
+ * Apply the given bone matrices directly to the rig's underlying
+ * typed-array positions/normals. Used to initialise the bind
+ * pose before the WebGL renderer is constructed (no
+ * `needsUpdate` flag needed at that point).
+ */
+function applyMatricesToTypedArrays(
+  rig: BuiltRig,
+  matrices: BoneMatrices,
+): void {
+  const lod = rig.mesh.lods[0]!
+  const posArr = lod.positions
+  const normArr = lod.normals
+  const v = new THREE.Vector3()
+  const n = new THREE.Vector3()
+  for (const piece of rig.pieces) {
+    const m = matrices[piece.boneIndex]!
+    for (let i = 0; i < piece.vertexCount; i++) {
+      const li = i * 3
+      const gi = (piece.vertexStart + i) * 3
+      v.set(
+        piece.localPositions[li]!,
+        piece.localPositions[li + 1]!,
+        piece.localPositions[li + 2]!,
+      )
+      v.applyMatrix4(m)
+      posArr[gi] = v.x
+      posArr[gi + 1] = v.y
+      posArr[gi + 2] = v.z
+      if (normArr) {
+        n.set(
+          piece.localNormals[li]!,
+          piece.localNormals[li + 1]!,
+          piece.localNormals[li + 2]!,
+        )
+        n.transformDirection(m)
+        normArr[gi] = n.x
+        normArr[gi + 1] = n.y
+        normArr[gi + 2] = n.z
+      }
+    }
+  }
+}
+
+/**
+ * Resolve an animation's frame at a (possibly fractional)
+ * frame index, lerping Euler rotations between the bracketing
+ * integer frames. FF7's authored frame rate was 15 fps; the
+ * viewer's animation transport ticks at 60 fps, so most
+ * sample calls land between two keyframes.
+ */
+function sampleAnimFrame(
+  anim: ParsedAnim,
+  frame: number,
+): ParsedAnim["frames"][number] {
+  if (anim.frames.length === 0) {
+    return {
+      rootRotation: [0, 0, 0],
+      rootTranslation: [0, 0, 0],
+      boneRotations: [],
+    }
+  }
+  const looped = ((frame % anim.frames.length) + anim.frames.length) % anim.frames.length
+  const f0 = Math.floor(looped)
+  const f1 = (f0 + 1) % anim.frames.length
+  const t = looped - f0
+  const a = anim.frames[f0]!
+  if (t <= 0 || f0 === f1) return a
+  const b = anim.frames[f1]!
+  const lerpAngle = (x: number, y: number) => {
+    // Shortest-arc Euler interpolation (angles in degrees).
+    let d = y - x
+    while (d > 180) d -= 360
+    while (d < -180) d += 360
+    return x + d * t
+  }
+  return {
+    rootRotation: [
+      lerpAngle(a.rootRotation[0], b.rootRotation[0]),
+      lerpAngle(a.rootRotation[1], b.rootRotation[1]),
+      lerpAngle(a.rootRotation[2], b.rootRotation[2]),
+    ],
+    rootTranslation: [
+      a.rootTranslation[0] + (b.rootTranslation[0] - a.rootTranslation[0]) * t,
+      a.rootTranslation[1] + (b.rootTranslation[1] - a.rootTranslation[1]) * t,
+      a.rootTranslation[2] + (b.rootTranslation[2] - a.rootTranslation[2]) * t,
+    ],
+    boneRotations: a.boneRotations.map((ar, i) => {
+      const br = b.boneRotations[i] ?? ar
+      return [
+        lerpAngle(ar[0], br[0]),
+        lerpAngle(ar[1], br[1]),
+        lerpAngle(ar[2], br[2]),
+      ] as [number, number, number]
+    }),
+  }
 }
 
 function BoneTree({ view }: { view: Ff7HrcView }) {
@@ -675,7 +1089,7 @@ export function Ff7RsdPreview({
   node: Node
   root: Node | null
 }) {
-  void root // sibling-fetch hook reserved for a future inline mesh preview
+  void root
   const { loading, data, error } = useAsync(async () => {
     return parseFf7RsdForView(await node.blob!())
   }, [node.id])
@@ -733,6 +1147,7 @@ export function Ff7PMeshPreview({ node }: { node: Node }) {
     const positions = new Float32Array(totalVerts * 3)
     const normals = new Float32Array(totalVerts * 3)
     const uvs = new Float32Array(totalVerts * 2)
+    const colors = new Float32Array(totalVerts * 3)
     const indices = new Uint32Array(totalTris * 3)
     const sections: RenderableMeshSection[] = []
     let vertCursor = 0
@@ -743,6 +1158,7 @@ export function Ff7PMeshPreview({ node }: { node: Node }) {
       const tris = ff7ExtractTriangles(view, g)
       positions.set(tris.positions, vertCursor * 3)
       normals.set(tris.normals, vertCursor * 3)
+      colors.set(tris.colors, vertCursor * 3)
       if (tris.texCoords) {
         uvs.set(tris.texCoords, vertCursor * 2)
         hasAnyUv = true
@@ -763,6 +1179,7 @@ export function Ff7PMeshPreview({ node }: { node: Node }) {
       positions,
       normals,
       uv: hasAnyUv ? uvs : undefined,
+      colors,
       indices,
       sections,
       label: `${vertCursor.toLocaleString()} verts, ${(idxCursor / 3).toLocaleString()} tris`,

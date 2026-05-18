@@ -2,7 +2,7 @@
 dist
 node_modules
 .vercel
-?.ts
+/?.ts
 *.tsbuildinfo
 .DS_Store
 

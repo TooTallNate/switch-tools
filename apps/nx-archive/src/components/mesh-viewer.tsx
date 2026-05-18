@@ -97,6 +97,14 @@ export interface RenderableMeshLOD {
   /** First UV channel (UV-interleaved); used when textures are bound. */
   uv?: Float32Array
   /**
+   * Per-vertex RGB linear colors (RGB-interleaved). When present
+   * AND a section has no diffuse texture, the section's material
+   * is rendered with `vertexColors: true` instead of the rainbow
+   * normals fallback. Used by FF7 PC field models (per-polygon
+   * vertex colors authored at PSX vertex-light bake time).
+   */
+  colors?: Float32Array
+  /**
    * 16- or 32-bit triangle-list index buffer. Triangles are
    * `[indices[3i], indices[3i+1], indices[3i+2]]`.
    */
@@ -157,8 +165,18 @@ export interface MeshViewerAnimationDriver {
    * Apply a clip + frame to the scene. Called every rAF tick
    * the viewer's frame counter changes. `index = -1` means "no
    * animation selected" — the driver should reset to bind pose.
+   *
+   * Drivers that need to mutate the rendered mesh's geometry
+   * (FF7 skeletal animation, BFRES skin pose, …) can do so via
+   * `ctx.geometry` — the `THREE.BufferGeometry` currently
+   * mounted on the visible mesh. Mark mutated attributes with
+   * `.needsUpdate = true` so Three.js re-uploads them.
    */
-  sample(index: number, frame: number): void
+  sample(
+    index: number,
+    frame: number,
+    ctx: { geometry: THREE.BufferGeometry | null },
+  ): void
 }
 
 /**
@@ -252,6 +270,9 @@ function buildGeometry(lod: RenderableMeshLOD): THREE.BufferGeometry {
   }
   if (lod.uv) {
     geom.setAttribute("uv", new THREE.BufferAttribute(lod.uv, 2))
+  }
+  if (lod.colors) {
+    geom.setAttribute("color", new THREE.BufferAttribute(lod.colors, 3))
   }
   geom.setIndex(new THREE.BufferAttribute(lod.indices, 1))
   for (const sec of lod.sections) {
@@ -390,6 +411,10 @@ export function MeshViewer({
   driversRef.current = drivers
   const selectedAnimsRef = useRef(selectedAnims)
   selectedAnimsRef.current = selectedAnims
+  // Stable ref to the currently-mounted geometry, so animation
+  // drivers can mutate it in place without us threading
+  // closures through the rAF loop.
+  const geometryRef = useRef<THREE.BufferGeometry | null>(null)
 
   // Resize the per-driver selection array if the driver count
   // changes (rare — drivers usually arrive once at mount).
@@ -418,6 +443,9 @@ export function MeshViewer({
 
   const lod = mesh.lods[selectedLOD]
   const geometry = geometries[selectedLOD]
+  // Mirror the currently-displayed geometry into the stable
+  // ref so animation drivers can mutate it.
+  geometryRef.current = geometry ?? null
   const upAxis = mesh.upAxis ?? "y-up"
 
   useEffect(() => {
@@ -451,6 +479,7 @@ export function MeshViewer({
     scene.add(dirLight)
 
     const useTextures = !forceNormalShading && hasAnyTexture
+    const hasVertexColors = Boolean(lod.colors)
     const slotCount = Math.max(
       ...lod.sections.map((s) => s.materialIndex + 1),
       materialDiffuseTextures?.length ?? 0,
@@ -470,6 +499,28 @@ export function MeshViewer({
             wireframe: showWireframe,
             roughness: 0.85,
             metalness: 0,
+            // Even when the geometry has a `color` attribute,
+            // textured slots should render the texture as-is —
+            // FF7 bakes very dark vertex colors into eye/mouth
+            // polygons that would otherwise blacken the texture.
+            vertexColors: false,
+            // FF7 textures use 1-bit alpha for cutout regions
+            // (eye sockets, mouth interiors). Discard fully-
+            // transparent texels at the fragment level so the
+            // model behind them shows through.
+            transparent: true,
+            alphaTest: 0.5,
+          }),
+        )
+      } else if (hasVertexColors && !forceNormalShading) {
+        // Per-vertex baked colors (FF7 PC field models). Use a
+        // basic unlit-ish material so the authored colors show
+        // up faithfully without being washed out by lighting.
+        materials.push(
+          new THREE.MeshBasicMaterial({
+            vertexColors: true,
+            side: THREE.DoubleSide,
+            wireframe: showWireframe,
           }),
         )
       } else {
@@ -610,7 +661,7 @@ export function MeshViewer({
       // so scrubbing has immediate visual feedback.
       for (let d = 0; d < driversRef.current.length; d++) {
         const idx = selectedAnimsRef.current[d] ?? -1
-        driversRef.current[d]!.sample(idx, frame)
+        driversRef.current[d]!.sample(idx, frame, { geometry: geometryRef.current })
       }
       return
     }
@@ -641,7 +692,7 @@ export function MeshViewer({
         }
         for (let d = 0; d < driversRef.current.length; d++) {
           const idx = selectedAnimsRef.current[d] ?? -1
-          driversRef.current[d]!.sample(idx, next)
+          driversRef.current[d]!.sample(idx, next, { geometry: geometryRef.current })
         }
         return next
       })
@@ -657,7 +708,7 @@ export function MeshViewer({
   useEffect(() => {
     for (let d = 0; d < drivers.length; d++) {
       const idx = selectedAnims[d] ?? -1
-      drivers[d]!.sample(idx, frame)
+      drivers[d]!.sample(idx, frame, { geometry: geometryRef.current })
     }
   }, [selectedAnims, drivers])
 

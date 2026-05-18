@@ -26,3 +26,4 @@ export * from './hrc.js';
 export * from './rsd.js';
 export * from './p.js';
 export * from './tex.js';
+export * from './a.js';
