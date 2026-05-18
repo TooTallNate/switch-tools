@@ -1991,13 +1991,19 @@ async function vbfEntriesToNodes(
 					});
 				}
 				const file = child.file!;
-				// Route through childNodeFor so any sniffable nested
-				// formats (DDS / phyre textures, embedded SARCs,
-				// etc.) become traversable. VBF's `data` is a lazy
-				// chunk-decompressing facade; nested container
-				// parsers will see it as a real Blob via `.slice()`
-				// / `.arrayBuffer()` / `.stream()`.
-				return childNodeFor(childId, name, file.data, ctx);
+				// Route through childNodeFor so known-extension
+				// containers (.nca, .sarc, .zip, etc.) inside the
+				// VBF still dispatch to their dedicated readers.
+				// SKIP the magic-sniff fallback though — VBF
+				// entries are zlib-chunked, so probing the first 12
+				// bytes of each of ~35k files would inflate ~35k
+				// chunks of 64 KiB each and freeze the renderer.
+				// VBFs in practice contain leaf data files
+				// (textures, sounds, configs) so the sniff would
+				// almost never produce a hit anyway.
+				return childNodeFor(childId, name, file.data, ctx, {
+					skipMagicSniff: true,
+				});
 			}),
 		);
 	};
@@ -3972,14 +3978,50 @@ function childDirectoryNodeFor(opts: {
 
 // ----- Generic dispatcher for nested children whose container type is determined by name/sniff -----
 
+interface ChildNodeForOptions {
+	tikMap?: TikMap;
+	siblings?: SiblingMap;
+	/**
+	 * Skip the bottom magic-sniff fallback that fires for files
+	 * whose extension doesn't match any known container.
+	 *
+	 * Why this exists: the sniff reads ~12 bytes from each blob,
+	 * which is normally cheap. But for containers whose child
+	 * Blobs are lazy decompression facades (e.g. a VBF with
+	 * 35,000 entries where each leaf is a zlib-chunked
+	 * VbfChunkBlob), every "cheap" 12-byte read forces inflation
+	 * of a full 64 KiB chunk. Multiplied across 35k children
+	 * that's ~2 GB of memory churn that locks up the renderer.
+	 *
+	 * Containers populated with leaf data files (textures,
+	 * sounds, configs) can safely opt out — the dispatcher
+	 * still honours known extensions like `.nca` / `.sarc` /
+	 * `.zip`, just doesn't probe unknown extensions.
+	 */
+	skipMagicSniff?: boolean;
+}
+
 async function childNodeFor(
 	id: string,
 	name: string,
 	blob: Blob,
 	ctx: ArchiveContext,
-	tikMap?: TikMap,
+	tikMapOrOpts?: TikMap | ChildNodeForOptions,
 	siblings?: SiblingMap,
 ): Promise<Node> {
+	// Backwards-compat: the legacy 5-arg signature passed
+	// `(id, name, blob, ctx, tikMap)`. New callers pass an
+	// options object as the 5th arg. Detect and normalise.
+	let tikMap: TikMap | undefined;
+	let opts: ChildNodeForOptions | undefined;
+	if (tikMapOrOpts && typeof tikMapOrOpts === 'object' && !(tikMapOrOpts instanceof Map)) {
+		opts = tikMapOrOpts as ChildNodeForOptions;
+		tikMap = opts.tikMap;
+		if (!siblings) siblings = opts.siblings;
+	} else {
+		tikMap = tikMapOrOpts as TikMap | undefined;
+	}
+	const skipMagicSniff = opts?.skipMagicSniff === true;
 	const ext = extOf(name);
 	if (ext === 'nca') return makeNcaNode(id, name, blob, ctx, tikMap);
 	if (ext === 'ncz') return makeNczNode(id, name, blob, ctx, tikMap);
@@ -4066,6 +4108,21 @@ async function childNodeFor(
 	// magic. This is cheap for SARC / ZIP / RomFS children (the
 	// parent's bytes are already in memory and a 4-byte slice is
 	// effectively free) and handles the long tail uniformly.
+	//
+	// Callers with thousands of leaf children whose blobs are
+	// expensive to peek at (e.g. VBF entries that decompress 64 KiB
+	// chunks on every slice) can opt out via skipMagicSniff.
+	if (skipMagicSniff) {
+		return {
+			id,
+			name,
+			kind: 'file',
+			isContainer: false,
+			size: blob.size,
+			format: detectFormat(name) || 'BIN',
+			blob: async () => blob,
+		};
+	}
 	const sniffed = await sniffMagicCheap(blob);
 	if (sniffed === 'sarc') return makeSarcNode(id, name, blob, ctx);
 	if (sniffed === 'vbf') return makeVbfNode(id, name, blob, ctx);
