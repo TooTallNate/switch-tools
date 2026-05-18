@@ -135,6 +135,14 @@ export type PreviewKind =
 	| 'midi-audio'
 	/** SoundFont 2 bank (`.sf2`, RIFF/sfbk). */
 	| 'sf2-info'
+	/** FF7 PC binary P-format mesh (`.p`). */
+	| 'ff7-pmesh'
+	/** FF7 PC palette-indexed/RGB texture (`.tex`). */
+	| 'ff7-tex'
+	/** FF7 PC textual skeleton hierarchy (`.hrc`). */
+	| 'ff7-hrc'
+	/** FF7 PC textual resource reference (`.rsd`). */
+	| 'ff7-rsd'
 	/** Tiny ARSL manifest of BARS file paths. */
 	| 'barslist-info'
 	/** Nintendo MSBT (MsgStdBn) — localized text/dialog/UI strings. */
@@ -395,6 +403,13 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.mid') || lower.endsWith('.midi'))
 		return 'midi-audio';
 	if (lower.endsWith('.sf2')) return 'sf2-info';
+	// FF7 PC model formats — used by both PC FF7 *and* the
+	// Nintendo Switch port (which ships the PC asset tree
+	// verbatim under `ff7/workingdir/data/`).
+	if (lower.endsWith('.p')) return 'ff7-pmesh';
+	if (lower.endsWith('.tex')) return 'ff7-tex';
+	if (lower.endsWith('.hrc')) return 'ff7-hrc';
+	if (lower.endsWith('.rsd')) return 'ff7-rsd';
 	// Unreal `.ubulk` is a codec-agnostic "bulk data" sidecar, but in
 	// practice the overwhelming majority of `.ubulk` files we encounter
 	// are Wwise audio payloads (RIFF/WAVE wrappers) sitting under
@@ -2314,6 +2329,45 @@ export async function decodePhyreTextureForMaterial(
 		return null;
 	}
 }
+
+// ----- FF7 PC model previews -----
+
+import {
+	parseHrc as parseFf7Hrc,
+	parseRsd as parseFf7Rsd,
+	parsePMesh as parseFf7P,
+	parseTex as parseFf7Tex,
+	extractTrianglesForGroup as ff7ExtractTriangles,
+	type ParsedHrc as Ff7HrcView,
+	type ParsedRsd as Ff7RsdView,
+	type ParsedP as Ff7PView,
+	type ParsedTex as Ff7TexView,
+} from '@tootallnate/ff7-pc-model';
+
+export type {
+	Ff7HrcView,
+	Ff7RsdView,
+	Ff7PView,
+	Ff7TexView,
+};
+
+export async function parseFf7HrcForView(blob: Blob): Promise<Ff7HrcView> {
+	return parseFf7Hrc(new Uint8Array(await blob.arrayBuffer()));
+}
+
+export async function parseFf7RsdForView(blob: Blob): Promise<Ff7RsdView> {
+	return parseFf7Rsd(new Uint8Array(await blob.arrayBuffer()));
+}
+
+export async function parseFf7PForView(blob: Blob): Promise<Ff7PView> {
+	return parseFf7P(new Uint8Array(await blob.arrayBuffer()));
+}
+
+export async function parseFf7TexForView(blob: Blob): Promise<Ff7TexView> {
+	return parseFf7Tex(new Uint8Array(await blob.arrayBuffer()));
+}
+
+export { ff7ExtractTriangles };
 
 // ----- Standard MIDI File metadata preview -----
 

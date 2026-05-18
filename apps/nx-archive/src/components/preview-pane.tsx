@@ -69,6 +69,12 @@ import { StaticMeshViewer } from "./static-mesh-viewer"
 import { PhyreMeshViewer } from "./phyre-mesh-viewer"
 import { MidiPreview, Sf2Preview } from "./midi-preview"
 import {
+  Ff7HrcPreview,
+  Ff7PMeshPreview,
+  Ff7RsdPreview,
+  Ff7TexPreview,
+} from "./ff7-pc-model-preview"
+import {
   decodeUeMip,
   describePixelFormat,
   UnsupportedPixelFormatError,
@@ -1826,6 +1832,14 @@ function FilePreview({
       return <MidiPreview node={node} root={root} />
     case "sf2-info":
       return <Sf2Preview node={node} />
+    case "ff7-pmesh":
+      return <Ff7PMeshPreview node={node} />
+    case "ff7-tex":
+      return <Ff7TexPreview node={node} />
+    case "ff7-hrc":
+      return <Ff7HrcPreview node={node} />
+    case "ff7-rsd":
+      return <Ff7RsdPreview node={node} />
     case "barslist-info":
       return <BarslistPreview node={node} />
     case "bnvib-audio":
