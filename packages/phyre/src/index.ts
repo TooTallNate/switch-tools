@@ -956,10 +956,25 @@ export function findMesh(parsed: ParsedPhyre): PhyreMesh | null {
 			vertexCount: b.elementCount,
 			offset: vertexPoolOffset + b.offsetInMemoryBuffer,
 		}));
-		// Pick the position stream: prefer the first one named
-		// `SkinnableVertex`; fall back to the first vec3 stream
-		// (stride 12) when names couldn't be resolved.
-		let posIdx = streams.findIndex((s) => s.name === 'SkinnableVertex');
+		// Pick the position stream. Heuristics, in order:
+		//
+		//   1. First stream named `Vertex` or `SkinnableVertex`
+		//      with stride 12 (vec3 float32). Some FFX monster
+		//      meshes (e.g. m182) include a `SkinnableVertex`
+		//      stream of stride 16 — that's a packed
+		//      position+weight or similar; the *actual* positions
+		//      are in a `Vertex` stream earlier in the list.
+		//   2. First stream of stride 12 regardless of name —
+		//      useful when names couldn't be resolved.
+		//   3. Stream 0 as a last resort.
+		//
+		// We deliberately filter by stride to avoid picking
+		// a stride-16 "Skinnable" stream that's NOT positions.
+		let posIdx = streams.findIndex(
+			(s) =>
+				s.stride === 12 &&
+				(s.name === 'Vertex' || s.name === 'SkinnableVertex'),
+		);
 		if (posIdx < 0) posIdx = streams.findIndex((s) => s.stride === 12);
 		if (posIdx < 0) posIdx = 0;
 		const posStream = streams[posIdx]!;
@@ -1049,9 +1064,14 @@ export function extractUVs(
 	parsed: ParsedPhyre,
 	segment: PhyreMeshSegment,
 ): Float32Array | null {
+	// `ST` is the canonical UV-channel name (Maya convention).
+	// We accept it as either a stride-8 (vec2 float32) stream
+	// or skip if some future variant compresses UVs (half-
+	// float). No alternate spelling has appeared yet in the
+	// FFX HD corpus, but the lookup is name-flexible for
+	// safety.
 	const stream = findStream(segment, 'ST');
 	if (!stream) return null;
-	// Only the common case for now: stride 8 = vec2 float32.
 	if (stream.stride !== 8) return null;
 	const out = new Float32Array(segment.vertexCount * 2);
 	const v = new DataView(
@@ -1070,18 +1090,27 @@ export function extractUVs(
 /**
  * Extract vertex normals for a single mesh segment.
  *
- * PhyreEngine NVN stores normals as `SkinnableNormal` (vec3
- * float32, stride 12). Returns `null` if the segment has no
- * normal stream — the caller should fall back to flat-shaded
- * face normals (Three.js does this via `computeVertexNormals`).
+ * Looks for a stride-12 (vec3 float32) normal stream under the
+ * canonical names `SkinnableNormal` (skinned meshes) or
+ * `Normal` (static/object meshes). Returns `null` if no
+ * matching stream exists — the caller should fall back to
+ * flat-shaded face normals (Three.js does this via
+ * `computeVertexNormals`).
+ *
+ * Some monster meshes (e.g. m182) ALSO have a stride-4
+ * `SkinnableNormal` stream that's a packed byte-quantised
+ * normal — not what we want. The stride check filters those
+ * out so we use the proper float32 normal stream instead.
  */
 export function extractNormals(
 	parsed: ParsedPhyre,
 	segment: PhyreMeshSegment,
 ): Float32Array | null {
-	const stream = findStream(segment, 'SkinnableNormal');
-	if (!stream) return null;
-	if (stream.stride !== 12) return null;
+	let stream = findStream(segment, 'Normal');
+	if (!stream || stream.stride !== 12) {
+		stream = findStream(segment, 'SkinnableNormal');
+	}
+	if (!stream || stream.stride !== 12) return null;
 	const out = new Float32Array(segment.vertexCount * 3);
 	const v = new DataView(
 		parsed.bytes.buffer,
