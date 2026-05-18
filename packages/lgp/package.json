@@ -1,0 +1,29 @@
+{
+  "name": "@tootallnate/lgp",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Pure-JS parser for the LGP archive format used by Final Fantasy VII / VIII on PC (the \"SQUARESOFT\" container ending with the magic \"FINAL FANTASY7\"). Reads the table of contents + per-file headers from a Blob; produces a lazy list of entries whose `.data` is a Blob slice ready for re-streaming. No directory rebuild — paths from the optional path table are flattened into each entry.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "lgp",
+    "final-fantasy",
+    "ff7",
+    "ff8",
+    "squaresoft",
+    "archive"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/lgp"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

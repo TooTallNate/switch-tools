@@ -131,6 +131,10 @@ export type PreviewKind =
 	 * an AWB bank or any source that hands us raw HCA bytes routes
 	 * here; the preview decodes to PCM via `@tootallnate/hca`. */
 	| 'hca-audio'
+	/** Standard MIDI file (`.mid` / `.midi`, magic `MThd`). */
+	| 'midi-audio'
+	/** SoundFont 2 bank (`.sf2`, RIFF/sfbk). */
+	| 'sf2-info'
 	/** Tiny ARSL manifest of BARS file paths. */
 	| 'barslist-info'
 	/** Nintendo MSBT (MsgStdBn) — localized text/dialog/UI strings. */
@@ -388,6 +392,9 @@ export function detectPreviewKind(name: string): PreviewKind {
 	// `kind === 'awb'` and the preview pane dispatches directly on
 	// that, so it never reaches `detectPreviewKind`.
 	if (lower.endsWith('.hca')) return 'hca-audio';
+	if (lower.endsWith('.mid') || lower.endsWith('.midi'))
+		return 'midi-audio';
+	if (lower.endsWith('.sf2')) return 'sf2-info';
 	// Unreal `.ubulk` is a codec-agnostic "bulk data" sidecar, but in
 	// practice the overwhelming majority of `.ubulk` files we encounter
 	// are Wwise audio payloads (RIFF/WAVE wrappers) sitting under
@@ -2306,6 +2313,383 @@ export async function decodePhyreTextureForMaterial(
 	} catch {
 		return null;
 	}
+}
+
+// ----- Standard MIDI File metadata preview -----
+
+/**
+ * Parsed metadata for a standard MIDI file. The Web Audio
+ * preview component renders this alongside a play button that
+ * routes the bytes through spessasynth_lib with a user-selected
+ * SoundFont.
+ */
+export interface MidiView {
+	/**
+	 * MIDI file format type:
+	 *   - `0`: single-track (all events in one chunk)
+	 *   - `1`: multi-track (one chunk per track, played simultaneously)
+	 *   - `2`: multi-pattern (one chunk per pattern, played independently)
+	 */
+	format: 0 | 1 | 2;
+	/** Number of MTrk chunks. */
+	trackCount: number;
+	/**
+	 * Time division. When positive, this is ticks per quarter
+	 * note (PPQN — pulses per quarter). When the top bit is
+	 * set, the file uses SMPTE time codes (rare for music).
+	 */
+	ticksPerQuarter: number;
+	/**
+	 * Approximate total duration in seconds, derived by tracking
+	 * tempo (set-tempo meta events) across the longest track.
+	 */
+	durationSeconds: number;
+	/**
+	 * Instrument program numbers (0..127, GM) that appear in
+	 * Program Change events across all tracks. Duplicates
+	 * removed; sorted ascending.
+	 */
+	programs: number[];
+	/** Channels (0..15) that received at least one Note On event. */
+	channelsUsed: number[];
+	/** Text from any "Track Name" meta event (0xFF 0x03). */
+	trackNames: string[];
+	/** Original bytes — kept so the playback component can hand them straight to the synthesizer. */
+	bytes: Uint8Array;
+}
+
+/**
+ * Parse a Standard MIDI File's headers + a quick first-pass scan
+ * for metadata. Doesn't synthesise audio — that's spessasynth's
+ * job. We just compute enough to fill the metadata panel + a
+ * passable duration estimate for the playback scrubber.
+ *
+ * Format reference:
+ *   https://www.midi.org/specifications-old/item/the-midi-1-0-specification
+ *
+ * Tick → seconds conversion: each tick is `microsecondsPerQuarter
+ * / ticksPerQuarter` microseconds. The default tempo (when no
+ * SetTempo event has been seen) is 500_000 µs/quarter = 120 BPM.
+ */
+export async function parseMidiForView(blob: Blob): Promise<MidiView> {
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	if (bytes.byteLength < 14) {
+		throw new Error('MIDI file too small');
+	}
+	const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	if (
+		bytes[0] !== 0x4d ||
+		bytes[1] !== 0x54 ||
+		bytes[2] !== 0x68 ||
+		bytes[3] !== 0x64
+	) {
+		throw new Error('Missing MThd magic');
+	}
+	// MIDI is big-endian. `DataView`'s default `littleEndian = false`
+	// matches that, so we don't pass `true` to any of these reads.
+	const formatRaw = v.getUint16(8);
+	const ntrks = v.getUint16(10);
+	const division = v.getUint16(12);
+	const format = (formatRaw === 0 || formatRaw === 1 || formatRaw === 2 ? formatRaw : 1) as 0 | 1 | 2;
+	// SMPTE division has bit 15 set; we surface the raw ticks
+	// value and let the playback layer decide what to do.
+	const ticksPerQuarter = division;
+
+	// Walk tracks. Per spec, MTrk chunks have a 4-byte length
+	// each, followed by the events. We accumulate per-track tick
+	// counts and merge tempo / program / channel-usage facts.
+	const programs = new Set<number>();
+	const channels = new Set<number>();
+	const trackNames: string[] = [];
+	// `tempoMap` is the list of `[tickAtChange, microsecondsPerQuarter]` pairs
+	// learned from any track. We use whichever track has the highest tick count
+	// to size the duration.
+	const tempoMap: Array<[number, number]> = [[0, 500000]];
+	let maxTrackTicks = 0;
+
+	let cursor = 14;
+	for (let t = 0; t < ntrks && cursor + 8 <= bytes.byteLength; t++) {
+		const chunkId = String.fromCharCode(
+			bytes[cursor]!,
+			bytes[cursor + 1]!,
+			bytes[cursor + 2]!,
+			bytes[cursor + 3]!,
+		);
+		const chunkSize = v.getUint32(cursor + 4);
+		const trackStart = cursor + 8;
+		const trackEnd = trackStart + chunkSize;
+		cursor = trackEnd;
+		if (chunkId !== 'MTrk') continue;
+		// Walk events.
+		let pos = trackStart;
+		let ticks = 0;
+		let runningStatus = 0;
+		while (pos < trackEnd) {
+			// Variable-length delta-time
+			const dt = readVlq(bytes, pos);
+			pos = dt.nextPos;
+			ticks += dt.value;
+			if (pos >= trackEnd) break;
+			let status = bytes[pos]!;
+			if (status < 0x80) {
+				// Running status — reuse previous status byte
+				status = runningStatus;
+			} else {
+				pos++;
+				runningStatus = status;
+			}
+			if (status === 0xff) {
+				// Meta event: status + type + vlq-length + data
+				const type = bytes[pos++]!;
+				const len = readVlq(bytes, pos);
+				pos = len.nextPos;
+				const dataStart = pos;
+				const dataEnd = pos + len.value;
+				pos = dataEnd;
+				if (type === 0x51 && len.value >= 3) {
+					// Set Tempo: 24-bit BE microseconds per quarter
+					const uspq =
+						(bytes[dataStart]! << 16) |
+						(bytes[dataStart + 1]! << 8) |
+						bytes[dataStart + 2]!;
+					tempoMap.push([ticks, uspq]);
+				} else if (type === 0x03 && len.value > 0) {
+					// Track Name
+					let s = '';
+					for (let i = dataStart; i < dataEnd; i++) {
+						const b = bytes[i]!;
+						if (b >= 32 && b < 127) s += String.fromCharCode(b);
+					}
+					if (s) trackNames.push(s);
+				} else if (type === 0x2f) {
+					// End of Track
+					break;
+				}
+			} else if (status === 0xf0 || status === 0xf7) {
+				// SysEx — skip its variable-length body
+				const len = readVlq(bytes, pos);
+				pos = len.nextPos + len.value;
+			} else {
+				const upper = status & 0xf0;
+				const ch = status & 0x0f;
+				if (upper === 0x90) {
+					// Note On (with velocity check — velocity 0 = note off)
+					const vel = bytes[pos + 1] ?? 0;
+					if (vel > 0) channels.add(ch);
+					pos += 2;
+				} else if (upper === 0xc0) {
+					// Program Change — 1 data byte
+					programs.add(bytes[pos]!);
+					pos += 1;
+				} else if (
+					upper === 0x80 ||
+					upper === 0xa0 ||
+					upper === 0xb0 ||
+					upper === 0xe0
+				) {
+					pos += 2;
+				} else if (upper === 0xd0) {
+					pos += 1;
+				} else {
+					// Unknown — bail out of this track to be safe.
+					break;
+				}
+			}
+		}
+		if (ticks > maxTrackTicks) maxTrackTicks = ticks;
+	}
+
+	// Compute total duration from the tempo map.
+	let totalUs = 0;
+	for (let i = 0; i < tempoMap.length; i++) {
+		const [tickAt, uspq] = tempoMap[i]!;
+		const nextTick =
+			i + 1 < tempoMap.length ? tempoMap[i + 1]![0] : maxTrackTicks;
+		if (nextTick > tickAt && ticksPerQuarter > 0) {
+			totalUs += ((nextTick - tickAt) / ticksPerQuarter) * uspq;
+		}
+	}
+	const durationSeconds = totalUs / 1_000_000;
+
+	return {
+		format,
+		trackCount: ntrks,
+		ticksPerQuarter,
+		durationSeconds,
+		programs: [...programs].sort((a, b) => a - b),
+		channelsUsed: [...channels].sort((a, b) => a - b),
+		trackNames,
+		bytes,
+	};
+}
+
+/** Read a 7-bit-per-byte variable-length quantity at `offset`. */
+function readVlq(
+	bytes: Uint8Array,
+	offset: number,
+): { value: number; nextPos: number } {
+	let value = 0;
+	let pos = offset;
+	for (let i = 0; i < 4; i++) {
+		const b = bytes[pos++] ?? 0;
+		value = (value << 7) | (b & 0x7f);
+		if ((b & 0x80) === 0) break;
+	}
+	return { value, nextPos: pos };
+}
+
+// ----- SoundFont 2 metadata preview -----
+
+/** One preset (a.k.a. instrument bank slot) from an SF2 PHDR chunk. */
+export interface Sf2Preset {
+	name: string;
+	bank: number;
+	program: number;
+}
+
+/** Metadata extracted from an SF2 / SF3 file. */
+export interface Sf2View {
+	/** Bank name from `INAM` (RIFF INFO sub-chunk). */
+	name: string;
+	/** Engine / SF version from `isng` (e.g. "EMU8000"). */
+	engine: string;
+	/** Author / vendor from `IENG`. */
+	author: string;
+	/** SF spec version from `ifil` (major.minor). */
+	sfVersion: string;
+	/** Copyright from `ICOP`. */
+	copyright: string;
+	/** Comment from `ICMT`. */
+	comment: string;
+	/** All presets from the `phdr` sub-chunk. */
+	presets: Sf2Preset[];
+	/** Number of samples (`shdr` chunk size / 46, minus the terminal record). */
+	sampleCount: number;
+	/** Size of the `smpl` chunk (the actual sample data, 16-bit PCM). */
+	sampleDataSize: number;
+	/** Total file size, for the toolbar. */
+	fileSize: number;
+}
+
+/**
+ * Parse the metadata portion of a SoundFont 2 file. We read the
+ * RIFF chunk tree to find:
+ *
+ *   - `LIST/INFO`: bank name, engine, author, spec version
+ *   - `LIST/pdta/phdr`: preset records (38 bytes each)
+ *   - `LIST/pdta/shdr`: sample records (46 bytes each, for count)
+ *   - `LIST/sdta/smpl`: raw 16-bit PCM samples (size only)
+ *
+ * Doesn't decode or load samples — playback is delegated to
+ * spessasynth_lib, which prefers to receive the original bytes.
+ */
+export async function parseSf2ForView(blob: Blob): Promise<Sf2View> {
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	if (bytes.byteLength < 12) {
+		throw new Error('SF2 file too small');
+	}
+	const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	if (
+		bytes[0] !== 0x52 || bytes[1] !== 0x49 || bytes[2] !== 0x46 || bytes[3] !== 0x46 ||
+		bytes[8] !== 0x73 || bytes[9] !== 0x66 || bytes[10] !== 0x62 || bytes[11] !== 0x6b
+	) {
+		throw new Error('Missing RIFF/sfbk magic');
+	}
+
+	const decoder = new TextDecoder('ascii');
+	let name = '', engine = '', author = '', sfVersion = '', copyright = '', comment = '';
+	let presets: Sf2Preset[] = [];
+	let sampleCount = 0;
+	let sampleDataSize = 0;
+
+	// Walk top-level chunks under RIFF/sfbk.
+	let pos = 12;
+	while (pos + 8 <= bytes.byteLength) {
+		const id = decoder.decode(bytes.subarray(pos, pos + 4));
+		const size = v.getUint32(pos + 4, true);
+		const payload = pos + 8;
+		if (id === 'LIST' && payload + 4 <= bytes.byteLength) {
+			const form = decoder.decode(bytes.subarray(payload, payload + 4));
+			if (form === 'INFO') {
+				let sub = payload + 4;
+				while (sub + 8 <= payload + size) {
+					const sid = decoder.decode(bytes.subarray(sub, sub + 4));
+					const ssize = v.getUint32(sub + 4, true);
+					const sbody = sub + 8;
+					const sbodyEnd = Math.min(sbody + ssize, bytes.byteLength);
+					if (sid === 'INAM') name = readNulString(bytes, sbody, sbodyEnd);
+					else if (sid === 'isng') engine = readNulString(bytes, sbody, sbodyEnd);
+					else if (sid === 'IENG') author = readNulString(bytes, sbody, sbodyEnd);
+					else if (sid === 'ICOP') copyright = readNulString(bytes, sbody, sbodyEnd);
+					else if (sid === 'ICMT') comment = readNulString(bytes, sbody, sbodyEnd);
+					else if (sid === 'ifil' && ssize >= 4) {
+						const major = v.getUint16(sbody, true);
+						const minor = v.getUint16(sbody + 2, true);
+						sfVersion = `${major}.${minor}`;
+					}
+					sub = sbody + ssize + (ssize & 1);
+				}
+			} else if (form === 'sdta') {
+				let sub = payload + 4;
+				while (sub + 8 <= payload + size) {
+					const sid = decoder.decode(bytes.subarray(sub, sub + 4));
+					const ssize = v.getUint32(sub + 4, true);
+					if (sid === 'smpl') sampleDataSize = ssize;
+					sub = sub + 8 + ssize + (ssize & 1);
+				}
+			} else if (form === 'pdta') {
+				let sub = payload + 4;
+				while (sub + 8 <= payload + size) {
+					const sid = decoder.decode(bytes.subarray(sub, sub + 4));
+					const ssize = v.getUint32(sub + 4, true);
+					const sbody = sub + 8;
+					if (sid === 'phdr') {
+						// Each PHDR record is 38 bytes. Last record is a
+						// "EOP" terminator we skip.
+						const recordCount = Math.floor(ssize / 38);
+						const out: Sf2Preset[] = [];
+						for (let r = 0; r < recordCount - 1; r++) {
+							const rOff = sbody + r * 38;
+							const nameBytes = bytes.subarray(rOff, rOff + 20);
+							const presetName = readNulString(nameBytes, 0, nameBytes.byteLength);
+							const programNum = v.getUint16(rOff + 20, true);
+							const bankNum = v.getUint16(rOff + 22, true);
+							out.push({ name: presetName, program: programNum, bank: bankNum });
+						}
+						presets = out;
+					} else if (sid === 'shdr') {
+						// 46 bytes per record; subtract the terminal EOS.
+						sampleCount = Math.max(0, Math.floor(ssize / 46) - 1);
+					}
+					sub = sbody + ssize + (ssize & 1);
+				}
+			}
+		}
+		pos = payload + size + (size & 1);
+	}
+
+	return {
+		name,
+		engine,
+		author,
+		sfVersion,
+		copyright,
+		comment,
+		presets,
+		sampleCount,
+		sampleDataSize,
+		fileSize: bytes.byteLength,
+	};
+}
+
+function readNulString(bytes: Uint8Array, start: number, end: number): string {
+	let s = '';
+	for (let i = start; i < end; i++) {
+		const b = bytes[i]!;
+		if (b === 0) break;
+		if (b >= 32 && b < 127) s += String.fromCharCode(b);
+	}
+	return s.trim();
 }
 
 // ----- BFRES metadata preview -----

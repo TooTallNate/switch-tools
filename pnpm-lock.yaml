@@ -195,7 +195,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       autoprefixer:
         specifier: ^10.4.24
-        version: 10.4.24(postcss@8.4.49)
+        version: 10.4.24(postcss@8.5.6)
       tailwindcss:
         specifier: ^3.4.16
         version: 3.4.16
@@ -322,6 +322,9 @@ importers:
       '@tootallnate/iostore':
         specifier: workspace:*
         version: link:../../packages/iostore
+      '@tootallnate/lgp':
+        specifier: workspace:*
+        version: link:../../packages/lgp
       '@tootallnate/lz4':
         specifier: workspace:^
         version: link:../../packages/lz4
@@ -457,6 +460,12 @@ importers:
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      spessasynth_core:
+        specifier: ^4.2.13
+        version: 4.2.13
+      spessasynth_lib:
+        specifier: ^4.2.15
+        version: 4.2.15
       tailwind-merge:
         specifier: ^3.5.0
         version: 3.5.0
@@ -794,6 +803,12 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.3.3
+
+  packages/lgp:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
 
   packages/lz4:
     devDependencies:
@@ -6833,6 +6848,12 @@ packages:
   spdx-license-ids@3.0.13:
     resolution: {integrity: sha512-XkD+zwiqXHikFZm4AX/7JSCXA98U5Db4AFd5XUg/+9UNtnH75+Z9KxtpYiJZx36mUDVOwH83pl7yvCer6ewM3w==}
 
+  spessasynth_core@4.2.13:
+    resolution: {integrity: sha512-IB3K1MZBsvgufvjuaB0FT71+btQfwBsNJt0iQFGG/iaprlRbKkgQ5IYvZ9+y9vsKLgJryOlt/mtlGomt0hRSjQ==}
+
+  spessasynth_lib@4.2.15:
+    resolution: {integrity: sha512-3QEOkzws6J/z/hkYS4jTO9uxM99NwoPH1J/L61+DAAxoedeBZopY3M5Ebql/r+4DOy1rcULnQYExucEjVp0C8w==}
+
   split2@4.2.0:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
     engines: {node: '>= 10.x'}
@@ -10556,13 +10577,13 @@ snapshots:
 
   astring@1.8.6: {}
 
-  autoprefixer@10.4.24(postcss@8.4.49):
+  autoprefixer@10.4.24(postcss@8.5.6):
     dependencies:
       browserslist: 4.28.1
       caniuse-lite: 1.0.30001774
       fraction.js: 5.3.4
       picocolors: 1.1.1
-      postcss: 8.4.49
+      postcss: 8.5.6
       postcss-value-parser: 4.2.0
 
   available-typed-arrays@1.0.5: {}
@@ -14000,6 +14021,12 @@ snapshots:
       spdx-license-ids: 3.0.13
 
   spdx-license-ids@3.0.13: {}
+
+  spessasynth_core@4.2.13: {}
+
+  spessasynth_lib@4.2.15:
+    dependencies:
+      spessasynth_core: 4.2.13
 
   split2@4.2.0: {}
 

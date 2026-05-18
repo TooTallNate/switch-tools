@@ -18,6 +18,7 @@ import { decode as romfsDecode, type RomFsEntry } from '@tootallnate/romfs';
 import { decompressNcz, isNcz, type OnProgress } from '@tootallnate/ncz';
 import { parseSarc, type SarcEntry } from '@tootallnate/sarc';
 import { parseVbf, type VbfFileEntry } from '@tootallnate/vbf';
+import { parseLgp, type LgpEntry } from '@tootallnate/lgp';
 import {
 	parseWd,
 	decodeWaveToWav,
@@ -126,6 +127,13 @@ export type NodeKind =
 	 * .dds" download.
 	 */
 	| 'phyre'
+	/**
+	 * Square LGP archive (`.lgp`, magic `\0\0SQUARESOFT` + footer
+	 * `FINAL FANTASY7`). Used by FF7/FF8 PC for textures, models,
+	 * MIDI music, etc. Browseable like a directory; entries are
+	 * lazy slices into the archive.
+	 */
+	| 'lgp'
 	| 'lz4'
 	| 'zstd'
 	| 'unityfs'
@@ -418,6 +426,10 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	wd: 'WD', // Square wave bank — FFXI/X/X-2/Crystal Chronicles
 	'square-wd': 'WD', // alias used by the magic sniffer (returns 'square-wd')
 	phyre: 'Phyre', // Sony PhyreEngine container — FFX/X-2 HD, FFXII TZA
+	lgp: 'LGP', // Square LGP archive — FF7/FF8 PC
+	sf2: 'SF2', // SoundFont 2 — sample-based MIDI instrument bank
+	mid: 'MIDI', // Standard MIDI file
+	midi: 'MIDI',
 };
 
 /**
@@ -488,7 +500,8 @@ type SniffedFormat =
 	| 'bimage'
 	| 'vbf'
 	| 'square-wd'
-	| 'phyre';
+	| 'phyre'
+	| 'lgp';
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -521,6 +534,16 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (m4 === 'SARC') return 'sarc';
 	if (m4 === 'SRYK') return 'vbf';
 	if (m4 === 'RYHP') return 'phyre'; // Sony PhyreEngine — LE magic 0x50485952
+	// Square LGP archive — `\0\0SQUARESOFT` at offset 0, used
+	// for FF7/FF8 PC asset packs (music, models, textures).
+	if (
+		head.length >= 12 &&
+		head[0] === 0x00 &&
+		head[1] === 0x00 &&
+		String.fromCharCode(...head.subarray(2, 12)) === 'SQUARESOFT'
+	) {
+		return 'lgp';
+	}
 	if (m4 === 'Yaz0') return 'szs'; // we treat all Yaz0 as SZS-style for browsing
 	if (m4 === 'BARS') return 'bars';
 	if (m4 === 'FSAR') return 'bfsar';
@@ -1978,6 +2001,93 @@ function makeVbfNode(
 			return vbfEntriesToNodes(id, parsed.entries, ctx);
 		},
 	};
+}
+
+function makeLgpNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'lgp',
+		isContainer: true,
+		size: blob.size,
+		format: 'LGP',
+		blob: async () => blob,
+		getChildren: async () => {
+			const parsed = await parseLgp(blob);
+			return lgpEntriesToNodes(id, parsed.entries, ctx);
+		},
+	};
+}
+
+/**
+ * LGP entries carry an optional `directory` from the path table.
+ * For files in the root the directory is empty; otherwise we
+ * build a tree the same way the VBF flat-paths code does. Each
+ * entry's `data` is already a lazy `Blob.slice()` over the
+ * source archive, so child nodes inherit free laziness.
+ */
+async function lgpEntriesToNodes(
+	parentId: string,
+	entries: LgpEntry[],
+	ctx: ArchiveContext,
+): Promise<Node[]> {
+	type Tree = Map<string, { dir?: Tree; file?: LgpEntry }>;
+	const root: Tree = new Map();
+	for (const entry of entries) {
+		const parts = entry.name.split('/').filter((p) => p.length > 0);
+		if (parts.length === 0) continue;
+		let cur = root;
+		for (let i = 0; i < parts.length; i++) {
+			const part = parts[i]!;
+			const isLast = i === parts.length - 1;
+			let node = cur.get(part);
+			if (!node) {
+				node = {};
+				cur.set(part, node);
+			}
+			if (isLast) {
+				node.file = entry;
+			} else {
+				if (!node.dir) node.dir = new Map();
+				cur = node.dir;
+			}
+		}
+	}
+
+	const treeToNodes = async (treeId: string, t: Tree): Promise<Node[]> => {
+		const names = [...t.keys()].sort((a, b) => {
+			// Directories first, then files; natural-sort within each.
+			const an = t.get(a)!;
+			const bn = t.get(b)!;
+			const aIsDir = !!an.dir;
+			const bIsDir = !!bn.dir;
+			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+			return humanCompare(a, b);
+		});
+		return Promise.all(
+			names.map(async (n): Promise<Node> => {
+				const nodeRec = t.get(n)!;
+				const cid = `${treeId}/${n}`;
+				if (nodeRec.dir) {
+					const subtree = nodeRec.dir;
+					return childDirectoryNodeFor({
+						id: cid,
+						name: n,
+						getChildren: async () => treeToNodes(cid, subtree),
+					});
+				}
+				const file = nodeRec.file!;
+				return childNodeFor(cid, n, file.data, ctx);
+			}),
+		);
+	};
+
+	return treeToNodes(parentId, root);
 }
 
 /**
@@ -4171,6 +4281,7 @@ async function childNodeFor(
 	if (ext === 'zip') return makeZipNode(id, name, blob, ctx);
 	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob, ctx);
 	if (ext === 'vbf') return makeVbfNode(id, name, blob, ctx);
+	if (ext === 'lgp') return makeLgpNode(id, name, blob, ctx);
 	if (ext === 'wd') return makeSquareWdNode(id, name, blob, ctx);
 	if (ext === 'resources') return makeIdTechResourcesNode(id, name, blob, ctx);
 	if (ext === 'szs') return makeSzsNode(id, name, blob, ctx);
@@ -4265,6 +4376,7 @@ async function childNodeFor(
 	const sniffed = await sniffMagicCheap(blob);
 	if (sniffed === 'sarc') return makeSarcNode(id, name, blob, ctx);
 	if (sniffed === 'vbf') return makeVbfNode(id, name, blob, ctx);
+	if (sniffed === 'lgp') return makeLgpNode(id, name, blob, ctx);
 	if (sniffed === 'square-wd') return makeSquareWdNode(id, name, blob, ctx);
 	if (sniffed === 'idtech-resources') return makeIdTechResourcesNode(id, name, blob, ctx);
 	if (sniffed === 'szs') return makeSzsNode(id, name, blob, ctx);

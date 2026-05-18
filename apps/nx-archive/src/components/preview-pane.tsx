@@ -67,6 +67,7 @@ import {
 import { decodeTexture2D as decodeUnityTexture2D } from "~/lib/unity-texture"
 import { StaticMeshViewer } from "./static-mesh-viewer"
 import { PhyreMeshViewer } from "./phyre-mesh-viewer"
+import { MidiPreview, Sf2Preview } from "./midi-preview"
 import {
   decodeUeMip,
   describePixelFormat,
@@ -1821,6 +1822,10 @@ function FilePreview({
       return <FmodSamplePreview node={node} />
     case "hca-audio":
       return <HcaAudioPreview node={node} />
+    case "midi-audio":
+      return <MidiPreview node={node} root={root} />
+    case "sf2-info":
+      return <Sf2Preview node={node} />
     case "barslist-info":
       return <BarslistPreview node={node} />
     case "bnvib-audio":
@@ -1861,7 +1866,7 @@ function FilePreview({
 
 // -------- Async loader hook --------
 
-function useAsync<T>(loader: () => Promise<T>, deps: unknown[]) {
+export function useAsync<T>(loader: () => Promise<T>, deps: unknown[]) {
   const [state, setState] = useState<{
     loading: boolean
     data: T | null
@@ -8593,7 +8598,7 @@ function NintendoAudioPlayer({
   )
 }
 
-function formatDuration(seconds: number): string {
+export function formatDuration(seconds: number): string {
   if (!isFinite(seconds) || seconds < 0) return "—"
   const m = Math.floor(seconds / 60)
   const s = seconds - m * 60
@@ -13713,7 +13718,7 @@ function KvRow({
   )
 }
 
-function LoadingFiller({ label }: { label: string }) {
+export function LoadingFiller({ label }: { label: string }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
       <Spinner />
@@ -13767,7 +13772,7 @@ function ProgressFiller({
   )
 }
 
-function ErrorFiller({ error }: { error: Error }) {
+export function ErrorFiller({ error }: { error: Error }) {
   return (
     <div className="flex h-full items-center justify-center p-6">
       <Alert variant="destructive" className="max-w-md">
