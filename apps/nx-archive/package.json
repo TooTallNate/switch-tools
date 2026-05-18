@@ -66,6 +66,7 @@
     "@tootallnate/oodle-wasm": "workspace:*",
     "@tootallnate/pfs0": "workspace:*",
     "@tootallnate/phyre": "workspace:*",
+    "@tootallnate/ms-adpcm": "workspace:*",
     "@tootallnate/ps-adpcm": "workspace:*",
     "@tootallnate/romfs": "workspace:*",
     "@tootallnate/sarc": "workspace:*",

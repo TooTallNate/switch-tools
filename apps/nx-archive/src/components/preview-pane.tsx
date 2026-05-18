@@ -172,6 +172,7 @@ import {
   buildHexDump,
   detectPreviewKind,
   extOf,
+  prepareAudioBlobForBrowser,
   parseBarsForView,
   parseBarslistForView,
   parseBffntForView,
@@ -2141,7 +2142,7 @@ function MediaPreview({
   // through to the progress bar.
   const { loading, data, error, progress } = useAsyncWithProgress(
     async (onProgress) => {
-      const blob = await node.blob!()
+      let blob = await node.blob!()
       if (blob.size > MEDIA_PREVIEW_LIMIT) {
         throw new Error(
           `Media file too large to preview (${formatBytes(blob.size)}). Download to view.`,
@@ -2152,6 +2153,15 @@ function MediaPreview({
         kind === "audio"
           ? AUDIO_MIME[ext] ?? "audio/*"
           : VIDEO_MIME[ext] ?? "video/*"
+      // Audio fix-ups: some `.wav` files use codec tags
+      // (MS-ADPCM, IMA-ADPCM, etc.) the browser can't decode
+      // natively. `prepareAudioBlobForBrowser` sniffs the
+      // header and transcodes to plain PCM-WAV when needed.
+      // No-op for the common case (PCM WAV / MP3 / Vorbis /
+      // FLAC), so the SW-streaming path below still applies.
+      if (kind === "audio") {
+        blob = await prepareAudioBlobForBrowser(blob, node.name)
+      }
       return makePreviewUrl(blob, mime, node.name, (bytesRead, total) =>
         onProgress({
           bytesIn: bytesRead,

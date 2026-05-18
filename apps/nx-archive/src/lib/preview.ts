@@ -37,6 +37,10 @@ import {
 	type ParsedBfstm,
 } from '@tootallnate/bfstm';
 import { encodeWav, encodeWavBlob } from '@tootallnate/dsp-adpcm';
+import {
+	isMsAdpcmWav,
+	transcodeMsAdpcmToPcmWav,
+} from '@tootallnate/ms-adpcm';
 import { parseBarslist, type ParsedBarslist } from '@tootallnate/barslist';
 import {
 	parseBnvib,
@@ -269,6 +273,44 @@ export const VIDEO_MIME: Record<string, string> = {
 	mov: 'video/quicktime',
 	mkv: 'video/x-matroska',
 };
+
+/**
+ * Coerce an audio blob into a browser-playable form.
+ *
+ * `<audio>` and `AudioContext.decodeAudioData()` support only a
+ * small set of codecs across vendors — PCM WAV, MP3, AAC,
+ * Vorbis, Opus, FLAC. Any of the *other* WAV codec tags
+ * (MS-ADPCM, IMA-ADPCM, A-law, mu-law, GSM…) silently fail
+ * with `NS_ERROR_DOM_MEDIA_METADATA_ERR` on Firefox or
+ * `Failed to load because no supported source was found` on
+ * Chrome.
+ *
+ * This helper sniffs the RIFF header up front; if the file is
+ * a MS-ADPCM WAV we transcode it to PCM-WAV via
+ * `@tootallnate/ms-adpcm` and hand back the new Blob. For
+ * everything else (PCM WAV, MP3, etc.) we return the source
+ * blob unchanged.
+ *
+ * Only inspected for `.wav` inputs — non-WAV containers can't
+ * suffer from this issue.
+ */
+export async function prepareAudioBlobForBrowser(
+	blob: Blob,
+	filename: string,
+): Promise<Blob> {
+	if (!filename.toLowerCase().endsWith('.wav')) return blob;
+	// Peek at just enough of the header to identify the codec.
+	// The MS-ADPCM check needs the first 22 bytes (RIFF magic +
+	// WAVE + fmt header up to wFormatTag).
+	const head = new Uint8Array(await blob.slice(0, 22).arrayBuffer());
+	if (!isMsAdpcmWav(head)) return blob;
+	// Confirmed MS-ADPCM — pull the full bytes and transcode to
+	// PCM-WAV. Materialising the full file is necessary anyway:
+	// browsers don't tolerate streaming reencoding via
+	// MediaSource (no PCM source buffer support).
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	return transcodeMsAdpcmToPcmWav(bytes);
+}
 
 export function extOf(name: string): string {
 	const i = name.lastIndexOf('.');

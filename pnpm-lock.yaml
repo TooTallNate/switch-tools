@@ -195,7 +195,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       autoprefixer:
         specifier: ^10.4.24
-        version: 10.4.24(postcss@8.5.6)
+        version: 10.4.24(postcss@8.4.49)
       tailwindcss:
         specifier: ^3.4.16
         version: 3.4.16
@@ -325,6 +325,9 @@ importers:
       '@tootallnate/lz4':
         specifier: workspace:^
         version: link:../../packages/lz4
+      '@tootallnate/ms-adpcm':
+        specifier: workspace:*
+        version: link:../../packages/ms-adpcm
       '@tootallnate/msbt':
         specifier: workspace:*
         version: link:../../packages/msbt
@@ -793,6 +796,12 @@ importers:
         version: 5.3.3
 
   packages/lz4:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/ms-adpcm:
     devDependencies:
       typescript:
         specifier: ^5.3.3
@@ -10547,13 +10556,13 @@ snapshots:
 
   astring@1.8.6: {}
 
-  autoprefixer@10.4.24(postcss@8.5.6):
+  autoprefixer@10.4.24(postcss@8.4.49):
     dependencies:
       browserslist: 4.28.1
       caniuse-lite: 1.0.30001774
       fraction.js: 5.3.4
       picocolors: 1.1.1
-      postcss: 8.5.6
+      postcss: 8.4.49
       postcss-value-parser: 4.2.0
 
   available-typed-arrays@1.0.5: {}

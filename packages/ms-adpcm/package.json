@@ -1,0 +1,29 @@
+{
+  "name": "@tootallnate/ms-adpcm",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Pure-JS decoder for Microsoft ADPCM (also known as MS-ADPCM or WAVE_FORMAT_ADPCM, wFormatTag = 0x0002), the 4-bit lossy audio codec used by Windows-era CD-ROM games and several Final Fantasy HD Remaster ports. Parses the standard RIFF/WAVE container with its MS-ADPCM extension (predictor coefficient table, per-block header), decodes to interleaved s16 PCM, and re-encodes as a standard PCM WAV ready for the HTML5 <audio> element.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "ms-adpcm",
+    "msadpcm",
+    "wave_format_adpcm",
+    "wav",
+    "audio",
+    "decoder"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/ms-adpcm"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
