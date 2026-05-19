@@ -195,7 +195,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       autoprefixer:
         specifier: ^10.4.24
-        version: 10.4.24(postcss@8.4.49)
+        version: 10.4.24(postcss@8.5.6)
       tailwindcss:
         specifier: ^3.4.16
         version: 3.4.16
@@ -1091,7 +1091,7 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
       vitest:
-        specifier: ^2.1.0
+        specifier: ^2.1.9
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
   packages/square-wd:
@@ -10726,13 +10726,13 @@ snapshots:
 
   astring@1.8.6: {}
 
-  autoprefixer@10.4.24(postcss@8.4.49):
+  autoprefixer@10.4.24(postcss@8.5.6):
     dependencies:
       browserslist: 4.28.1
       caniuse-lite: 1.0.30001774
       fraction.js: 5.3.4
       picocolors: 1.1.1
-      postcss: 8.4.49
+      postcss: 8.5.6
       postcss-value-parser: 4.2.0
 
   available-typed-arrays@1.0.5: {}
