@@ -400,6 +400,9 @@ importers:
       '@tootallnate/sarc':
         specifier: workspace:*
         version: link:../../packages/sarc
+      '@tootallnate/sead-audio':
+        specifier: workspace:*
+        version: link:../../packages/sead-audio
       '@tootallnate/square-wd':
         specifier: workspace:*
         version: link:../../packages/square-wd
@@ -1081,6 +1084,15 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.9.3
+
+  packages/sead-audio:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
   packages/square-wd:
     dependencies:

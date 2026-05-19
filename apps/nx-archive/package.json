@@ -56,6 +56,7 @@
     "@tootallnate/dds": "workspace:*",
     "@tootallnate/ff8-battle": "workspace:*",
     "@tootallnate/ff8-fs": "workspace:*",
+    "@tootallnate/sead-audio": "workspace:*",
     "@tootallnate/ff8-field": "workspace:*",
     "@tootallnate/fmod-bank": "workspace:*",
     "@tootallnate/fsb5": "workspace:*",

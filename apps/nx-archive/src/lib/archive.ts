@@ -153,6 +153,15 @@ export type NodeKind =
 	| 'bfres'
 	| 'awb'
 	| 'acb'
+	/**
+	 * Square Enix SEAD audio bank (`.sab` sound effects /
+	 * `.mab` music). Magic `sabf` / `mabf`. Contains one or
+	 * more audio streams encoded as HCA, Ogg Vorbis, MS-ADPCM,
+	 * etc. Used by every Square Unity-based title since FFXV:
+	 * FF Pixel Remasters, Kingdom Hearts 3 / Melody of Memory,
+	 * FFXII TZA, FF VII Remake, Paranormasight, etc.
+	 */
+	| 'sead-audio'
 	| 'gfpak'
 	| 'wwise-pck'
 	| 'wwise-bnk'
@@ -2714,6 +2723,69 @@ function siblingsToAwbResolver(
  * with hundreds of tracks, the only eager work is parsing the AFS2
  * header (a few KiB) and optionally the ACB header.
  */
+/**
+ * Make a Square Enix SEAD audio container node (`.sab` /
+ * `.mab` / `.sab.bytes` / `.mab.bytes`).
+ *
+ * Exposes each contained audio stream as a child node with
+ * a synthetic filename based on the codec:
+ *   `<index>_<name>.hca`    — for HCA streams (most common)
+ *   `<index>_<name>.ogg`    — for Ogg Vorbis (browser-playable directly)
+ *   `<index>_<name>.bin`    — for codecs we don't have downstream
+ *                             decoders for yet (ATRAC9, XMA2, etc.)
+ */
+function makeSeadAudioNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'sead-audio',
+		isContainer: true,
+		size: blob.size,
+		format: 'SEAD',
+		blob: async () => blob,
+		getChildren: async () => {
+			const { parseSead } = await import('@tootallnate/sead-audio');
+			const bytes = new Uint8Array(await blob.arrayBuffer());
+			const sead = parseSead(bytes);
+			void ctx;
+			const out: Node[] = [];
+			for (const m of sead.materials) {
+				const safeName = m.name.replace(/[^\w.-]/g, '_');
+				let ext = 'bin';
+				// Pick which byte slice to expose, and synthesize a
+				// filename whose extension matches the codec so the
+				// downstream preview routes correctly (.hca, .ogg, or
+				// a generic .bin fallback for codecs we don't decode
+				// yet — ATRAC9, XMA2, etc.).
+				let payload: Uint8Array = m.streamData;
+				const extras = m.extras as { codec: string; decryptedHca?: Uint8Array };
+				if (extras.codec === 'hca' && extras.decryptedHca) {
+					ext = 'hca';
+					payload = extras.decryptedHca;
+				} else if (extras.codec === 'ogg-vorbis') {
+					ext = 'ogg';
+				}
+				const buf = new ArrayBuffer(payload.byteLength);
+				new Uint8Array(buf).set(payload);
+				const childBlob = new Blob([buf]);
+				const childName = `${safeName}.${ext}`;
+				const cid = `${id}/${childName}`;
+				out.push(
+					await childNodeFor(cid, childName, childBlob, ctx, {
+						skipMagicSniff: true,
+					}),
+				);
+			}
+			return out;
+		},
+	};
+}
+
 function makeAwbNode(
 	id: string,
 	name: string,
@@ -4630,6 +4702,17 @@ async function childNodeFor(
 	if (ext === 'bfsar') return makeBfsarNode(id, name, blob, ctx);
 	if (ext === 'bfwar') return makeBfwarNode(id, name, blob, ctx);
 	if (ext === 'bfres') return makeBfresNode(id, name, blob, ctx);
+	if (ext === 'sab' || ext === 'mab' || ext === 'sabf' || ext === 'mabf') {
+		return makeSeadAudioNode(id, name, blob, ctx);
+	}
+	// Unity TextAsset wrappers around SEAD files use the
+	// `.sab.bytes` / `.mab.bytes` convention. Route those too.
+	if (ext === 'bytes') {
+		const lowerName = name.toLowerCase();
+		if (lowerName.endsWith('.sab.bytes') || lowerName.endsWith('.mab.bytes')) {
+			return makeSeadAudioNode(id, name, blob, ctx);
+		}
+	}
 	if (ext === 'awb') {
 		return makeAwbNode(id, name, blob, ctx, siblingsToAwbResolver(siblings));
 	}
