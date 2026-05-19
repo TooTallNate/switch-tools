@@ -1869,7 +1869,7 @@ function FilePreview({
     case "ff7-scene-bin":
       return <Ff7SceneBinPreview node={node} />
     case "ff7-world-map":
-      return <Ff7WorldMapPreview node={node} />
+      return <Ff7WorldMapPreview node={node} root={root} />
     case "barslist-info":
       return <BarslistPreview node={node} />
     case "bnvib-audio":
