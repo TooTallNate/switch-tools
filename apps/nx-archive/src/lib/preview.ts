@@ -153,6 +153,22 @@ export type PreviewKind =
 	 * displays the result.
 	 */
 	| 'ff7-field-scene'
+	/**
+	 * FF7 PC battle-character master skeleton (`<id>aa` inside
+	 * `battle.lgp`). Decodes the 52-byte binary HRC + per-bone
+	 * records, resolves sibling bone-mesh / texture / animation
+	 * files by filename convention, and renders the composite
+	 * character through the shared MeshViewer.
+	 */
+	| 'ff7-battle-skeleton'
+	/**
+	 * FF7 PC battle animation pack (`<id>da` inside `battle.lgp`).
+	 * Bundles all body + weapon animations for one character.
+	 * The preview lists the animations + frame counts; actual
+	 * playback happens through the matching `ff7-battle-skeleton`
+	 * preview.
+	 */
+	| 'ff7-battle-anim-pack'
 	/** Tiny ARSL manifest of BARS file paths. */
 	| 'barslist-info'
 	/** Nintendo MSBT (MsgStdBn) — localized text/dialog/UI strings. */

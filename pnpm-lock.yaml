@@ -298,6 +298,9 @@ importers:
       '@tootallnate/dxtk-font':
         specifier: workspace:*
         version: link:../../packages/dxtk-font
+      '@tootallnate/ff7-battle':
+        specifier: workspace:*
+        version: link:../../packages/ff7-battle
       '@tootallnate/ff7-flevel':
         specifier: workspace:*
         version: link:../../packages/ff7-flevel
@@ -732,6 +735,15 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.9.3
+
+  packages/ff7-battle:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
   packages/ff7-flevel:
     devDependencies:

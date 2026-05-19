@@ -76,6 +76,10 @@ import {
 } from "./ff7-pc-model-preview"
 import { Ff7FieldScenePreview } from "./ff7-field-scene-preview"
 import {
+  Ff7BattleSkeletonPreview,
+  Ff7BattleAnimPackPreview,
+} from "./ff7-battle-preview"
+import {
   decodeUeMip,
   describePixelFormat,
   UnsupportedPixelFormatError,
@@ -390,6 +394,16 @@ function PreviewContent({
       // FF7 PC field scenes (inside `flevel.lgp`) are detected at
       // tree-build time — they have no extension.
       if (node.meta?.ff7FieldScene) return "ff7-field-scene"
+      // FF7 PC battle skeleton (`<id>aa` inside `battle.lgp`) —
+      // composite 3D preview.
+      if (node.meta?.ff7BattleSkeleton) return "ff7-battle-skeleton"
+      // FF7 PC battle animation pack (`<id>da`) — informational
+      // listing of all animations + frame counts.
+      if (node.meta?.ff7BattleAnimPack) return "ff7-battle-anim-pack"
+      // Extensionless `.p` / `.tex` files under `battle.lgp` —
+      // reuse the existing field-model previews.
+      if (node.meta?.ff7P) return "ff7-pmesh"
+      if (node.meta?.ff7Tex) return "ff7-tex"
       return detectPreviewKind(node.name)
     },
     [isFile, node.name, node.meta, node.kind],
@@ -1846,6 +1860,10 @@ function FilePreview({
       return <Ff7RsdPreview node={node} root={root} />
     case "ff7-field-scene":
       return <Ff7FieldScenePreview node={node} />
+    case "ff7-battle-skeleton":
+      return <Ff7BattleSkeletonPreview node={node} root={root} />
+    case "ff7-battle-anim-pack":
+      return <Ff7BattleAnimPackPreview node={node} />
     case "barslist-info":
       return <BarslistPreview node={node} />
     case "bnvib-audio":

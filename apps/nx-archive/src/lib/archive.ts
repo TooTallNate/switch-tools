@@ -4382,6 +4382,88 @@ async function childNodeFor(
 		};
 	}
 
+	// FF7 PC battle models live inside `battle.lgp` as
+	// extensionless 4-char files. Three sub-formats by suffix:
+	//   <id>aa    → master skeleton (binary HRC equivalent)
+	//   <id>am..cz → P-mesh (uses the same .p parser as field models)
+	//   <id>ac..al → TEX (uses the same .tex parser as field models)
+	//   <id>da    → animation pack (the .a equivalent, but bundled)
+	//   <id>ab    → battle AI script
+	//
+	// We tag by suffix here so the preview pane can dispatch
+	// without doing another magic-sniff pass.
+	if (
+		ext === '' &&
+		opts?.parentArchiveName === 'battle.lgp' &&
+		name.length === 4
+	) {
+		const suffix = name.slice(2).toLowerCase();
+		if (suffix === 'aa') {
+			return {
+				id,
+				name,
+				kind: 'file',
+				isContainer: false,
+				size: blob.size,
+				format: 'FF7-Battle-HRC',
+				meta: { ff7BattleSkeleton: true },
+				blob: async () => blob,
+			};
+		}
+		if (suffix === 'da') {
+			return {
+				id,
+				name,
+				kind: 'file',
+				isContainer: false,
+				size: blob.size,
+				format: 'FF7-Battle-Anim',
+				meta: { ff7BattleAnimPack: true },
+				blob: async () => blob,
+			};
+		}
+		if (suffix === 'ab') {
+			return {
+				id,
+				name,
+				kind: 'file',
+				isContainer: false,
+				size: blob.size,
+				format: 'FF7-Battle-AI',
+				meta: { ff7BattleAi: true },
+				blob: async () => blob,
+			};
+		}
+		// Suffix 'ac'..'al' → texture (10 slots)
+		const s1 = suffix.charCodeAt(0);
+		const s2 = suffix.charCodeAt(1);
+		if (s1 === 0x61 && s2 >= 0x63 && s2 <= 0x6c) {
+			return {
+				id,
+				name,
+				kind: 'file',
+				isContainer: false,
+				size: blob.size,
+				format: 'FF7-Battle-Tex',
+				meta: { ff7Tex: true },
+				blob: async () => blob,
+			};
+		}
+		// Suffix 'am'..'zz' or 'ck'..'cz' → P-mesh (bone or weapon)
+		// We don't gate by exact range — anything else in the 4-char
+		// space inside battle.lgp is most likely a P-mesh.
+		return {
+			id,
+			name,
+			kind: 'file',
+			isContainer: false,
+			size: blob.size,
+			format: 'FF7-Battle-P',
+			meta: { ff7P: true },
+			blob: async () => blob,
+		};
+	}
+
 	// Magic sniff fallback for files whose extension doesn't tell us
 	// what they are. Especially important for 1st-party Nintendo
 	// games, which use a long tail of bespoke extensions (`.shksc`,
