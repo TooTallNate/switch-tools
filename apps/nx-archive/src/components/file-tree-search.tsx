@@ -76,8 +76,6 @@ interface FileTreeSearchProps {
 const DEBOUNCE_MS = 120;
 /** Throttle UI updates so we don't re-render thousands of times during a walk. */
 const RESULT_FLUSH_MS = 60;
-/** Cap result count to keep the tree filter affordable. */
-const MAX_RESULTS = 500;
 
 export function FileTreeSearch({
 	root,
@@ -126,9 +124,6 @@ export function FileTreeSearch({
 
 		const flush = (forceFinal: boolean) => {
 			matches.sort((a, b) => b.score - a.score);
-			if (matches.length > MAX_RESULTS) {
-				matches.length = MAX_RESULTS;
-			}
 			onChangeRef.current({
 				query,
 				matches: matches.slice(),
