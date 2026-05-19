@@ -11278,12 +11278,15 @@ function UnityTextAssetPreview({
   // legacy Unity versions. Coerce both to a JS string for display.
   let text = ""
   let byteLength = 0
+  let rawBytes: Uint8Array | null = null
   if (typeof rawScript === "string") {
     text = rawScript
     byteLength = new TextEncoder().encode(rawScript).length
+    rawBytes = new TextEncoder().encode(rawScript)
   } else if (rawScript instanceof Uint8Array) {
     text = new TextDecoder("utf-8", { fatal: false }).decode(rawScript)
     byteLength = rawScript.length
+    rawBytes = rawScript
   } else if (
     rawScript &&
     typeof rawScript === "object" &&
@@ -11293,6 +11296,24 @@ function UnityTextAssetPreview({
     const u8 = (rawScript as { data: Uint8Array }).data
     text = new TextDecoder("utf-8", { fatal: false }).decode(u8)
     byteLength = u8.length
+    rawBytes = u8
+  }
+  // Detect SEAD audio (sabf / mabf magic) — Square's audio
+  // banks wrapped inside Unity TextAssets. The bytes can begin
+  // with the magic directly or have it within the first ~64 KB.
+  if (rawBytes && rawBytes.length >= 16) {
+    const magicAt0 =
+      rawBytes[0] === 0x73 && rawBytes[1] === 0x61 && rawBytes[2] === 0x62 && rawBytes[3] === 0x66
+    const mabAt0 =
+      rawBytes[0] === 0x6d && rawBytes[1] === 0x61 && rawBytes[2] === 0x62 && rawBytes[3] === 0x66
+    if (magicAt0 || mabAt0) {
+      return (
+        <UnitySeadAudioPreview
+          bytes={rawBytes}
+          name={decoded.name || sourceName}
+        />
+      )
+    }
   }
   if (!text) {
     return (
@@ -12117,6 +12138,103 @@ async function resolveTexture2DExternals(
  * and play the resulting WAV / Ogg blob. Anything else gets
  * served as-is to the `<audio>` element.
  */
+/**
+ * Preview for Unity `TextAsset` objects whose payload is a
+ * Square Enix SEAD audio bank (`.sab` / `.mab`). Lists every
+ * contained audio stream with download buttons for each. HCA
+ * streams can also play inline via the existing HCA audio
+ * pipeline.
+ */
+function UnitySeadAudioPreview({
+  bytes,
+  name,
+}: {
+  bytes: Uint8Array
+  name: string
+}) {
+  const { data, error } = useAsync(async () => {
+    const { parseSead } = await import("@tootallnate/sead-audio")
+    return parseSead(bytes)
+  }, [bytes])
+  if (error) return <ErrorFiller error={error} />
+  if (!data) return <LoadingFiller label="Decoding SEAD audio bank…" />
+  return (
+    <section className="flex flex-col gap-3 rounded-md border bg-card p-4 text-sm">
+      <div>
+        <div className="text-base font-medium">{name}</div>
+        <div className="text-xs text-muted-foreground">
+          SEAD {data.header.magic} · descriptor "{data.header.descriptor}" ·{" "}
+          {data.materials.length} stream
+          {data.materials.length === 1 ? "" : "s"}
+        </div>
+      </div>
+      <table className="w-full text-xs">
+        <thead className="border-b text-left text-muted-foreground">
+          <tr>
+            <th className="px-2 py-1">#</th>
+            <th className="px-2 py-1">Codec</th>
+            <th className="px-2 py-1">Channels</th>
+            <th className="px-2 py-1 text-right">Sample rate</th>
+            <th className="px-2 py-1 text-right">Loop</th>
+            <th className="px-2 py-1 text-right">Size</th>
+            <th className="px-2 py-1"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.materials.map((m) => {
+            const payload =
+              m.extras.codec === "hca" && (m.extras as { decryptedHca?: Uint8Array }).decryptedHca
+                ? (m.extras as { decryptedHca: Uint8Array }).decryptedHca
+                : m.streamData
+            const ext =
+              m.extras.codec === "hca"
+                ? "hca"
+                : m.extras.codec === "ogg-vorbis"
+                  ? "ogg"
+                  : "bin"
+            return (
+              <tr key={m.index} className="border-b">
+                <td className="px-2 py-1 text-muted-foreground">{m.index}</td>
+                <td className="px-2 py-1">{m.codecLabel}</td>
+                <td className="px-2 py-1 tabular-nums">{m.channelCount}</td>
+                <td className="px-2 py-1 text-right tabular-nums">
+                  {m.sampleRate.toLocaleString()}
+                </td>
+                <td className="px-2 py-1 text-right tabular-nums">
+                  {m.hasLoop
+                    ? `${m.loopStart.toLocaleString()}-${m.loopEnd.toLocaleString()}`
+                    : "—"}
+                </td>
+                <td className="px-2 py-1 text-right tabular-nums">
+                  {payload.length.toLocaleString()} B
+                </td>
+                <td className="px-2 py-1 text-right">
+                  <button
+                    type="button"
+                    className="rounded border px-2 py-0.5 text-xs hover:bg-accent"
+                    onClick={() => {
+                      const fileName = `${name.replace(/\.(sab|mab)\.bytes$/i, "")}_${String(
+                        m.index,
+                      ).padStart(3, "0")}.${ext}`
+                      downloadBlobBytes(payload, fileName)
+                    }}
+                  >
+                    .{ext}
+                  </button>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      <p className="text-xs text-muted-foreground">
+        HCA streams can be decoded to PCM with vgmstream or similar. Ogg
+        Vorbis streams play directly in any browser.
+      </p>
+    </section>
+  )
+}
+
 function UnityAudioClipPreview({
   decoded,
   root,
