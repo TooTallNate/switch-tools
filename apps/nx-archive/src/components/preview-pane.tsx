@@ -79,6 +79,7 @@ import {
   Ff7BattleSkeletonPreview,
   Ff7BattleAnimPackPreview,
 } from "./ff7-battle-preview"
+import { Ff7SceneBinPreview } from "./ff7-scene-bin-preview"
 import {
   decodeUeMip,
   describePixelFormat,
@@ -1864,6 +1865,8 @@ function FilePreview({
       return <Ff7BattleSkeletonPreview node={node} root={root} />
     case "ff7-battle-anim-pack":
       return <Ff7BattleAnimPackPreview node={node} />
+    case "ff7-scene-bin":
+      return <Ff7SceneBinPreview node={node} />
     case "barslist-info":
       return <BarslistPreview node={node} />
     case "bnvib-audio":

@@ -169,6 +169,14 @@ export type PreviewKind =
 	 * preview.
 	 */
 	| 'ff7-battle-anim-pack'
+	/**
+	 * FF7 PC battle scene archive (`scene.bin` under
+	 * `data/.../battle/`). 256 gzipped enemy / attack /
+	 * formation / AI-script blobs. The preview lists every
+	 * enemy with its stats, drop tables, and the most relevant
+	 * derived data (HP, MP, EXP, Gil, weaknesses).
+	 */
+	| 'ff7-scene-bin'
 	/** Tiny ARSL manifest of BARS file paths. */
 	| 'barslist-info'
 	/** Nintendo MSBT (MsgStdBn) — localized text/dialog/UI strings. */
@@ -436,6 +444,8 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.tex')) return 'ff7-tex';
 	if (lower.endsWith('.hrc')) return 'ff7-hrc';
 	if (lower.endsWith('.rsd')) return 'ff7-rsd';
+	// FF7 PC battle scene archive — always named `scene.bin`.
+	if (lower === 'scene.bin') return 'ff7-scene-bin';
 	// Unreal `.ubulk` is a codec-agnostic "bulk data" sidecar, but in
 	// practice the overwhelming majority of `.ubulk` files we encounter
 	// are Wwise audio payloads (RIFF/WAVE wrappers) sitting under

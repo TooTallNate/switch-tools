@@ -1,0 +1,31 @@
+{
+  "name": "@tootallnate/ff7-scene",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Pure-JS parser for FF7 PC's `scene.bin` — the 256-entry archive of enemy / attack / formation / AI-script data used by every random encounter and boss fight. Decodes the gzip-block outer container, the 7808-byte per-scene struct, and the FF7 text encoding. Does NOT include an AI-bytecode disassembler (raw bytecode is exposed for callers that want one).",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "ff7",
+    "final-fantasy-7",
+    "final-fantasy-vii",
+    "scene",
+    "enemy",
+    "battle",
+    "squaresoft"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/ff7-scene"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.0"
+  }
+}
