@@ -134,6 +134,14 @@ export type NodeKind =
 	 * lazy slices into the archive.
 	 */
 	| 'lgp'
+	/**
+	 * Final Fantasy VIII PC archive triplet (`.fs` + `.fi` + `.fl`).
+	 * The `.fs` (filesystem) is the payload; the `.fi` (file index)
+	 * and `.fl` (file list) sit alongside as siblings. Used by
+	 * every PC release (and the Switch Remastered port, which keeps
+	 * the format verbatim under `weepff8/game_data/data/`).
+	 */
+	| 'ff8-fs'
 	| 'lz4'
 	| 'zstd'
 	| 'unityfs'
@@ -2001,6 +2009,238 @@ function makeVbfNode(
 			return vbfEntriesToNodes(id, parsed.entries, ctx);
 		},
 	};
+}
+
+/**
+ * Make an FFVIII archive-triplet container node. Looks up the
+ * sibling `.fi` and `.fl` files via the supplied `siblings` map
+ * (lowercased basename lookup). If either sibling is missing we
+ * fall back to a plain file node — the user will at least see
+ * the `.fs` blob exists but won't be able to browse it.
+ */
+function makeFf8FsNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+	siblings: SiblingMap | undefined,
+): Node {
+	const base = name.toLowerCase().replace(/\.fs$/, '');
+	const fiName = base + '.fi';
+	const flName = base + '.fl';
+	const fi = siblings?.get(fiName);
+	const fl = siblings?.get(flName);
+	if (!fi || !fl) {
+		// Sibling triplet incomplete — surface as a plain file.
+		return {
+			id,
+			name,
+			kind: 'file',
+			isContainer: false,
+			size: blob.size,
+			format: 'FF8-FS (missing .fi/.fl)',
+			blob: async () => blob,
+		};
+	}
+	return {
+		id,
+		name,
+		kind: 'ff8-fs',
+		isContainer: true,
+		size: blob.size,
+		format: 'FF8-FS',
+		blob: async () => blob,
+		getChildren: async () => {
+			const { parseFf8Triplet } = await import('@tootallnate/ff8-fs');
+			const arc = await parseFf8Triplet(fl, fi, blob);
+			return ff8EntriesToNodes(id, arc.entries, blob, ctx);
+		},
+	};
+}
+
+/**
+ * Convert a flat list of FFVIII entries (each with a Windows-
+ * style cumulative path) into a hierarchical {@link Node} tree.
+ *
+ * Each leaf reads its bytes lazily via the package's
+ * `readEntry` helper (LZSS-decompresses if needed) and exposes
+ * the result as a `Blob`. Nested `.fs` triplets are detected
+ * by basename suffix and re-routed through `makeFf8FsNode` —
+ * since each level inside a `.fs` may contain its own `.fl`/
+ * `.fi`/`.fs` triplet (e.g. `field.fs` has 21+ nested ones).
+ */
+async function ff8EntriesToNodes(
+	parentId: string,
+	entries: import('@tootallnate/ff8-fs').Ff8Entry[],
+	parentFs: Blob,
+	ctx: ArchiveContext,
+): Promise<Node[]> {
+	type Tree = Map<
+		string,
+		{ dir?: Tree; entry?: import('@tootallnate/ff8-fs').Ff8Entry }
+	>;
+	const root: Tree = new Map();
+	for (const entry of entries) {
+		const parts = entry.pathNormalised
+			.split('/')
+			.filter((p) => p.length > 0);
+		// Strip the leading `c:` drive letter if present (it's the
+		// original devs' Windows build path, not useful in our tree).
+		const stripped = parts[0]?.endsWith(':') ? parts.slice(1) : parts;
+		if (stripped.length === 0) continue;
+		let cur = root;
+		for (let i = 0; i < stripped.length; i++) {
+			const part = stripped[i]!;
+			const isLast = i === stripped.length - 1;
+			let node = cur.get(part);
+			if (!node) {
+				node = {};
+				cur.set(part, node);
+			}
+			if (isLast) {
+				node.entry = entry;
+			} else {
+				if (!node.dir) node.dir = new Map();
+				cur = node.dir;
+			}
+		}
+	}
+	const { readEntry } = await import('@tootallnate/ff8-fs');
+	const treeToNodes = async (treeId: string, t: Tree): Promise<Node[]> => {
+		const names = [...t.keys()].sort((a, b) => {
+			const an = t.get(a)!;
+			const bn = t.get(b)!;
+			const aIsDir = !!an.dir;
+			const bIsDir = !!bn.dir;
+			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+			return humanCompare(a, b);
+		});
+		// Build a sibling map at THIS level so nested `.fs` triplets
+		// can resolve their `.fi`/`.fl` companions.
+		const levelSiblings = buildSiblingMap(
+			[...t.entries()]
+				.filter(([, v]) => !!v.entry)
+				.map(([n, v]): [string, Blob] => {
+					const entry = v.entry!;
+					const lazyBlob = new Blob([]) as Blob; // placeholder; will be replaced
+					// We need a real Blob for the sibling map — wrap
+					// readEntry in a custom Blob facade.
+					return [n, ff8EntryToBlob(entry, parentFs, readEntry)];
+				}),
+		);
+		return Promise.all(
+			names.map(async (n): Promise<Node> => {
+				const nodeRec = t.get(n)!;
+				const cid = `${treeId}/${n}`;
+				if (nodeRec.dir) {
+					const subtree = nodeRec.dir;
+					return childDirectoryNodeFor({
+						id: cid,
+						name: n,
+						getChildren: async () => treeToNodes(cid, subtree),
+					});
+				}
+				const entry = nodeRec.entry!;
+				const blob = levelSiblings.get(n.toLowerCase())!;
+				return childNodeFor(cid, n, blob, ctx, {
+					siblings: levelSiblings,
+				});
+			}),
+		);
+	};
+	return treeToNodes(parentId, root);
+}
+
+/**
+ * Wrap an FFVIII archive entry as a lazy `Blob`-shaped facade.
+ * Reading the blob (`.arrayBuffer()`, `.slice()`) triggers
+ * `readEntry`, which seeks into the parent `.fs` payload and
+ * LZSS-decompresses if needed.
+ */
+function ff8EntryToBlob(
+	entry: import('@tootallnate/ff8-fs').Ff8Entry,
+	parentFs: Blob,
+	readEntry: (
+		entry: import('@tootallnate/ff8-fs').Ff8Entry,
+		fs: Blob,
+	) => Promise<Uint8Array>,
+): Blob {
+	// Materialise lazily on first read — most leaves are never
+	// expanded so we want to avoid eagerly LZSS-decompressing
+	// thousands of entries on container open.
+	let cached: Promise<Blob> | null = null;
+	const load = (): Promise<Blob> => {
+		if (cached) return cached;
+		cached = readEntry(entry, parentFs).then((bytes) => {
+			// Copy into a fresh ArrayBuffer so the Blob constructor's
+			// strict `ArrayBuffer` typing is satisfied (DOM lib doesn't
+			// accept Uint8Array<SharedArrayBuffer>).
+			const buf = new ArrayBuffer(bytes.byteLength);
+			new Uint8Array(buf).set(bytes);
+			return new Blob([buf]);
+		});
+		return cached;
+	};
+	const facade = {
+		size: entry.uncompressedSize,
+		type: '',
+		async arrayBuffer() {
+			return (await load()).arrayBuffer();
+		},
+		async bytes() {
+			const b = await load();
+			return new Uint8Array(await b.arrayBuffer());
+		},
+		slice(start?: number, end?: number, contentType?: string) {
+			// Force materialisation then slice — we don't have a
+			// cheap way to slice into LZSS-compressed bytes.
+			return new Blob([], { type: contentType ?? '' }) as Blob; // placeholder shape; real path below
+		},
+		async stream() {
+			const b = await load();
+			return b.stream();
+		},
+		async text() {
+			const b = await load();
+			return b.text();
+		},
+	} as unknown as Blob;
+	// Replace `.slice` with a proper async-deferred implementation.
+	(facade as { slice: Blob['slice'] }).slice = function (
+		start?: number,
+		end?: number,
+		contentType?: string,
+	): Blob {
+		const startVal = start ?? 0;
+		const endVal = end ?? entry.uncompressedSize;
+		// Build a small derivative facade that defers to the parent's load.
+		const childFacade = {
+			size: Math.max(0, endVal - startVal),
+			type: contentType ?? '',
+			async arrayBuffer() {
+				const b = await load();
+				return b.slice(startVal, endVal).arrayBuffer();
+			},
+			async bytes() {
+				const b = await load();
+				const sliced = b.slice(startVal, endVal);
+				return new Uint8Array(await sliced.arrayBuffer());
+			},
+			slice(s?: number, e?: number, t?: string) {
+				return facade.slice((startVal + (s ?? 0)), Math.min(endVal, startVal + (e ?? endVal - startVal)), t);
+			},
+			async stream() {
+				const b = await load();
+				return b.slice(startVal, endVal).stream();
+			},
+			async text() {
+				const b = await load();
+				return b.slice(startVal, endVal).text();
+			},
+		} as unknown as Blob;
+		return childFacade;
+	};
+	return facade;
 }
 
 function makeLgpNode(
@@ -4294,6 +4534,7 @@ async function childNodeFor(
 	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob, ctx);
 	if (ext === 'vbf') return makeVbfNode(id, name, blob, ctx);
 	if (ext === 'lgp') return makeLgpNode(id, name, blob, ctx);
+	if (ext === 'fs') return makeFf8FsNode(id, name, blob, ctx, siblings);
 	if (ext === 'wd') return makeSquareWdNode(id, name, blob, ctx);
 	if (ext === 'resources') return makeIdTechResourcesNode(id, name, blob, ctx);
 	if (ext === 'szs') return makeSzsNode(id, name, blob, ctx);
