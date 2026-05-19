@@ -446,12 +446,11 @@ function buildCompositeRig(assembled: AssembledHrcView): BuiltRig | null {
   }
   const mesh: RenderableMesh = {
     lods: [lod],
-    // FF7 PC characters are authored Z-up; the viewer rotates
-    // -90° around X to display Y-up. Flip Y is enabled by
-    // default because the bind pose (especially aafe.a style)
-    // has the model standing on +Z = top after rotation.
-    upAxis: "z-up",
-    flipYDefault: true,
+    // Bone math already places the model in three.js's +Y-up
+    // convention (the root applies a 180° X-flip to convert
+    // FF7's source -Y-up to +Y-up). No further viewer-level
+    // transform needed.
+    upAxis: "y-up",
   }
   return { mesh, pieces, textures }
 }
@@ -1186,7 +1185,11 @@ export function Ff7PMeshPreview({ node }: { node: Node }) {
     }
     const renderable: RenderableMesh = {
       lods: [lod],
-      upAxis: "z-up",
+      // Single-bone preview of a raw .p file — these meshes are
+      // authored in FF7's source -Y-up coords, so use `y-down`
+      // (the viewer applies a 180° X-rotation to bring them to
+      // +Y-up). No flipYDefault needed.
+      upAxis: "y-down",
     }
     return { view, renderable }
   }, [node.id])

@@ -295,8 +295,11 @@ function buildBattleRig(assembled: AssembledBattle): BuiltBattleRig | null {
 	}
 	const mesh: RenderableMesh = {
 		lods: [lod],
-		upAxis: "z-up",
-		flipYDefault: true,
+		// Bone math already places the model in three.js's +Y-up
+		// convention (the root applies a 180° X-flip to convert
+		// FF7's source -Y-up to +Y-up). No further viewer-level
+		// transform needed.
+		upAxis: "y-up",
 	}
 	return { mesh, pieces, textures }
 }

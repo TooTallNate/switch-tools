@@ -287,15 +287,17 @@ function computeBoneMatrices(
 	const tmpTrans = new THREE.Matrix4()
 	const eulerOrder: THREE.EulerOrder = "YXZ"
 
-	// Root matrix: apply root translation and a 180° X flip so the
-	// model stands upright (PSX is Y-down).
-	const rootMat = new THREE.Matrix4().makeRotationX(Math.PI)
+	// Root matrix: just the root translation. We've already
+	// flipped Y at vertex-emit time (FF8 source is -Y-up; we
+	// negate Y per vertex into +Y-up). Adding another 180°
+	// rotation here would double-flip and put the model
+	// upside-down.
+	const rootMat = new THREE.Matrix4()
 	if (rootTranslation) {
 		const tx = rootTranslation[0] / 100
 		const ty = -rootTranslation[1] / 100
 		const tz = rootTranslation[2] / 100
-		const rt = new THREE.Matrix4().makeTranslation(tx, ty, tz)
-		rootMat.premultiply(rt)
+		rootMat.makeTranslation(tx, ty, tz)
 	}
 
 	const BONE_SIZE_SCALE = 1 / 100 // same divisor as vertex scale
