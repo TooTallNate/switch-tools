@@ -4577,6 +4577,12 @@ async function childNodeFor(
 	if (ext === 'ncz') return makeNczNode(id, name, blob, ctx, tikMap);
 	if (ext === 'nro') return makeNroNode(id, name, blob, ctx);
 	if (ext === 'nsp') return makePfs0Node(id, name, blob, ctx, 'NSP');
+	// NSZ = NSP-with-NCZ-compressed-NCAs inside. Identical outer
+	// PFS0 container; the .ncz children are routed through
+	// `makeNczNode` which handles the zstd decompression.
+	if (ext === 'nsz') return makePfs0Node(id, name, blob, ctx, 'NSZ');
+	// XCZ = XCI-with-NCZ-compressed-NCAs (the cartridge variant of NSZ).
+	if (ext === 'xcz') return makeXciNode(id, name, blob, ctx);
 	if (ext === 'pfs0') return makePfs0Node(id, name, blob, ctx, 'PFS0');
 	if (ext === 'hfs0') return makeHfs0Node(id, name, blob, ctx);
 	if (ext === 'xci') return makeXciNode(id, name, blob, ctx);
