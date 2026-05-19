@@ -100,14 +100,18 @@ export function Ff7SceneBinPreview({ node }: { node: Node }) {
 		return data.enemyList.filter((e) => e.enemy.name.toLowerCase().includes(q))
 	}, [data, search])
 
-	// Auto-select the first enemy on the filter result whenever
-	// the search changes.
+	// Auto-select the first enemy when nothing is selected yet
+	// (initial load). On subsequent filter changes we preserve
+	// the user's current selection if it's still visible in the
+	// filtered list — clearing the search should keep the user
+	// where they were, not jump back to scene 0.
 	useEffect(() => {
-		if (filtered.length === 0) {
-			setSelectedScene(null)
-			return
-		}
-		setSelectedScene(filtered[0]!.sceneIndex)
+		if (filtered.length === 0) return
+		setSelectedScene((current) => {
+			if (current === null) return filtered[0]!.sceneIndex
+			if (filtered.some((e) => e.sceneIndex === current)) return current
+			return filtered[0]!.sceneIndex
+		})
 	}, [filtered])
 
 	if (loading) return <LoadingFiller label="Decompressing 256 scenes…" />

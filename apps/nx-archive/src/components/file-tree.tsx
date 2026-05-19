@@ -507,6 +507,32 @@ export function FileTree({
     })
   }, [])
 
+  /**
+   * Persist the ancestor chain of `id` into the user's manual
+   * expand state. Used when the user picks a node from search
+   * results — clearing the search shouldn't collapse the path
+   * to what they just opened.
+   *
+   * Node ids are slash-delimited cumulative paths, so the
+   * ancestors of `a/b/c/d` are `a`, `a/b`, `a/b/c`.
+   */
+  const expandAncestors = useCallback((id: string) => {
+    const parts = id.split("/")
+    if (parts.length <= 1) return
+    setExpandedIds((prev) => {
+      let next: Set<string> | null = null
+      let cumulative = parts[0]!
+      for (let i = 1; i < parts.length; i++) {
+        if (!prev.has(cumulative)) {
+          if (!next) next = new Set(prev)
+          next.add(cumulative)
+        }
+        cumulative += "/" + parts[i]
+      }
+      return next ?? prev
+    })
+  }, [])
+
   // After a programmatic focus change (arrow key, type-ahead, Home/End)
   // we need to (a) ensure the target row is materialized by the
   // virtualizer, then (b) call `.focus()` on its button. The two
@@ -661,6 +687,9 @@ export function FileTree({
           if (row.node.isContainer) {
             setExpanded(row.node.id, !row.expanded)
           }
+          if (search?.searchActive) {
+            expandAncestors(row.node.id)
+          }
           onSelect(row.node)
           return
         }
@@ -703,7 +732,16 @@ export function FileTree({
         }
       }
     },
-    [focusedId, focusIndex, indexById, onSelect, setExpanded, rows],
+    [
+      focusedId,
+      focusIndex,
+      indexById,
+      onSelect,
+      setExpanded,
+      expandAncestors,
+      rows,
+      search?.searchActive,
+    ],
   )
 
   // If the focused row is no longer in `rows` (because an ancestor
@@ -814,6 +852,13 @@ export function FileTree({
                   setFocusedId(row.node.id)
                   if (row.node.isContainer) {
                     setExpanded(row.node.id, !row.expanded)
+                  }
+                  // When picking from within search results, persist
+                  // the ancestor chain into the manual expand state
+                  // so clearing the search doesn't collapse the path
+                  // back to the selected node.
+                  if (search?.searchActive) {
+                    expandAncestors(row.node.id)
                   }
                   onSelect(row.node)
                 }}
