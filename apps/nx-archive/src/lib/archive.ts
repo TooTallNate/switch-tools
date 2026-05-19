@@ -35,7 +35,7 @@ import {
 	type IdTechResourceEntry,
 } from '@tootallnate/idtech-resources';
 import { decompressYaz0 } from '@tootallnate/yaz0';
-import { decompressLz4, type Lz4Variant } from '@tootallnate/lz4';
+import { decompressLz4, decodeBlock, type Lz4Variant } from '@tootallnate/lz4';
 import { parseBars, type BarsEntry } from '@tootallnate/bars';
 import { parseAwb } from '@tootallnate/awb';
 import {
@@ -3467,6 +3467,56 @@ function makeLz4Node(
 	};
 }
 
+/**
+ * Make a `.ddsz` (LZ4-compressed DDS) leaf node. Used by FFVIII
+ * Switch Remastered for its HD texture overrides — 12,181 of
+ * them, each an LZ4-block-compressed DDS file.
+ *
+ * The on-disk layout (per AnalogMan151/DDSZ_Tool):
+ *   [u32 fileSize]                ← whole-file size, redundant
+ *   [u32 uncompressedSize]         ← prepended by python lz4.block
+ *   [LZ4 block stream]             ← rest of file
+ *
+ * We expose `.blob()` as the decompressed DDS payload and tag
+ * the node with `meta.ddsz = true` so the preview pane routes
+ * to the DDS image preview without re-detecting the extension
+ * (which would still see `.ddsz`).
+ */
+function makeDdszNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	_ctx: ArchiveContext,
+): Node {
+	let cached: Promise<Blob> | null = null;
+	const decompressOnce = (): Promise<Blob> => {
+		if (cached) return cached;
+		cached = (async () => {
+			const head = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
+			const uncompressedSize =
+				head[4]! | (head[5]! << 8) | (head[6]! << 16) | (head[7]! << 24);
+			const lz4Bytes = new Uint8Array(
+				await blob.slice(8).arrayBuffer(),
+			);
+			const out = decodeBlock(lz4Bytes, uncompressedSize);
+			const buf = new ArrayBuffer(out.byteLength);
+			new Uint8Array(buf).set(out);
+			return new Blob([buf]);
+		})();
+		return cached;
+	};
+	return {
+		id,
+		name,
+		kind: 'file',
+		isContainer: false,
+		size: blob.size,
+		format: 'DDSZ',
+		meta: { ddsz: true },
+		blob: async () => decompressOnce(),
+	};
+}
+
 // ----- IoStore (Unreal Engine 4/5 .utoc + .ucas) -----
 
 /**
@@ -4535,6 +4585,7 @@ async function childNodeFor(
 	if (ext === 'vbf') return makeVbfNode(id, name, blob, ctx);
 	if (ext === 'lgp') return makeLgpNode(id, name, blob, ctx);
 	if (ext === 'fs') return makeFf8FsNode(id, name, blob, ctx, siblings);
+	if (ext === 'ddsz') return makeDdszNode(id, name, blob, ctx);
 	if (ext === 'wd') return makeSquareWdNode(id, name, blob, ctx);
 	if (ext === 'resources') return makeIdTechResourcesNode(id, name, blob, ctx);
 	if (ext === 'szs') return makeSzsNode(id, name, blob, ctx);

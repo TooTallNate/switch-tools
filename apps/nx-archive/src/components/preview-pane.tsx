@@ -81,6 +81,7 @@ import {
 } from "./ff7-battle-preview"
 import { Ff7SceneBinPreview } from "./ff7-scene-bin-preview"
 import { Ff7WorldMapPreview } from "./ff7-world-map-preview"
+import { DdsPreview } from "./dds-preview"
 import {
   decodeUeMip,
   describePixelFormat,
@@ -406,6 +407,10 @@ function PreviewContent({
       // reuse the existing field-model previews.
       if (node.meta?.ff7P) return "ff7-pmesh"
       if (node.meta?.ff7Tex) return "ff7-tex"
+      // `.ddsz` (LZ4-wrapped DDS) — the archive dispatcher already
+      // unwrapped the LZ4 layer; we just need to route the now-
+      // raw DDS bytes to the DDS preview.
+      if (node.meta?.ddsz) return "dds-image"
       return detectPreviewKind(node.name)
     },
     [isFile, node.name, node.meta, node.kind],
@@ -1870,6 +1875,8 @@ function FilePreview({
       return <Ff7SceneBinPreview node={node} />
     case "ff7-world-map":
       return <Ff7WorldMapPreview node={node} root={root} />
+    case "dds-image":
+      return <DdsPreview node={node} />
     case "barslist-info":
       return <BarslistPreview node={node} />
     case "bnvib-audio":

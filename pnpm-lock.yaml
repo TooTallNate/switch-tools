@@ -292,6 +292,9 @@ importers:
       '@tootallnate/byaml':
         specifier: workspace:*
         version: link:../../packages/byaml
+      '@tootallnate/dds':
+        specifier: workspace:*
+        version: link:../../packages/dds
       '@tootallnate/dsp-adpcm':
         specifier: workspace:*
         version: link:../../packages/dsp-adpcm
@@ -728,6 +731,19 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.3.3
+
+  packages/dds:
+    dependencies:
+      '@tootallnate/bcn':
+        specifier: workspace:*
+        version: link:../bcn
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
   packages/dsp-adpcm:
     devDependencies:

@@ -185,6 +185,14 @@ export type PreviewKind =
 	 * looked up by the 282-entry WMSET table.
 	 */
 	| 'ff7-world-map'
+	/**
+	 * Microsoft DirectDraw Surface (`.dds`) texture file. Used
+	 * standalone for HD texture overrides in FFVIII Switch
+	 * Remastered (after `.ddsz` decompression), Steam asset
+	 * packs, and many other places. Decodes BC1/2/3/4/5 + DX10
+	 * + uncompressed RGBA via `@tootallnate/dds`.
+	 */
+	| 'dds-image'
 	/** Tiny ARSL manifest of BARS file paths. */
 	| 'barslist-info'
 	/** Nintendo MSBT (MsgStdBn) — localized text/dialog/UI strings. */
@@ -478,6 +486,10 @@ export function detectPreviewKind(name: string): PreviewKind {
 		return 'byaml-tree';
 	}
 	if (lower.endsWith('.bntx')) return 'bntx-image';
+	// Standalone DDS textures (NOT `.dds.phyre`, handled below).
+	if (lower.endsWith('.dds') && !lower.endsWith('.dds.phyre')) {
+		return 'dds-image';
+	}
 	// PhyreEngine: split by sub-extension. `.dds.phyre` -> textures;
 	// `.dae.phyre` -> 3D meshes. `.fx.phyre` (shaders) and
 	// `.ags.phyre` (animations) fall through to hex.
