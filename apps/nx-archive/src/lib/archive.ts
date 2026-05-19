@@ -2019,7 +2019,7 @@ function makeLgpNode(
 		blob: async () => blob,
 		getChildren: async () => {
 			const parsed = await parseLgp(blob);
-			return lgpEntriesToNodes(id, parsed.entries, ctx);
+			return lgpEntriesToNodes(id, name, parsed.entries, ctx);
 		},
 	};
 }
@@ -2033,6 +2033,7 @@ function makeLgpNode(
  */
 async function lgpEntriesToNodes(
 	parentId: string,
+	parentName: string,
 	entries: LgpEntry[],
 	ctx: ArchiveContext,
 ): Promise<Node[]> {
@@ -2082,7 +2083,9 @@ async function lgpEntriesToNodes(
 					});
 				}
 				const file = nodeRec.file!;
-				return childNodeFor(cid, n, file.data, ctx);
+				return childNodeFor(cid, n, file.data, ctx, {
+					parentArchiveName: parentName.toLowerCase(),
+				});
 			}),
 		);
 	};
@@ -4247,6 +4250,15 @@ interface ChildNodeForOptions {
 	 * `.zip`, just doesn't probe unknown extensions.
 	 */
 	skipMagicSniff?: boolean;
+	/**
+	 * Lowercased name of the immediate parent archive. Used by
+	 * specific format dispatchers that depend on context — e.g.
+	 * FF7 PC field scenes have no file extension and only ever
+	 * live inside `flevel.lgp`, so we route extensionless leaves
+	 * under that container to the `ff7-field-scene` preview
+	 * without expensive magic sniffs.
+	 */
+	parentArchiveName?: string;
 }
 
 async function childNodeFor(
@@ -4346,6 +4358,28 @@ async function childNodeFor(
 		if (sniffed === 'fmod-bank') return makeFmodBankNode(id, name, blob, ctx);
 		if (sniffed === 'wwise-bnk') return makeWwiseBnkNode(id, name, blob, ctx);
 		// Unknown bank — fall through to generic.
+	}
+
+	// FF7 PC field scenes live exclusively inside `flevel.lgp` and
+	// carry no file extension (just `md1stin`, `cosmo`, `tin_1`,
+	// etc.). The LGP child dispatcher tags them via
+	// `parentArchiveName` so we route them straight to the field-
+	// scene preview without an expensive magic sniff (each scene
+	// would need to be partially LZSS-decompressed to identify).
+	if (
+		ext === '' &&
+		opts?.parentArchiveName === 'flevel.lgp'
+	) {
+		return {
+			id,
+			name,
+			kind: 'file',
+			isContainer: false,
+			size: blob.size,
+			format: 'FF7-Field',
+			meta: { ff7FieldScene: true },
+			blob: async () => blob,
+		};
 	}
 
 	// Magic sniff fallback for files whose extension doesn't tell us

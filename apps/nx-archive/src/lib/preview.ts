@@ -143,6 +143,16 @@ export type PreviewKind =
 	| 'ff7-hrc'
 	/** FF7 PC textual resource reference (`.rsd`). */
 	| 'ff7-rsd'
+	/**
+	 * FF7 PC pre-rendered field scene. Each `flevel.lgp` entry
+	 * (extensionless) is an LZSS-compressed FieldModule container
+	 * that decompresses to a 9-section structure; sections 4 +
+	 * 9 together encode the per-palette tile-based background
+	 * image. The preview decompresses, composites all four layers
+	 * (BG / movables / midground / foreground) to RGBA, and
+	 * displays the result.
+	 */
+	| 'ff7-field-scene'
 	/** Tiny ARSL manifest of BARS file paths. */
 	| 'barslist-info'
 	/** Nintendo MSBT (MsgStdBn) — localized text/dialog/UI strings. */

@@ -74,6 +74,7 @@ import {
   Ff7RsdPreview,
   Ff7TexPreview,
 } from "./ff7-pc-model-preview"
+import { Ff7FieldScenePreview } from "./ff7-field-scene-preview"
 import {
   decodeUeMip,
   describePixelFormat,
@@ -386,6 +387,9 @@ function PreviewContent({
       // generic for `detectPreviewKind` to route safely on name alone).
       if (node.meta?.idfont) return "idfont"
       if (node.meta?.bimage) return "bimage"
+      // FF7 PC field scenes (inside `flevel.lgp`) are detected at
+      // tree-build time — they have no extension.
+      if (node.meta?.ff7FieldScene) return "ff7-field-scene"
       return detectPreviewKind(node.name)
     },
     [isFile, node.name, node.meta, node.kind],
@@ -1840,6 +1844,8 @@ function FilePreview({
       return <Ff7HrcPreview node={node} root={root} />
     case "ff7-rsd":
       return <Ff7RsdPreview node={node} root={root} />
+    case "ff7-field-scene":
+      return <Ff7FieldScenePreview node={node} />
     case "barslist-info":
       return <BarslistPreview node={node} />
     case "bnvib-audio":

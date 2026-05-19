@@ -298,6 +298,9 @@ importers:
       '@tootallnate/dxtk-font':
         specifier: workspace:*
         version: link:../../packages/dxtk-font
+      '@tootallnate/ff7-flevel':
+        specifier: workspace:*
+        version: link:../../packages/ff7-flevel
       '@tootallnate/ff7-pc-model':
         specifier: workspace:*
         version: link:../../packages/ff7-pc-model
@@ -729,6 +732,15 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.9.3
+
+  packages/ff7-flevel:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
   packages/ff7-pc-model:
     devDependencies:
@@ -6859,6 +6871,10 @@ packages:
 
   spessasynth_core@4.2.13:
     resolution: {integrity: sha512-IB3K1MZBsvgufvjuaB0FT71+btQfwBsNJt0iQFGG/iaprlRbKkgQ5IYvZ9+y9vsKLgJryOlt/mtlGomt0hRSjQ==}
+    deprecated: Versions below 4.3.0 are no longer supported.
+
+  spessasynth_core@4.3.0:
+    resolution: {integrity: sha512-9p2WaqcJBskTMxLBp/fC0PYhGbzqY2fy5nDjzw+RWis97cTxgC54VcM8jP1ShE42gZnMlJteY2/Q5rKSjq14Ig==}
 
   spessasynth_lib@4.2.15:
     resolution: {integrity: sha512-3QEOkzws6J/z/hkYS4jTO9uxM99NwoPH1J/L61+DAAxoedeBZopY3M5Ebql/r+4DOy1rcULnQYExucEjVp0C8w==}
@@ -14033,9 +14049,11 @@ snapshots:
 
   spessasynth_core@4.2.13: {}
 
+  spessasynth_core@4.3.0: {}
+
   spessasynth_lib@4.2.15:
     dependencies:
-      spessasynth_core: 4.2.13
+      spessasynth_core: 4.3.0
 
   split2@4.2.0: {}
 

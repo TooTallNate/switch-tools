@@ -1,0 +1,32 @@
+{
+  "name": "@tootallnate/ff7-flevel",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Pure-JS parser + renderer for Final Fantasy VII PC field scenes (`flevel.lgp` entries). Decompresses the LZSS-wrapped FieldModule container, then decodes Section 4 (Palette) and Section 9 (Background) to reconstruct the pre-rendered tile-based backgrounds. Composites all four layers (BG / movables / midground / foreground) to an RGBA pixel buffer ready for display or PNG export. Works on both PC- and Switch-port FF7 (Switch ships the PC asset tree verbatim).",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "ff7",
+    "final-fantasy-7",
+    "final-fantasy-vii",
+    "flevel",
+    "field",
+    "background",
+    "lzss",
+    "squaresoft"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/ff7-flevel"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.8"
+  }
+}
