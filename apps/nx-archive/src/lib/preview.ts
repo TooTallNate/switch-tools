@@ -199,6 +199,12 @@ export type PreviewKind =
 	 * classrooms, Dollet square, Galbadia Hotel, etc.).
 	 */
 	| 'ff8-field-scene'
+	/**
+	 * FFVIII battle character / monster DAT (`c0m###.dat`).
+	 * Self-contained 11-section file: skeleton + geometry +
+	 * animations + stats + textures + (opaque) AI script.
+	 */
+	| 'ff8-battle-dat'
 	/** Tiny ARSL manifest of BARS file paths. */
 	| 'barslist-info'
 	/** Nintendo MSBT (MsgStdBn) — localized text/dialog/UI strings. */
@@ -472,6 +478,10 @@ export function detectPreviewKind(name: string): PreviewKind {
 	// will look up its sibling `.mim` for the texture pages.
 	if (lower.endsWith('.map') && !lower.match(/^wm[0-9]+\.map$/i)) {
 		return 'ff8-field-scene';
+	}
+	// FFVIII battle character / monster DAT (always `c0m###.dat`).
+	if (/^c0m\d+\.dat$/i.test(lower)) {
+		return 'ff8-battle-dat';
 	}
 	// FF7 PC overworld map files (`wm0.map`, `wm2.map`, `wm3.map`).
 	if (/^wm[0-9]+\.map$/.test(lower)) return 'ff7-world-map';

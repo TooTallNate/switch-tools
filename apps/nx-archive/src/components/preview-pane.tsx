@@ -83,6 +83,7 @@ import { Ff7SceneBinPreview } from "./ff7-scene-bin-preview"
 import { Ff7WorldMapPreview } from "./ff7-world-map-preview"
 import { DdsPreview } from "./dds-preview"
 import { Ff8FieldScenePreview } from "./ff8-field-scene-preview"
+import { Ff8BattleDatPreview } from "./ff8-battle-preview"
 import {
   decodeUeMip,
   describePixelFormat,
@@ -1880,6 +1881,8 @@ function FilePreview({
       return <DdsPreview node={node} />
     case "ff8-field-scene":
       return <Ff8FieldScenePreview node={node} root={root} />
+    case "ff8-battle-dat":
+      return <Ff8BattleDatPreview node={node} />
     case "barslist-info":
       return <BarslistPreview node={node} />
     case "bnvib-audio":

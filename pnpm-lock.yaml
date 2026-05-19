@@ -316,6 +316,9 @@ importers:
       '@tootallnate/ff7-world':
         specifier: workspace:*
         version: link:../../packages/ff7-world
+      '@tootallnate/ff8-battle':
+        specifier: workspace:*
+        version: link:../../packages/ff8-battle
       '@tootallnate/ff8-field':
         specifier: workspace:*
         version: link:../../packages/ff8-field
@@ -810,6 +813,19 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
+  packages/ff8-battle:
+    dependencies:
+      '@tootallnate/ff8-model':
+        specifier: workspace:*
+        version: link:../ff8-model
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
+
   packages/ff8-field:
     devDependencies:
       typescript:
@@ -827,6 +843,15 @@ importers:
       '@tootallnate/lz4':
         specifier: workspace:*
         version: link:../lz4
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
+
+  packages/ff8-model:
     devDependencies:
       typescript:
         specifier: ^5.3.3
