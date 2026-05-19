@@ -193,6 +193,12 @@ export type PreviewKind =
 	 * + uncompressed RGBA via `@tootallnate/dds`.
 	 */
 	| 'dds-image'
+	/**
+	 * FFVIII PC field-scene background (`.map` + sibling `.mim`).
+	 * Composited 2D pre-rendered backgrounds (Balamb Garden
+	 * classrooms, Dollet square, Galbadia Hotel, etc.).
+	 */
+	| 'ff8-field-scene'
 	/** Tiny ARSL manifest of BARS file paths. */
 	| 'barslist-info'
 	/** Nintendo MSBT (MsgStdBn) — localized text/dialog/UI strings. */
@@ -462,6 +468,11 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.rsd')) return 'ff7-rsd';
 	// FF7 PC battle scene archive — always named `scene.bin`.
 	if (lower === 'scene.bin') return 'ff7-scene-bin';
+	// FFVIII field-scene background entry point — the `.map` file
+	// will look up its sibling `.mim` for the texture pages.
+	if (lower.endsWith('.map') && !lower.match(/^wm[0-9]+\.map$/i)) {
+		return 'ff8-field-scene';
+	}
 	// FF7 PC overworld map files (`wm0.map`, `wm2.map`, `wm3.map`).
 	if (/^wm[0-9]+\.map$/.test(lower)) return 'ff7-world-map';
 	// Unreal `.ubulk` is a codec-agnostic "bulk data" sidecar, but in

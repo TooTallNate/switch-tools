@@ -55,6 +55,7 @@
     "@tootallnate/ff7-world": "workspace:*",
     "@tootallnate/dds": "workspace:*",
     "@tootallnate/ff8-fs": "workspace:*",
+    "@tootallnate/ff8-field": "workspace:*",
     "@tootallnate/fmod-bank": "workspace:*",
     "@tootallnate/fsb5": "workspace:*",
     "@tootallnate/gfpak": "workspace:*",
