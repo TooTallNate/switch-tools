@@ -24,7 +24,8 @@
     "directory": "packages/ff8-fs"
   },
   "dependencies": {
-    "@tootallnate/ff7-flevel": "workspace:*"
+    "@tootallnate/ff7-flevel": "workspace:*",
+    "@tootallnate/lz4": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.3.3",

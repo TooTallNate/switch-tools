@@ -796,6 +796,9 @@ importers:
       '@tootallnate/ff7-flevel':
         specifier: workspace:*
         version: link:../ff7-flevel
+      '@tootallnate/lz4':
+        specifier: workspace:*
+        version: link:../lz4
     devDependencies:
       typescript:
         specifier: ^5.3.3

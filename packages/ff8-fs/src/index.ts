@@ -32,6 +32,7 @@
  */
 
 import { decompressLzss } from '@tootallnate/ff7-flevel';
+import { decodeBlock } from '@tootallnate/lz4';
 
 export const FI_ENTRY_SIZE = 12 as const;
 
@@ -133,16 +134,18 @@ export async function parseFf8Triplet(
 
 /**
  * Read and decompress a single entry from the `.fs` payload.
+ *
+ * Three compression flavors observed in real data:
+ *   0 = raw       — read `uncompressedSize` bytes from offset.
+ *   1 = LZSS      — `[u32 compLen][lzss stream]`; we read the
+ *                   length prefix first, then `4 + compLen` total.
+ *   2 = LZ4       — `[u32 outerLen][char[4] "4ZL_"][u32 uncSize][lz4 block]`
+ *                   (Switch port additions per myst6re/deling).
+ *                   The outer length is the size of the (4-byte
+ *                   magic + 4-byte size + LZ4 block) chunk that
+ *                   follows. We feed the LZ4 block to `decodeBlock`.
  */
 export async function readEntry(entry: Ff8Entry, fs: Blob): Promise<Uint8Array> {
-	// We don't know the on-disk SIZE of compressed entries from
-	// the FI header — only the uncompressed size + offset. Two
-	// strategies:
-	//   1. For raw (compressionFlag=0): read `uncompressedSize`
-	//      bytes from the offset.
-	//   2. For LZSS (compressionFlag=1): the LZSS stream is
-	//      prefixed with a 4-byte declared compressed-length, so
-	//      we read those 4 bytes first and then `4 + length` total.
 	if (entry.compressionFlag === 0) {
 		const slice = fs.slice(
 			entry.offsetInFs,
@@ -151,7 +154,6 @@ export async function readEntry(entry: Ff8Entry, fs: Blob): Promise<Uint8Array> 
 		return new Uint8Array(await slice.arrayBuffer());
 	}
 	if (entry.compressionFlag === 1) {
-		// Read the 4-byte length prefix first.
 		const head = new Uint8Array(
 			await fs.slice(entry.offsetInFs, entry.offsetInFs + 4).arrayBuffer(),
 		);
@@ -163,6 +165,35 @@ export async function readEntry(entry: Ff8Entry, fs: Blob): Promise<Uint8Array> 
 				.arrayBuffer(),
 		);
 		return decompressLzss(compressed, { expectedSize: entry.uncompressedSize });
+	}
+	if (entry.compressionFlag === 2) {
+		// Read outer length prefix.
+		const head = new Uint8Array(
+			await fs.slice(entry.offsetInFs, entry.offsetInFs + 12).arrayBuffer(),
+		);
+		const outerLen =
+			head[0]! | (head[1]! << 8) | (head[2]! << 16) | (head[3]! << 24);
+		// head[4..8] should be "4ZL_" — sanity check.
+		if (
+			head[4] !== 0x34 ||
+			head[5] !== 0x5a ||
+			head[6] !== 0x4c ||
+			head[7] !== 0x5f
+		) {
+			throw new Ff8FsParseError(
+				`Expected "4ZL_" magic in LZ4 entry ${entry.path}; got ${head[4]?.toString(16)} ${head[5]?.toString(16)} ${head[6]?.toString(16)} ${head[7]?.toString(16)}`,
+			);
+		}
+		const innerUncompressed =
+			head[8]! | (head[9]! << 8) | (head[10]! << 16) | (head[11]! << 24);
+		// LZ4 block starts at offset+12 and runs for (outerLen - 8)
+		// bytes (outerLen counts the magic + uncSize + block).
+		const lz4Start = entry.offsetInFs + 12;
+		const lz4Len = outerLen - 8;
+		const lz4Bytes = new Uint8Array(
+			await fs.slice(lz4Start, lz4Start + lz4Len).arrayBuffer(),
+		);
+		return decodeBlock(lz4Bytes, innerUncompressed);
 	}
 	throw new Ff8FsParseError(
 		`Unknown compressionFlag ${entry.compressionFlag} for entry ${entry.path}`,
