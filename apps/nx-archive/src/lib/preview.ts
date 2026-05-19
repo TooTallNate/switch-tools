@@ -177,6 +177,14 @@ export type PreviewKind =
 	 * derived data (HP, MP, EXP, Gil, weaknesses).
 	 */
 	| 'ff7-scene-bin'
+	/**
+	 * FF7 PC overworld map (`wm0.map` / `wm2.map` / `wm3.map`).
+	 * 0xB800-byte section grid of LZSS-compressed sectors, each
+	 * a heightfield-textured triangle list. Renders the whole
+	 * landmass through the shared MeshViewer with textures
+	 * looked up by the 282-entry WMSET table.
+	 */
+	| 'ff7-world-map'
 	/** Tiny ARSL manifest of BARS file paths. */
 	| 'barslist-info'
 	/** Nintendo MSBT (MsgStdBn) — localized text/dialog/UI strings. */
@@ -446,6 +454,8 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.rsd')) return 'ff7-rsd';
 	// FF7 PC battle scene archive — always named `scene.bin`.
 	if (lower === 'scene.bin') return 'ff7-scene-bin';
+	// FF7 PC overworld map files (`wm0.map`, `wm2.map`, `wm3.map`).
+	if (/^wm[0-9]+\.map$/.test(lower)) return 'ff7-world-map';
 	// Unreal `.ubulk` is a codec-agnostic "bulk data" sidecar, but in
 	// practice the overwhelming majority of `.ubulk` files we encounter
 	// are Wwise audio payloads (RIFF/WAVE wrappers) sitting under

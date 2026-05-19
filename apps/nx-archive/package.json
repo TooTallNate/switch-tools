@@ -52,6 +52,7 @@
     "@tootallnate/ff7-flevel": "workspace:*",
     "@tootallnate/ff7-pc-model": "workspace:*",
     "@tootallnate/ff7-scene": "workspace:*",
+    "@tootallnate/ff7-world": "workspace:*",
     "@tootallnate/fmod-bank": "workspace:*",
     "@tootallnate/fsb5": "workspace:*",
     "@tootallnate/gfpak": "workspace:*",
