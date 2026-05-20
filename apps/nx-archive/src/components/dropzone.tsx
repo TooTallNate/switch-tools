@@ -31,6 +31,10 @@ import {
   walkedDirectoryFromFileList,
   type WalkedDirectory,
 } from "~/lib/directory"
+import {
+  isFileSystemAccessApiSupported,
+  pickFileWithHandle,
+} from "~/lib/last-file-store"
 import { cn } from "~/lib/utils"
 
 const SUPPORTED_FORMATS = [
@@ -58,9 +62,39 @@ interface DropzoneProps {
  * System Access picker, falling back to `<input webkitdirectory>`.
  */
 export function Dropzone({ onFile, onDirectory, onPickerError }: DropzoneProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const directoryInputRef = useRef<HTMLInputElement>(null)
   const [hover, setHover] = useState(false)
+
+  // Resolve the static file `<input>` rendered by `index.html`
+  // (see that file for the rationale — browser form-restoration
+  // requires the element to exist before React mounts).
+  const getFileInput = (): HTMLInputElement | null =>
+    document.getElementById(
+      "nx-archive-file-input",
+    ) as HTMLInputElement | null
+
+  /**
+   * Pick a file. On Chromium browsers we use the File System
+   * Access API, which gives us a `FileSystemFileHandle` we can
+   * persist in IndexedDB for next-reload restoration. On
+   * Firefox/Safari we fall back to the static `<input>` click;
+   * Firefox additionally restores that input's value across
+   * hard reloads (see `index.html` for the form-restoration
+   * trick).
+   */
+  const handlePickFile = async () => {
+    if (isFileSystemAccessApiSupported()) {
+      try {
+        const picked = await pickFileWithHandle()
+        if (picked) onFile(picked.file)
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return
+        onPickerError(err instanceof Error ? err : new Error(String(err)))
+      }
+      return
+    }
+    getFileInput()?.click()
+  }
 
   const handlePickDirectory = async () => {
     if (isDirectoryPickerSupported()) {
@@ -83,16 +117,12 @@ export function Dropzone({ onFile, onDirectory, onPickerError }: DropzoneProps) 
     // way it stays at the natural content width set by `EmptyHeader`/
     // `EmptyContent`'s `max-w-sm`, matching the original look.
     <div className="flex h-full w-full items-center justify-center p-8">
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0]
-          if (f) onFile(f)
-          e.target.value = ""
-        }}
-      />
+      {/*
+        File-picker `<input>` lives in `index.html` (NOT here) so
+        the browser restores its value on reload. We only render
+        the legacy `webkitdirectory` directory picker locally
+        since it doesn't need restoration.
+      */}
       <input
         ref={directoryInputRef}
         type="file"
@@ -172,7 +202,7 @@ export function Dropzone({ onFile, onDirectory, onPickerError }: DropzoneProps) 
             </DropdownMenuTrigger>
             <DropdownMenuContent align="center">
               <DropdownMenuGroup>
-                <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
+                <DropdownMenuItem onSelect={handlePickFile}>
                   <FileIcon />
                   Open file…
                 </DropdownMenuItem>

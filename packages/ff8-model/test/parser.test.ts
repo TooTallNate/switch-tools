@@ -387,202 +387,171 @@ describe('parseMch (synthetic)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Synthetic chara.one — embedded + shared-texture + external
+// Synthetic chara.one — one entry of each typeMark variant
 // ---------------------------------------------------------------------------
 
 /**
- * Build a chara.one with one entry of each variant. Returns
- * the full byte buffer.
+ * Build a chara.one with one CharD entry, one CharPO_neg entry,
+ * and one CharPO_pos entry. Mirrors the layout verified against
+ * 862 / 873 real FF8 Switch chara.one files.
  *
- * Layout (offsets relative to chara.one start):
+ *   +0x000  u32  entryCount = 3
+ *   +0x004  EntryRecord[0] = CharD     (32 bytes: 16-byte header
+ *                                       + 12-byte body + 4 pad to
+ *                                       align next record at 32?
+ *                                       No — bodies are tight.
+ *                                       The records ARE variable
+ *                                       size. Counts are: 16+12,
+ *                                       16+16, 16+20.)
  *
- *   +0x0000  u32  modelCount = 3
- *   +0x0004  variable-size entry headers (packed back-to-back):
- *
- *     entry 0 (embedded):
- *       u32 rawDataOffset  (= 0x800)
- *       u32 dataSize
- *       u32 modelID = (first TIM offset) = 0x40
- *       u32 nextTimOffset = 0x80000000  (sign-bit terminator)
- *       u32 mchOffset = 0x80
- *       u8[4] name "a000"
- *       u8[3] rgb
- *       u8 pad
- *       u32 extLoaderId
- *
- *     entry 1 (shared-texture):
- *       u32 rawDataOffset
- *       u32 dataSize
- *       u32 modelID = 0xA0000000
- *       u32 0xFFFFFFFF (sentinel)
- *       u32 mchOffset = 0x40
- *       u8[4] name "b000"
- *       u8[3] rgb + u8 pad + u32 extId
- *
- *     entry 2 (external d042):
- *       u32 rawDataOffset
- *       u32 dataSize
- *       u32 modelID = 0xD0000000 | 42
- *       u32 animationOffset = 0
- *       (NO trailer — testno-style)
- *
- *   +0x0800 onward: payloads (each starts with 4-byte filler).
+ *   +0x800  payload data (synthetic stubs).
  */
 function buildSyntheticCharaOne(): {
 	bytes: Uint8Array;
-	embeddedTimAbs: number;
-	embeddedModelAbs: number;
-	sharedModelAbs: number;
-	externalAnimAbs: number;
+	e0PayloadAbs: number;
+	e1PayloadAbs: number;
+	e2PayloadAbs: number;
 } {
 	const PAY_START = 0x800;
-
-	// Entry 0 payload: 4-byte filler + TIM stub at +0x40 + MCH stub at +0x80.
-	const e0TimRel = 0x40;
-	const e0MchRel = 0x80;
-	const e0PayloadSize = 4 + 0x80 + 64;
-	const e0Payload = new Uint8Array(e0PayloadSize);
-	// TIM stub magic bytes
-	e0Payload[4 + e0TimRel] = 0x10;
-
-	// Entry 1 payload: filler + MCH at +0x40.
-	const e1MchRel = 0x40;
-	const e1PayloadSize = 4 + e1MchRel + 64;
-	const e1Payload = new Uint8Array(e1PayloadSize);
-
-	// Entry 2 payload (external): minimal filler + 4 bytes of animation data.
-	const e2PayloadSize = 16;
-	const e2Payload = new Uint8Array(e2PayloadSize);
-
-	const total = PAY_START + e0PayloadSize + e1PayloadSize + e2PayloadSize;
+	const e0PaySize = 0x100;
+	const e1PaySize = 0x100;
+	const e2PaySize = 0x100;
+	const total = PAY_START + e0PaySize + e1PaySize + e2PaySize;
 	const bytes = new Uint8Array(total);
 	const view = new DataView(bytes.buffer);
-	view.setUint32(0, 3, true); // modelCount
+
+	view.setUint32(0, 3, true); // entryCount
 
 	let p = 4;
 	let payOff = PAY_START;
 
-	// --- Entry 0: embedded ---
-	const e0RawOff = payOff;
-	view.setUint32(p + 0, e0RawOff, true);
-	view.setUint32(p + 4, e0PayloadSize, true);
-	view.setUint32(p + 8, e0TimRel, true); // modelID = first TIM offset
-	view.setUint32(p + 12, 0x80000000, true); // sign-bit terminator
-	view.setUint32(p + 16, e0MchRel, true); // mchOffset
+	// --- Entry 0: CharD (typeMark = 0; 12-byte body) ---
+	const e0PayloadAbs = payOff;
+	view.setUint32(p + 0, payOff, true); // payloadOffset
+	view.setUint32(p + 4, e0PaySize, true); // payloadLength
+	view.setUint32(p + 8, e0PaySize, true); // payloadLength dup
+	view.setUint16(p + 12, 0x0034, true); // characterId
+	view.setUint16(p + 14, 0xd010, true); // characterFlag
+	view.setInt32(p + 16, 0, true); // typeMark = 0 → CharD
 	p += 20;
-	// Trailer
-	bytes[p + 0] = 'a'.charCodeAt(0);
+	// CharD body: name[4] + u32 reserved + u32 extLoaderId
+	bytes[p + 0] = 'd'.charCodeAt(0);
 	bytes[p + 1] = '0'.charCodeAt(0);
-	bytes[p + 2] = '0'.charCodeAt(0);
-	bytes[p + 3] = '0'.charCodeAt(0);
-	bytes[p + 4] = 11;
-	bytes[p + 5] = 22;
-	bytes[p + 6] = 33;
-	bytes[p + 7] = 0;
-	view.setUint32(p + 8, 42, true);
+	bytes[p + 2] = '4'.charCodeAt(0);
+	bytes[p + 3] = '2'.charCodeAt(0);
+	view.setUint32(p + 4, 0, true);
+	view.setUint32(p + 8, 0xeefefefe, true); // extLoaderId
 	p += 12;
-	bytes.set(e0Payload, payOff);
-	payOff += e0PayloadSize;
+	payOff += e0PaySize;
 
-	// --- Entry 1: shared-texture ---
-	const e1RawOff = payOff;
-	view.setUint32(p + 0, e1RawOff, true);
-	view.setUint32(p + 4, e1PayloadSize, true);
-	view.setUint32(p + 8, 0xa0000000, true); // shared-texture, sibling=0
-	view.setUint32(p + 12, 0xffffffff, true); // sentinel
-	view.setUint32(p + 16, e1MchRel, true);
+	// --- Entry 1: CharPO_neg (typeMark = -1; 16-byte body) ---
+	const e1PayloadAbs = payOff;
+	view.setUint32(p + 0, payOff, true);
+	view.setUint32(p + 4, e1PaySize, true);
+	view.setUint32(p + 8, e1PaySize, true);
+	view.setUint16(p + 12, 0x0042, true);
+	view.setUint16(p + 14, 0x0000, true);
+	view.setInt32(p + 16, -1, true); // typeMark = -1 → CharPO_neg
 	p += 20;
-	bytes[p + 0] = 'b'.charCodeAt(0);
-	bytes[p + 1] = '0'.charCodeAt(0);
-	bytes[p + 2] = '0'.charCodeAt(0);
-	bytes[p + 3] = '0'.charCodeAt(0);
-	bytes[p + 4] = 99;
-	bytes[p + 5] = 88;
-	bytes[p + 6] = 77;
-	bytes[p + 7] = 0;
-	view.setUint32(p + 8, 7, true);
-	p += 12;
-	bytes.set(e1Payload, payOff);
-	payOff += e1PayloadSize;
-
-	// --- Entry 2: external (d042). No trailer (back-to-back). ---
-	const e2RawOff = payOff;
-	view.setUint32(p + 0, e2RawOff, true);
-	view.setUint32(p + 4, e2PayloadSize, true);
-	view.setUint32(p + 8, 0xd0000000 | 42, true);
-	view.setUint32(p + 12, 0, true); // animationOffset rel = 0
+	// CharPO_neg body: u32 unknown + name[4] + u32 unknown2 + u32 unknown3
+	view.setUint32(p + 0, 0xdeadbeef, true);
+	bytes[p + 4] = 'o'.charCodeAt(0);
+	bytes[p + 5] = '0'.charCodeAt(0);
+	bytes[p + 6] = '4'.charCodeAt(0);
+	bytes[p + 7] = '7'.charCodeAt(0);
+	view.setUint32(p + 8, 0, true);
+	view.setUint32(p + 12, 0xeefefefe, true);
 	p += 16;
-	// No trailer; ensure next-offset reads as 0 so trailer is skipped.
-	bytes.set(e2Payload, payOff);
+	payOff += e1PaySize;
 
-	return {
-		bytes,
-		embeddedTimAbs: e0RawOff + 4 + e0TimRel,
-		embeddedModelAbs: e0RawOff + 4 + e0MchRel,
-		sharedModelAbs: e1RawOff + 4 + e1MchRel,
-		externalAnimAbs: e2RawOff + 4,
-	};
+	// --- Entry 2: CharPO_pos (typeMark != 0,-1; 20-byte body) ---
+	const e2PayloadAbs = payOff;
+	view.setUint32(p + 0, payOff, true);
+	view.setUint32(p + 4, e2PaySize, true);
+	view.setUint32(p + 8, e2PaySize, true);
+	view.setUint16(p + 12, 0x0099, true);
+	view.setUint16(p + 14, 0xa121, true);
+	view.setInt32(p + 16, 0x55555555, true); // arbitrary non-(0,-1)
+	p += 20;
+	// CharPO_pos body (20 bytes remaining after typeMark consumed
+	// at +0..+4 of the conceptual 24-byte structure):
+	//   +0  u32  unknown1   (= typeMark+4 in C#)
+	//   +4  char[4] name
+	//   +8  u32  unknown2
+	//   +12 u32  unknown3
+	//   +16 u32  unknown4 (where we put extLoaderId per parser)
+	view.setUint32(p + 0, 0xcafebabe, true);
+	bytes[p + 4] = 'p'.charCodeAt(0);
+	bytes[p + 5] = '0'.charCodeAt(0);
+	bytes[p + 6] = '0'.charCodeAt(0);
+	bytes[p + 7] = '1'.charCodeAt(0);
+	view.setUint32(p + 8, 0, true);
+	view.setUint32(p + 12, 0, true);
+	view.setUint32(p + 16, 0xeefefefe, true);
+	p += 20;
+
+	return { bytes, e0PayloadAbs, e1PayloadAbs, e2PayloadAbs };
 }
 
 describe('parseCharaOne (synthetic)', () => {
-	it('parses one entry of each variant', () => {
+	it('parses one entry of each typeMark variant', () => {
 		const built = buildSyntheticCharaOne();
 		const out = parseCharaOne(built.bytes);
 		expect(out.isDummy).toBe(false);
-		expect(out.modelCount).toBe(3);
+		expect(out.isOddball).toBe(false);
+		expect(out.entryCount).toBe(3);
 		expect(out.entries).toHaveLength(3);
 
 		const [e0, e1, e2] = out.entries;
 
-		// Entry 0: embedded
-		expect(e0!.variant).toBe('embedded');
-		expect(e0!.name).toBe('a000');
-		expect(e0!.lightColor).toEqual([11, 22, 33]);
-		expect(e0!.extLoaderId).toBe(42);
-		expect(e0!.timOffsets).toEqual([built.embeddedTimAbs]);
-		expect(e0!.modelOffset).toBe(built.embeddedModelAbs);
+		// Entry 0: CharD
+		expect(e0!.variant).toBe('chard');
+		expect(e0!.typeMark).toBe(0);
+		expect(e0!.name).toBe('d042');
+		expect(e0!.externalRefId).toBe(42);
+		expect(e0!.payloadOffset).toBe(built.e0PayloadAbs);
+		expect(e0!.characterFlag).toBe(0xd010);
+		expect(e0!.extLoaderId).toBe(0xeefefefe);
 
-		// Entry 1: shared-texture
-		expect(e1!.variant).toBe('shared-texture');
-		expect(e1!.name).toBe('b000');
-		expect(e1!.modelOffset).toBe(built.sharedModelAbs);
-		// shared-texture entries don't have a TIM list of their own
-		expect(e1!.timOffsets).toBeUndefined();
-		expect(e1!.sharedTextureModelIndex).toBe(0);
+		// Entry 1: CharPO_neg
+		expect(e1!.variant).toBe('charpo-neg');
+		expect(e1!.typeMark).toBe(-1);
+		expect(e1!.name).toBe('o047');
+		expect(e1!.payloadOffset).toBe(built.e1PayloadAbs);
 
-		// Entry 2: external (d042)
-		expect(e2!.variant).toBe('external');
-		expect(e2!.name).toBe('d042');
-		expect(e2!.externalRefId).toBe(42);
-		expect(e2!.modelOffset).toBeUndefined();
-		expect(e2!.timOffsets).toBeUndefined();
-		expect(e2!.animationOffset).toBe(built.externalAnimAbs);
+		// Entry 2: CharPO_pos
+		expect(e2!.variant).toBe('charpo-pos');
+		expect(e2!.typeMark).toBe(0x55555555);
+		expect(e2!.name).toBe('p001');
+		expect(e2!.externalRefId).toBe(1);
+		expect(e2!.payloadOffset).toBe(built.e2PayloadAbs);
 	});
 
-	it('strips a leading 4-byte file-size prefix when present', () => {
-		const built = buildSyntheticCharaOne();
-		// Wrap: prepend a u32 = total length-of-wrapped-buffer.
-		const wrapped = new Uint8Array(built.bytes.length + 4);
-		const wv = new DataView(wrapped.buffer);
-		wv.setUint32(0, wrapped.length, true);
-		wrapped.set(built.bytes, 4);
-		const out = parseCharaOne(wrapped);
-		expect(out.modelCount).toBe(3);
-		expect(out.entries).toHaveLength(3);
-		// Absolute offsets should be shifted by 4.
-		expect(out.entries[0]!.timOffsets).toEqual([built.embeddedTimAbs + 4]);
+	it('flags oddball size-prefixed files instead of throwing', () => {
+		// Build a synthetic where the very first u32 equals the
+		// buffer length — mirrors the 11 dev/test leftovers in
+		// the Switch Remastered build.
+		const bytes = new Uint8Array(0x800);
+		const view = new DataView(bytes.buffer);
+		view.setUint32(0, bytes.length, true);
+		const out = parseCharaOne(bytes);
+		expect(out.isOddball).toBe(true);
+		expect(out.entries).toEqual([]);
 	});
 
-	it('does not strip the prefix when option is disabled', () => {
-		const built = buildSyntheticCharaOne();
-		const wrapped = new Uint8Array(built.bytes.length + 4);
-		const wv = new DataView(wrapped.buffer);
-		wv.setUint32(0, wrapped.length, true);
-		wrapped.set(built.bytes, 4);
-		// With stripping disabled, the modelCount is read as the
-		// file size — bogus, throws.
-		expect(() => parseCharaOne(wrapped, { stripFileSizePrefix: false })).toThrow(
-			/Implausible modelCount/,
-		);
+	it('throws on oddball files when tolerateOddballs is disabled', () => {
+		const bytes = new Uint8Array(0x800);
+		const view = new DataView(bytes.buffer);
+		view.setUint32(0, bytes.length, true);
+		expect(() =>
+			parseCharaOne(bytes, { tolerateOddballs: false }),
+		).toThrow(/Oddball chara\.one/);
+	});
+
+	it('rejects files with an implausible entryCount', () => {
+		const bytes = new Uint8Array(0x800);
+		const view = new DataView(bytes.buffer);
+		view.setUint32(0, 9999, true); // way too big
+		expect(() => parseCharaOne(bytes)).toThrow(/Implausible entryCount/);
 	});
 });

@@ -1,0 +1,32 @@
+{
+  "name": "@tootallnate/ffmpeg-bink2-video-wasm",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Bink 2 video decoder (KB2f...KB2n) extension for @tootallnate/ffmpeg-wasm. Based on Paul B Mahol's bink2 patch. Pair with @tootallnate/ffmpeg-bink-demuxer-wasm.",
+  "exports": {
+    "./bink2-video.so": "./src/bink2-video.so",
+    "./bink2-video.so?url": "./src/bink2-video.so"
+  },
+  "files": [
+    "src/bink2-video.so",
+    "LICENSE.LGPL-2.1"
+  ],
+  "scripts": {
+    "build": "make"
+  },
+  "keywords": [
+    "ffmpeg",
+    "wasm",
+    "bink2",
+    "bink",
+    "video",
+    "kb2"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "LGPL-2.1-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/ffmpeg-bink2-video-wasm"
+  }
+}

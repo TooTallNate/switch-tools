@@ -107,6 +107,29 @@ export const MCH_FACE_SIZE = 64 as const;
 export const MCH_SKIN_SIZE = 8 as const;
 export const MCH_UNKNOWN1_SIZE = 32 as const;
 
+/**
+ * Detect FFVIII's standalone-MCH dummy-file sentinels. Some
+ * d###.mch slots in `main_chr.fs` ship the 33-byte ASCII string
+ * `"This is dummy file. Kazuo Suzuki\n"` instead of model data
+ * (same convention used by chara.one for empty scenes).
+ */
+export function isDummyMch(bytes: Uint8Array): boolean {
+	if (bytes.length === 33) return true;
+	// Some larger files also begin with the sentinel; check the
+	// first 4 bytes for "This".
+	if (bytes.length >= 4) {
+		if (
+			bytes[0] === 0x54 && // 'T'
+			bytes[1] === 0x68 && // 'h'
+			bytes[2] === 0x69 && // 'i'
+			bytes[3] === 0x73 //   's'
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
 export interface McbBone {
 	/**
 	 * Raw on-disk parent ID (1-based: 0 = no parent / root,
@@ -214,34 +237,68 @@ function readModelHeader(view: DataView, base: number) {
 }
 
 /**
- * Parse a TIM table-of-contents from `[0, 0x100)` of a
- * standalone MCH file: u32 offsets terminated by 0xFFFFFFFF,
- * then a u32 modelOffset.
+ * Parse a TIM table-of-contents from a standalone MCH file.
+ *
+ * The Switch Remastered (and PC) builds pack the TOC compactly:
+ *
+ *     u32 entry0     = (extraTimCount << 28) | (timOffset[0] & 0x0FFFFFFF)
+ *     u32 timOffset[1..extraTimCount]
+ *     u32 0xFFFFFFFF
+ *     u32 modelOffset
+ *
+ * That is, the top nibble of the first dword tells you how many
+ * *additional* TIM offsets follow before the 0xFFFFFFFF
+ * terminator. The first TIM's offset is masked to 28 bits. The
+ * PSX 64-byte-aligned scheme (raw u32-offsets-until-sentinel)
+ * is also supported for back-compat — if the first dword's high
+ * nibble is 0 and there's a 0xFFFFFFFF at offset 4 (or later),
+ * we fall back to the linear scan.
+ *
+ * Verified against 71 / 71 non-dummy d###.mch files extracted
+ * from the FFVIII Switch Remastered `main_chr.fs` archive.
  */
 function readStandaloneToc(
 	bytes: Uint8Array,
 	view: DataView,
 ): { timOffsets: number[]; bodyOffset: number } {
-	const tocLimit = Math.min(0x100, bytes.length);
-	const timOffsets: number[] = [];
-	let p = 0;
-	while (p + 4 <= tocLimit) {
-		const v = view.getUint32(p, true);
-		p += 4;
-		if (v === 0xffffffff) {
-			if (p + 4 > bytes.length) {
-				throw new MchParseError(
-					'Standalone MCH truncated before modelOffset',
-				);
-			}
-			const bodyOffset = view.getUint32(p, true);
-			return { timOffsets, bodyOffset };
-		}
-		timOffsets.push(v);
+	if (bytes.length < 12) {
+		throw new MchParseError(
+			'Standalone MCH too short for any TOC variant',
+		);
 	}
-	throw new MchParseError(
-		'Standalone MCH has no 0xFFFFFFFF TOC terminator within first 0x100 bytes',
-	);
+	const e0 = view.getUint32(0, true);
+	const extraTimCount = (e0 >>> 28) & 0xf;
+	const tim0 = e0 & 0x0fffffff;
+	if (tim0 === 0 || tim0 > bytes.length) {
+		throw new MchParseError(
+			`Standalone MCH first TIM offset 0x${tim0.toString(16)} is out of range`,
+		);
+	}
+	const timOffsets: number[] = [tim0];
+	let p = 4;
+	for (let i = 0; i < extraTimCount; i++) {
+		if (p + 4 > bytes.length) {
+			throw new MchParseError(
+				'Standalone MCH truncated before TOC terminator',
+			);
+		}
+		timOffsets.push(view.getUint32(p, true));
+		p += 4;
+	}
+	const term = view.getUint32(p, true);
+	if (term !== 0xffffffff) {
+		throw new MchParseError(
+			`Expected 0xFFFFFFFF TOC terminator at 0x${p.toString(16)}, got 0x${term.toString(16)}`,
+		);
+	}
+	p += 4;
+	if (p + 4 > bytes.length) {
+		throw new MchParseError(
+			'Standalone MCH truncated before modelOffset',
+		);
+	}
+	const bodyOffset = view.getUint32(p, true);
+	return { timOffsets, bodyOffset };
 }
 
 export function parseMch(

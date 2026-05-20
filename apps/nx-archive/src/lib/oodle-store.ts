@@ -25,7 +25,9 @@ import { OodleDecoder } from '@tootallnate/oodle-wasm';
 import type { OodleDecompress } from './archive.js';
 
 const DB_NAME = 'nx-archive';
-const DB_VERSION = 1;
+// Bumped to 2 in step with `bink2-store.ts` and
+// `last-file-store.ts` — adding the `last-file-handle` store.
+const DB_VERSION = 2;
 const STORE = 'oodle';
 const KEY = 'oodle.wasm';
 
@@ -41,6 +43,10 @@ function openDb(): Promise<IDBDatabase> {
 		req.onupgradeneeded = () => {
 			const db = req.result;
 			if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+			if (!db.objectStoreNames.contains('bink2')) db.createObjectStore('bink2');
+			if (!db.objectStoreNames.contains('last-file-handle')) {
+				db.createObjectStore('last-file-handle');
+			}
 		};
 		req.onsuccess = () => resolve(req.result);
 		req.onerror = () => reject(req.error);

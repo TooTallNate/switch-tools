@@ -1,0 +1,32 @@
+{
+  "name": "@tootallnate/ffmpeg-bink-demuxer-wasm",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Bink container demuxer extension for @tootallnate/ffmpeg-wasm. Includes Switch KB2n support. Pairs with @tootallnate/ffmpeg-bink-video-wasm, @tootallnate/ffmpeg-bink2-video-wasm, and @tootallnate/ffmpeg-bink-audio-wasm.",
+  "exports": {
+    "./bink-demuxer.so": "./src/bink-demuxer.so",
+    "./bink-demuxer.so?url": "./src/bink-demuxer.so"
+  },
+  "files": [
+    "src/bink-demuxer.so",
+    "LICENSE.LGPL-2.1"
+  ],
+  "scripts": {
+    "build": "make"
+  },
+  "keywords": [
+    "ffmpeg",
+    "wasm",
+    "bink",
+    "demuxer",
+    "container",
+    "kb2"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "LGPL-2.1-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/ffmpeg-bink-demuxer-wasm"
+  }
+}

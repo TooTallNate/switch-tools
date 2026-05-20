@@ -2,13 +2,22 @@
   "name": "@tootallnate/hca",
   "version": "0.0.1",
   "type": "module",
-  "description": "Pure-JS decoder for CRI Middleware's High Compression Audio (HCA) codec — the compressed audio format used by many Japanese games and CRIWARE-licensed engines. Decodes a single HCA stream to interleaved Float32 / PCM16 samples ready to wrap in a WAV container or feed to the Web Audio API. Supports types 0 (none), 1 (static-permutation), and 56 (key-derived) ciphers.",
+  "description": "Pure-JS decoder for CRI Middleware's HCA audio codec — parses the HCA container, decodes the MDCT-based bitstream to interleaved Float32 PCM, supports type-0/1/56 cipher decryption, and ships a tiny WAV (RIFF/PCM or float) encoder.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "test": "vitest run"
   },
-  "keywords": [],
+  "keywords": [
+    "hca",
+    "cri",
+    "criware",
+    "audio",
+    "decoder",
+    "awb",
+    "acb",
+    "wav"
+  ],
   "author": "Nathan Rajlich <n@n8.io>",
   "license": "MIT",
   "repository": {

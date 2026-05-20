@@ -1,8 +1,7 @@
-import { useRef } from "react"
+import { useEffect, useRef } from "react"
 import {
   ChevronDownIcon,
   FileIcon,
-  FilmIcon,
   FolderIcon,
   GithubIcon,
   KeyIcon,
@@ -18,6 +17,7 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "~/components/ui/dropdown-menu"
 import {
@@ -32,6 +32,10 @@ import {
   walkedDirectoryFromFileList,
   type WalkedDirectory,
 } from "~/lib/directory"
+import {
+  isFileSystemAccessApiSupported,
+  pickFileWithHandle,
+} from "~/lib/last-file-store"
 import { formatBytes } from "~/lib/utils"
 
 interface AppHeaderProps {
@@ -39,12 +43,10 @@ interface AppHeaderProps {
   onOpenDirectory: (directory: WalkedDirectory) => void
   onOpenKeys: () => void
   onOpenOodle: () => void
-  onOpenBink2: () => void
   onCloseFile: () => void
   hasFile: boolean
   hasKeys: boolean
   hasOodle: boolean
-  hasBink2: boolean
   currentFileName?: string
   currentFileSize?: number
   onPickerError: (err: Error) => void
@@ -55,18 +57,68 @@ export function AppHeader({
   onOpenDirectory,
   onOpenKeys,
   onOpenOodle,
-  onOpenBink2,
   onCloseFile,
   hasFile,
   hasKeys,
   hasOodle,
-  hasBink2,
   currentFileName,
   currentFileSize,
   onPickerError,
 }: AppHeaderProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const directoryInputRef = useRef<HTMLInputElement>(null)
+
+  /** Resolve the static file `<input>` rendered by `index.html`. */
+  const getFileInput = (): HTMLInputElement | null =>
+    document.getElementById(
+      "nx-archive-file-input",
+    ) as HTMLInputElement | null
+
+  // The file `<input>` lives in `index.html` rather than in this
+  // component's JSX — see that file for the rationale. We attach
+  // a `change` listener here so that *in-session* file picks
+  // route through `onOpenFile`. The **boot-time restore** (when
+  // the browser auto-fills `.files` from a previous session,
+  // BEFORE React mounts) is handled by App.tsx instead, since
+  // it needs to wait for `prod.keys` / Oodle / Bink2 to finish
+  // loading from IndexedDB before walking into the file —
+  // otherwise NCA traversal trips ProdKeysMissingError.
+  useEffect(() => {
+    const el = document.getElementById(
+      "nx-archive-file-input",
+    ) as HTMLInputElement | null
+    if (!el) return
+    const handleChange = () => {
+      const f = el.files?.[0]
+      if (f) onOpenFile(f)
+    }
+    el.addEventListener("change", handleChange)
+    return () => {
+      el.removeEventListener("change", handleChange)
+    }
+    // `onOpenFile` is stable (parent uses `useCallback`) so the
+    // listener captured at mount stays correct.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  /**
+   * Pick a file via FSA API (Chromium) for next-reload
+   * restoration via stored handle, falling back to clicking the
+   * static `<input>` (Firefox/Safari — Firefox restores via its
+   * built-in form-state mechanism).
+   */
+  const handlePickFile = async () => {
+    if (isFileSystemAccessApiSupported()) {
+      try {
+        const picked = await pickFileWithHandle()
+        if (picked) onOpenFile(picked.file)
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return
+        onPickerError(err instanceof Error ? err : new Error(String(err)))
+      }
+      return
+    }
+    getFileInput()?.click()
+  }
 
   const handleOpenDirectory = async () => {
     // Prefer the modern API; gracefully fall back to <input webkitdirectory>.
@@ -88,20 +140,12 @@ export function AppHeader({
 
   return (
     <header className="sticky top-0 z-30 flex h-12 shrink-0 flex-wrap items-center gap-3 border-b bg-card/85 px-3 backdrop-blur supports-backdrop-filter:bg-card/70">
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0]
-          if (f) onOpenFile(f)
-          e.target.value = ""
-        }}
-      />
       {/*
-        webkitdirectory is the legacy fallback for browsers without the
-        File System Access API (Firefox / Safari). It produces a FileList
-        whose entries have webkitRelativePath set.
+        The file `<input>` lives in `index.html` — see that file
+        for the rationale (browser form-restoration requires the
+        element to exist at DOM-parse time, before React mounts).
+        We only render the legacy `webkitdirectory` directory
+        picker here since it doesn't need restoration.
       */}
       <input
         ref={directoryInputRef}
@@ -170,13 +214,20 @@ export function AppHeader({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuGroup>
-                <DropdownMenuItem onSelect={() => fileInputRef.current?.click()}>
+                <DropdownMenuItem onSelect={handlePickFile}>
                   <FileIcon />
                   Open file…
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={handleOpenDirectory}>
                   <FolderIcon />
                   Open directory…
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuItem onSelect={onCloseFile} variant="destructive">
+                  <XIcon />
+                  Close file
                 </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>
@@ -202,18 +253,6 @@ export function AppHeader({
           />
           Oodle
           {hasOodle && (
-            <Badge variant="secondary" className="ml-0.5">
-              loaded
-            </Badge>
-          )}
-        </Button>
-        <Button variant="outline" size="sm" onClick={onOpenBink2}>
-          <FilmIcon
-            data-icon="inline-start"
-            className={hasBink2 ? "text-primary" : undefined}
-          />
-          Bink2
-          {hasBink2 && (
             <Badge variant="secondary" className="ml-0.5">
               loaded
             </Badge>

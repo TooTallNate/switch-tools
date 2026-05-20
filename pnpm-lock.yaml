@@ -195,7 +195,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       autoprefixer:
         specifier: ^10.4.24
-        version: 10.4.24(postcss@8.5.6)
+        version: 10.4.24(postcss@8.4.49)
       tailwindcss:
         specifier: ^3.4.16
         version: 3.4.16
@@ -268,12 +268,6 @@ importers:
       '@tootallnate/bimage':
         specifier: workspace:*
         version: link:../../packages/bimage
-      '@tootallnate/bink1-wasm':
-        specifier: workspace:*
-        version: link:../../packages/bink1-wasm
-      '@tootallnate/bink2-wasm':
-        specifier: workspace:*
-        version: link:../../packages/bink2-wasm
       '@tootallnate/bmfont':
         specifier: workspace:*
         version: link:../../packages/bmfont
@@ -325,6 +319,24 @@ importers:
       '@tootallnate/ff8-fs':
         specifier: workspace:*
         version: link:../../packages/ff8-fs
+      '@tootallnate/ff8-model':
+        specifier: workspace:*
+        version: link:../../packages/ff8-model
+      '@tootallnate/ffmpeg-bink-audio-wasm':
+        specifier: workspace:*
+        version: link:../../packages/ffmpeg-bink-audio-wasm
+      '@tootallnate/ffmpeg-bink-demuxer-wasm':
+        specifier: workspace:*
+        version: link:../../packages/ffmpeg-bink-demuxer-wasm
+      '@tootallnate/ffmpeg-bink-video-wasm':
+        specifier: workspace:*
+        version: link:../../packages/ffmpeg-bink-video-wasm
+      '@tootallnate/ffmpeg-bink2-video-wasm':
+        specifier: workspace:*
+        version: link:../../packages/ffmpeg-bink2-video-wasm
+      '@tootallnate/ffmpeg-wasm':
+        specifier: workspace:*
+        version: link:../../packages/ffmpeg-wasm
       '@tootallnate/fmod-bank':
         specifier: workspace:*
         version: link:../../packages/fmod-bank
@@ -491,11 +503,11 @@ importers:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       spessasynth_core:
-        specifier: ^4.2.13
-        version: 4.2.13
+        specifier: ^4.3.3
+        version: 4.3.3
       spessasynth_lib:
-        specifier: ^4.2.15
-        version: 4.2.15
+        specifier: ^4.3.3
+        version: 4.3.3
       tailwind-merge:
         specifier: ^3.5.0
         version: 3.5.0
@@ -672,24 +684,6 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
-  packages/bink1-wasm:
-    devDependencies:
-      typescript:
-        specifier: ^5.6.3
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
-
-  packages/bink2-wasm:
-    devDependencies:
-      typescript:
-        specifier: ^5.6.3
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
-
   packages/bmfont:
     devDependencies:
       typescript:
@@ -861,6 +855,23 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
+
+  packages/ffmpeg-bink-audio-wasm: {}
+
+  packages/ffmpeg-bink-demuxer-wasm: {}
+
+  packages/ffmpeg-bink-video-wasm: {}
+
+  packages/ffmpeg-bink2-video-wasm: {}
+
+  packages/ffmpeg-wasm:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.5
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
   packages/fmod-bank:
@@ -6993,15 +7004,11 @@ packages:
   spdx-license-ids@3.0.13:
     resolution: {integrity: sha512-XkD+zwiqXHikFZm4AX/7JSCXA98U5Db4AFd5XUg/+9UNtnH75+Z9KxtpYiJZx36mUDVOwH83pl7yvCer6ewM3w==}
 
-  spessasynth_core@4.2.13:
-    resolution: {integrity: sha512-IB3K1MZBsvgufvjuaB0FT71+btQfwBsNJt0iQFGG/iaprlRbKkgQ5IYvZ9+y9vsKLgJryOlt/mtlGomt0hRSjQ==}
-    deprecated: Versions below 4.3.0 are no longer supported.
+  spessasynth_core@4.3.3:
+    resolution: {integrity: sha512-WhdL1/rKP3QDJHq9/W7ayLqcvEMSciTalAYJUPp1QXRzGUBJnIOC0hvCf1QpPIMw4ie9BfOY3rZ5SuRY82iv2A==}
 
-  spessasynth_core@4.3.1:
-    resolution: {integrity: sha512-uDg2nVw0DZLZRn16EmchRWqrQiF7kdgwVEDJ9cEOV3ovusey+8A8nsvsnRce9ScQvR6iLOS1qUDWkx6y+XNgzA==}
-
-  spessasynth_lib@4.2.15:
-    resolution: {integrity: sha512-3QEOkzws6J/z/hkYS4jTO9uxM99NwoPH1J/L61+DAAxoedeBZopY3M5Ebql/r+4DOy1rcULnQYExucEjVp0C8w==}
+  spessasynth_lib@4.3.3:
+    resolution: {integrity: sha512-4fedp9m170b9U12rkZ2NPGqq0Vpkc9iWDxVOuhVuzyD3flBrPxGA9iTY0aOeYMM2pQ6S/EtH7elHnsfU8EsI9w==}
 
   split2@4.2.0:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
@@ -10726,13 +10733,13 @@ snapshots:
 
   astring@1.8.6: {}
 
-  autoprefixer@10.4.24(postcss@8.5.6):
+  autoprefixer@10.4.24(postcss@8.4.49):
     dependencies:
       browserslist: 4.28.1
       caniuse-lite: 1.0.30001774
       fraction.js: 5.3.4
       picocolors: 1.1.1
-      postcss: 8.5.6
+      postcss: 8.4.49
       postcss-value-parser: 4.2.0
 
   available-typed-arrays@1.0.5: {}
@@ -14171,13 +14178,11 @@ snapshots:
 
   spdx-license-ids@3.0.13: {}
 
-  spessasynth_core@4.2.13: {}
+  spessasynth_core@4.3.3: {}
 
-  spessasynth_core@4.3.1: {}
-
-  spessasynth_lib@4.2.15:
+  spessasynth_lib@4.3.3:
     dependencies:
-      spessasynth_core: 4.3.1
+      spessasynth_core: 4.3.3
 
   split2@4.2.0: {}
 

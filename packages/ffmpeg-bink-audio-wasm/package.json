@@ -1,0 +1,31 @@
+{
+  "name": "@tootallnate/ffmpeg-bink-audio-wasm",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Bink audio decoder (RDFT + DCT variants) extension for @tootallnate/ffmpeg-wasm. Pair with @tootallnate/ffmpeg-bink-demuxer-wasm.",
+  "exports": {
+    "./bink-audio.so": "./src/bink-audio.so",
+    "./bink-audio.so?url": "./src/bink-audio.so"
+  },
+  "files": [
+    "src/bink-audio.so",
+    "LICENSE.LGPL-2.1"
+  ],
+  "scripts": {
+    "build": "make"
+  },
+  "keywords": [
+    "ffmpeg",
+    "wasm",
+    "bink",
+    "audio",
+    "binkaudio"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "LGPL-2.1-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/ffmpeg-bink-audio-wasm"
+  }
+}

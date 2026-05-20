@@ -84,6 +84,8 @@ import { Ff7WorldMapPreview } from "./ff7-world-map-preview"
 import { DdsPreview } from "./dds-preview"
 import { Ff8FieldScenePreview } from "./ff8-field-scene-preview"
 import { Ff8BattleDatPreview } from "./ff8-battle-preview"
+import { Ff8CharaOnePreview } from "./ff8-charaone-preview"
+import { Ff8MchPreview } from "./ff8-mch-preview"
 import {
   decodeUeMip,
   describePixelFormat,
@@ -181,7 +183,7 @@ import {
 } from "@tootallnate/bwav"
 import { parseMsbt, type ParsedMsbt } from "@tootallnate/msbt"
 import { parseAwb, type ParsedAwb } from "@tootallnate/awb"
-import { decodeHcaToWavBlob, parseHcaHeader } from "@tootallnate/hca"
+import { decodeHca, encodeToWav, parseHca } from "@tootallnate/hca"
 import {
   AUDIO_MIME,
   IMAGE_MIME,
@@ -244,7 +246,10 @@ import {
   type ProgressEvent,
   type OnProgress,
 } from "~/lib/progress"
-import { encodeBink1ToMp4, type Bink1EncodeProgress } from "~/lib/bink1-encode"
+import {
+  encodeBinkToMp4,
+  type BinkEncodeProgress,
+} from "~/lib/bink-encode"
 import {
   saveNodeAsZip,
   hasFileSystemSavePicker,
@@ -255,7 +260,6 @@ import {
   registerBlobAsVfsResource,
   unregisterVfsResource,
 } from "~/lib/vfs"
-import bink1WasmUrl from "@tootallnate/bink1-wasm/bink1.wasm?url"
 import { parseIdFont, type ParsedIdFont } from "@tootallnate/idfont"
 import {
   parseBimage,
@@ -264,8 +268,6 @@ import {
   type ParsedBimage,
 } from "@tootallnate/bimage"
 import { decodeBC1, decodeBC3 } from "@tootallnate/bcn"
-import { encodeBink2ToMp4, type Bink2EncodeProgress } from "~/lib/bink2-encode"
-import { loadStoredBink2Wasm } from "~/lib/bink2-store"
 
 const TEXT_PREVIEW_LIMIT = 1 * 1024 * 1024 // 1 MB
 const HEX_PREVIEW_LIMIT = 4 * 1024 // 4 KB hex window
@@ -311,28 +313,12 @@ interface PreviewPaneProps {
    * text.
    */
   onNavigate?: (node: Node) => void
-  /**
-   * Open the "provide bink2.wasm" dialog. The `Bink2Preview` calls
-   * this automatically when the user selects a `.bk2` and no WASM
-   * is configured — mirroring the way archive reading auto-opens
-   * the Oodle / keys dialog when a missing resource is encountered.
-   */
-  onRequestBink2?: () => void
-  /**
-   * Bumped by the host whenever the stored Bink 2 WASM changes
-   * (upload / clear). Surfaced into Bink2Preview's effect deps so
-   * a pending no-wasm preview retries automatically as soon as the
-   * user uploads the blob.
-   */
-  bink2WasmVersion?: number
 }
 
 export function PreviewPane({
   node,
   root,
   onNavigate,
-  onRequestBink2,
-  bink2WasmVersion,
 }: PreviewPaneProps) {
   if (!node) {
     return (
@@ -359,8 +345,6 @@ export function PreviewPane({
       node={node}
       root={root ?? null}
       onNavigate={onNavigate}
-      onRequestBink2={onRequestBink2}
-      bink2WasmVersion={bink2WasmVersion}
     />
   )
 }
@@ -369,14 +353,10 @@ function PreviewContent({
   node,
   root,
   onNavigate,
-  onRequestBink2,
-  bink2WasmVersion,
 }: {
   node: Node
   root: Node | null
   onNavigate?: (node: Node) => void
-  onRequestBink2?: () => void
-  bink2WasmVersion?: number
 }) {
   const isFile = !node.isContainer
   const kind = useMemo<PreviewKind | null>(
@@ -458,8 +438,6 @@ function PreviewContent({
             kind={kind!}
             root={root}
             onNavigate={onNavigate}
-            onRequestBink2={onRequestBink2}
-            bink2WasmVersion={bink2WasmVersion}
           />
         )}
       </div>
@@ -1785,15 +1763,11 @@ function FilePreview({
   kind,
   root,
   onNavigate,
-  onRequestBink2,
-  bink2WasmVersion,
 }: {
   node: Node
   kind: PreviewKind
   root: Node | null
   onNavigate?: (node: Node) => void
-  onRequestBink2?: () => void
-  bink2WasmVersion?: number
 }) {
   switch (kind) {
     case "image":
@@ -1883,6 +1857,10 @@ function FilePreview({
       return <Ff8FieldScenePreview node={node} root={root} />
     case "ff8-battle-dat":
       return <Ff8BattleDatPreview node={node} />
+    case "ff8-charaone":
+      return <Ff8CharaOnePreview node={node} root={root} />
+    case "ff8-mch":
+      return <Ff8MchPreview node={node} />
     case "barslist-info":
       return <BarslistPreview node={node} />
     case "bnvib-audio":
@@ -1898,19 +1876,14 @@ function FilePreview({
     case "usm-video":
       return <UsmPreview node={node} />
     case "bink1-video":
-      return <Bink1Preview node={node} />
+      return <BinkPreview node={node} format="bink1" />
     case "idfont":
       return <IdFontPreview node={node} root={root} />
     case "bimage":
       return <BimagePreview node={node} />
     case "bink2-video":
-      return (
-        <Bink2Preview
-          node={node}
-          onRequestBink2={onRequestBink2}
-          wasmVersion={bink2WasmVersion ?? 0}
-        />
-      )
+      return <BinkPreview node={node} format="bink2" />
+
     case "unity-asset":
       return <UnityAssetPreview node={node} root={root} />
     case "unity-object":
@@ -8930,25 +8903,25 @@ function UsmStreamsTable({ streams }: { streams: UsmStream[] }) {
 }
 
 // ====================================================================
-// Bink 2 (.bk2) video preview
+// Bink (.bik / .bk2) video preview
 // ====================================================================
 //
-// Pipeline:
-//   1. Load the user-supplied `bink2.wasm` from IndexedDB; if not
-//      present, surface an inline "configure WASM" call-to-action
-//      (the global header carries the actual upload dialog).
-//   2. Decode every frame via `@tootallnate/bink2-wasm`, re-encode
-//      to H.264 via WebCodecs, mux into an MP4 via `mp4-muxer`.
-//   3. Show progress while encoding (the operation is multi-second
-//      for typical cinematics).
-//   4. When done, mount a `<video controls>` pointed at the MP4 blob
-//      URL + offer "Save .mp4". Native scrubbing UI gives the user
-//      everything a real <video> element would.
+// Unified preview for both Bink 1 (.bik) and Bink 2 (.bk2) videos.
+// Uses `@tootallnate/ffmpeg-wasm` (LGPL-only base + 4 dynamically-
+// loaded extension `.so`s) to decode → re-encodes to H.264 via
+// WebCodecs → muxes into MP4 via `mp4-muxer` → renders a `<video>`
+// with native scrubbing. The new stack auto-picks the right codec
+// (Bink 1 vs Bink 2) per stream via the registered bink-demuxer.
+//
+// Replaces the previous Bink1Preview + Bink2Preview pair (the old
+// bink2 component had a "no-wasm" state because cnc-ra-libs was
+// GPL-3 and not shippable; that's gone — we ship LGPL FFmpeg
+// extensions directly).
 
-interface Bink2PreviewState {
-  kind: "loading-wasm" | "no-wasm" | "encoding" | "ready" | "error"
+interface BinkPreviewState {
+  kind: "encoding" | "ready" | "error"
   /** Frame progress while encoding. */
-  progress?: Bink2EncodeProgress
+  progress?: BinkEncodeProgress
   /** Result blob URL once encoding completes. */
   mp4Url?: string
   /** Bytes of the encoded MP4 (for the size display). */
@@ -8964,24 +8937,14 @@ interface Bink2PreviewState {
   error?: Error
 }
 
-function Bink2Preview({
+function BinkPreview({
   node,
-  onRequestBink2,
-  wasmVersion,
+  format,
 }: {
   node: Node
-  onRequestBink2?: () => void
-  /**
-   * Increments when the host's stored WASM changes. Surfaced into
-   * the effect deps so a previously-failed load auto-retries on
-   * upload without needing the user to re-select the file.
-   */
-  wasmVersion: number
+  format: "bink1" | "bink2"
 }) {
-  const [state, setState] = useState<Bink2PreviewState>({ kind: "loading-wasm" })
-  // Latched so we only auto-open the dialog once per preview mount —
-  // re-renders during the no-wasm state shouldn't re-trigger it.
-  const dialogRequestedRef = useRef(false)
+  const [state, setState] = useState<BinkPreviewState>({ kind: "encoding" })
   // mp4Url lifetime is tied to the state's `ready` phase; revoked on
   // state change and on unmount.
   const mp4UrlRef = useRef<string | null>(null)
@@ -8992,46 +8955,30 @@ function Bink2Preview({
     }
   }, [])
 
-  // Reset + kick off the decode when the selected node changes or
-  // the host signals a WASM upload via `wasmVersion`. AbortController
-  // lets us cancel cleanly if the user picks another file mid-encode.
+  // Reset + kick off the decode when the selected node changes.
+  // AbortController lets us cancel cleanly if the user picks another
+  // file mid-encode.
   useEffect(() => {
     let cancelled = false
     const aborter = new AbortController()
-    // Revoke any previous URL — we'll mint a new one on success.
     if (mp4UrlRef.current) {
       URL.revokeObjectURL(mp4UrlRef.current)
       mp4UrlRef.current = null
     }
-    // Re-arm the auto-dialog latch: if the user uploads, dismisses,
-    // and we land back in no-wasm somehow, the dialog should pop
-    // again. (We don't expect that flow in practice; this is safety.)
-    dialogRequestedRef.current = false
-    setState({ kind: "loading-wasm" })
+    setState({ kind: "encoding" })
     void (async () => {
       try {
-        const wasmBytes = await loadStoredBink2Wasm()
-        if (cancelled) return
-        if (!wasmBytes) {
-          setState({ kind: "no-wasm" })
-          return
-        }
         const blob = await node.blob!()
         if (cancelled) return
-        const bk2Bytes = new Uint8Array(await blob.arrayBuffer())
+        const binkBytes = new Uint8Array(await blob.arrayBuffer())
         if (cancelled) return
-        setState({ kind: "encoding" })
-        const result = await encodeBink2ToMp4({
-          wasmBytes,
-          bk2Bytes,
+        const result = await encodeBinkToMp4({
+          format,
+          binkBytes,
           signal: aborter.signal,
           onProgress: (progress) => {
             if (cancelled) return
-            setState((prev) => ({
-              ...prev,
-              kind: "encoding",
-              progress,
-            }))
+            setState((prev) => ({ ...prev, kind: "encoding", progress }))
           },
         })
         if (cancelled) return
@@ -9061,62 +9008,8 @@ function Bink2Preview({
       cancelled = true
       aborter.abort()
     }
-  }, [node.id, node.blob, wasmVersion])
+  }, [node.id, node.blob, format])
 
-  if (state.kind === "loading-wasm") {
-    return <LoadingFiller label="Loading Bink2 WASM…" />
-  }
-  if (state.kind === "no-wasm") {
-    // Auto-open the dialog the first time we land in this state for
-    // a given preview mount — same UX as the Oodle/keys dialogs that
-    // pop up automatically when archive reading hits a missing
-    // resource. We latch via `dialogRequestedRef` so re-renders here
-    // don't open the dialog repeatedly.
-    if (onRequestBink2 && !dialogRequestedRef.current) {
-      dialogRequestedRef.current = true
-      // Defer to avoid setState-during-render warnings from the
-      // host's dialog state setter.
-      queueMicrotask(onRequestBink2)
-    }
-    return (
-      <ScrollArea className="h-full">
-        <div className="flex flex-col gap-5 p-5">
-          <SectionHeader title="Bink 2 video — bink2.wasm required" />
-          <Alert>
-            <CircleAlertIcon />
-            <AlertTitle>Bink 2 decoder not configured</AlertTitle>
-            <AlertDescription>
-              Previewing <code>.bk2</code> requires a user-supplied{" "}
-              <code>bink2.wasm</code> blob (the upstream decoder is GPL-3.0
-              and can&rsquo;t ship with this MIT app).{" "}
-              {onRequestBink2 ? (
-                <button
-                  type="button"
-                  onClick={onRequestBink2}
-                  className="font-medium text-foreground underline underline-offset-2"
-                >
-                  Click here to upload one
-                </button>
-              ) : (
-                <>
-                  Click <strong>Bink2</strong> in the app header to upload one.
-                </>
-              )}{" "}
-              <a
-                href="https://github.com/TooTallNate/switch-tools/blob/main/packages/bink2-wasm/README.md"
-                target="_blank"
-                rel="noreferrer"
-                className="font-medium text-foreground underline underline-offset-2"
-              >
-                Build instructions
-              </a>
-              .
-            </AlertDescription>
-          </Alert>
-        </div>
-      </ScrollArea>
-    )
-  }
   if (state.kind === "error") {
     return <ErrorFiller error={state.error!} />
   }
@@ -9126,11 +9019,12 @@ function Bink2Preview({
   const isEncoding = state.kind === "encoding"
   const progress = state.progress
   const pct = progress ? Math.round((progress.frame / progress.total) * 100) : 0
+  const label = format === "bink2" ? "Bink 2" : "Bink 1"
+  const downloadName = node.name.replace(/\.(bk2|bik|bk1)$/i, "") + ".mp4"
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-5 p-5">
-        <SectionHeader title="Bink 2 video — decoded and re-encoded to MP4" />
-
+        <SectionHeader title={`${label} video — decoded and re-encoded to MP4`} />
         <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
           {state.kind === "ready" && state.mp4Url ? (
             <video
@@ -9169,176 +9063,13 @@ function Bink2Preview({
               {state.kind === "ready"
                 ? `H.264${state.audioCodec ? ` + ${state.audioCodec.toUpperCase()}` : ""} / MP4 (${state.width}×${state.height} · ${state.fps?.toFixed(2)} fps · ${formatDuration((state.durationMs ?? 0) / 1000)} · ${formatBytes(state.mp4Size ?? 0)}${state.audioCodec === null ? " · no audio" : ""})`
                 : isEncoding && progress
-                  ? `Source: Bink2 (${progress.total.toLocaleString()} frames)`
-                  : "Source: Bink2"}
+                  ? `Source: ${label} (${progress.total.toLocaleString()} frames)`
+                  : `Source: ${label}`}
             </span>
             {state.kind === "ready" && state.mp4Url && (
               <a
                 href={state.mp4Url}
-                download={`${node.name.replace(/\.bk2$/i, "")}.mp4`}
-                className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
-              >
-                Save .mp4
-              </a>
-            )}
-          </div>
-        </section>
-      </div>
-    </ScrollArea>
-  )
-}
-
-// ====================================================================
-// Bink 1 (.bik) video preview
-// ====================================================================
-//
-// Bink 1's WASM is shipped with `@tootallnate/bink1-wasm` (ffmpeg is
-// LGPL-2.1+, redistribution allowed), so we fetch it directly from
-// the bundled URL — no user-supplied flow like Bink 2.
-//
-// Pipeline mirrors Bink2Preview's: decode → WebCodecs H.264 encode →
-// mp4-muxer → `<video>` element with native scrubbing. The
-// per-frame loop differs slightly because Bink 1 uses
-// `decodeNextFrame()` + `drainAudio()` rather than indexed access.
-
-interface Bink1PreviewState {
-  kind: "encoding" | "ready" | "error"
-  progress?: Bink1EncodeProgress
-  mp4Url?: string
-  mp4Size?: number
-  width?: number
-  height?: number
-  fps?: number
-  durationMs?: number
-  audioCodec?: "aac" | "opus" | null
-  error?: Error
-}
-
-function Bink1Preview({ node }: { node: Node }) {
-  const [state, setState] = useState<Bink1PreviewState>({ kind: "encoding" })
-  const mp4UrlRef = useRef<string | null>(null)
-  useEffect(() => {
-    return () => {
-      if (mp4UrlRef.current) URL.revokeObjectURL(mp4UrlRef.current)
-      mp4UrlRef.current = null
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    const aborter = new AbortController()
-    if (mp4UrlRef.current) {
-      URL.revokeObjectURL(mp4UrlRef.current)
-      mp4UrlRef.current = null
-    }
-    setState({ kind: "encoding" })
-    void (async () => {
-      try {
-        // The shipped WASM is small (~700 KB) and the browser caches it
-        // by URL — we fetch on every preview mount but the HTTP cache
-        // makes subsequent loads instant.
-        const wasmResp = await fetch(bink1WasmUrl)
-        if (!wasmResp.ok) {
-          throw new Error(`Failed to load bink1.wasm: ${wasmResp.status}`)
-        }
-        const wasmBytes = new Uint8Array(await wasmResp.arrayBuffer())
-        if (cancelled) return
-        const blob = await node.blob!()
-        if (cancelled) return
-        const bikBytes = new Uint8Array(await blob.arrayBuffer())
-        if (cancelled) return
-        const result = await encodeBink1ToMp4({
-          wasmBytes,
-          bikBytes,
-          signal: aborter.signal,
-          onProgress: (progress) => {
-            if (cancelled) return
-            setState((prev) => ({ ...prev, kind: "encoding", progress }))
-          },
-        })
-        if (cancelled) return
-        const url = URL.createObjectURL(result.mp4)
-        mp4UrlRef.current = url
-        setState({
-          kind: "ready",
-          mp4Url: url,
-          mp4Size: result.mp4.size,
-          width: result.width,
-          height: result.height,
-          fps: result.fps,
-          durationMs: Math.round(result.durationUs / 1000),
-          audioCodec: result.audioCodec,
-        })
-      } catch (err) {
-        if (cancelled) return
-        if (err instanceof Error && err.name === "AbortError") return
-        setState({
-          kind: "error",
-          error: err instanceof Error ? err : new Error(String(err)),
-        })
-      }
-    })()
-    return () => {
-      cancelled = true
-      aborter.abort()
-    }
-  }, [node.id, node.blob])
-
-  if (state.kind === "error") {
-    return <ErrorFiller error={state.error!} />
-  }
-
-  const isEncoding = state.kind === "encoding"
-  const progress = state.progress
-  const pct = progress ? Math.round((progress.frame / progress.total) * 100) : 0
-  return (
-    <ScrollArea className="h-full">
-      <div className="flex flex-col gap-5 p-5">
-        <SectionHeader title="Bink 1 video — decoded and re-encoded to MP4" />
-        <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
-          {state.kind === "ready" && state.mp4Url ? (
-            <video
-              src={state.mp4Url}
-              controls
-              autoPlay
-              className="w-full rounded-md bg-black"
-              style={{
-                aspectRatio:
-                  state.width && state.height
-                    ? `${state.width} / ${state.height}`
-                    : undefined,
-              }}
-            />
-          ) : (
-            <div className="flex flex-col gap-3 rounded-md border border-dashed bg-muted/30 p-6 text-center text-sm">
-              <div className="flex items-center justify-center gap-2">
-                <Spinner />
-                <span>
-                  {progress
-                    ? `Decoding frame ${progress.frame.toLocaleString()} of ${progress.total.toLocaleString()}…`
-                    : "Starting decode…"}
-                </span>
-              </div>
-              <Progress value={pct} className="w-full" />
-              <div className="text-xs text-muted-foreground">
-                {progress
-                  ? `${pct}%${progress.fps > 0 ? ` · ${progress.fps.toFixed(1)} fps` : ""}`
-                  : "Setting up encoder…"}
-              </div>
-            </div>
-          )}
-          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-            <span>
-              {state.kind === "ready"
-                ? `H.264${state.audioCodec ? ` + ${state.audioCodec.toUpperCase()}` : ""} / MP4 (${state.width}×${state.height} · ${state.fps?.toFixed(2)} fps · ${formatDuration((state.durationMs ?? 0) / 1000)} · ${formatBytes(state.mp4Size ?? 0)}${state.audioCodec === null ? " · no audio" : ""})`
-                : isEncoding && progress
-                  ? `Source: Bink1 (${progress.total.toLocaleString()} frames)`
-                  : "Source: Bink1"}
-            </span>
-            {state.kind === "ready" && state.mp4Url && (
-              <a
-                href={state.mp4Url}
-                download={`${node.name.replace(/\.bik$/i, "")}.mp4`}
+                download={downloadName}
                 className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
               >
                 Save .mp4
@@ -12875,7 +12606,7 @@ async function parseAwbForView(
 			.slice(t.offset, t.offset + sniffSize)
 			.arrayBuffer()
 		try {
-			const hca = parseHcaHeader(new Uint8Array(sniff))
+			const hca = parseHca(new Uint8Array(sniff))
 			codecHits++
 			if (hca.ciphType === 56) encryptedTrackCount++
 		} catch {
@@ -12977,14 +12708,19 @@ function HcaAudioPreview({ node }: { node: Node }) {
 		const bytes = new Uint8Array(ab)
 		// Parse the header first so we can short-circuit on
 		// ciphType=56 without spending decode time on a dead-end.
-		const header = parseHcaHeader(bytes)
+		const header = parseHca(bytes)
 		if (header.ciphType === 56) {
 			return { header, hcaBytes: bytes, decoded: null, wavBlob: null } as const
 		}
 		const awbSubkey = Number(node.meta?.awbSubkey ?? 0)
-		const { blob: wavBlob, decoded } = decodeHcaToWavBlob(bytes, {
-			awbKey: awbSubkey,
-		})
+		const decoded = decodeHca(bytes, { awbKey: awbSubkey })
+		const wavBytes = encodeToWav(
+			decoded.channelCount,
+			decoded.samplingRate,
+			decoded.pcm,
+			{ bitDepth: 16 },
+		)
+		const wavBlob = new Blob([wavBytes as BlobPart], { type: "audio/wav" })
 		return { header, hcaBytes: bytes, decoded, wavBlob } as const
 	}, [node.id])
 
@@ -13042,14 +12778,14 @@ function HcaAudioPreview({ node }: { node: Node }) {
 						<div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
 							<span>
 								Decoded HCA → 16-bit PCM (
-								{v.decoded.numChannels === 1
+								{v.decoded.channelCount === 1
 									? 'mono'
-									: `${v.decoded.numChannels} ch`}
+									: `${v.decoded.channelCount} ch`}
 								{' · '}
-								{v.decoded.sampleRate} Hz
+								{v.decoded.samplingRate} Hz
 								{' · '}
 								{formatDuration(
-									v.decoded.numSamples / v.decoded.sampleRate,
+									v.decoded.samplesPerChannel / v.decoded.samplingRate,
 								)}
 								)
 							</span>

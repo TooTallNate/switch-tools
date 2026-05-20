@@ -205,6 +205,19 @@ export type PreviewKind =
 	 * animations + stats + textures + (opaque) AI script.
 	 */
 	| 'ff8-battle-dat'
+	/**
+	 * FFVIII field-character entry directory (`chara.one`).
+	 * Per-map manifest of d###/o###/p### model references with
+	 * per-entry payload offsets, type-marks, and lighting ids.
+	 */
+	| 'ff8-charaone'
+	/**
+	 * FFVIII field-character model body (`d###.mch`, `o###.mch`,
+	 * etc. from `main_chr.fs`). PSX-style skinned mesh with
+	 * embedded TIM textures + a single frame-compressed
+	 * animation track.
+	 */
+	| 'ff8-mch'
 	/** Tiny ARSL manifest of BARS file paths. */
 	| 'barslist-info'
 	/** Nintendo MSBT (MsgStdBn) — localized text/dialog/UI strings. */
@@ -483,6 +496,12 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (/^c0m\d+\.dat$/i.test(lower)) {
 		return 'ff8-battle-dat';
 	}
+	// FFVIII field-character manifest. The Switch port ships a
+	// `chara.one` inside every scene's nested `<scene>.fs` triplet.
+	if (lower === 'chara.one') return 'ff8-charaone';
+	// FFVIII field-character model body — main_chr.fs / individual.
+	// PC builds also drop them straight onto disk.
+	if (/^[a-z]\d+\.mch$/i.test(lower)) return 'ff8-mch';
 	// FF7 PC overworld map files (`wm0.map`, `wm2.map`, `wm3.map`).
 	if (/^wm[0-9]+\.map$/.test(lower)) return 'ff7-world-map';
 	// Unreal `.ubulk` is a codec-agnostic "bulk data" sidecar, but in

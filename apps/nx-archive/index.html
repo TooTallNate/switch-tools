@@ -12,6 +12,28 @@
 		<title>nx-archive — Nintendo Switch archive browser</title>
 	</head>
 	<body>
+		<!--
+			Hidden file picker — lives in the static HTML (NOT
+			inside React's render tree) so the browser's built-in
+			form-restoration kicks in on hard reload. Firefox in
+			particular restores the previously-selected file
+			(including its underlying File data) during DOM parse,
+			BEFORE any JavaScript runs — so the <input> has to
+			exist in the initial HTML to receive the restored
+			value. React then attaches handlers to this element by
+			id rather than rendering its own copy.
+
+			The wrapping `<form name="…">` and the input's `name`
+			attribute are both required for the browser to track
+			and restore session state for the input.
+		-->
+		<form
+			id="nx-archive-file-form"
+			name="nx-archive-file"
+			style="position: absolute; width: 0; height: 0; overflow: hidden"
+		>
+			<input id="nx-archive-file-input" name="file" type="file" />
+		</form>
 		<div id="root"></div>
 		<script type="module" src="/src/main.tsx"></script>
 	</body>

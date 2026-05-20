@@ -2,88 +2,70 @@
  * FFVIII `chara.one` outer-container parser.
  *
  * `chara.one` is a small file that ships in every FFVIII field
- * map and lists the field-character models the map uses. Each
- * entry is either:
+ * map and lists the field-character models the map uses. The
+ * file is a flat directory of fixed-size entry headers followed
+ * by variable-size per-entry bodies starting at a 0x800 boundary.
  *
- *   - **embedded** (the most common case): a self-contained
- *     block holding a list of TIM textures + an MCH model body
- *     + a 12-byte trailer (name, light colour, extension-loader
- *     id). This is how unique NPCs are shipped per-map.
+ * On-disk layout (verified against 873 chara.one files from the
+ * FFVIII Switch Remastered build — 862 / 873 ≈ 98.7 % match this
+ * exact format; the remaining ~11 are size-prefixed dev/test
+ * leftovers that this parser surfaces as a typed error so callers
+ * can ignore them):
  *
- *   - **shared-texture**: the entry has no TIM list of its own,
- *     and instead reuses the textures from another entry in the
- *     same `chara.one`. The 'sibling' entry index is encoded in
- *     the model ID (`(modelID >> 20) & 0xFF`). The model body
- *     is still inline.
+ *   offset  type   field
+ *     0x00  u32    entryCount
+ *     0x04  …      `entryCount × 32`-byte EntryRecord array
+ *     0x800 …      payload data (offsets in EntryRecord are
+ *                  absolute, but start at 0x800 by convention)
  *
- *   - **external**: a reference to a separate `d###.mch` file
- *     (the party members + named recurring characters). The
- *     entry contains override animations only — no mesh, no
- *     textures. The number `###` is `modelID & 0xFFFF`.
+ * Each 32-byte EntryRecord:
  *
- * The variant is selected by the top nibble of the per-entry
- * "flag" dword: `0xD` = external, `0xA` = shared-texture,
- * anything else = embedded. (Equivalently, `(modelID >> 24) &
- * 0xF0`.)
+ *     0x00  u32  payloadOffset      (absolute, normally 0x800+)
+ *     0x04  u32  payloadLength
+ *     0x08  u32  payloadLengthDup   (== payloadLength)
+ *     0x0C  u16  characterId
+ *     0x0E  u16  characterFlag      (0xd010 / 0xd0NN = chara
+ *                                    entry; other values seen)
+ *     0x10  u32  typeMark           (0 = CharD; -1 = CharPO_neg;
+ *                                    other = CharPO_pos)
  *
- * PC (Steam / Switch Remastered) layout:
+ *   …followed by a variable 12 / 16 / 24-byte trailer depending
+ *   on `typeMark` (taken inline in the same EntryRecord; this is
+ *   what makes the records variable-size despite the constant
+ *   0x800-aligned payload section):
  *
- *   offset  type  field
- *     0x00  u32   modelCount
- *     0x04  …     variable-size entry-header records
- *                 (packed into the first 0x800 bytes)
- *     0x800 …    payloads        (referenced by entry offset)
+ *     typeMark == 0           CharD       (12 bytes)
+ *       +0x00  char[4]  name              ("d042", "p001", …)
+ *       +0x04  u32      reserved          (typically 0)
+ *       +0x08  u32      extLoaderId       (lighting / loader id)
+ *     typeMark == -1          CharPO_neg  (16 bytes)
+ *       +0x00  u32      unknown1
+ *       +0x04  char[4]  name
+ *       +0x08  u32      unknown2
+ *       +0x0C  u32      unknown3
+ *     other                   CharPO_pos  (24 bytes — typeMark is
+ *                                          actually part of the
+ *                                          body; CharHeader
+ *                                          consumes 16 bytes not 20)
+ *       +0x00  u32      unknown0          (already inside record)
+ *       +0x04  u32      unknown1
+ *       +0x08  char[4]  name
+ *       +0x0C  u32      unknown2
+ *       +0x10  u32      unknown3
  *
- * Each entry record has a 12- or 16-byte fixed prefix:
- *     +0x00  u32  dataOffset     (RELATIVE to start of `chara.one`)
- *     +0x04  u32  dataSize
- *     +0x08  u32  modelID/flag
- *  on PSX, or when `modelID == dataSize` ("size twice" rule):
- *     +0x0C  u32  modelID        (overwriting the previous u32)
+ * Reference: MaKiPL/test_bootstrap_fs (CharaOne.cs) — the only
+ * cross-platform implementation we located that matches the
+ * Switch Remastered layout. The earlier deling-derived spec
+ * (which described 12-byte entry headers + +4 fudge factor +
+ * page-based offsets) describes the *PSX* on-disk format and
+ * does not apply to the PC / Switch builds — those builds were
+ * untangled into the flat layout above.
  *
- * …then a variable section depending on the variant:
- *   - external (0xD…):       u32 animationOffset
- *   - shared-texture (0xA…): u32 0xFFFFFFFF + u32 modelOffset
- *   - embedded (else):       `modelID` itself is the first TIM
- *                            offset (low 24 bits) plus a count
- *                            in the upper 4 bits; subsequent
- *                            entries are u32 TIM offsets until
- *                            a negative dword is read; then
- *                            u32 modelOffset
- *
- * …followed by an optional 12-byte trailer (`u8[4] name +
- * u8[3] rgb + u8 pad + u32 extLoaderId`). The trailer is
- * present whenever the *next* entry's `dataOffset` is non-zero
- * AND not equal to `dataOffset + dataSize`; testno-style files
- * with back-to-back payloads omit it.
- *
- * The **+4 fudge**: on PC, the entry's payload actually starts
- * at `dataOffset + 4`. The first dword of every payload is
- * reserved / padding and we skip it.
- *
- * For external entries the `name` is overridden with
- * `"d" + (modelID & 0xFFFF).toString().padStart(3,"0")`.
- *
- * Dummy-file detection: maps that ship no characters store a
- * 33-byte sentinel ("This is dummy file. Kazuo Suzuki\n") or
- * an empty file. We treat anything smaller than 0x100 bytes as
- * a dummy.
- *
- * Reference: deling (Source/files/CharaOneFile.cpp) and
- * OpenVIII-monogame (`Field/CharaOne.cs`).
- *
- * NOTE ON REAL-WORLD FILES: a sample chara.one shipped with the
- * Switch Remastered port was inspected during development and
- * found to begin with a 4-byte file-size prefix that the spec
- * does not mention. The parser will optionally strip such a
- * prefix when `bytes[0..4]` equals the file length. Beyond that
- * point the on-disk layout still doesn't exactly match what the
- * deling reference parser expects (offsets appear to be in
- * 0x800-byte pages, not bytes), so the parser exposes the raw
- * fields it found and lets the caller cope. Synthetic round-
- * trip tests fully exercise the documented algorithm.
+ * Dummy-file detection: empty or sub-0x100-byte `chara.one`
+ * files are sentinels for maps that ship no characters.
  */
 
+/** Error raised when `chara.one` cannot be parsed. */
 export class CharaOneParseError extends Error {
 	constructor(message: string) {
 		super(message);
@@ -91,77 +73,88 @@ export class CharaOneParseError extends Error {
 	}
 }
 
-export type CharaOneVariant = 'external' | 'shared-texture' | 'embedded';
+/**
+ * Which body shape follows the 16-byte common header (and how
+ * many bytes the variable trailer occupies).
+ */
+export type CharaOneVariant = 'chard' | 'charpo-neg' | 'charpo-pos';
 
+/** One entry in a `chara.one` directory. */
 export interface CharaOneEntry {
-	/** Index of this entry in the file (0-based). */
+	/** Zero-based index of this entry in the file. */
 	index: number;
 	/**
-	 * Absolute file offset of the entry's payload data — already
-	 * +4-fudged (i.e. points to the first byte of useful content,
-	 * not the 4-byte filler the raw header points at).
+	 * Absolute byte offset (from the start of the chara.one
+	 * file) of this entry's payload data — the start of the
+	 * embedded MCH body (and any preceding TIM textures).
 	 */
-	dataOffset: number;
+	payloadOffset: number;
+	/** Size of the payload in bytes. */
+	payloadLength: number;
+	/** Per-entry character id (game-specific u16). */
+	characterId: number;
 	/**
-	 * Size of the payload as declared in the entry header. NB:
-	 * this is the *unfudged* size — it includes the 4-byte filler
-	 * at the start. Subtract 4 if you want the size of the
-	 * fudged-offset slice.
+	 * Per-entry character flag. `0xd010` (or `0xd000`-family
+	 * values) is the well-known marker for a "character" entry;
+	 * other values exist (zero on some special entries).
 	 */
-	dataSize: number;
-	/** Raw 32-bit flag/model dword as it appears on disk. */
-	modelID: number;
+	characterFlag: number;
+	/**
+	 * Raw 32-bit `typeMark` value as it appears on-disk. Drives
+	 * the choice of variant body.
+	 */
+	typeMark: number;
 	variant: CharaOneVariant;
-	/** ASCII name ("a000", "d042", "p001", …). */
+	/**
+	 * ASCII name parsed from the variant body — usually a
+	 * d-reference like `"d042"` for a sibling `d###.mch` file,
+	 * `"p###"` for party members, `"xxxx"` for unused slots, or
+	 * a 4-letter ASCII tag.
+	 */
 	name: string;
-	/** Per-character light colour (RGB, 0-255). */
-	lightColor: [number, number, number];
-	/** Extension-loader ID, if present in the trailer. */
-	extLoaderId?: number;
 	/**
-	 * Embedded only: absolute file offsets of the TIM textures
-	 * for this character.
-	 */
-	timOffsets?: number[];
-	/**
-	 * Embedded / shared-texture only: absolute file offset of
-	 * the MCH `ModelHeader` for this character. (Pass this to
-	 * {@link parseMch} via `bodyOffset` — relative to a slice
-	 * starting at `dataOffset`.)
-	 */
-	modelOffset?: number;
-	/**
-	 * External only: absolute file offset within `chara.one` of
-	 * the override animation block, if any. Most entries have
-	 * none and this is omitted.
-	 */
-	animationOffset?: number;
-	/**
-	 * External only: the `###` in the referenced `d###.mch`.
+	 * Best-effort numeric id parsed out of `name` if it follows
+	 * the `<letter><3 digits>` convention (e.g. `"d042"` →
+	 * `42`). `undefined` for non-numeric names.
 	 */
 	externalRefId?: number;
+	/** Extension-loader / lighting id from the variant body. */
+	extLoaderId?: number;
 	/**
-	 * Shared-texture only: index into `entries[]` of the sibling
-	 * model whose textures this entry reuses.
+	 * Raw bytes of the variant body (12 / 16 / 24 bytes), kept
+	 * for callers that want to inspect unknown fields without
+	 * re-reading the file.
 	 */
-	sharedTextureModelIndex?: number;
+	bodyBytes: Uint8Array;
 }
 
+/** Result of {@link parseCharaOne}. */
 export interface ParsedCharaOne {
-	modelCount: number;
+	entryCount: number;
 	entries: CharaOneEntry[];
 	/**
-	 * True if the file is a 33-byte dummy / very small filler.
-	 * In that case `entries` is empty.
+	 * True if the file is the sentinel / sub-0x100 placeholder
+	 * shipped by maps with no characters. In that case
+	 * `entries` is empty.
 	 */
 	isDummy: boolean;
+	/**
+	 * True if the file starts with a `[u32 fileSize]` prefix
+	 * that does NOT match the documented layout. Such files
+	 * appear to be Square's leftover dev / test data; the
+	 * parser returns the empty entry list for them so callers
+	 * can skip without error. (11 of 873 files in the Switch
+	 * Remastered build trip this flag.)
+	 */
+	isOddball: boolean;
 }
 
 /**
- * Detect FFVIII's "dummy file" placeholders. Maps with no
- * field characters either ship the 33-byte ASCII sentinel
- * `"This is dummy file. Kazuo Suzuki\n"` or, on some platforms,
- * a small filler block under 0x100 bytes.
+ * Detect FFVIII's "no characters" placeholders.
+ *
+ * Two known shapes:
+ *   1. The 33-byte ASCII sentinel `"This is dummy file. Kazuo Suzuki\n"`.
+ *   2. A small filler block under 0x100 bytes.
  */
 export function isDummyCharaOne(bytes: Uint8Array): boolean {
 	if (bytes.length === 33) return true;
@@ -169,172 +162,179 @@ export function isDummyCharaOne(bytes: Uint8Array): boolean {
 	return false;
 }
 
+/** Options for {@link parseCharaOne}. */
 export interface ParseCharaOneOptions {
 	/**
-	 * If true, automatically strip a leading 4-byte file-size
-	 * prefix when `bytes[0..4]` reads back as the buffer's own
-	 * length (some FFVIII Switch builds wrap chara.one this way).
-	 * Default: true.
+	 * If true (default), files whose first u32 equals the file
+	 * length are flagged as oddball / dev-test leftovers and
+	 * returned with `entries: []` and `isOddball: true` instead
+	 * of throwing. Set false to opt into strict parsing.
 	 */
-	stripFileSizePrefix?: boolean;
+	tolerateOddballs?: boolean;
 }
 
+/**
+ * Parse a chara.one entry directory. The MCH bodies inside each
+ * entry are NOT decoded here — pass `payloadOffset` to
+ * {@link parseMch} for that.
+ */
 export function parseCharaOne(
 	bytes: Uint8Array,
 	opts: ParseCharaOneOptions = {},
 ): ParsedCharaOne {
 	if (isDummyCharaOne(bytes)) {
-		return { modelCount: 0, entries: [], isDummy: true };
+		return { entryCount: 0, entries: [], isDummy: true, isOddball: false };
 	}
 	if (bytes.length < 4) {
 		throw new CharaOneParseError(
 			`chara.one too short (${bytes.length} bytes)`,
 		);
 	}
-
-	// Optionally strip a leading u32 file-size prefix.
-	const stripPrefix = opts.stripFileSizePrefix !== false;
-	let work = bytes;
-	let workBase = 0;
-	if (stripPrefix && bytes.length >= 8) {
-		const v0 = new DataView(
-			bytes.buffer,
-			bytes.byteOffset,
-			bytes.byteLength,
-		);
-		const maybeSize = v0.getUint32(0, true);
-		if (maybeSize === bytes.length) {
-			work = bytes.subarray(4);
-			workBase = 4;
-		}
-	}
-
 	const view = new DataView(
-		work.buffer,
-		work.byteOffset,
-		work.byteLength,
+		bytes.buffer,
+		bytes.byteOffset,
+		bytes.byteLength,
 	);
-	const modelCount = view.getUint32(0, true);
 
-	// Sanity bound: a real chara.one has at most ~256 entries.
-	if (modelCount > 1024) {
+	// "Oddball" detection: ~11 files in the Switch Remastered
+	// build begin with `[u32 fileLength]` and use a layout we
+	// haven't been able to map. They appear to be Square's
+	// leftover dev / test data (`test10.chara.one`,
+	// `test11.chara.one`, `test12.chara.one` are all 421744-byte
+	// duplicates of each other; `glsta3` / `glsta4` likewise).
+	// We tolerate them by returning empty entries.
+	const u0 = view.getUint32(0, true);
+	const tolerateOddballs = opts.tolerateOddballs !== false;
+	if (u0 === bytes.length) {
+		if (!tolerateOddballs) {
+			throw new CharaOneParseError(
+				`Oddball chara.one with leading file-size prefix (size=${bytes.length}); pass {tolerateOddballs:true} to skip`,
+			);
+		}
+		return { entryCount: 0, entries: [], isDummy: false, isOddball: true };
+	}
+
+	const entryCount = u0;
+	// Sanity bound — real files have at most ~25 entries.
+	if (entryCount === 0 || entryCount > 256) {
 		throw new CharaOneParseError(
-			`Implausible modelCount ${modelCount} (file likely not a chara.one)`,
+			`Implausible entryCount ${entryCount} (file likely not a chara.one)`,
 		);
 	}
+
 	const entries: CharaOneEntry[] = [];
-
-	// Header table is packed into the first 0x800 bytes after
-	// modelCount. Entries are VARIABLE-SIZE.
-	const headerLimit = Math.min(0x800, work.length);
 	let p = 4;
-	for (let i = 0; i < modelCount && p < headerLimit; i++) {
-		if (p + 12 > headerLimit) break;
-		const rawDataOffset = view.getUint32(p, true);
-		p += 4;
-		if (rawDataOffset === 0) break;
-		const dataSize = view.getUint32(p, true);
-		p += 4;
-		let modelID = view.getUint32(p, true);
-		p += 4;
-		if (modelID === dataSize) {
-			// "size twice" rule — re-read modelID.
-			if (p + 4 > headerLimit) break;
-			modelID = view.getUint32(p, true);
-			p += 4;
+	for (let i = 0; i < entryCount; i++) {
+		if (p + 16 > bytes.length) {
+			throw new CharaOneParseError(
+				`Truncated entry header at index ${i} (offset 0x${p.toString(16)})`,
+			);
 		}
+		const payloadOffset = view.getUint32(p, true);
+		const payloadLength = view.getUint32(p + 4, true);
+		// payloadLengthDup at +8 is ignored (validated to match
+		// in real files; we don't fail on mismatch to stay
+		// tolerant of off-spec dumps).
+		const characterId = view.getUint16(p + 12, true);
+		const characterFlag = view.getUint16(p + 14, true);
+		const typeMark = view.getInt32(p + 16, true);
+		p += 20;
 
-		// Apply the +4 fudge to derive the actual payload offset.
-		const dataOffset = rawDataOffset + 4 + workBase;
-
-		const flagTop = (modelID & 0xf0000000) >>> 0;
+		// Variant-body shape & length:
 		let variant: CharaOneVariant;
-		if (flagTop === 0xd0000000) variant = 'external';
-		else if (flagTop === 0xa0000000) variant = 'shared-texture';
-		else variant = 'embedded';
-
-		const entry: CharaOneEntry = {
-			index: i,
-			dataOffset,
-			dataSize,
-			modelID,
-			variant,
-			name: '',
-			lightColor: [0xff, 0xff, 0xff],
-		};
-
-		if (variant === 'external') {
-			// External: u32 animationOffset within payload.
-			if (p + 4 > headerLimit) break;
-			const animOffRel = view.getUint32(p, true);
-			p += 4;
-			entry.animationOffset = dataOffset + animOffRel;
-			entry.externalRefId = modelID & 0xffff;
-		} else if (variant === 'shared-texture') {
-			// Shared-texture: u32 0xFFFFFFFF + u32 modelOffset.
-			if (p + 8 > headerLimit) break;
-			p += 4; // skip sentinel
-			const mchRel = view.getUint32(p, true);
-			p += 4;
-			entry.modelOffset = dataOffset + mchRel;
-			entry.sharedTextureModelIndex = (modelID >>> 20) & 0xff;
+		let bodyLen: number;
+		if (typeMark === 0) {
+			variant = 'chard';
+			bodyLen = 12;
+		} else if (typeMark === -1) {
+			variant = 'charpo-neg';
+			bodyLen = 16;
 		} else {
-			// Embedded: `modelID` IS the first TIM offset (low 24
-			// bits = offset; upper 4 bits = packed texture count).
-			const timOffsetsRel: number[] = [];
-			if ((modelID | 0) >= 0) {
-				timOffsetsRel.push(modelID & 0xffffff);
-				while (p + 4 <= headerLimit) {
-					const t = view.getUint32(p, true);
-					p += 4;
-					if ((t | 0) < 0) break; // sign bit set = terminator
-					timOffsetsRel.push(t & 0xffffff);
-				}
-			}
-			if (p + 4 > headerLimit) break;
-			const mchRel = view.getUint32(p, true);
-			p += 4;
-			entry.timOffsets = timOffsetsRel.map((rel) => dataOffset + rel);
-			entry.modelOffset = dataOffset + mchRel;
+			// Other non-zero values consume 24 bytes (we already
+			// read 4 of those as `typeMark`; consume the
+			// remaining 20).
+			variant = 'charpo-pos';
+			bodyLen = 20;
 		}
+		if (p + bodyLen > bytes.length) {
+			throw new CharaOneParseError(
+				`Truncated entry body at index ${i} (offset 0x${p.toString(16)}, want ${bodyLen} bytes)`,
+			);
+		}
+		const bodyBytes = bytes.slice(p, p + bodyLen);
+		p += bodyLen;
 
-		// Optional 12-byte trailer. Read NEXT entry's dataOffset
-		// to detect testno-style back-to-back layout.
-		let hasTrailer = false;
-		if (p + 12 <= headerLimit) {
-			const nextOff = view.getUint32(p, true);
-			if (nextOff !== 0 && nextOff !== rawDataOffset + dataSize) {
-				hasTrailer = true;
-			}
+		// Extract `name` per variant — always a 4-char ASCII run.
+		let nameOffset: number;
+		let extLoaderId: number | undefined;
+		if (variant === 'chard') {
+			nameOffset = 0;
+			extLoaderId = readU32LE(bodyBytes, 8);
+		} else if (variant === 'charpo-neg') {
+			nameOffset = 4;
+			extLoaderId = readU32LE(bodyBytes, 12);
+		} else {
+			// charpo-pos: u32 unknown0 (we already consumed
+			// typeMark as that u32), then u32 unknown1,
+			// char[4] name at +4 within bodyBytes
+			// (because bodyLen here is 20 not 24).
+			nameOffset = 4;
+			extLoaderId = readU32LE(bodyBytes, 16);
 		}
-		if (hasTrailer) {
-			let name = '';
-			for (let k = 0; k < 4; k++) {
-				const c = work[p + k] ?? 0;
-				if (c === 0) break;
-				name += String.fromCharCode(c);
-			}
-			p += 4;
-			const r = work[p] ?? 0xff;
-			const g = work[p + 1] ?? 0xff;
-			const b = work[p + 2] ?? 0xff;
-			// p + 3 is pad
-			p += 4;
-			const ext = view.getUint32(p, true);
-			p += 4;
-			entry.name = name;
-			entry.lightColor = [r, g, b];
-			entry.extLoaderId = ext;
-		}
+		const name = decodeAsciiName(bodyBytes, nameOffset, 4);
+		const externalRefId = parseRefIdFromName(name);
 
-		// External entries always have a derived name regardless
-		// of trailer presence.
-		if (variant === 'external') {
-			entry.name = 'd' + String(entry.externalRefId!).padStart(3, '0');
-		}
-
-		entries.push(entry);
+		entries.push({
+			index: i,
+			payloadOffset,
+			payloadLength,
+			characterId,
+			characterFlag,
+			typeMark,
+			variant,
+			name,
+			externalRefId,
+			extLoaderId,
+			bodyBytes,
+		});
 	}
 
-	return { modelCount, entries, isDummy: false };
+	return { entryCount, entries, isDummy: false, isOddball: false };
+}
+
+function readU32LE(bytes: Uint8Array, offset: number): number | undefined {
+	if (offset + 4 > bytes.length) return undefined;
+	return (
+		bytes[offset]! |
+		(bytes[offset + 1]! << 8) |
+		(bytes[offset + 2]! << 16) |
+		(bytes[offset + 3]! << 24)
+	) >>> 0;
+}
+
+function decodeAsciiName(
+	bytes: Uint8Array,
+	offset: number,
+	maxLen: number,
+): string {
+	let out = '';
+	for (let i = 0; i < maxLen; i++) {
+		const c = bytes[offset + i];
+		if (c === undefined) break;
+		if (c === 0) break;
+		// Only emit printable ASCII; anything else terminates so
+		// junk bytes don't make their way into UIs.
+		if (c < 0x20 || c > 0x7e) break;
+		out += String.fromCharCode(c);
+	}
+	return out;
+}
+
+/**
+ * Parse `<letter><3 digits>` style names into the numeric id.
+ * Returns `undefined` for any other shape.
+ */
+function parseRefIdFromName(name: string): number | undefined {
+	const m = name.match(/^[A-Za-z](\d{3})$/);
+	return m ? Number(m[1]) : undefined;
 }

@@ -14,7 +14,7 @@ import {
 } from "~/components/file-tree-search"
 import { KeysDialog } from "~/components/keys-dialog"
 import { OodleDialog } from "~/components/oodle-dialog"
-import { Bink2Dialog } from "~/components/bink2-dialog"
+
 import { PreviewPane } from "~/components/preview-pane"
 import {
   ResizableHandle,
@@ -35,7 +35,15 @@ import {
   getOodleDecompressor,
   loadStoredOodleWasm,
 } from "~/lib/oodle-store"
-import { loadStoredBink2Wasm } from "~/lib/bink2-store"
+
+import {
+  clearHandle,
+  isFileSystemAccessApiSupported,
+  loadStoredHandle,
+  queryHandlePermission,
+  requestHandlePermission,
+} from "~/lib/last-file-store"
+import { readHashId, useHashId } from "~/lib/url-hash"
 import type { KeySet } from "@tootallnate/nca"
 import { formatBytes } from "~/lib/utils"
 
@@ -78,18 +86,50 @@ const PANEL_TREE = "tree"
 const PANEL_PREVIEW = "preview"
 const LAYOUT_GROUP_ID = "nx-archive:layout"
 
+/**
+ * Walk the tree to find a node by id, materialising lazy
+ * children as needed. Returns `null` if the id doesn't exist
+ * (e.g. a stale URL hash referencing a node from a different
+ * archive). Identical to the `findNodeById` helper duplicated
+ * in several preview components — we should extract a shared
+ * lib version eventually.
+ */
+async function findNodeById(root: Node, target: string): Promise<Node | null> {
+  if (root.id === target) return root
+  if (target !== "" && !target.startsWith(root.id + "/") && root.id !== "") {
+    return null
+  }
+  let cur: Node = root
+  while (cur.id !== target) {
+    if (!cur.getChildren) return null
+    const kids = cur._children ?? (cur._children = await cur.getChildren())
+    let next: Node | null = null
+    for (const k of kids) {
+      if (k.id === target || target.startsWith(k.id + "/")) {
+        if (!next || k.id.length > next.id.length) next = k
+      }
+    }
+    if (!next) return null
+    cur = next
+  }
+  return cur
+}
+
 function ArchiveApp() {
   const [opened, setOpened] = useState<Opened | null>(null)
   const [selected, setSelected] = useState<Node | null>(null)
+  // Reflects the current selection in `location.hash`. The hook
+  // also picks up back/forward navigations so the React state
+  // stays in sync with the URL.
+  const [hashId, setHashId] = useHashId()
   const [keysOpen, setKeysOpen] = useState(false)
   const [oodleOpen, setOodleOpen] = useState(false)
   const [hasOodle, setHasOodle] = useState(false)
-  const [bink2Open, setBink2Open] = useState(false)
-  const [hasBink2, setHasBink2] = useState(false)
-  // Bumped whenever the stored Bink2 WASM changes (upload or clear),
-  // so previews waiting on the WASM auto-retry instead of needing
-  // the user to re-select the file.
-  const [bink2WasmVersion, setBink2WasmVersion] = useState(0)
+  // (The legacy `bink2.wasm` upload flow was removed once the
+  // GPL-3 cnc-ra-libs decoder was replaced with the LGPL-licensed
+  // @tootallnate/ffmpeg-wasm extensions bundled inline. Bink 1 +
+  // Bink 2 previews now work out of the box with no user-supplied
+  // assets — see `~/lib/bink-encode.ts`.)
   const [keys, setKeys] = useState<KeySet | null>(null)
   const [reloadCounter, setReloadCounter] = useState(0)
   const [searchState, setSearchState] = useState<SearchState>({
@@ -99,6 +139,18 @@ function ArchiveApp() {
     visited: 0,
     totalKnown: 0,
   })
+  /**
+   * Last-opened file handle whose IDB record we found on boot
+   * but whose permission isn't currently `'granted'`. The
+   * AppHeader surfaces a "Restore" button for this; clicking it
+   * goes through {@link requestHandlePermission} (user gesture)
+   * and then opens the file.
+   */
+  const [pendingRestore, setPendingRestore] = useState<{
+    handle: FileSystemFileHandle
+    name: string
+    size: number
+  } | null>(null)
 
   // Persist sidebar / preview widths to localStorage. The hook handles
   // serialisation; we only need to wire the returned `defaultLayout` and
@@ -115,18 +167,26 @@ function ArchiveApp() {
   const keysRef = useRef<KeySet | null>(null)
   keysRef.current = keys
 
-  // Load any stored keys at startup
+  /**
+   * Tracks whether the boot-time persistent-state loads (keys,
+   * oodle) have all completed. The FSA auto-restore effect waits
+   * on this so the restored file is built with keys already in
+   * `keysRef` — otherwise NSP/XCI parsers that need keys
+   * mid-walk would fail on the first deep navigation.
+   */
+  const [storesLoaded, setStoresLoaded] = useState(false)
+
+  // Load any stored keys/oodle at startup
   useEffect(() => {
-    void loadStoredKeySet().then((stored) => {
-      if (stored) setKeys(stored.keySet)
-    })
-    // Preload the Oodle WASM if the user uploaded one previously, so
-    // the in-memory cache is warm by the time the first Oodle-
-    // compressed block is read.
-    void loadStoredOodleWasm().then((bytes) => setHasOodle(!!bytes))
-    // Preload the Bink 2 WASM as well so .bk2 previews can start
-    // decoding immediately on first selection.
-    void loadStoredBink2Wasm().then((bytes) => setHasBink2(!!bytes))
+    void Promise.all([
+      loadStoredKeySet().then((stored) => {
+        if (stored) setKeys(stored.keySet)
+      }),
+      // Preload the Oodle WASM if the user uploaded one previously,
+      // so the in-memory cache is warm by the time the first
+      // Oodle-compressed block is read.
+      loadStoredOodleWasm().then((bytes) => setHasOodle(!!bytes)),
+    ]).then(() => setStoresLoaded(true))
   }, [])
 
   // The ArchiveContext is intentionally stable across re-renders so that
@@ -141,19 +201,232 @@ function ArchiveApp() {
     [],
   )
 
+  /**
+   * Wrapper around `setSelected` that also reflects the
+   * selection into the URL hash. User-initiated selections
+   * (`mode = "push"`) add a browser-history entry so back /
+   * forward steps through them; programmatic selections
+   * (initial boot restore, popstate handler) use `"replace"` so
+   * we don't pollute history.
+   */
+  const selectNode = useCallback(
+    (node: Node | null, mode: "push" | "replace" = "push") => {
+      setSelected(node)
+      setHashId(node?.id ?? null, mode)
+    },
+    [setHashId],
+  )
+
   const handleOpenFile = useCallback(
     async (file: File) => {
       try {
         const root = await buildRootNode(file, file.name, ctx)
         setOpened({ kind: "file", file, root })
-        setSelected(root)
+        // Try restoring the selection from `location.hash` (set
+        // by a previous session). If the hash matches an
+        // existing node, expand-and-select it. Otherwise (or
+        // if no hash) just select the root. We use `replace`
+        // in all cases so the initial restoration doesn't add
+        // a back-navigable history entry.
+        const targetId = readHashId()
+        if (targetId && targetId !== root.id) {
+          const node = await findNodeById(root, targetId)
+          selectNode(node ?? root, "replace")
+        } else {
+          selectNode(root, "replace")
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         toast.error(`Couldn't open ${file.name}`, { description: message })
       }
     },
-    [ctx],
+    [ctx, selectNode],
   )
+
+  // On boot, try to restore the previously-opened file. This is
+  // gated on `storesLoaded` (keys / oodle / bink2 done loading
+  // from IndexedDB) so the restored file's NCA / archive walks
+  // don't trip ProdKeysMissingError or similar.
+  //
+  // Two restoration paths, tried in order:
+  //
+  //   1. **File System Access API + IndexedDB** (Chromium): if
+  //      we have a stored `FileSystemFileHandle` and the
+  //      permission state is `'granted'`, call `.getFile()` and
+  //      open it. `'prompt'` triggers the persistent restore
+  //      toast (user-gesture upgrade required); `'denied'`
+  //      clears the handle.
+  //
+  //   2. **Static `<input>` form-restoration** (Firefox): if the
+  //      file input that lives in `index.html` already has a
+  //      `.files[0]` (the browser auto-filled it from the
+  //      previous session BEFORE React mounted), open that.
+  //      Chrome / Safari never populate this on reload.
+  const restoreAttemptedRef = useRef(false)
+  useEffect(() => {
+    if (!storesLoaded) return
+    if (restoreAttemptedRef.current) return
+    restoreAttemptedRef.current = true
+    let cancelled = false
+    void (async () => {
+      // Track whether any restore-path engaged this boot. If
+      // nothing did (e.g. user wiped the file input, FSA grant
+      // expired without IDB handle, fresh visit, …) we'll clear
+      // any stale URL hash at the bottom — otherwise a fragment
+      // from a prior session would cling to a no-file URL bar.
+      // The "prompt" toast path counts as "engaged" too: the
+      // user may click Reopen and we'd want the hash preserved
+      // so the deep selection comes back with the file.
+      let restoreEngaged = false
+
+      // --- Path 1: FSA handle (Chromium)
+      if (isFileSystemAccessApiSupported()) {
+        const stored = await loadStoredHandle()
+        if (cancelled) return
+        if (stored) {
+          const state = await queryHandlePermission(stored.handle)
+          if (cancelled) return
+          if (state === "granted") {
+            try {
+              const file = await stored.handle.getFile()
+              if (!cancelled) {
+                await handleOpenFile(file)
+                restoreEngaged = true
+              }
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err)
+              toast.error(`Couldn't reopen ${stored.name}`, {
+                description: message,
+              })
+              await clearHandle()
+            }
+          } else if (state === "denied") {
+            await clearHandle()
+          } else {
+            // state === 'prompt' — user-gesture re-grant pending
+            setPendingRestore({
+              handle: stored.handle,
+              name: stored.name,
+              size: stored.size,
+            })
+            restoreEngaged = true
+          }
+        }
+      }
+
+      // --- Path 2: form-restored static <input> (Firefox)
+      if (!restoreEngaged) {
+        const el = document.getElementById(
+          "nx-archive-file-input",
+        ) as HTMLInputElement | null
+        const restored = el?.files?.[0]
+        if (restored && !cancelled) {
+          await handleOpenFile(restored)
+          restoreEngaged = true
+        }
+      }
+
+      // --- Nothing restored: clear any stale URL hash so the
+      // address bar reflects the actual "no file" app state.
+      if (!cancelled && !restoreEngaged && readHashId() !== null) {
+        setHashId(null, "replace")
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storesLoaded])
+
+  /**
+   * Click handler used by the "Reopen last file" toast's action
+   * button. MUST run inside a user-gesture event handler (Chrome
+   * rejects `requestPermission` otherwise).
+   */
+  const handleRestoreLastFile = useCallback(async () => {
+    if (!pendingRestore) return
+    const state = await requestHandlePermission(pendingRestore.handle)
+    if (state !== "granted") {
+      if (state === "denied") {
+        toast.error("Permission denied", {
+          description: `Can't reopen ${pendingRestore.name}.`,
+        })
+        await clearHandle()
+        setPendingRestore(null)
+      }
+      return
+    }
+    try {
+      const file = await pendingRestore.handle.getFile()
+      await handleOpenFile(file)
+      setPendingRestore(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      toast.error(`Couldn't reopen ${pendingRestore.name}`, {
+        description: message,
+      })
+      await clearHandle()
+      setPendingRestore(null)
+    }
+  }, [pendingRestore, handleOpenFile])
+
+  // When we have a `pendingRestore` (Chrome-only — a stored
+  // `FileSystemFileHandle` from a previous session whose
+  // permission needs re-granting via user gesture), render a
+  // persistent toast offering to reopen the file. The toast
+  // sticks around until the user clicks Reopen, clicks Dismiss,
+  // or opens a different file (in which case the IDB record is
+  // overwritten and there's nothing to restore from). We use a
+  // stable toast `id` so re-renders update the existing toast
+  // rather than stacking new ones.
+  const RESTORE_TOAST_ID = "restore-last-file"
+  useEffect(() => {
+    if (!pendingRestore || opened) {
+      // No restore pending, OR the user already opened something
+      // — dismiss any existing restore toast.
+      toast.dismiss(RESTORE_TOAST_ID)
+      return
+    }
+    toast(
+      <span>
+        Reopen{" "}
+        <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] break-all">
+          {pendingRestore.name}
+        </code>
+        ?
+      </span>,
+      {
+        id: RESTORE_TOAST_ID,
+        description: (
+          <span className="flex items-center gap-1.5">
+            <span className="font-mono tabular-nums text-foreground">
+              {formatBytes(pendingRestore.size)}
+            </span>
+            <span className="text-muted-foreground">· last session</span>
+          </span>
+        ),
+        duration: Infinity,
+        action: {
+          label: "Reopen",
+          onClick: () => {
+            // Sonner closes the toast after the action fires; the
+            // permission upgrade runs inside this synchronous
+            // click-handler frame, which is what Chrome requires.
+            void handleRestoreLastFile()
+          },
+        },
+        cancel: {
+          label: "Dismiss",
+          onClick: () => {
+            // User explicitly opted out — drop the stored handle so
+            // we don't pester them next reload.
+            void clearHandle()
+            setPendingRestore(null)
+          },
+        },
+      },
+    )
+  }, [pendingRestore, opened, handleRestoreLastFile])
 
   const handleOpenDirectory = useCallback(
     async (directory: WalkedDirectory) => {
@@ -164,7 +437,16 @@ function ArchiveApp() {
         )
         const root = await buildDirectoryRootNode(directory, ctx)
         setOpened({ kind: "directory", directory, totalSize, root })
-        setSelected(root)
+        // Mirror the hash-restore behaviour from `handleOpenFile`
+        // so directory mounts also rehydrate the previously
+        // selected node from `location.hash`.
+        const targetId = readHashId()
+        if (targetId && targetId !== root.id) {
+          const node = await findNodeById(root, targetId)
+          selectNode(node ?? root, "replace")
+        } else {
+          selectNode(root, "replace")
+        }
         toast.success(`Opened directory ${directory.name}`, {
           description: `${directory.files.length} files · ${formatBytes(totalSize)}`,
         })
@@ -175,7 +457,7 @@ function ArchiveApp() {
         })
       }
     },
-    [ctx],
+    [ctx, selectNode],
   )
 
   const handlePickerError = useCallback((err: Error) => {
@@ -185,7 +467,62 @@ function ArchiveApp() {
   const handleCloseFile = useCallback(() => {
     setOpened(null)
     setSelected(null)
-  }, [])
+    // Replace rather than push: we've also discarded the IDB
+    // handle below, so a back-button click can't actually
+    // restore the file we just closed. Better to leave the URL
+    // looking like a fresh visit.
+    setHashId(null, "replace")
+    setPendingRestore(null)
+    // Drop the IDB-persisted handle (Chromium) and the static
+    // <input>'s value (Firefox) so the closed file doesn't
+    // restore itself on the next reload.
+    void clearHandle()
+    const el = document.getElementById(
+      "nx-archive-file-input",
+    ) as HTMLInputElement | null
+    if (el) el.value = ""
+  }, [setHashId])
+
+  // Keep the selection in sync with the URL hash on back/forward
+  // navigation. The `useHashId` hook updates `hashId` whenever
+  // the user clicks back/forward (or any other source changes
+  // `location.hash`). When `hashId` no longer matches the
+  // currently-selected node id, we walk the tree to find the
+  // target and re-select it.
+  //
+  // Normally the URL is already correct (we're catching up to
+  // it) so we use `setSelected` directly. The exception is when
+  // the hash points to a node that doesn't exist (e.g. user
+  // typed garbage into the URL bar, or the file changed between
+  // sessions): we fall back to root and use `selectNode` to
+  // also rewrite the hash, otherwise the bad hash would keep
+  // re-triggering this effect on every render.
+  useEffect(() => {
+    if (!opened) return
+    if ((selected?.id ?? null) === hashId) return
+    let cancelled = false
+    void (async () => {
+      if (!hashId) {
+        if (!cancelled) setSelected(opened.root)
+        return
+      }
+      const node = await findNodeById(opened.root, hashId)
+      if (cancelled) return
+      if (node) {
+        // Hash resolved cleanly — just align the React state,
+        // URL is already correct.
+        setSelected(node)
+      } else {
+        // Stale or garbage hash — fall back to root AND rewrite
+        // the URL via `selectNode` so we don't re-loop on the
+        // bad hash next render.
+        selectNode(opened.root, "replace")
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [hashId, opened, selected?.id, selectNode])
 
   const handleKeysSaved = useCallback(
     (info: { keySet: KeySet; text: string } | null) => {
@@ -235,12 +572,10 @@ function ArchiveApp() {
         onOpenDirectory={handleOpenDirectory}
         onOpenKeys={() => setKeysOpen(true)}
         onOpenOodle={() => setOodleOpen(true)}
-        onOpenBink2={() => setBink2Open(true)}
         onCloseFile={handleCloseFile}
         hasFile={!!opened}
         hasKeys={!!keys}
         hasOodle={hasOodle}
-        hasBink2={hasBink2}
         currentFileName={opened ? openedDisplayName(opened) : undefined}
         currentFileSize={opened ? openedDisplaySize(opened) : undefined}
         onPickerError={handlePickerError}
@@ -303,7 +638,7 @@ function ArchiveApp() {
                   key={`tree-${reloadCounter}`}
                   root={opened.root}
                   selectedId={selected?.id}
-                  onSelect={setSelected}
+                  onSelect={(n) => selectNode(n, "push")}
                   search={searchFilter}
                 />
               </ScrollArea>
@@ -337,9 +672,7 @@ function ArchiveApp() {
               <PreviewPane
                 node={selected}
                 root={opened.root}
-                onNavigate={setSelected}
-                onRequestBink2={() => setBink2Open(true)}
-                bink2WasmVersion={bink2WasmVersion}
+                onNavigate={(n) => selectNode(n, "push")}
               />
             </ResizablePanel>
           </ResizablePanelGroup>
@@ -372,19 +705,6 @@ function ArchiveApp() {
         }}
       />
 
-      <Bink2Dialog
-        open={bink2Open}
-        onOpenChange={setBink2Open}
-        onChanged={() => {
-          // Bink2 WASM is consumed only by the preview pane, so we
-          // don't need to invalidate the archive tree the way Oodle
-          // does. Updating both the badge AND the version counter
-          // lets any open Bink2 preview auto-retry without manual
-          // navigation.
-          void loadStoredBink2Wasm().then((bytes) => setHasBink2(!!bytes))
-          setBink2WasmVersion((v) => v + 1)
-        }}
-      />
     </div>
   )
 }

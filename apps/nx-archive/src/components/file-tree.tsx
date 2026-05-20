@@ -533,6 +533,17 @@ export function FileTree({
     })
   }, [])
 
+  // When the selected node changes (e.g. via URL hash restoration
+  // on boot, popstate from back/forward, or selection-from-search),
+  // ensure all of its ancestors are expanded so the row is
+  // actually visible. This is a no-op when the user manually
+  // clicks a row (they had to expand the parent to see it, so the
+  // ancestors are already in `expandedIds`).
+  useEffect(() => {
+    if (!selectedId) return
+    expandAncestors(selectedId)
+  }, [selectedId, expandAncestors])
+
   // After a programmatic focus change (arrow key, type-ahead, Home/End)
   // we need to (a) ensure the target row is materialized by the
   // virtualizer, then (b) call `.focus()` on its button. The two

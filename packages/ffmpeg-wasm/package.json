@@ -1,0 +1,45 @@
+{
+  "name": "@tootallnate/ffmpeg-wasm",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Base FFmpeg WebAssembly runtime with a dynamic-extension model: ship `ffmpeg.wasm` with libav* core but no codecs, then load per-codec WASM `.so` extensions (bink1, bink2, etc.) at runtime via WebAssembly dynamic linking. Mirrors the quickjs-wasi extension architecture for FFmpeg.",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./ffmpeg.wasm": "./src/ffmpeg.wasm",
+    "./ffmpeg.wasm?url": "./src/ffmpeg.wasm"
+  },
+  "files": [
+    "dist/",
+    "src/ffmpeg.wasm",
+    "src/index.ts",
+    "src/loader.ts",
+    "LICENSE.LGPL-2.1"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run --passWithNoTests"
+  },
+  "keywords": [
+    "ffmpeg",
+    "wasm",
+    "webassembly",
+    "video",
+    "codec",
+    "decoder",
+    "wasi",
+    "dynamic-linking",
+    "shared-library"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "LGPL-2.1-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/ffmpeg-wasm"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.5"
+  }
+}
