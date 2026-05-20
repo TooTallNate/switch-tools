@@ -1,37 +1,44 @@
 /**
- * Decode-and-encode pipeline for Bink (`.bik`) and Bink 2 (`.bk2`)
- * files.
+ * Decode-and-stream pipeline for Bink (`.bik`) and Bink 2 (`.bk2`)
+ * files. Re-encodes them to fragmented H.264 / AAC MP4 and feeds
+ * the fragments into a `<video>` element via MediaSource Extensions
+ * so playback starts within ~1 frame's worth of work — without
+ * waiting for the full decode pass to finish.
  *
- *   1. The new dpkg-style `@tootallnate/ffmpeg-wasm` (LGPL-only)
- *      decodes frames sequentially. The base WASM ships zero codecs;
- *      we load 4 extensions at create time:
+ *   1. The dpkg-style `@tootallnate/ffmpeg-wasm` (LGPL-only) decodes
+ *      frames sequentially. The base WASM ships zero codecs; we load
+ *      4 extensions at create time:
  *        - bink-demuxer (shared container)
  *        - bink-video   (Bink 1)
  *        - bink2-video  (Bink 2)
  *        - bink-audio   (binkaudio RDFT + DCT)
- *      The wrapper auto-picks the right codec per-stream based on
- *      the demuxer's `codec_id` field — same code path for .bik
- *      and .bk2.
+ *      The wrapper auto-picks the right codec per-stream based on the
+ *      demuxer's `codec_id` field — same code path for .bik and .bk2.
  *   2. Each decoded YUV420p frame becomes a WebCodecs `VideoFrame`,
  *      run through `VideoEncoder` (hardware-accelerated H.264) into
  *      `EncodedVideoChunk`s.
- *   3. The same iteration drains any audio samples that decoded
- *      since the last video frame, packages them as `AudioData`,
- *      and feeds them to `AudioEncoder` (AAC, falling back to Opus).
- *   4. `mp4-muxer` writes the result to an in-memory MP4 byte
- *      stream which we return as a Blob to drop into a `<video>`.
+ *   3. The same iteration drains audio samples that decoded since the
+ *      last video frame, packages them as `AudioData`, and feeds them
+ *      to `AudioEncoder` (AAC, falling back to Opus).
+ *   4. `mp4-muxer` in `fastStart: 'fragmented'` mode emits a stream of
+ *      `moof + mdat` fragments through `StreamTarget`'s `onData`
+ *      callback. Each fragment is independently playable.
+ *   5. Fragments are appended to a `MediaSource`'s `SourceBuffer` as
+ *      they arrive; the `<video>` plays from the MediaSource. The
+ *      browser's media stack handles buffering, seeking (within the
+ *      already-appended range), and playback timing.
+ *   6. Fragments are also accumulated into an `ArrayBuffer` so the
+ *      caller can finalize a downloadable MP4 Blob via the
+ *      `done` Promise.
  *
  * Replaces the previous monolithic `bink1-encode.ts` (LGPL FFmpeg
  * monolith @tootallnate/bink1-wasm) and `bink2-encode.ts` (GPL-3
- * cnc-ra-libs @tootallnate/bink2-wasm). The new stack is LGPL-only
- * so the WASMs can be shipped directly — no more "user must provide
+ * cnc-ra-libs @tootallnate/bink2-wasm). The new stack is LGPL-only so
+ * the WASMs can be shipped directly — no more "user must provide
  * bink2.wasm" friction.
- *
- * Progress reporting and cancellation semantics are unchanged from
- * the legacy encoders.
  */
 
-import { Muxer, ArrayBufferTarget } from 'mp4-muxer'
+import { Muxer, StreamTarget } from 'mp4-muxer'
 
 import {
 	Ffmpeg,
@@ -56,6 +63,32 @@ export interface BinkEncodeProgress {
  */
 export type BinkVideoFormat = 'bink1' | 'bink2'
 
+/** Container metadata produced by `ff.open()`, surfaced once known. */
+export interface BinkStreamInfo {
+	width: number
+	height: number
+	/** Encoded MP4's coded width (rounded down to even px). */
+	codedWidth: number
+	/** Encoded MP4's coded height (rounded down to even px). */
+	codedHeight: number
+	fps: number
+	frameCount: number
+	hasAudio: boolean
+	audioChannels?: number
+	audioSampleRate?: number
+	/** Codec actually picked for audio, or `null` when no audio was muxed. */
+	audioCodec: 'aac' | 'opus' | null
+	/** Microseconds in the encoded video. */
+	durationUs: number
+}
+
+/** Result handed back when encoding completes (resolves `done`). */
+export interface BinkStreamResult {
+	/** The fully-encoded MP4 file, ready for a "Save .mp4" download. */
+	mp4: Blob
+	info: BinkStreamInfo
+}
+
 export interface BinkEncodeOptions {
 	/** Which video codec to load + use for this file. */
 	format: BinkVideoFormat
@@ -67,22 +100,28 @@ export interface BinkEncodeOptions {
 	signal?: AbortSignal
 }
 
-export interface BinkEncodeResult {
-	/** The encoded MP4 file, ready for a `<video>` element. */
-	mp4: Blob
-	/** Pixel dimensions of the encoded video. */
-	width: number
-	height: number
-	/** Total frames written. */
-	frameCount: number
-	/** Effective frames per second (from the Bink header). */
-	fps: number
-	/** Microseconds in the encoded video. */
-	durationUs: number
-	/** True iff an audio track was successfully encoded alongside the video. */
-	hasAudio: boolean
-	/** Codec actually used for audio, or null when no audio was muxed. */
-	audioCodec: 'aac' | 'opus' | null
+/**
+ * Handle returned synchronously from `streamBinkToMp4` so the caller
+ * can wire `<video src={mediaSourceUrl}>` immediately, before any
+ * actual decoding starts.
+ */
+export interface BinkStreamHandle {
+	/**
+	 * `URL.createObjectURL` of a MediaSource the `<video>` should
+	 * play. Caller MUST `URL.revokeObjectURL` after unmounting.
+	 */
+	mediaSourceUrl: string
+	/**
+	 * Resolves with container metadata once `ff.open()` returns
+	 * (typically within the first ~50ms). Useful for setting the
+	 * `<video>`'s aspect ratio before the first fragment arrives.
+	 */
+	info: Promise<BinkStreamInfo>
+	/**
+	 * Resolves with the fully-encoded MP4 Blob once encoding
+	 * completes. Used for the "Save .mp4" download button.
+	 */
+	done: Promise<BinkStreamResult>
 }
 
 /** Thrown when the host browser lacks WebCodecs (Safari < 16.4, etc.). */
@@ -93,6 +132,22 @@ export class WebCodecsUnavailableError extends Error {
 				'Bink preview requires Safari 16.4+, Chrome/Edge, or Firefox 130+.',
 		)
 		this.name = 'WebCodecsUnavailableError'
+	}
+}
+
+/**
+ * Thrown when the host browser lacks MediaSource Extensions. We use
+ * MSE for progressive playback — without it we'd have to fall back
+ * to buffering the entire encode in memory before mounting `<video>`.
+ */
+export class MediaSourceUnavailableError extends Error {
+	constructor() {
+		super(
+			"This browser doesn't support MediaSource Extensions. " +
+				'Bink streaming preview requires Chrome/Edge, Firefox, ' +
+				'or Safari 8+.',
+		)
+		this.name = 'MediaSourceUnavailableError'
 	}
 }
 
@@ -107,30 +162,42 @@ export class H264UnavailableError extends Error {
 }
 
 /**
- * AAC + Opus codec configs we try in order. AAC-LC inside MP4 is the
- * most universally-playable choice, but several browsers won't
- * *encode* AAC (Safari < 18.4, certain Firefox builds). Opus inside
- * MP4 is widely playable too (Safari 17.4+, Chrome/Edge, Firefox)
- * and encodes everywhere, making it our fallback.
+ * Audio codec candidates. AAC-LC inside MP4 is the most
+ * universally-playable choice, but several browsers won't *encode*
+ * AAC (Safari < 18.4, certain Firefox builds). Opus inside MP4 is
+ * widely playable too (Safari 17.4+, Chrome/Edge, Firefox) and
+ * encodes everywhere, making it our fallback.
  *
  * Audio failure is non-fatal — if neither encoder will start we ship
  * video-only and surface `audioCodec: null` to the caller.
+ *
+ * **MSE caveat**: MediaSource's `sourceBuffer` requires the audio
+ * codec inside the codecs string. AAC is `mp4a.40.2`; Opus inside
+ * MP4 is `Opus`. We pass both through to `isTypeSupported` to pick
+ * the best one the browser can both ENCODE and PLAY.
  */
 const AUDIO_CANDIDATES: Array<{
 	kind: 'aac' | 'opus'
 	codec: string
 	muxerCodec: 'aac' | 'opus'
+	/** Codecs string MSE wants for `isTypeSupported`. */
+	mseCodec: string
 }> = [
-	// AAC-LC (Audio Object Type 2).
-	{ kind: 'aac', codec: 'mp4a.40.2', muxerCodec: 'aac' },
-	// Opus — always available where WebCodecs encode is supported.
-	{ kind: 'opus', codec: 'opus', muxerCodec: 'opus' },
+	{ kind: 'aac', codec: 'mp4a.40.2', muxerCodec: 'aac', mseCodec: 'mp4a.40.2' },
+	{ kind: 'opus', codec: 'opus', muxerCodec: 'opus', mseCodec: 'opus' },
 ]
 
 async function pickAudioConfig(
 	sampleRate: number,
 	channels: number,
-): Promise<{ config: AudioEncoderConfig; muxerCodec: 'aac' | 'opus' } | null> {
+): Promise<
+	| {
+			config: AudioEncoderConfig
+			muxerCodec: 'aac' | 'opus'
+			mseCodec: string
+	  }
+	| null
+> {
 	if (typeof AudioEncoder === 'undefined') return null
 	for (const candidate of AUDIO_CANDIDATES) {
 		const config: AudioEncoderConfig = {
@@ -142,7 +209,11 @@ async function pickAudioConfig(
 		try {
 			const support = await AudioEncoder.isConfigSupported(config)
 			if (support.supported && support.config) {
-				return { config: support.config, muxerCodec: candidate.muxerCodec }
+				return {
+					config: support.config,
+					muxerCodec: candidate.muxerCodec,
+					mseCodec: candidate.mseCodec,
+				}
 			}
 		} catch {
 			// fall through to the next candidate
@@ -153,7 +224,9 @@ async function pickAudioConfig(
 
 /**
  * H.264 (avc1) codec strings tried in order from highest profile to
- * "should always work".
+ * "should always work". We additionally probe each candidate against
+ * `MediaSource.isTypeSupported` so the picked profile is one MSE can
+ * both decode AND the encoder can produce.
  */
 const H264_CANDIDATES = [
 	// Main profile, level 5.1 — supports 1920×1080@60.
@@ -170,7 +243,8 @@ async function pickH264Config(
 	width: number,
 	height: number,
 	fps: number,
-): Promise<VideoEncoderConfig> {
+	audioMseCodec: string | null,
+): Promise<{ config: VideoEncoderConfig; mseMime: string }> {
 	const bitsPerSecond = Math.round(width * height * fps * 0.12)
 	for (const codec of H264_CANDIDATES) {
 		const config: VideoEncoderConfig = {
@@ -181,26 +255,35 @@ async function pickH264Config(
 			framerate: fps,
 			avc: { format: 'avc' },
 		}
+		// Build the MSE codecs string. Adding audio raises the bar — we
+		// need a combo MSE can decode AS A WHOLE, not just the video.
+		const codecs = audioMseCodec ? `${codec}, ${audioMseCodec}` : codec
+		const mseMime = `video/mp4; codecs="${codecs}"`
 		try {
 			const support = await VideoEncoder.isConfigSupported(config)
-			if (support.supported && support.config) return support.config
+			if (
+				support.supported &&
+				support.config &&
+				MediaSource.isTypeSupported(mseMime)
+			) {
+				return { config: support.config, mseMime }
+			}
 		} catch {
 			// Some browsers throw on unsupported codec strings instead
 			// of returning `{ supported: false }`. Treat both alike.
 		}
 	}
 	throw new H264UnavailableError(
-		'any of avc1 main/baseline @ levels 3.1–5.1',
+		`any of avc1 main/baseline @ levels 3.1–5.1 (audio=${audioMseCodec ?? 'none'})`,
 	)
 }
 
 /**
  * Convert an FfmpegFrame (YUV420p, may be aligned-stride) to a
- * WebCodecs VideoFrame cropped to `width × height`.
- *
- * The Bink decoders return luma/chroma planes whose stride may
- * exceed the visible width (Bink 2 in particular aligns to 32px).
- * We compact to a tight I420 layout row-by-row.
+ * WebCodecs VideoFrame cropped to `width × height`. The Bink
+ * decoders return planes whose stride may exceed the visible width
+ * (Bink 2 in particular aligns to 32px); we compact to a tight I420
+ * layout row-by-row.
  */
 function frameToVideoFrame(
 	frame: FfmpegFrame,
@@ -214,21 +297,18 @@ function frameToVideoFrame(
 	const ySize = width * height
 	const cSize = cw * ch
 	const buf = new Uint8Array(ySize + 2 * cSize)
-	// Y.
 	for (let y = 0; y < height; y++) {
 		buf.set(
 			frame.y.subarray(y * frame.yStride, y * frame.yStride + width),
 			y * width,
 		)
 	}
-	// U.
 	for (let y = 0; y < ch; y++) {
 		buf.set(
 			frame.u.subarray(y * frame.uStride, y * frame.uStride + cw),
 			ySize + y * cw,
 		)
 	}
-	// V.
 	for (let y = 0; y < ch; y++) {
 		buf.set(
 			frame.v.subarray(y * frame.vStride, y * frame.vStride + cw),
@@ -249,21 +329,15 @@ function frameToVideoFrame(
 	})
 }
 
-/**
- * Compiled-WebAssembly module cache, split into "shared" (used by
- * both formats) and per-format (only loaded when needed). The
- * browser caches the underlying bytes by URL, but compiling +
- * dynamic-linking still costs ~50 ms per module, so we hold
- * `WebAssembly.Module`s in memory for the page lifetime.
+/*
+ * --------------------------------------------------------------------
+ * WASM module cache
+ * --------------------------------------------------------------------
  *
- * Lazy: a `.bik` preview never downloads or compiles
- * `bink2-video.so`; a `.bk2` preview never downloads
- * `bink-video.so`. The shared modules are fetched on the first
- * preview of either kind and reused thereafter.
- *
- * The compile cache is NOT an active `Ffmpeg` instance — each
- * decode session creates a fresh one so failures, memory, and
- * file lifetime stay decoupled per preview.
+ * The base + extension WebAssembly modules are fetched + compiled
+ * on first preview and reused across previews for the page lifetime.
+ * Per-format video codecs are lazy: `.bik` skips bink2-video.so and
+ * vice versa.
  */
 interface SharedModules {
 	baseModule: WebAssembly.Module
@@ -280,10 +354,8 @@ async function fetchAndCompile(url: string): Promise<WebAssembly.Module> {
 	if (!resp.ok) {
 		throw new Error(`Failed to fetch ${url}: HTTP ${resp.status}`)
 	}
-	// `WebAssembly.compileStreaming` is faster when available and
-	// the response has the right Content-Type, but Vite serves
-	// `.so` files as application/octet-stream which fails
-	// compileStreaming's MIME check. Fall back to arrayBuffer().
+	// Vite serves `.so` as application/octet-stream which fails
+	// `compileStreaming`'s MIME check. Fall back to arrayBuffer().
 	const buf = await resp.arrayBuffer()
 	return WebAssembly.compile(buf)
 }
@@ -306,7 +378,7 @@ async function getSharedModules(): Promise<SharedModules> {
 	try {
 		return await sharedPromise
 	} catch (err) {
-		sharedPromise = null // allow retry on transient failure
+		sharedPromise = null
 		throw err
 	}
 }
@@ -343,28 +415,189 @@ async function getBink2VideoModule(): Promise<WebAssembly.Module> {
 	}
 }
 
-/**
- * Decode every frame of a Bink (.bik) or Bink 2 (.bk2) file and
- * re-encode it as H.264 MP4. Returns the encoded MP4 as a Blob
- * ready for a `<video src>` element.
+/*
+ * --------------------------------------------------------------------
+ * MediaSource append queue
+ * --------------------------------------------------------------------
  *
- * Auto-detects which codec to use (Bink 1 vs Bink 2) via the
- * registered demuxer + per-stream codec_id matching. No caller
- * branching required.
+ * `SourceBuffer.appendBuffer()` is single-threaded — only one append
+ * may be in flight at a time, and the next must wait for an
+ * `updateend` event. The encoder produces fragments asynchronously
+ * (in arbitrary timing relative to MSE's update cycle), so we queue
+ * them and drain as fast as the SourceBuffer allows.
  */
-export async function encodeBinkToMp4(
-	options: BinkEncodeOptions,
-): Promise<BinkEncodeResult> {
+function createSourceBufferQueue(sb: SourceBuffer): {
+	push: (data: Uint8Array<ArrayBuffer>) => void
+	drained: () => Promise<void>
+	close: () => void
+} {
+	const queue: Uint8Array<ArrayBuffer>[] = []
+	let updating = false
+	let closed = false
+	let drainedResolve: (() => void) | null = null
+
+	const tryDrain = (): void => {
+		if (updating || closed) return
+		if (queue.length === 0) {
+			if (drainedResolve) {
+				drainedResolve()
+				drainedResolve = null
+			}
+			return
+		}
+		const next = queue.shift()!
+		updating = true
+		try {
+			sb.appendBuffer(next)
+		} catch (err) {
+			// QuotaExceededError can happen if the buffer is fuller
+			// than the browser is willing to keep around. Put the
+			// chunk back and retry once an update completes — the
+			// browser will have evicted old samples by then.
+			if (err instanceof DOMException && err.name === 'QuotaExceededError') {
+				queue.unshift(next)
+				updating = false
+				return
+			}
+			throw err
+		}
+	}
+
+	sb.addEventListener('updateend', () => {
+		updating = false
+		tryDrain()
+	})
+
+	return {
+		push(data: Uint8Array<ArrayBuffer>): void {
+			if (closed) return
+			queue.push(data)
+			tryDrain()
+		},
+		drained(): Promise<void> {
+			if (!updating && queue.length === 0) return Promise.resolve()
+			return new Promise<void>((resolve) => {
+				drainedResolve = resolve
+			})
+		},
+		close(): void {
+			closed = true
+			queue.length = 0
+			if (drainedResolve) {
+				drainedResolve()
+				drainedResolve = null
+			}
+		},
+	}
+}
+
+/*
+ * --------------------------------------------------------------------
+ * Public API
+ * --------------------------------------------------------------------
+ */
+
+/**
+ * Decode a Bink (.bik) or Bink 2 (.bk2) file and stream its
+ * re-encoded H.264 / AAC MP4 output through MediaSource Extensions
+ * so a `<video>` can start playing within ~1 frame's worth of work
+ * (typically under 100 ms after the call).
+ *
+ * Returns synchronously with a `mediaSourceUrl` to assign to
+ * `<video src>` immediately. The actual decode runs in the
+ * background; progress fires via `onProgress`; `info` resolves with
+ * container metadata after `ff.open()` returns; `done` resolves with
+ * the final Blob (for a "Save .mp4" download button) when encoding
+ * completes.
+ *
+ * Cancellation: pass an `AbortSignal`. Aborting closes the
+ * MediaSource and unwinds the encoder cleanly. The caller should
+ * `URL.revokeObjectURL(mediaSourceUrl)` when the `<video>` unmounts.
+ */
+export function streamBinkToMp4(options: BinkEncodeOptions): BinkStreamHandle {
 	if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
 		throw new WebCodecsUnavailableError()
 	}
+	if (typeof MediaSource === 'undefined') {
+		throw new MediaSourceUnavailableError()
+	}
 
+	const mediaSource = new MediaSource()
+	const mediaSourceUrl = URL.createObjectURL(mediaSource)
+
+	let infoResolve!: (info: BinkStreamInfo) => void
+	let infoReject!: (err: Error) => void
+	const infoPromise = new Promise<BinkStreamInfo>((resolve, reject) => {
+		infoResolve = resolve
+		infoReject = reject
+	})
+
+	// Kick off the actual encode pipeline. We do this AFTER returning
+	// the handle so the caller can wire `<video src>` first; the
+	// MediaSource's `sourceopen` event then fires on the next tick.
+	const donePromise = (async (): Promise<BinkStreamResult> => {
+		try {
+			return await runStreamingEncode(options, mediaSource, (info) => {
+				infoResolve(info)
+			})
+		} catch (err) {
+			infoReject(err instanceof Error ? err : new Error(String(err)))
+			throw err
+		}
+	})()
+
+	return {
+		mediaSourceUrl,
+		info: infoPromise,
+		done: donePromise,
+	}
+}
+
+/**
+ * Inner pipeline. Split out from `streamBinkToMp4` so the latter can
+ * stay short and the heavy logic lives in an async function with
+ * `try/finally` for cleanup.
+ */
+async function runStreamingEncode(
+	options: BinkEncodeOptions,
+	mediaSource: MediaSource,
+	onInfoReady: (info: BinkStreamInfo) => void,
+): Promise<BinkStreamResult> {
 	const { format, binkBytes, onProgress, signal } = options
 	signal?.throwIfAborted()
 
-	// Load shared modules in parallel with the format-specific video
-	// codec. Both are cached after the first preview, so subsequent
-	// previews of the same format hit the in-memory cache.
+	// Wait for the MediaSource to be in the 'open' state before we
+	// can add a SourceBuffer. The transition fires once *something*
+	// (a `<video src=mediaSourceUrl>` element) starts fetching the
+	// URL. The caller is expected to mount such a `<video>`
+	// immediately after `streamBinkToMp4` returns — if they don't
+	// within `SOURCE_OPEN_TIMEOUT_MS` we treat the preview as
+	// abandoned and bail out. Without a timeout an unmounted
+	// preview would leak the encoder + WASM instance until the tab
+	// closes.
+	const SOURCE_OPEN_TIMEOUT_MS = 10_000
+	const sourceOpen = new Promise<void>((resolve, reject) => {
+		if (mediaSource.readyState === 'open') {
+			resolve()
+			return
+		}
+		const onOpen = (): void => {
+			clearTimeout(timer)
+			resolve()
+		}
+		mediaSource.addEventListener('sourceopen', onOpen, { once: true })
+		const timer = setTimeout(() => {
+			mediaSource.removeEventListener('sourceopen', onOpen)
+			reject(
+				new Error(
+					'MediaSource never opened — the <video> element was never mounted, ' +
+						'or it took longer than 10s to do so',
+				),
+			)
+		}, SOURCE_OPEN_TIMEOUT_MS)
+	})
+
+	// Load shared modules + format-specific video codec in parallel.
 	const [shared, videoModule] = await Promise.all([
 		getSharedModules(),
 		format === 'bink2' ? getBink2VideoModule() : getBinkVideoModule(),
@@ -383,38 +616,108 @@ export async function encodeBinkToMp4(
 		],
 	})
 
+	let videoQueue: ReturnType<typeof createSourceBufferQueue> | null = null
+	let cleanupAttached = false
+
 	try {
 		await ff.open(binkBytes)
 		signal?.throwIfAborted()
-		const info: FfmpegInfo = ff.info
-		const fps = info.fpsDen > 0 ? info.fpsNum / info.fpsDen : 30
-		// Per-frame duration in microseconds (the WebCodecs unit).
+		const ffInfo: FfmpegInfo = ff.info
+		const fps = ffInfo.fpsDen > 0 ? ffInfo.fpsNum / ffInfo.fpsDen : 30
 		const frameDurUs = Math.round(1_000_000 / fps)
-		// H.264 requires even pixel dimensions; lose at most one
-		// row/column of edge data.
-		const evenW = info.width & ~1
-		const evenH = info.height & ~1
+		const evenW = ffInfo.width & ~1
+		const evenH = ffInfo.height & ~1
 
-		const encoderConfig = await pickH264Config(evenW, evenH, fps)
-
-		// --- Audio probe ------------------------------------------------
+		// Audio probe first, because the H.264 profile probe needs
+		// to know whether we'll combine it with audio in the MSE
+		// codecs string.
 		let audioCodec: 'aac' | 'opus' | null = null
 		let audioConfig: AudioEncoderConfig | null = null
+		let audioMseCodec: string | null = null
 		let audioChannels = 0
 		let audioSampleRate = 0
-		if (info.audioTracks.length > 0) {
-			const track0 = info.audioTracks[0]!
+		if (ffInfo.audioTracks.length > 0) {
+			const track0 = ffInfo.audioTracks[0]!
 			audioChannels = track0.channels
 			audioSampleRate = track0.sampleRate
 			const picked = await pickAudioConfig(audioSampleRate, audioChannels)
 			if (picked) {
 				audioCodec = picked.muxerCodec
 				audioConfig = picked.config
+				audioMseCodec = picked.mseCodec
 			}
 		}
 
+		const { config: videoEncoderConfig, mseMime } = await pickH264Config(
+			evenW,
+			evenH,
+			fps,
+			audioMseCodec,
+		)
+
+		const info: BinkStreamInfo = {
+			width: ffInfo.width,
+			height: ffInfo.height,
+			codedWidth: evenW,
+			codedHeight: evenH,
+			fps,
+			frameCount: ffInfo.frameCount,
+			hasAudio: audioCodec !== null,
+			audioChannels: audioCodec ? audioChannels : undefined,
+			audioSampleRate: audioCodec ? audioSampleRate : undefined,
+			audioCodec,
+			durationUs:
+				ffInfo.frameCount > 0 ? ffInfo.frameCount * frameDurUs : 0,
+		}
+		onInfoReady(info)
+
+		// Wait for the MediaSource to be open BEFORE wiring the
+		// muxer's onData callback. `addSourceBuffer` requires it.
+		await sourceOpen
+		signal?.throwIfAborted()
+
+		// Cap total duration so MSE can keep buffer eviction sane.
+		if (info.durationUs > 0) {
+			try {
+				mediaSource.duration = info.durationUs / 1_000_000
+			} catch {
+				// Some browsers throw if duration is set before any
+				// SourceBuffer is added; ignore and let MSE infer.
+			}
+		}
+
+		const sourceBuffer = mediaSource.addSourceBuffer(mseMime)
+		// Sequence mode: timestamps in the appended fragments are
+		// already correct relative to t=0 (we set them ourselves in
+		// the VideoFrame constructor), so MSE shouldn't recompute.
+		try {
+			sourceBuffer.mode = 'segments'
+		} catch {
+			// older browsers default to 'segments'; ignore
+		}
+		videoQueue = createSourceBufferQueue(sourceBuffer)
+
+		// Collect chunks for the final downloadable Blob in parallel
+		// with feeding them to MSE.
+		const blobParts: Uint8Array<ArrayBuffer>[] = []
+
+		// mp4-muxer in fragmented mode emits fragments asynchronously.
+		// `chunked: true` accumulates small writes into ~16 KB blocks
+		// before invoking onData, reducing the number of MSE
+		// appendBuffer() calls (each has fixed overhead).
 		const muxer = new Muxer({
-			target: new ArrayBufferTarget(),
+			target: new StreamTarget({
+				onData: (data, _position) => {
+					if (signal?.aborted) return
+					// Copy the data (mp4-muxer may reuse buffers
+					// between calls).
+					const copy = new Uint8Array(data.byteLength)
+					copy.set(data)
+					blobParts.push(copy)
+					videoQueue?.push(copy)
+				},
+				chunked: false,
+			}),
 			video: {
 				codec: 'avc',
 				width: evenW,
@@ -430,7 +733,12 @@ export async function encodeBinkToMp4(
 						},
 					}
 				: {}),
-			fastStart: 'in-memory',
+			fastStart: 'fragmented',
+			// Short fragments → low play-press latency. 0.5s means
+			// the first ~15 frames (at 30fps) trigger a flush, so
+			// the <video> can start playing within ~500ms of
+			// encoding starting.
+			minFragmentDuration: 0.5,
 		})
 
 		let encodeError: Error | null = null
@@ -442,7 +750,7 @@ export async function encodeBinkToMp4(
 				encodeError = e
 			},
 		})
-		encoder.configure(encoderConfig)
+		encoder.configure(videoEncoderConfig)
 
 		let audioEncoder: AudioEncoder | null = null
 		if (audioConfig) {
@@ -457,13 +765,20 @@ export async function encodeBinkToMp4(
 			audioEncoder.configure(audioConfig)
 		}
 
-		const total = info.frameCount
+		// Detach if the caller aborts — we want the cleanup path in
+		// `finally` to close everything but we shouldn't try to add
+		// further chunks once the MediaSource is shutting down.
+		const abortHandler = (): void => {
+			videoQueue?.close()
+		}
+		signal?.addEventListener('abort', abortHandler, { once: true })
+		cleanupAttached = true
+
+		const total = ffInfo.frameCount
 		let frameIndex = 0
 		const KEYFRAME_INTERVAL = Math.max(1, Math.round(fps * 2))
 		const PROGRESS_BATCH = 16
 		let batchStart = performance.now()
-		// Cumulative sample-frames pulled from track 0 (drives audio
-		// PTS in microseconds).
 		let audioSampleCursor = 0
 
 		try {
@@ -472,7 +787,7 @@ export async function encodeBinkToMp4(
 				if (encodeError) throw encodeError
 
 				const frame = ff.decodeFrame()
-				if (!frame) break // EOF
+				if (!frame) break
 
 				const videoFrame = frameToVideoFrame(
 					frame,
@@ -489,7 +804,6 @@ export async function encodeBinkToMp4(
 					videoFrame.close()
 				}
 
-				// Drain any audio samples decoded since last frame.
 				if (audioEncoder) {
 					try {
 						const chunk = ff.drainAudio(0)
@@ -497,8 +811,6 @@ export async function encodeBinkToMp4(
 							const timestampUs = Math.round(
 								(audioSampleCursor / audioSampleRate) * 1_000_000,
 							)
-							// Copy out of WASM memory — view is invalidated
-							// on the next drain.
 							const copy = new Float32Array(chunk.samples)
 							const audioData = new AudioData({
 								format: 'f32',
@@ -516,8 +828,6 @@ export async function encodeBinkToMp4(
 							audioSampleCursor += chunk.sampleFrames
 						}
 					} catch {
-						// Audio hiccup is non-fatal: close the encoder
-						// and ship video-only from here on.
 						try {
 							audioEncoder.close()
 						} catch {
@@ -527,7 +837,9 @@ export async function encodeBinkToMp4(
 					}
 				}
 
-				// Backpressure.
+				// Backpressure on the encoder queues (independent of
+				// the MSE queue, which the browser drains in its own
+				// time).
 				if (
 					encoder.encodeQueueSize > 32 ||
 					(audioEncoder?.encodeQueueSize ?? 0) > 32
@@ -556,7 +868,7 @@ export async function encodeBinkToMp4(
 						total: total > 0 ? total : frameIndex + 1,
 						fps: batchFps,
 					})
-					// Yield to repaint.
+					// Yield to repaint + let MSE drain its queue.
 					await new Promise<void>((r) => setTimeout(r, 0))
 				}
 			}
@@ -567,6 +879,18 @@ export async function encodeBinkToMp4(
 			encoder.close()
 			if (audioEncoder) audioEncoder.close()
 			muxer.finalize()
+
+			// Wait for MSE to consume the final fragment, then signal
+			// end-of-stream so the `<video>`'s duration becomes the
+			// real one (vs. the open-ended mediaSource.duration).
+			await videoQueue.drained()
+			if (mediaSource.readyState === 'open') {
+				try {
+					mediaSource.endOfStream()
+				} catch {
+					// State race with sourceBuffer.abort() etc.
+				}
+			}
 		} catch (err) {
 			try {
 				encoder.close()
@@ -581,19 +905,23 @@ export async function encodeBinkToMp4(
 			throw err
 		}
 
-		const target = muxer.target as ArrayBufferTarget
-		const mp4 = new Blob([target.buffer], { type: 'video/mp4' })
+		const mp4 = new Blob(blobParts, { type: 'video/mp4' })
 		return {
 			mp4,
-			width: evenW,
-			height: evenH,
-			frameCount: frameIndex,
-			fps,
-			durationUs: frameIndex * frameDurUs,
-			hasAudio: audioCodec !== null,
-			audioCodec,
+			info: { ...info, frameCount: frameIndex },
 		}
 	} finally {
 		ff.dispose()
+		if (cleanupAttached && signal) {
+			signal.removeEventListener('abort', (() => {}) as EventListener)
+		}
+		if (mediaSource.readyState === 'open') {
+			try {
+				videoQueue?.close()
+				mediaSource.endOfStream('decode')
+			} catch {
+				// MediaSource closed by abort or already ended
+			}
+		}
 	}
 }

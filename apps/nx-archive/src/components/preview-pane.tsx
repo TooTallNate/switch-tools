@@ -247,8 +247,10 @@ import {
   type OnProgress,
 } from "~/lib/progress"
 import {
-  encodeBinkToMp4,
+  streamBinkToMp4,
   type BinkEncodeProgress,
+  type BinkStreamInfo,
+  type BinkStreamResult,
 } from "~/lib/bink-encode"
 import {
   saveNodeAsZip,
@@ -8908,10 +8910,16 @@ function UsmStreamsTable({ streams }: { streams: UsmStream[] }) {
 //
 // Unified preview for both Bink 1 (.bik) and Bink 2 (.bk2) videos.
 // Uses `@tootallnate/ffmpeg-wasm` (LGPL-only base + 4 dynamically-
-// loaded extension `.so`s) to decode → re-encodes to H.264 via
-// WebCodecs → muxes into MP4 via `mp4-muxer` → renders a `<video>`
-// with native scrubbing. The new stack auto-picks the right codec
-// (Bink 1 vs Bink 2) per stream via the registered bink-demuxer.
+// loaded extension `.so`s) to decode → re-encodes to fragmented
+// H.264 / AAC MP4 via WebCodecs + `mp4-muxer` → streams fragments
+// into a `<video>` element via MediaSource Extensions as they're
+// produced. The result: `<video>` starts playing within ~500 ms
+// of clicking the file (one MP4 fragment's worth of work) instead
+// of waiting for the full decode pass.
+//
+// The encoder runs to completion in the background while playback
+// continues. Once done, a Blob is available for the "Save .mp4"
+// download button.
 //
 // Replaces the previous Bink1Preview + Bink2Preview pair (the old
 // bink2 component had a "no-wasm" state because cnc-ra-libs was
@@ -8919,20 +8927,25 @@ function UsmStreamsTable({ streams }: { streams: UsmStream[] }) {
 // extensions directly).
 
 interface BinkPreviewState {
-  kind: "encoding" | "ready" | "error"
+  /**
+   * - `loading`: streamBinkToMp4 hasn't returned yet (briefly).
+   * - `streaming`: MediaSource URL is set + assigned to `<video>`,
+   *   encoder still running. Playback may have started.
+   * - `ready`: encoder finished. The `<video>` keeps playing as-is
+   *   but the "Save .mp4" download is now wired.
+   * - `error`: setup or encode failure.
+   */
+  kind: "loading" | "streaming" | "ready" | "error"
+  /** MediaSource URL for the `<video>` element. */
+  mediaSourceUrl?: string
+  /** Container metadata (resolves shortly after `streamBinkToMp4`). */
+  info?: BinkStreamInfo
   /** Frame progress while encoding. */
   progress?: BinkEncodeProgress
-  /** Result blob URL once encoding completes. */
-  mp4Url?: string
-  /** Bytes of the encoded MP4 (for the size display). */
+  /** Final-Blob URL once encoding completes (for "Save .mp4"). */
+  downloadUrl?: string
+  /** Bytes of the encoded MP4 (set when `ready`). */
   mp4Size?: number
-  /** Encoded MP4 dimensions / fps / duration (for the info row). */
-  width?: number
-  height?: number
-  fps?: number
-  durationMs?: number
-  /** Audio codec actually muxed (`null` for video-only). */
-  audioCodec?: "aac" | "opus" | null
   /** Error message when `kind === "error"`. */
   error?: Error
 }
@@ -8944,59 +8957,90 @@ function BinkPreview({
   node: Node
   format: "bink1" | "bink2"
 }) {
-  const [state, setState] = useState<BinkPreviewState>({ kind: "encoding" })
-  // mp4Url lifetime is tied to the state's `ready` phase; revoked on
-  // state change and on unmount.
-  const mp4UrlRef = useRef<string | null>(null)
+  const [state, setState] = useState<BinkPreviewState>({ kind: "loading" })
+  // Track active URLs so we can revoke them on unmount / reset.
+  const mediaSourceUrlRef = useRef<string | null>(null)
+  const downloadUrlRef = useRef<string | null>(null)
   useEffect(() => {
     return () => {
-      if (mp4UrlRef.current) URL.revokeObjectURL(mp4UrlRef.current)
-      mp4UrlRef.current = null
+      if (mediaSourceUrlRef.current) {
+        URL.revokeObjectURL(mediaSourceUrlRef.current)
+        mediaSourceUrlRef.current = null
+      }
+      if (downloadUrlRef.current) {
+        URL.revokeObjectURL(downloadUrlRef.current)
+        downloadUrlRef.current = null
+      }
     }
   }, [])
 
-  // Reset + kick off the decode when the selected node changes.
-  // AbortController lets us cancel cleanly if the user picks another
-  // file mid-encode.
+  // Reset + kick off the streaming encode when the selected node
+  // changes. AbortController cancels cleanly if the user picks
+  // another file mid-encode.
   useEffect(() => {
     let cancelled = false
     const aborter = new AbortController()
-    if (mp4UrlRef.current) {
-      URL.revokeObjectURL(mp4UrlRef.current)
-      mp4UrlRef.current = null
+    if (mediaSourceUrlRef.current) {
+      URL.revokeObjectURL(mediaSourceUrlRef.current)
+      mediaSourceUrlRef.current = null
     }
-    setState({ kind: "encoding" })
+    if (downloadUrlRef.current) {
+      URL.revokeObjectURL(downloadUrlRef.current)
+      downloadUrlRef.current = null
+    }
+    setState({ kind: "loading" })
     void (async () => {
+      let handle: ReturnType<typeof streamBinkToMp4> | null = null
       try {
         const blob = await node.blob!()
         if (cancelled) return
         const binkBytes = new Uint8Array(await blob.arrayBuffer())
         if (cancelled) return
-        const result = await encodeBinkToMp4({
+
+        handle = streamBinkToMp4({
           format,
           binkBytes,
           signal: aborter.signal,
           onProgress: (progress) => {
             if (cancelled) return
-            setState((prev) => ({ ...prev, kind: "encoding", progress }))
+            setState((prev) => ({ ...prev, progress }))
           },
         })
-        if (cancelled) return
-        const url = URL.createObjectURL(result.mp4)
-        mp4UrlRef.current = url
+        mediaSourceUrlRef.current = handle.mediaSourceUrl
+
+        // Wire `<video>` immediately — playback will start as soon
+        // as the first fragment arrives (~500 ms after this point).
         setState({
-          kind: "ready",
-          mp4Url: url,
-          mp4Size: result.mp4.size,
-          width: result.width,
-          height: result.height,
-          fps: result.fps,
-          durationMs: Math.round(result.durationUs / 1000),
-          audioCodec: result.audioCodec,
+          kind: "streaming",
+          mediaSourceUrl: handle.mediaSourceUrl,
         })
+
+        // Surface container info as soon as `ff.open()` returns
+        // (typically within ~50 ms), so the `<video>`'s aspect
+        // ratio is correct before the first frame arrives.
+        handle.info.then(
+          (info) => {
+            if (cancelled) return
+            setState((prev) => ({ ...prev, info }))
+          },
+          () => {
+            // info rejection is reported via `done` below.
+          },
+        )
+
+        const result: BinkStreamResult = await handle.done
+        if (cancelled) return
+        const downloadUrl = URL.createObjectURL(result.mp4)
+        downloadUrlRef.current = downloadUrl
+        setState((prev) => ({
+          ...prev,
+          kind: "ready",
+          info: result.info,
+          downloadUrl,
+          mp4Size: result.mp4.size,
+        }))
       } catch (err) {
         if (cancelled) return
-        // AbortError surfaces as a cancelled state, not an error.
         if (err instanceof Error && err.name === "AbortError") return
         setState({
           kind: "error",
@@ -9014,28 +9058,34 @@ function BinkPreview({
     return <ErrorFiller error={state.error!} />
   }
 
-  // Encoding or ready — always show the metadata block; swap the
-  // player area for a progress bar while encoding.
-  const isEncoding = state.kind === "encoding"
+  const info = state.info
   const progress = state.progress
   const pct = progress ? Math.round((progress.frame / progress.total) * 100) : 0
   const label = format === "bink2" ? "Bink 2" : "Bink 1"
   const downloadName = node.name.replace(/\.(bk2|bik|bk1)$/i, "") + ".mp4"
+  const isLoading = state.kind === "loading"
+  const isEncoding = state.kind === "streaming"
+  const durationMs = info ? Math.round(info.durationUs / 1000) : undefined
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-5 p-5">
-        <SectionHeader title={`${label} video — decoded and re-encoded to MP4`} />
+        <SectionHeader title={`${label} video — streamed to MP4 via MediaSource`} />
         <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
-          {state.kind === "ready" && state.mp4Url ? (
+          {state.mediaSourceUrl ? (
             <video
-              src={state.mp4Url}
+              // Mount immediately with the MediaSource URL; playback
+              // starts as soon as MSE has enough buffered (~one
+              // fragment, typically 0.5s of frames). The encoder
+              // keeps running in the background to fill in the rest.
+              key={state.mediaSourceUrl}
+              src={state.mediaSourceUrl}
               controls
               autoPlay
               className="w-full rounded-md bg-black"
               style={{
                 aspectRatio:
-                  state.width && state.height
-                    ? `${state.width} / ${state.height}`
+                  info && info.codedWidth && info.codedHeight
+                    ? `${info.codedWidth} / ${info.codedHeight}`
                     : undefined,
               }}
             />
@@ -9044,31 +9094,36 @@ function BinkPreview({
               <div className="flex items-center justify-center gap-2">
                 <Spinner />
                 <span>
-                  {progress
-                    ? `Decoding frame ${progress.frame.toLocaleString()} of ${progress.total.toLocaleString()}…`
-                    : "Starting decode…"}
+                  {isLoading
+                    ? "Loading decoder…"
+                    : "Setting up encoder…"}
                 </span>
               </div>
+            </div>
+          )}
+
+          {isEncoding && progress && (
+            <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
               <Progress value={pct} className="w-full" />
-              <div className="text-xs text-muted-foreground">
-                {progress
-                  ? `${pct}%${progress.fps > 0 ? ` · ${progress.fps.toFixed(1)} fps` : ""}`
-                  : "Setting up encoder…"}
+              <div className="flex items-center justify-between">
+                <span>
+                  Encoding frame {progress.frame.toLocaleString()} of {progress.total.toLocaleString()}
+                  {progress.fps > 0 ? ` · ${progress.fps.toFixed(1)} fps` : ""}
+                </span>
+                <span>{pct}%</span>
               </div>
             </div>
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
             <span>
-              {state.kind === "ready"
-                ? `H.264${state.audioCodec ? ` + ${state.audioCodec.toUpperCase()}` : ""} / MP4 (${state.width}×${state.height} · ${state.fps?.toFixed(2)} fps · ${formatDuration((state.durationMs ?? 0) / 1000)} · ${formatBytes(state.mp4Size ?? 0)}${state.audioCodec === null ? " · no audio" : ""})`
-                : isEncoding && progress
-                  ? `Source: ${label} (${progress.total.toLocaleString()} frames)`
-                  : `Source: ${label}`}
+              {info
+                ? `H.264${info.audioCodec ? ` + ${info.audioCodec.toUpperCase()}` : ""} / MP4 (${info.codedWidth}×${info.codedHeight} · ${info.fps.toFixed(2)} fps · ${formatDuration((durationMs ?? 0) / 1000)}${state.mp4Size ? ` · ${formatBytes(state.mp4Size)}` : ""}${info.audioCodec === null ? " · no audio" : ""})`
+                : `Source: ${label}${progress ? ` (${progress.total.toLocaleString()} frames)` : ""}`}
             </span>
-            {state.kind === "ready" && state.mp4Url && (
+            {state.downloadUrl && (
               <a
-                href={state.mp4Url}
+                href={state.downloadUrl}
                 download={downloadName}
                 className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
               >
