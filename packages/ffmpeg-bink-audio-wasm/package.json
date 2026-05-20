@@ -4,15 +4,15 @@
   "type": "module",
   "description": "Bink audio decoder (RDFT + DCT variants) extension for @tootallnate/ffmpeg-wasm. Pair with @tootallnate/ffmpeg-bink-demuxer-wasm.",
   "exports": {
-    "./bink-audio.so": "./src/bink-audio.so",
-    "./bink-audio.so?url": "./src/bink-audio.so"
+    "./bink-audio.so": "./dist/bink-audio.so"
   },
   "files": [
-    "src/bink-audio.so",
+    "dist",
     "LICENSE.LGPL-2.1"
   ],
   "scripts": {
-    "build": "make"
+    "build:wasm": "make",
+    "build": "if [ -x /tmp/wasi-sdk/bin/clang ]; then make; fi && mkdir -p dist && cp src/bink-audio.so dist/bink-audio.so"
   },
   "keywords": [
     "ffmpeg",
