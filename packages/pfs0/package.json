@@ -2,7 +2,7 @@
   "name": "@tootallnate/pfs0",
   "version": "0.0.2",
   "type": "module",
-  "description": "",
+  "description": "Parser and encoder for the PFS0 (Partition FileSystem) container used in Nintendo Switch NSPs.",
   "main": "dist/index.js",
   "publishConfig": {
     "access": "public"

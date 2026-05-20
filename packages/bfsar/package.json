@@ -2,7 +2,7 @@
   "name": "@tootallnate/bfsar",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser for Nintendo's BFSAR (Binary caFe Sound ARchive) — the master sound archive format used by NintendoWare on Wii U and Switch (3DS sibling: BCSAR; Wii sibling: BRSAR). Provides a directory listing of the archive's named entries (sounds, banks, wave archives, players, groups) and exposes each internal file as a lazy Blob slice.",
+  "description": "Parser for Nintendo's BFSAR (Binary caFe Sound ARchive) master sound archive.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

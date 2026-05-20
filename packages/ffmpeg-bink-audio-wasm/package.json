@@ -2,7 +2,7 @@
   "name": "@tootallnate/ffmpeg-bink-audio-wasm",
   "version": "0.0.1",
   "type": "module",
-  "description": "Bink audio decoder (RDFT + DCT variants) extension for @tootallnate/ffmpeg-wasm. Pair with @tootallnate/ffmpeg-bink-demuxer-wasm.",
+  "description": "Bink audio decoder extension for @tootallnate/ffmpeg-wasm.",
   "exports": {
     "./bink-audio.so": "./dist/bink-audio.so"
   },

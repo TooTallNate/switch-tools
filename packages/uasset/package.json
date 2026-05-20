@@ -2,7 +2,7 @@
   "name": "@tootallnate/uasset",
   "version": "0.0.1",
   "type": "module",
-  "description": "Header-level parser for Unreal Engine `.uasset` / `.umap` packages. Decodes the FPackageFileSummary, name table, import table, export table, and soft-object references — enough to identify what an asset IS (class, dependencies, key properties) without trying to deserialise the property bodies (which would require schema knowledge of every UE class).",
+  "description": "Header-level parser for Unreal Engine `.uasset` / `.umap` packages.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

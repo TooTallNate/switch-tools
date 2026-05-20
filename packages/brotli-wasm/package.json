@@ -1,7 +1,7 @@
 {
   "name": "@tootallnate/brotli-wasm",
   "version": "0.0.1",
-  "description": "Streaming Brotli decoder for browser and Node.js, backed by Google's reference C implementation compiled to WebAssembly.",
+  "description": "Streaming Brotli decoder compiled to WebAssembly.",
   "type": "module",
   "exports": {
     ".": {

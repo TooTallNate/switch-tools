@@ -2,7 +2,7 @@
   "name": "@tootallnate/hca",
   "version": "0.0.1",
   "type": "module",
-  "description": "Pure-JS decoder for CRI Middleware's HCA audio codec — parses the HCA container, decodes the MDCT-based bitstream to interleaved Float32 PCM, supports type-0/1/56 cipher decryption, and ships a tiny WAV (RIFF/PCM or float) encoder.",
+  "description": "Decoder for CRI Middleware's HCA audio codec.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

@@ -2,7 +2,7 @@
   "name": "@tootallnate/wwise-pck",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser for Audiokinetic Wwise's AKPK (.pck) streaming-WEM packages — the loose-WEM container shipped alongside .bnk SoundBanks in every Wwise-using game (the bulk of third-party Switch audio).",
+  "description": "Parser for Audiokinetic Wwise AKPK (.pck) streaming-WEM packages.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

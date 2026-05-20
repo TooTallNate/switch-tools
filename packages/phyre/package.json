@@ -2,7 +2,7 @@
   "name": "@tootallnate/phyre",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser for Sony PhyreEngine's self-describing binary container format (magic 'RYHP'). Used by FFX/X-2 HD Remaster, FFXII The Zodiac Age, and other Sony-middleware titles on PS3/PS4/Vita/Switch. Walks the embedded class namespace to extract texture metadata (PTexture2D) + raw pixel payloads, with built-in conversion to standard DDS for use in Photoshop / Noesis / etc.",
+  "description": "Parser for Sony PhyreEngine's binary container format (magic 'RYHP').",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

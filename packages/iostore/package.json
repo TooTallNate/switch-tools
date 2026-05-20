@@ -2,7 +2,7 @@
   "name": "@tootallnate/iostore",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser for Unreal Engine 4/5 IoStore (.utoc + .ucas) containers",
+  "description": "Parser for Unreal Engine 4/5 IoStore (.utoc + .ucas) containers.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

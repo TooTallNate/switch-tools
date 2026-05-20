@@ -2,7 +2,7 @@
   "name": "@tootallnate/ffmpeg-bink-video-wasm",
   "version": "0.0.1",
   "type": "module",
-  "description": "Bink 1 video decoder extension for @tootallnate/ffmpeg-wasm. Pair with @tootallnate/ffmpeg-bink-demuxer-wasm.",
+  "description": "Bink 1 video decoder extension for @tootallnate/ffmpeg-wasm.",
   "exports": {
     "./bink-video.so": "./dist/bink-video.so"
   },

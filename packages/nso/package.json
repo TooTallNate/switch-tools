@@ -2,7 +2,7 @@
   "name": "@tootallnate/nso",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser for the Nintendo Switch NSO (Switch Object) executable format",
+  "description": "Parser for the Nintendo Switch NSO (Switch Object) executable format.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

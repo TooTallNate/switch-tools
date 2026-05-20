@@ -2,7 +2,7 @@
   "name": "@tootallnate/barslist",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser for Nintendo's BARSLIST manifest file (ARSL magic) — a tiny string-only index that names a logical audio resource group plus the BARS files belonging to it. Used by NintendoWare-based first-party Switch and Wii U games as a sound-pack table-of-contents.",
+  "description": "Parser for Nintendo's BARSLIST manifest file (ARSL magic).",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

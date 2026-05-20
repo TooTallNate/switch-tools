@@ -2,7 +2,7 @@
   "name": "@tootallnate/wwise-bnk",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser for Audiokinetic Wwise's .bnk SoundBank files (BKHD magic) — walks RIFF-style chunks (BKHD, DIDX, DATA, HIRC, …) to expose every embedded WEM as a lazy Blob slice.",
+  "description": "Parser for Audiokinetic Wwise .bnk SoundBank files (BKHD magic).",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

@@ -2,7 +2,7 @@
   "name": "@tootallnate/romfs",
   "version": "0.1.1",
   "type": "module",
-  "description": "Parser / encoder for Nintendo Switch RomFS section",
+  "description": "Parser and encoder for Nintendo Switch RomFS sections.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc"

@@ -2,7 +2,7 @@
   "name": "@tootallnate/wem",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser + decoder for Audiokinetic Wwise Encoded Media (.wem) files. Identifies the codec (PCM, Vorbis, Switch-Opus, etc) from the RIFF/WAVE/fmt chunk and converts playable codecs (PCM, Switch-Opus) to browser-friendly formats (WAV, Ogg-Opus).",
+  "description": "Parser and decoder for Audiokinetic Wwise Encoded Media (.wem) files.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

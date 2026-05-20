@@ -2,7 +2,7 @@
   "name": "@tootallnate/ff7-scene",
   "version": "0.0.1",
   "type": "module",
-  "description": "Pure-JS parser for FF7 PC's `scene.bin` — the 256-entry archive of enemy / attack / formation / AI-script data used by every random encounter and boss fight. Decodes the gzip-block outer container, the 7808-byte per-scene struct, and the FF7 text encoding. Does NOT include an AI-bytecode disassembler (raw bytecode is exposed for callers that want one).",
+  "description": "Parser for Final Fantasy VII PC's `scene.bin` enemy / attack / formation / AI database.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

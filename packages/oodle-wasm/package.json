@@ -1,7 +1,7 @@
 {
   "name": "@tootallnate/oodle-wasm",
   "version": "0.0.1",
-  "description": "WebAssembly decoder for RAD's Oodle Data Compression. Ships the TypeScript wrapper and a build recipe; users compile the WASM themselves from RAD's source (the package never redistributes Oodle bytes).",
+  "description": "WebAssembly decoder for RAD's Oodle Data Compression (WASM built by user from RAD's source).",
   "type": "module",
   "exports": {
     ".": {

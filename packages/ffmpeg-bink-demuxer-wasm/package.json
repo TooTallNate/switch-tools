@@ -2,7 +2,7 @@
   "name": "@tootallnate/ffmpeg-bink-demuxer-wasm",
   "version": "0.0.1",
   "type": "module",
-  "description": "Bink container demuxer extension for @tootallnate/ffmpeg-wasm. Includes Switch KB2n support. Pairs with @tootallnate/ffmpeg-bink-video-wasm, @tootallnate/ffmpeg-bink2-video-wasm, and @tootallnate/ffmpeg-bink-audio-wasm.",
+  "description": "Bink container demuxer extension for @tootallnate/ffmpeg-wasm.",
   "exports": {
     "./bink-demuxer.so": "./dist/bink-demuxer.so"
   },

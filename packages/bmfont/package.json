@@ -2,7 +2,7 @@
   "name": "@tootallnate/bmfont",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser for AngelCode BMFont (.fnt) bitmap font descriptors. Decodes the binary BMF format used by many game engines (Cocos2d-x, Unity legacy, Unreal pre-Slate, MonoGame, Godot) into typed info / common / pages / chars / kerning records.",
+  "description": "Parser for AngelCode BMFont (.fnt) bitmap font descriptors.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

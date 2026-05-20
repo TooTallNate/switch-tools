@@ -2,7 +2,7 @@
   "name": "@tootallnate/fsb5",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser + decoder for FMOD Sample Banks (FSB5 format). Walks the header + sample table + name table, exposes each sample with codec metadata, and decodes PCM/IMA-ADPCM samples to WAV plus Vorbis samples to Ogg-Vorbis using a CRC32-keyed setup-packet lookup table.",
+  "description": "Parser and decoder for FMOD Sample Banks (FSB5 format).",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

@@ -2,7 +2,7 @@
   "name": "@tootallnate/sead-audio",
   "version": "0.0.1",
   "type": "module",
-  "description": "Pure-JS parser for Square Enix's SEAD audio containers (`.sab` sound banks and `.mab` music banks; magic `sabf` / `mabf`). Used by FFXV, FFXII TZA, KH3, Kingdom Hearts MoM, FF Pixel Remasters (I-VI), Dissidia OO, Paranormasight, FFT PC Remaster, Dragon Quest Builders, and many other Square Unity-based titles. Decodes the section table + material headers + per-codec extradata, then emits each contained audio stream's raw bytes (HCA, Ogg Vorbis, MS-ADPCM, PCM, etc.) for downstream codec decode. Handles the optional 256-byte XOR overlay used to lightly obfuscate HCA streams. Also supports the older AKB / AKB2 format (Final Fantasy IX Remaster, Final Fantasy Agito, TWEWY iOS).",
+  "description": "Parser for Square Enix's SEAD audio containers (`.sab` / `.mab`) and older AKB / AKB2 banks.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

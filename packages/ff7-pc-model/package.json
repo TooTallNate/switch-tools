@@ -2,7 +2,7 @@
   "name": "@tootallnate/ff7-pc-model",
   "version": "0.0.1",
   "type": "module",
-  "description": "Pure-JS parsers for Final Fantasy VII PC's bespoke 3D model formats: HRC skeleton hierarchies, RSD resource references, P-format (`.p`) binary meshes, and TEX (`.tex`) textures. Used by FF7 PC's character/battle/field models — and, as it turns out, by the FF7 Nintendo Switch port too (which ships the PC asset tree verbatim).",
+  "description": "Parsers for Final Fantasy VII PC's 3D model formats (HRC, RSD, P, TEX).",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

@@ -2,7 +2,7 @@
   "name": "@tootallnate/nsp",
   "version": "0.0.3",
   "type": "module",
-  "description": "",
+  "description": "Parser for Nintendo Switch NSP (Nintendo Submission Package) files.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc"

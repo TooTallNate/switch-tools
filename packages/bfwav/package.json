@@ -2,7 +2,7 @@
   "name": "@tootallnate/bfwav",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser and audio decoder for Nintendo's BFWAV (FWAV magic) format — the standalone single-shot audio file used across Wii U / Switch first-party games. Decodes DSP-ADPCM and PCM16/PCM8 to interleaved PCM16 samples and (optionally) wraps the result in a RIFF WAVE blob ready for HTML5 <audio>.",
+  "description": "Parser and audio decoder for Nintendo's BFWAV (FWAV magic) audio format.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

@@ -2,7 +2,7 @@
   "name": "@tootallnate/ff7-battle",
   "version": "0.0.1",
   "type": "module",
-  "description": "Pure-JS parser for Final Fantasy VII PC battle-model file formats inside `battle.lgp`. Decodes the 52-byte binary HRC master file (the compiled equivalent of the field models' text HRC), derives sibling bone-mesh / texture / animation filenames from the master's 2-char prefix, and decodes the bit-packed delta-compressed animation pack. P-mesh + TEX files reuse `@tootallnate/ff7-pc-model` (identical format) — this package adds only the battle-specific master + animation parsers.",
+  "description": "Parser for Final Fantasy VII PC battle-model file formats.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

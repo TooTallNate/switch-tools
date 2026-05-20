@@ -2,7 +2,7 @@
   "name": "@tootallnate/idtech-resources",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser for idTech BFG-era .resources archives (DOOM 3 BFG, RAGE, Wolfenstein: The New Order). Magic 0xD000000D, mixed-endian header, lazy entries.",
+  "description": "Parser for idTech BFG-era .resources archives.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

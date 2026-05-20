@@ -2,7 +2,7 @@
   "name": "@tootallnate/wem-vorbis",
   "version": "0.0.1",
   "type": "module",
-  "description": "Decode Wwise Vorbis (codec 0xFFFF) WEMs into standard Ogg-Vorbis blobs that browsers can play. TypeScript port of hcs64's ww2ogg, narrowed to the Switch-era Wwise V62 format with external aoTuV-603 codebooks.",
+  "description": "Decoder for Wwise Vorbis (codec 0xFFFF) WEMs to standard Ogg-Vorbis.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

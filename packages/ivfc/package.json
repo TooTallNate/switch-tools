@@ -2,7 +2,7 @@
   "name": "@tootallnate/ivfc",
   "version": "0.0.2",
   "type": "module",
-  "description": "IVFC (Integrity Verification File Collection) hash tree builder for Nintendo Switch",
+  "description": "Builder for Nintendo Switch IVFC (Integrity Verification File Collection) hash trees.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

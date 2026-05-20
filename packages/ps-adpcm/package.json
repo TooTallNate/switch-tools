@@ -2,7 +2,7 @@
   "name": "@tootallnate/ps-adpcm",
   "version": "0.0.1",
   "type": "module",
-  "description": "Pure-JS decoder for Sony PS-ADPCM (also known as SPU-ADPCM, VAG, or simply 'ADPCM' in Sony SDK docs), the 4-bit lossy audio codec used on PS1/PS2/PS3/PSP/Vita. Packs 28 samples per 16-byte frame. Produces s16 PCM ready to wrap in a WAV file or feed to the Web Audio API.",
+  "description": "Decoder for Sony PS-ADPCM (SPU-ADPCM / VAG) 4-bit audio.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

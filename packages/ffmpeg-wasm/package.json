@@ -2,7 +2,7 @@
   "name": "@tootallnate/ffmpeg-wasm",
   "version": "0.0.1",
   "type": "module",
-  "description": "Base FFmpeg WebAssembly runtime with a dynamic-extension model: ship `ffmpeg.wasm` with libav* core but no codecs, then load per-codec WASM `.so` extensions (bink1, bink2, etc.) at runtime via WebAssembly dynamic linking. Mirrors the quickjs-wasi extension architecture for FFmpeg.",
+  "description": "FFmpeg WebAssembly runtime with dynamically-loaded codec extensions.",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

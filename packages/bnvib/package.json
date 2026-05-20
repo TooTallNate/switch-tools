@@ -2,7 +2,7 @@
   "name": "@tootallnate/bnvib",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser for Nintendo Switch BNVIB files — the binary HD Rumble vibration patterns shipped in first-party games. Decodes the per-band amplitude / frequency stream into a waveform you can visualise or render as audio.",
+  "description": "Parser for Nintendo Switch BNVIB HD Rumble vibration patterns.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

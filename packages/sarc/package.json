@@ -2,7 +2,7 @@
   "name": "@tootallnate/sarc",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser for Nintendo's SARC archive format (used widely in Switch / Wii U / 3DS first-party games, often Yaz0-wrapped as .szs)",
+  "description": "Parser for Nintendo's SARC archive format.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

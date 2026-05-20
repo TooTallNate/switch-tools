@@ -2,7 +2,7 @@
   "name": "@tootallnate/dxtk-font",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser for DirectXTK SpriteFont binaries (`DXTKfont` magic) — the bitmap-atlas font format produced by Microsoft's MakeSpriteFont tool and consumed by SpriteFont at runtime. Decodes the glyph table and embedded texture (R8G8B8A8, B4G4R4A4, or BC2/DXT3) to RGBA8 pixels ready to render to a canvas.",
+  "description": "Parser for DirectXTK SpriteFont (`DXTKfont` magic) bitmap-atlas fonts.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

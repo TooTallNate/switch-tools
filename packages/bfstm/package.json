@@ -2,7 +2,7 @@
   "name": "@tootallnate/bfstm",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser and audio decoder for Nintendo's BFSTM (FSTM magic) streamed-audio format and its prefetch sibling BFSTP. Walks the block-interleaved DATA layout and decodes DSP-ADPCM / PCM16 / PCM8 channels to interleaved PCM16 samples, ready to wrap as RIFF WAVE and play in a browser.",
+  "description": "Parser and audio decoder for Nintendo's BFSTM / BFSTP streamed-audio format.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

@@ -2,7 +2,7 @@
   "name": "@tootallnate/lz4",
   "version": "0.0.1",
   "type": "module",
-  "description": "Decoder for the LZ4 frame and block formats (used in Nintendo Switch firmware and many other places)",
+  "description": "Decoder for the LZ4 frame and block formats.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

@@ -1,7 +1,7 @@
 {
   "name": "@tootallnate/astc-wasm",
   "version": "0.0.1",
-  "description": "Pure-Rust ASTC LDR texture decoder compiled to WebAssembly. Decodes 4x4 through 12x12 ASTC blocks to RGBA8.",
+  "description": "ASTC LDR texture decoder compiled to WebAssembly.",
   "type": "module",
   "exports": {
     ".": {

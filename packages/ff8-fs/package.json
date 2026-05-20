@@ -2,7 +2,7 @@
   "name": "@tootallnate/ff8-fs",
   "version": "0.0.1",
   "type": "module",
-  "description": "Pure-JS parser for Final Fantasy VIII's `.fs` / `.fi` / `.fl` archive triplets used by every PC release (and verbatim on the Switch Remastered port). `.fl` lists per-entry Windows-style paths, `.fi` indexes (uncompressed-size, offset-in-fs, compression-flag), `.fs` is the concatenated payload with FF7-style LZSS compression on flagged entries. Pairs with `@tootallnate/ff7-flevel` (whose LZSS decoder is the same variant FF8 uses).",
+  "description": "Parser for Final Fantasy VIII's `.fs` / `.fi` / `.fl` archive triplets.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

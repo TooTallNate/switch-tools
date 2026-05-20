@@ -2,7 +2,7 @@
   "name": "@tootallnate/ff7-world",
   "version": "0.0.1",
   "type": "module",
-  "description": "Pure-JS decoder for FF7 PC's overworld map files (`wm0.map`, `wm2.map`, `wm3.map`). Parses the 0xB800-byte section grid, decompresses each per-sector LZSS-wrapped mesh into a flat triangle list with per-triangle texture IDs / walkmap codes / region IDs, and exposes the hardcoded WMSET texture metadata tables (282 overworld + 8 underwater + 4 glacier entries with PSX VRAM offsets). Pairs with `@tootallnate/lgp` to extract the matching `.tex` files from `world_us.lgp`.",
+  "description": "Decoder for Final Fantasy VII PC's overworld map files (wm0/2/3.map).",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

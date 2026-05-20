@@ -2,7 +2,7 @@
   "name": "@tootallnate/bffnt",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser and texture decoder for Nintendo's BFFNT (Cafe Font Format) bitmap fonts — the format used for game fonts on the Wii U / Switch (FFNT magic, version 4)",
+  "description": "Parser and texture decoder for Nintendo's BFFNT (Cafe Font Format) bitmap fonts.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

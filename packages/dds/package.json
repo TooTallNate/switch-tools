@@ -2,7 +2,7 @@
   "name": "@tootallnate/dds",
   "version": "0.0.1",
   "type": "module",
-  "description": "Pure-JS parser for Microsoft DirectDraw Surface (`.dds`) texture files. Reads the 128-byte header (magic + DDS_HEADER + optional DDS_HEADER_DXT10), dispatches block compression to `@tootallnate/bcn` (BC1/BC2/BC3/BC4/BC5) for the common DXTn formats, and returns canonical RGBA8 pixel buffers. Handles uncompressed RGBA / BGRA formats too.",
+  "description": "Parser for Microsoft DirectDraw Surface (.dds) texture files.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

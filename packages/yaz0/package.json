@@ -2,7 +2,7 @@
   "name": "@tootallnate/yaz0",
   "version": "0.0.1",
   "type": "module",
-  "description": "Decoder for Nintendo's Yaz0 LZ-style compression (used in .szs files and many first-party game archives)",
+  "description": "Decoder for Nintendo's Yaz0 LZ-style compression.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

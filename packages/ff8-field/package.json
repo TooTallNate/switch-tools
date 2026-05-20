@@ -2,7 +2,7 @@
   "name": "@tootallnate/ff8-field",
   "version": "0.0.1",
   "type": "module",
-  "description": "Pure-JS parser for Final Fantasy VIII PC + Switch Remastered field-scene formats. Decodes `.map` (tile layout) + `.mim` (texture pages + palettes) and composites them into a 2D RGBA image — the pre-rendered backgrounds you walk around on (Balamb Garden, Dollet town, Galbadia Hotel, etc.). Supports both the older 401,408-byte MIM (16 palettes × 12 texture pages) and newer 438,272-byte MIM (24 palettes × 13 texture pages), both Tile1 (PSX-era 16 bytes) and Tile2 (PC/Switch 16 bytes with layerID + blendType) records, and the 4-, 8-, and 16-bpp texture-page formats.",
+  "description": "Parser for Final Fantasy VIII PC + Switch Remastered field-scene .map / .mim files.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

@@ -2,7 +2,7 @@
   "name": "@tootallnate/ff8-battle",
   "version": "0.0.1",
   "type": "module",
-  "description": "Pure-JS parser for Final Fantasy VIII battle model DAT files (`c0m###.dat` inside `battle.fs`). Decodes the multi-section container — skeleton (bones), geometry (vertices/triangles/quads with bit-packed vertex/texture indices), bit-packed animation frames, the 380-byte enemy stats record, and embedded PSX TIM textures. Other sections (animation sequences, AI script, AKAO sound effects) are exposed as raw bytes.",
+  "description": "Parser for Final Fantasy VIII battle model DAT files (`c0m###.dat`).",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

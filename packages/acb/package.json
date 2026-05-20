@@ -2,7 +2,7 @@
   "name": "@tootallnate/acb",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser for CRI Middleware's ACB (Audio Cue Bank) format. ACB is a UTF-table descriptor that names + sequences the audio waveforms packed in a companion AWB. Exposes the cue name <-> AWB track id mapping so consumers can give bank tracks meaningful filenames (e.g. `BGM_Boss.wav` instead of `track_007.hca`).",
+  "description": "Parser for CRI Middleware's ACB (Audio Cue Bank) format.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

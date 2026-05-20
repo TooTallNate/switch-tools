@@ -2,7 +2,7 @@
   "name": "@tootallnate/ffmpeg-bink2-video-wasm",
   "version": "0.0.1",
   "type": "module",
-  "description": "Bink 2 video decoder (KB2f...KB2n) extension for @tootallnate/ffmpeg-wasm. Based on Paul B Mahol's bink2 patch. Pair with @tootallnate/ffmpeg-bink-demuxer-wasm.",
+  "description": "Bink 2 video decoder extension for @tootallnate/ffmpeg-wasm.",
   "exports": {
     "./bink2-video.so": "./dist/bink2-video.so"
   },
