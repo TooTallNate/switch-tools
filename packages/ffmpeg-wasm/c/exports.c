@@ -27,14 +27,22 @@
 #include "libavformat/avformat.h"
 #include "libavutil/avutil.h"
 #include "libavutil/avstring.h"
+#include "libavutil/base64.h"
 #include "libavutil/buffer.h"
+#include "libavutil/channel_layout.h"
+#include "libavutil/crc.h"
 #include "libavutil/dict.h"
+#include "libavutil/float_dsp.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/log.h"
+#include "libavutil/mathematics.h"
 #include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
+#include "libavutil/samplefmt.h"
+#include "libavutil/time.h"
+#include "libavutil/tx.h"
 
 /*
  * Internal FFmpeg helpers — declared in private headers extensions
@@ -91,6 +99,78 @@ struct AVRational; /* tag, not real type */
 extern void avpriv_set_pts_info(AVStream *st, int pts_wrap_bits,
                                 unsigned int pts_num, unsigned int pts_den);
 extern int ff_alloc_extradata(AVCodecParameters *par, int size);
+
+/* libavcodec FFT / MDCT / sinewin internals — pre-`av_tx` code
+ * path. `ff_fft_init` / `ff_mdct_init` live in libavcodec/fft.c
+ * (template-generated) and live alongside `av_tx_init` until
+ * fully removed. AAC + many other audio codecs still call
+ * `ff_mdct_init` directly. */
+struct FFTContext;
+extern int  ff_fft_init(struct FFTContext *s, int nbits, int inverse);
+extern void ff_fft_end(struct FFTContext *s);
+extern int  ff_mdct_init(struct FFTContext *s, int nbits, int inverse,
+                          double scale);
+extern void ff_mdct_end(struct FFTContext *s);
+extern void ff_sine_window_init(float *window, int n);
+extern void ff_init_ff_sine_windows(int index);
+
+/* AAC float helper: initialises shared float-precision tables. */
+extern void ff_aac_float_common_init(void);
+
+/* Frame-threaded decoder buffer accessor — newer codecs route
+ * `ff_get_buffer` through this even in single-thread builds. */
+extern int  ff_thread_get_buffer(AVCodecContext *avctx, AVFrame *f, int flags);
+
+/* Diagnostics — defined in libavutil but exported under `avpriv_`
+ * for libavcodec to call across the LGPL boundary. */
+extern void avpriv_request_sample(void *avc, const char *msg, ...);
+extern void avpriv_report_missing_feature(void *avc, const char *msg, ...);
+
+/* libavutil math helpers in mathematics.h / time.h (included above) —
+ * no forward decls needed: av_rescale, av_rescale_rnd, av_rescale_q,
+ * av_compare_ts, av_gcd, av_gettime, av_base64_decode. */
+
+/* AVCodec parser API — opening, feeding, closing. */
+struct AVCodecParserContext;
+extern struct AVCodecParserContext *av_parser_init(int codec_id);
+extern int av_parser_parse2(struct AVCodecParserContext *s, AVCodecContext *avctx,
+                             uint8_t **poutbuf, int *poutbuf_size,
+                             const uint8_t *buf, int buf_size,
+                             int64_t pts, int64_t dts, int64_t pos);
+extern void av_parser_close(struct AVCodecParserContext *s);
+
+/* Side-data + PCM helpers — declared in avcodec.h via the
+ * `avcodec.h` include above; just take their addresses below. */
+
+/* libavformat IO helpers — extra `avio_*` reads/writes. The
+ * declarations live in `avio.h` which `avformat.h` pulls in;
+ * no forward decls needed here for any `avio_*` symbol. */
+
+/* Internal libavformat helpers — declarations live in private
+ * headers we don't include. Forward-declare the minimum we need
+ * to take their address; the actual type signatures don't matter
+ * here because we never call them through this file. */
+extern int  ffio_read_size(AVIOContext *s, unsigned char *buf, int size);
+extern void ffio_fill(AVIOContext *s, int b, int64_t count);
+extern void ffio_free_dyn_buf(AVIOContext **s);
+extern void *avpriv_new_chapter(AVFormatContext *s, int64_t id,
+                                 int time_base_num, int time_base_den,
+                                 int64_t start, int64_t end,
+                                 const char *title);
+extern int  ff_codec_get_id(const void *tags, unsigned int tag);
+extern int  ff_get_pcm_codec_id(int bps, int flt, int be, int sflags);
+extern int  ff_add_attached_pic(AVFormatContext *s, AVStream *st,
+                                 AVIOContext *pb, void **buf, int size);
+extern void ff_id3v2_read_dict(AVIOContext *pb, void **m,
+                                const char *magic, void *extra_meta);
+extern int  ff_id3v2_parse_apic(AVFormatContext *s, void *extra_meta);
+extern int  ff_id3v2_parse_chapters(AVFormatContext *s, void *extra_meta);
+extern int  ff_id3v2_parse_priv(AVFormatContext *s, void *extra_meta);
+extern void ff_id3v2_free_extra_meta(void *extra_meta);
+extern void ff_metadata_conv(void **pm, const void *d_conv, const void *s_conv);
+extern void ff_metadata_conv_ctx(AVFormatContext *ctx,
+                                  const void *d_conv, const void *s_conv);
+extern int  ff_standardize_creation_time(AVFormatContext *s);
 
 /*
  * Touch each exported symbol. The compiler can't fold these away
@@ -200,6 +280,82 @@ void * volatile ffmpeg_keepalive_table[] = {
 	(void *)&av_log2,
 	(void *)&ff_decode_get_packet,
 
+	/* Audio sample-format introspection — used by every audio
+	 * codec to figure out the size of decoded buffers. */
+	(void *)&av_get_bytes_per_sample,
+	(void *)&av_sample_fmt_is_planar,
+	(void *)&av_samples_get_buffer_size,
+	(void *)&av_samples_fill_arrays,
+
+	/* Generic CRC table machinery. FLAC + a few other codecs
+	 * pull the CRC-16 / CRC-24 table at init time. */
+	(void *)&av_crc,
+	(void *)&av_crc_get_table,
+
+	/* Channel-layout helpers beyond the ones already exported. */
+	(void *)&av_channel_layout_from_mask,
+	(void *)&av_channel_layout_compare,
+
+	/* Modern transform API (FFT, MDCT, RDFT via `av_tx_*`) — many
+	 * newer codecs (HCA, modern Opus, AAC's USAC path) use this
+	 * instead of the older `ff_fft_*` / `ff_mdct_*` direct calls. */
+	(void *)&av_tx_init,
+	(void *)&av_tx_uninit,
+
+	/* Legacy FFT / MDCT / sinewin — pre-`av_tx` transform API.
+	 * AAC + several other audio codecs still call these. */
+	(void *)&ff_fft_init,
+	(void *)&ff_fft_end,
+	(void *)&ff_mdct_init,
+	(void *)&ff_mdct_end,
+	(void *)&ff_sine_window_init,
+	(void *)&ff_init_ff_sine_windows,
+	(void *)&ff_aac_float_common_init,
+
+	/* Float-DSP context allocator — used by the modern audio
+	 * decoder path for vector ops (`vector_fmul`, etc.). */
+	(void *)&avpriv_float_dsp_alloc,
+
+	/* Diagnostics from inside upstream codec code. */
+	(void *)&avpriv_request_sample,
+	(void *)&avpriv_report_missing_feature,
+
+	/* Frame-threaded buffer get — non-threaded build still
+	 * routes through this. */
+	(void *)&ff_thread_get_buffer,
+
+	/* Allocator-backed re-malloc with growth. Used inside
+	 * many codec parsers / demuxers. */
+	(void *)&av_fast_malloc,
+	(void *)&av_fast_realloc,
+
+	/* libavutil math + timestamp utilities. */
+	(void *)&av_rescale,
+	(void *)&av_rescale_rnd,
+	(void *)&av_rescale_q,
+	(void *)&av_compare_ts,
+	(void *)&av_gcd,
+	(void *)&av_gettime,
+
+	/* Base64 decode. */
+	(void *)&av_base64_decode,
+
+	/* AVCodec parser API. */
+	(void *)&av_parser_init,
+	(void *)&av_parser_parse2,
+	(void *)&av_parser_close,
+
+	/* Stream side-data attach. */
+	(void *)&av_stream_new_side_data,
+
+	/* PCM / audio utilities. */
+	(void *)&av_get_bits_per_sample,
+	(void *)&av_get_exact_bits_per_sample,
+	(void *)&av_get_audio_frame_duration2,
+
+	/* FourCC pretty-printing. */
+	(void *)&av_fourcc_make_string,
+
 	/* --- libavformat --- */
 	(void *)&avformat_alloc_context,
 	(void *)&avformat_free_context,
@@ -231,6 +387,49 @@ void * volatile ffmpeg_keepalive_table[] = {
 	(void *)&av_index_search_timestamp,
 	(void *)&avpriv_set_pts_info,
 	(void *)&ff_alloc_extradata,
+
+	/* Extra avio_* IO primitives that muxers/demuxers reach for. */
+	(void *)&avio_get_str,
+	(void *)&avio_read_partial,
+	(void *)&avio_w8,
+	(void *)&avio_write,
+	(void *)&avio_wl16,
+	(void *)&avio_wb16,
+	(void *)&avio_wl32,
+	(void *)&avio_wb32,
+	(void *)&avio_wl64,
+	(void *)&avio_wb64,
+	(void *)&avio_put_str,
+	(void *)&avio_put_str16le,
+	(void *)&avio_open_dyn_buf,
+	(void *)&avio_get_dyn_buf,
+	(void *)&ffio_free_dyn_buf,
+	(void *)&ffio_fill,
+	(void *)&ffio_read_size,
+
+	/* Demuxer chapter creator. */
+	(void *)&avpriv_new_chapter,
+
+	/* PCM / codec-tag helpers. */
+	(void *)&ff_codec_get_id,
+	(void *)&ff_get_pcm_codec_id,
+
+	/* Cover art + attached pictures. */
+	(void *)&ff_add_attached_pic,
+
+	/* ID3v2 parsing. */
+	(void *)&ff_id3v2_read_dict,
+	(void *)&ff_id3v2_parse_apic,
+	(void *)&ff_id3v2_parse_chapters,
+	(void *)&ff_id3v2_parse_priv,
+	(void *)&ff_id3v2_free_extra_meta,
+
+	/* Metadata conversion tables. */
+	(void *)&ff_metadata_conv,
+	(void *)&ff_metadata_conv_ctx,
+
+	/* Creation-time tag helper. */
+	(void *)&ff_standardize_creation_time,
 
 	(void *)0,
 };
