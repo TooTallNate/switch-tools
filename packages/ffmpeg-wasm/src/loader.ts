@@ -45,6 +45,8 @@ export interface LoadedExtension {
 	codecs: number[];
 	/** Demuxer pointers the extension provided (already registered with base). */
 	demuxers: number[];
+	/** Muxer pointers the extension provided (already registered with base). */
+	muxers: number[];
 }
 
 /** Parsed `dylink.0` custom section. */
@@ -244,27 +246,34 @@ export async function loadExtension(
 		| undefined;
 	if (callCtors) callCtors();
 
-	// Auto-register codecs and demuxers the extension advertises.
-	// Convention: an extension exports zero or more `ffmpeg_ext_*_codec`
-	// and `ffmpeg_ext_*_demuxer` symbols (plus optional `_codec_1`,
-	// `_codec_2`, ... for multi-codec extensions like bink-audio
-	// which carries both DCT and RDFT variants). Each accessor
-	// returns the address of an FFCodec / AVInputFormat inside the
-	// extension's static data; the base ffmpeg_register_*() store
-	// the pointer in g_codecs[] / g_demuxers[].
+	// Auto-register codecs, demuxers and muxers the extension
+	// advertises. Convention: an extension exports zero or more
+	// `ffmpeg_ext_*_codec`, `_demuxer`, or `_muxer` symbols (plus
+	// optional `_codec_1`, `_codec_2`, ... for multi-codec
+	// extensions like bink-audio which carries both DCT and RDFT
+	// variants). Each accessor returns the address of an FFCodec
+	// / AVInputFormat / AVOutputFormat inside the extension's
+	// static data; the base `ffmpeg_register_*()` store the
+	// pointer in `g_codecs[]` / `g_demuxers[]` / `g_muxers[]`.
 	const registerCodec = mainExports.ffmpeg_register_codec as
 		| ((ptr: number) => number)
 		| undefined;
 	const registerDemuxer = mainExports.ffmpeg_register_demuxer as
 		| ((ptr: number) => number)
 		| undefined;
+	const registerMuxer = mainExports.ffmpeg_register_muxer as
+		| ((ptr: number) => number)
+		| undefined;
 	if (typeof registerCodec !== 'function')
 		throw new Error(`Main module is missing 'ffmpeg_register_codec' export`);
 	if (typeof registerDemuxer !== 'function')
 		throw new Error(`Main module is missing 'ffmpeg_register_demuxer' export`);
+	if (typeof registerMuxer !== 'function')
+		throw new Error(`Main module is missing 'ffmpeg_register_muxer' export`);
 
 	const codecs: number[] = [];
 	const demuxers: number[] = [];
+	const muxers: number[] = [];
 	for (const exportName of Object.keys(instance.exports)) {
 		const fn = instance.exports[exportName];
 		if (typeof fn !== 'function') continue;
@@ -286,6 +295,15 @@ export async function loadExtension(
 				);
 			}
 			demuxers.push(ptr);
+		} else if (/^ffmpeg_ext_[A-Za-z0-9_]+_muxer(_\d+)?$/.test(exportName)) {
+			const ptr = (fn as () => number)();
+			if (!ptr) continue;
+			if (registerMuxer(ptr) < 0) {
+				throw new Error(
+					`Extension "${descriptor.name}": ffmpeg_register_muxer() failed for ${exportName} (registry full?)`,
+				);
+			}
+			muxers.push(ptr);
 		}
 	}
 
@@ -298,5 +316,6 @@ export async function loadExtension(
 		tableBase,
 		codecs,
 		demuxers,
+		muxers,
 	};
 }

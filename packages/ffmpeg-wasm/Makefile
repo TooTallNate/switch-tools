@@ -350,6 +350,32 @@ LDFLAGS = \
 	-Wl,--export=strtoll \
 	-Wl,--export=localtime_r \
 	-Wl,--export=strftime \
+	-Wl,--export=ffmpeg_register_muxer \
+	-Wl,--export=ffmpeg_codec_count \
+	-Wl,--export=ffmpeg_codec_at \
+	-Wl,--export=ffmpeg_codec_name \
+	-Wl,--export=ffmpeg_codec_long_name \
+	-Wl,--export=ffmpeg_codec_id \
+	-Wl,--export=ffmpeg_codec_type \
+	-Wl,--export=ffmpeg_codec_capabilities \
+	-Wl,--export=ffmpeg_codec_is_decoder \
+	-Wl,--export=ffmpeg_codec_is_encoder \
+	-Wl,--export=ffmpeg_demuxer_count \
+	-Wl,--export=ffmpeg_demuxer_at \
+	-Wl,--export=ffmpeg_demuxer_name \
+	-Wl,--export=ffmpeg_demuxer_long_name \
+	-Wl,--export=ffmpeg_demuxer_extensions \
+	-Wl,--export=ffmpeg_demuxer_mime_type \
+	-Wl,--export=ffmpeg_demuxer_flags \
+	-Wl,--export=ffmpeg_muxer_count \
+	-Wl,--export=ffmpeg_muxer_at \
+	-Wl,--export=ffmpeg_muxer_name \
+	-Wl,--export=ffmpeg_muxer_long_name \
+	-Wl,--export=ffmpeg_muxer_extensions \
+	-Wl,--export=ffmpeg_muxer_mime_type \
+	-Wl,--export=ffmpeg_muxer_flags \
+	-Wl,--export=ffmpeg_muxer_video_codec \
+	-Wl,--export=ffmpeg_muxer_audio_codec \
 	-Wl,--growable-table \
 	-Wl,--gc-sections \
 	-Wl,--strip-debug \

@@ -178,6 +178,7 @@ interface BaseExports {
 	ffmpeg_free: (p: number) => void;
 	ffmpeg_register_codec: (ptr: number) => number;
 	ffmpeg_register_demuxer: (ptr: number) => number;
+	ffmpeg_register_muxer: (ptr: number) => number;
 	ffmpeg_open: (dataPtr: number, size: number) => number;
 	ffmpeg_close: () => void;
 	ffmpeg_width: () => number;
@@ -201,6 +202,118 @@ interface BaseExports {
 	ffmpeg_drain_audio: (track: number) => number;
 	ffmpeg_audio_drain_ptr: (track: number) => number;
 	ffmpeg_set_log_level: (level: number) => void;
+	/** Introspection — codec list. */
+	ffmpeg_codec_count: () => number;
+	ffmpeg_codec_at: (i: number) => number;
+	ffmpeg_codec_name: (ptr: number) => number;
+	ffmpeg_codec_long_name: (ptr: number) => number;
+	ffmpeg_codec_id: (ptr: number) => number;
+	ffmpeg_codec_type: (ptr: number) => number;
+	ffmpeg_codec_capabilities: (ptr: number) => number;
+	ffmpeg_codec_is_decoder: (ptr: number) => number;
+	ffmpeg_codec_is_encoder: (ptr: number) => number;
+	/** Introspection — demuxer list. */
+	ffmpeg_demuxer_count: () => number;
+	ffmpeg_demuxer_at: (i: number) => number;
+	ffmpeg_demuxer_name: (ptr: number) => number;
+	ffmpeg_demuxer_long_name: (ptr: number) => number;
+	ffmpeg_demuxer_extensions: (ptr: number) => number;
+	ffmpeg_demuxer_mime_type: (ptr: number) => number;
+	ffmpeg_demuxer_flags: (ptr: number) => number;
+	/** Introspection — muxer list. */
+	ffmpeg_muxer_count: () => number;
+	ffmpeg_muxer_at: (i: number) => number;
+	ffmpeg_muxer_name: (ptr: number) => number;
+	ffmpeg_muxer_long_name: (ptr: number) => number;
+	ffmpeg_muxer_extensions: (ptr: number) => number;
+	ffmpeg_muxer_mime_type: (ptr: number) => number;
+	ffmpeg_muxer_flags: (ptr: number) => number;
+	ffmpeg_muxer_video_codec: (ptr: number) => number;
+	ffmpeg_muxer_audio_codec: (ptr: number) => number;
+}
+
+/**
+ * Description of a registered codec, mirroring what
+ * `ffmpeg -decoders` / `ffmpeg -encoders` prints. Returned by
+ * `Ffmpeg.listCodecs()`.
+ */
+export interface CodecInfo {
+	/** Lowercase codec name (`"aac"`, `"flac"`, `"pcm_s16le"`). */
+	name: string;
+	/** Long, human-readable name. */
+	longName: string;
+	/** Whether the codec can decode. */
+	isDecoder: boolean;
+	/** Whether the codec can encode. */
+	isEncoder: boolean;
+	/** Media type: `"video"`, `"audio"`, `"subtitle"`, `"data"`, or `"attachment"`. */
+	mediaType: MediaType;
+	/** Raw `AVCodecID` enum value. */
+	codecId: number;
+	/** Bitfield of `AV_CODEC_CAP_*`. */
+	capabilities: number;
+}
+
+/**
+ * Description of a registered demuxer. Returned by
+ * `Ffmpeg.listDemuxers()`.
+ */
+export interface DemuxerInfo {
+	/** Demuxer's primary short name (`"wav"`, `"mp3"`, ...). */
+	name: string;
+	/** Long, human-readable name. */
+	longName: string;
+	/** Comma-separated file extensions, or `null` if none. */
+	extensions: string | null;
+	/** Comma-separated MIME types, or `null` if none. */
+	mimeType: string | null;
+	/** Bitfield of `AVFMT_*` flags. */
+	flags: number;
+}
+
+/**
+ * Description of a registered muxer. Returned by
+ * `Ffmpeg.listMuxers()`.
+ */
+export interface MuxerInfo {
+	/** Muxer's primary short name (`"wav"`, `"adts"`, ...). */
+	name: string;
+	/** Long, human-readable name. */
+	longName: string;
+	/** Comma-separated file extensions, or `null` if none. */
+	extensions: string | null;
+	/** Comma-separated MIME types, or `null` if none. */
+	mimeType: string | null;
+	/** Bitfield of `AVFMT_*` flags. */
+	flags: number;
+	/** Default video codec for this muxer (raw `AVCodecID`), `0` if none. */
+	videoCodec: number;
+	/** Default audio codec for this muxer (raw `AVCodecID`), `0` if none. */
+	audioCodec: number;
+}
+
+/**
+ * `AVMediaType` (libavutil/avutil.h) — the kind of stream a
+ * codec / packet carries.
+ */
+export type MediaType =
+	| 'video'
+	| 'audio'
+	| 'subtitle'
+	| 'data'
+	| 'attachment'
+	| 'unknown';
+
+const MEDIA_TYPE_NAMES: Record<number, MediaType> = {
+	0: 'video',
+	1: 'audio',
+	2: 'data',
+	3: 'subtitle',
+	4: 'attachment',
+};
+
+function mediaTypeOf(raw: number): MediaType {
+	return MEDIA_TYPE_NAMES[raw] ?? 'unknown';
 }
 
 /** `av_log` verbosity levels (mirrors FFmpeg's `libavutil/log.h`). */
@@ -432,6 +545,101 @@ export class Ffmpeg {
 	 */
 	setLogLevel(level: LogLevel | number): void {
 		this.#exports.ffmpeg_set_log_level(level);
+	}
+
+	/**
+	 * Enumerate every codec the loaded extensions have registered.
+	 * Analogue of `ffmpeg -decoders` / `-encoders`. The list grows
+	 * as more extensions are loaded into this `Ffmpeg` instance.
+	 *
+	 * The returned objects are plain snapshots — they're safe to
+	 * hold and don't reference WASM memory.
+	 */
+	listCodecs(): CodecInfo[] {
+		const out: CodecInfo[] = [];
+		const n = this.#exports.ffmpeg_codec_count();
+		for (let i = 0; i < n; i++) {
+			const ptr = this.#exports.ffmpeg_codec_at(i);
+			if (!ptr) continue;
+			out.push({
+				name: this.#readCString(this.#exports.ffmpeg_codec_name(ptr)),
+				longName: this.#readCString(this.#exports.ffmpeg_codec_long_name(ptr)),
+				isDecoder: !!this.#exports.ffmpeg_codec_is_decoder(ptr),
+				isEncoder: !!this.#exports.ffmpeg_codec_is_encoder(ptr),
+				mediaType: mediaTypeOf(this.#exports.ffmpeg_codec_type(ptr)),
+				codecId: this.#exports.ffmpeg_codec_id(ptr),
+				capabilities: this.#exports.ffmpeg_codec_capabilities(ptr),
+			});
+		}
+		return out;
+	}
+
+	/**
+	 * Enumerate every demuxer the loaded extensions have registered.
+	 * Analogue of `ffmpeg -demuxers`.
+	 */
+	listDemuxers(): DemuxerInfo[] {
+		const out: DemuxerInfo[] = [];
+		const n = this.#exports.ffmpeg_demuxer_count();
+		for (let i = 0; i < n; i++) {
+			const ptr = this.#exports.ffmpeg_demuxer_at(i);
+			if (!ptr) continue;
+			out.push({
+				name: this.#readCString(this.#exports.ffmpeg_demuxer_name(ptr)),
+				longName: this.#readCString(
+					this.#exports.ffmpeg_demuxer_long_name(ptr),
+				),
+				extensions: this.#readCStringOrNull(
+					this.#exports.ffmpeg_demuxer_extensions(ptr),
+				),
+				mimeType: this.#readCStringOrNull(
+					this.#exports.ffmpeg_demuxer_mime_type(ptr),
+				),
+				flags: this.#exports.ffmpeg_demuxer_flags(ptr),
+			});
+		}
+		return out;
+	}
+
+	/**
+	 * Enumerate every muxer the loaded extensions have registered.
+	 * Analogue of `ffmpeg -muxers`.
+	 */
+	listMuxers(): MuxerInfo[] {
+		const out: MuxerInfo[] = [];
+		const n = this.#exports.ffmpeg_muxer_count();
+		for (let i = 0; i < n; i++) {
+			const ptr = this.#exports.ffmpeg_muxer_at(i);
+			if (!ptr) continue;
+			out.push({
+				name: this.#readCString(this.#exports.ffmpeg_muxer_name(ptr)),
+				longName: this.#readCString(this.#exports.ffmpeg_muxer_long_name(ptr)),
+				extensions: this.#readCStringOrNull(
+					this.#exports.ffmpeg_muxer_extensions(ptr),
+				),
+				mimeType: this.#readCStringOrNull(
+					this.#exports.ffmpeg_muxer_mime_type(ptr),
+				),
+				flags: this.#exports.ffmpeg_muxer_flags(ptr),
+				videoCodec: this.#exports.ffmpeg_muxer_video_codec(ptr),
+				audioCodec: this.#exports.ffmpeg_muxer_audio_codec(ptr),
+			});
+		}
+		return out;
+	}
+
+	// ----- C string helpers ----------------------------------------
+
+	#readCString(ptr: number): string {
+		if (!ptr) return '';
+		const mem = new Uint8Array(this.#exports.memory.buffer);
+		let end = ptr;
+		while (mem[end] !== 0) end++;
+		return new TextDecoder('utf-8').decode(mem.subarray(ptr, end));
+	}
+
+	#readCStringOrNull(ptr: number): string | null {
+		return ptr ? this.#readCString(ptr) : null;
 	}
 
 	/** Permanently dispose this Ffmpeg instance. */

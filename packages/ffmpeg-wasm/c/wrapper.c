@@ -63,20 +63,28 @@
  * Registries
  * ---------------------------------------------------------------------
  *
- * Codecs and demuxers are registered by the TS loader at extension
- * load time. The arrays are sized for the foreseeable future (a few
- * codecs/demuxers per session is the norm); blowing the limit just
- * means more extensions can't register and we return -1.
+ * Codecs / demuxers / muxers are registered by the TS loader at
+ * extension load time. The arrays are sized for the foreseeable
+ * future (a few of each per session is the norm); blowing the
+ * limit just means more extensions can't register and we return
+ * -1. To raise a limit, bump the `FF_MAX_REGISTERED_*` constant.
+ *
+ * Muxers are stored for introspection + future use even though
+ * our current decode-only pipeline doesn't consult them.
  */
 
-#define FF_MAX_REGISTERED_CODECS   32
-#define FF_MAX_REGISTERED_DEMUXERS 16
+#define FF_MAX_REGISTERED_CODECS   64
+#define FF_MAX_REGISTERED_DEMUXERS 32
+#define FF_MAX_REGISTERED_MUXERS   32
 
-static const AVCodec       *g_codecs[FF_MAX_REGISTERED_CODECS];
-static int                  g_codec_count = 0;
+static const AVCodec        *g_codecs[FF_MAX_REGISTERED_CODECS];
+static int                   g_codec_count = 0;
 
-static const AVInputFormat *g_demuxers[FF_MAX_REGISTERED_DEMUXERS];
-static int                  g_demuxer_count = 0;
+static const AVInputFormat  *g_demuxers[FF_MAX_REGISTERED_DEMUXERS];
+static int                   g_demuxer_count = 0;
+
+static const AVOutputFormat *g_muxers[FF_MAX_REGISTERED_MUXERS];
+static int                   g_muxer_count = 0;
 
 EXPORT int ffmpeg_register_codec(const AVCodec *codec)
 {
@@ -92,6 +100,13 @@ EXPORT int ffmpeg_register_demuxer(const AVInputFormat *demuxer)
 	return 0;
 }
 
+EXPORT int ffmpeg_register_muxer(const AVOutputFormat *muxer)
+{
+	if (!muxer || g_muxer_count >= FF_MAX_REGISTERED_MUXERS) return -1;
+	g_muxers[g_muxer_count++] = muxer;
+	return 0;
+}
+
 /* Look up a codec by codec_id (skipping any that don't match the
  * desired AVMediaType). Returns NULL if no registered codec matches. */
 static const AVCodec *find_codec(enum AVCodecID id, enum AVMediaType want_type)
@@ -101,6 +116,121 @@ static const AVCodec *find_codec(enum AVCodecID id, enum AVMediaType want_type)
 		if (c->id == id && c->type == want_type) return c;
 	}
 	return NULL;
+}
+
+/*
+ * ---------------------------------------------------------------------
+ * Introspection
+ * ---------------------------------------------------------------------
+ *
+ * Lets the JS layer enumerate everything that's been registered so
+ * far (analogous to FFmpeg's `ffmpeg -decoders / -muxers / -demuxers`
+ * output). The TS wrapper exposes this as `Ffmpeg.listCodecs()` /
+ * `.listDemuxers()` / `.listMuxers()`.
+ *
+ * We provide:
+ *   - `_count()` — returns how many of each kind are registered.
+ *   - `_at(i)`   — returns the raw pointer at index `i`.
+ *
+ * JS then calls the per-field accessors below to read individual
+ * `name` / `long_name` / `id` / `capabilities` fields. We use
+ * accessors rather than dumping the struct so we don't tie the
+ * JS ABI to FFmpeg's internal struct layout.
+ */
+
+EXPORT int ffmpeg_codec_count(void) { return g_codec_count; }
+EXPORT const AVCodec *ffmpeg_codec_at(int i)
+{
+	if (i < 0 || i >= g_codec_count) return NULL;
+	return g_codecs[i];
+}
+
+EXPORT int ffmpeg_demuxer_count(void) { return g_demuxer_count; }
+EXPORT const AVInputFormat *ffmpeg_demuxer_at(int i)
+{
+	if (i < 0 || i >= g_demuxer_count) return NULL;
+	return g_demuxers[i];
+}
+
+EXPORT int ffmpeg_muxer_count(void) { return g_muxer_count; }
+EXPORT const AVOutputFormat *ffmpeg_muxer_at(int i)
+{
+	if (i < 0 || i >= g_muxer_count) return NULL;
+	return g_muxers[i];
+}
+
+/* --- AVCodec field accessors --- */
+EXPORT const char *ffmpeg_codec_name(const AVCodec *c) { return c ? c->name : NULL; }
+EXPORT const char *ffmpeg_codec_long_name(const AVCodec *c) { return c ? c->long_name : NULL; }
+EXPORT int ffmpeg_codec_id(const AVCodec *c) { return c ? (int)c->id : 0; }
+EXPORT int ffmpeg_codec_type(const AVCodec *c) { return c ? (int)c->type : -1; }
+EXPORT int ffmpeg_codec_capabilities(const AVCodec *c) { return c ? c->capabilities : 0; }
+
+/* Whether the codec is a decoder, encoder, or both. The public
+ * helpers `av_codec_is_decoder` / `_encoder` look at internal
+ * flags that are only meaningful to libavcodec; we call those
+ * here so JS gets a clean boolean. */
+extern int av_codec_is_decoder(const AVCodec *codec);
+extern int av_codec_is_encoder(const AVCodec *codec);
+EXPORT int ffmpeg_codec_is_decoder(const AVCodec *c)
+{
+	return c ? av_codec_is_decoder(c) : 0;
+}
+EXPORT int ffmpeg_codec_is_encoder(const AVCodec *c)
+{
+	return c ? av_codec_is_encoder(c) : 0;
+}
+
+/* --- AVInputFormat field accessors --- */
+EXPORT const char *ffmpeg_demuxer_name(const AVInputFormat *d)
+{
+	return d ? d->name : NULL;
+}
+EXPORT const char *ffmpeg_demuxer_long_name(const AVInputFormat *d)
+{
+	return d ? d->long_name : NULL;
+}
+EXPORT const char *ffmpeg_demuxer_extensions(const AVInputFormat *d)
+{
+	return d ? d->extensions : NULL;
+}
+EXPORT const char *ffmpeg_demuxer_mime_type(const AVInputFormat *d)
+{
+	return d ? d->mime_type : NULL;
+}
+EXPORT int ffmpeg_demuxer_flags(const AVInputFormat *d)
+{
+	return d ? d->flags : 0;
+}
+
+/* --- AVOutputFormat field accessors --- */
+EXPORT const char *ffmpeg_muxer_name(const AVOutputFormat *m)
+{
+	return m ? m->name : NULL;
+}
+EXPORT const char *ffmpeg_muxer_long_name(const AVOutputFormat *m)
+{
+	return m ? m->long_name : NULL;
+}
+EXPORT const char *ffmpeg_muxer_extensions(const AVOutputFormat *m)
+{
+	return m ? m->extensions : NULL;
+}
+EXPORT const char *ffmpeg_muxer_mime_type(const AVOutputFormat *m)
+{
+	return m ? m->mime_type : NULL;
+}
+EXPORT int ffmpeg_muxer_flags(const AVOutputFormat *m)
+{
+	return m ? m->flags : 0;
+}
+EXPORT int ffmpeg_muxer_video_codec(const AVOutputFormat *m)
+{
+	return m ? (int)m->video_codec : 0;
+}
+EXPORT int ffmpeg_muxer_audio_codec(const AVOutputFormat *m)
+{
+	return m ? (int)m->audio_codec : 0;
 }
 
 /*
