@@ -1,0 +1,18 @@
+{
+  "slug": "svs",
+  "description": "SVS demuxer.",
+  "entries": [
+    {
+      "thing": "svs_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_svs_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/svs.o"
+  ],
+  "configFlags": [
+    "SVS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

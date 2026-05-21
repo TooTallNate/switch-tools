@@ -1,0 +1,29 @@
+{
+  "slug": "cavs",
+  "description": "CAVS decoder.",
+  "entries": [
+    {
+      "thing": "cavs_decoder",
+      "kind": "decoder",
+      "symbol": "ff_cavs_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/cavs.o",
+    "libavcodec/cavsdata.o",
+    "libavcodec/cavsdec.o",
+    "libavcodec/cavsdsp.o",
+    "libavcodec/golomb.o"
+  ],
+  "configFlags": [
+    "CAVS_DECODER",
+    "GOLOMB"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "h264chroma",
+    "idctdsp",
+    "qpeldsp",
+    "videodsp"
+  ]
+}

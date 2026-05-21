@@ -1,0 +1,18 @@
+{
+  "slug": "ea",
+  "description": "EA demuxer.",
+  "entries": [
+    {
+      "thing": "ea_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ea_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/electronicarts.o"
+  ],
+  "configFlags": [
+    "EA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

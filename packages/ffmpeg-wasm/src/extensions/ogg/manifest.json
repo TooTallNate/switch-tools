@@ -1,0 +1,40 @@
+{
+  "slug": "ogg",
+  "description": "OGG demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "ogg_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ogg_demuxer"
+    },
+    {
+      "thing": "ogg_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ogg_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/golomb.o",
+    "libavformat/flac_picture.o",
+    "libavformat/oggdec.o",
+    "libavformat/oggenc.o",
+    "libavformat/oggparsecelt.o",
+    "libavformat/oggparsedirac.o",
+    "libavformat/oggparseflac.o",
+    "libavformat/oggparseogm.o",
+    "libavformat/oggparseopus.o",
+    "libavformat/oggparseskeleton.o",
+    "libavformat/oggparsespeex.o",
+    "libavformat/oggparsetheora.o",
+    "libavformat/oggparsevorbis.o",
+    "libavformat/oggparsevp8.o",
+    "libavformat/replaygain.o",
+    "libavformat/vorbiscomment.o"
+  ],
+  "configFlags": [
+    "GOLOMB",
+    "OGG_DEMUXER",
+    "OGG_MUXER"
+  ],
+  "baseHelpers": []
+}

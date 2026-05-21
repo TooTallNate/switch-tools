@@ -1,0 +1,29 @@
+{
+  "slug": "oma",
+  "description": "OMA demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "oma_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_oma_demuxer"
+    },
+    {
+      "thing": "oma_muxer",
+      "kind": "muxer",
+      "symbol": "ff_oma_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/id3v2enc.o",
+    "libavformat/oma.o",
+    "libavformat/omadec.o",
+    "libavformat/omaenc.o",
+    "libavformat/pcm.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "OMA_DEMUXER",
+    "OMA_MUXER"
+  ],
+  "baseHelpers": []
+}

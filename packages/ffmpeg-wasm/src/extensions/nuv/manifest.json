@@ -1,0 +1,30 @@
+{
+  "slug": "nuv",
+  "description": "NUV decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "nuv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_nuv_decoder"
+    },
+    {
+      "thing": "nuv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_nuv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/nuv.o",
+    "libavcodec/rtjpeg.o",
+    "libavformat/nuv.o",
+    "libavformat/riffdec.o"
+  ],
+  "configFlags": [
+    "NUV_DECODER",
+    "NUV_DEMUXER",
+    "RIFFDEC"
+  ],
+  "baseHelpers": [
+    "idctdsp"
+  ]
+}

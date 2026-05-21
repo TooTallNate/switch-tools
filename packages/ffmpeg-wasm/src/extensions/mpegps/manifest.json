@@ -1,0 +1,18 @@
+{
+  "slug": "mpegps",
+  "description": "MPEGPS demuxer.",
+  "entries": [
+    {
+      "thing": "mpegps_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mpegps_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mpeg.o"
+  ],
+  "configFlags": [
+    "MPEGPS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

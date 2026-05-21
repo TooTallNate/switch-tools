@@ -1,0 +1,32 @@
+{
+  "slug": "ilbc",
+  "description": "ILBC decoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "ilbc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_ilbc_decoder"
+    },
+    {
+      "thing": "ilbc_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ilbc_demuxer"
+    },
+    {
+      "thing": "ilbc_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ilbc_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/ilbcdec.o",
+    "libavformat/ilbc.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "ILBC_DECODER",
+    "ILBC_DEMUXER",
+    "ILBC_MUXER"
+  ],
+  "baseHelpers": []
+}

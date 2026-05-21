@@ -1,0 +1,18 @@
+{
+  "slug": "eatgv",
+  "description": "EATGV decoder.",
+  "entries": [
+    {
+      "thing": "eatgv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_eatgv_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/eatgv.o"
+  ],
+  "configFlags": [
+    "EATGV_DECODER"
+  ],
+  "baseHelpers": []
+}

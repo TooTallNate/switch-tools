@@ -1,0 +1,18 @@
+{
+  "slug": "mace3",
+  "description": "MACE3 decoder.",
+  "entries": [
+    {
+      "thing": "mace3_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mace3_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mace.o"
+  ],
+  "configFlags": [
+    "MACE3_DECODER"
+  ],
+  "baseHelpers": []
+}

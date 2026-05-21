@@ -1,0 +1,25 @@
+{
+  "slug": "cljr",
+  "description": "CLJR decoder, encoder.",
+  "entries": [
+    {
+      "thing": "cljr_decoder",
+      "kind": "decoder",
+      "symbol": "ff_cljr_decoder"
+    },
+    {
+      "thing": "cljr_encoder",
+      "kind": "encoder",
+      "symbol": "ff_cljr_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/cljrdec.o",
+    "libavcodec/cljrenc.o"
+  ],
+  "configFlags": [
+    "CLJR_DECODER",
+    "CLJR_ENCODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,23 @@
+{
+  "slug": "dtshd",
+  "description": "DTSHD demuxer.",
+  "entries": [
+    {
+      "thing": "dtshd_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dtshd_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/dca_exss.o",
+    "libavcodec/dca_parser.o",
+    "libavcodec/dca_sample_rate_tab.o",
+    "libavcodec/dca.o",
+    "libavformat/dtshddec.o"
+  ],
+  "configFlags": [
+    "DCA_PARSER",
+    "DTSHD_DEMUXER"
+  ],
+  "baseHelpers": []
+}

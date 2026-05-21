@@ -1,0 +1,28 @@
+{
+  "slug": "shorten",
+  "description": "SHORTEN decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "shorten_decoder",
+      "kind": "decoder",
+      "symbol": "ff_shorten_decoder"
+    },
+    {
+      "thing": "shorten_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_shorten_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/shorten.o",
+    "libavformat/rawdec.o",
+    "libavformat/shortendec.o"
+  ],
+  "configFlags": [
+    "SHORTEN_DECODER",
+    "SHORTEN_DEMUXER"
+  ],
+  "baseHelpers": [
+    "bswapdsp"
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "slug": "hevc",
+  "description": "HEVC decoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "hevc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_hevc_decoder"
+    },
+    {
+      "thing": "hevc_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_hevc_demuxer"
+    },
+    {
+      "thing": "hevc_muxer",
+      "kind": "muxer",
+      "symbol": "ff_hevc_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/atsc_a53.o",
+    "libavcodec/dovi_rpu.o",
+    "libavcodec/dynamic_hdr_vivid.o",
+    "libavcodec/dynamic_hdr10_plus.o",
+    "libavcodec/golomb.o",
+    "libavcodec/h2645_parse.o",
+    "libavcodec/h274.o",
+    "libavcodec/hevc_cabac.o",
+    "libavcodec/hevc_data.o",
+    "libavcodec/hevc_filter.o",
+    "libavcodec/hevc_mvs.o",
+    "libavcodec/hevc_parse.o",
+    "libavcodec/hevc_ps.o",
+    "libavcodec/hevc_refs.o",
+    "libavcodec/hevc_sei.o",
+    "libavcodec/hevcdec.o",
+    "libavcodec/hevcdsp.o",
+    "libavcodec/hevcpred.o",
+    "libavformat/hevcdec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "ATSC_A53",
+    "DOVI_RPU",
+    "GOLOMB",
+    "HEVCPARSE",
+    "HEVC_DECODER",
+    "HEVC_DEMUXER",
+    "HEVC_MUXER"
+  ],
+  "baseHelpers": [
+    "bswapdsp",
+    "cabac",
+    "videodsp"
+  ]
+}

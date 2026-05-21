@@ -1,0 +1,18 @@
+{
+  "slug": "brstm",
+  "description": "BRSTM demuxer.",
+  "entries": [
+    {
+      "thing": "brstm_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_brstm_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/brstm.o"
+  ],
+  "configFlags": [
+    "BRSTM_DEMUXER"
+  ],
+  "baseHelpers": []
+}

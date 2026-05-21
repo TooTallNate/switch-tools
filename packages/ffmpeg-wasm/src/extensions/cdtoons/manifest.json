@@ -1,0 +1,18 @@
+{
+  "slug": "cdtoons",
+  "description": "CDTOONS decoder.",
+  "entries": [
+    {
+      "thing": "cdtoons_decoder",
+      "kind": "decoder",
+      "symbol": "ff_cdtoons_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/cdtoons.o"
+  ],
+  "configFlags": [
+    "CDTOONS_DECODER"
+  ],
+  "baseHelpers": []
+}

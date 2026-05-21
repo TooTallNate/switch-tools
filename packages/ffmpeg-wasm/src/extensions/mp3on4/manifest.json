@@ -1,0 +1,21 @@
+{
+  "slug": "mp3on4",
+  "description": "MP3ON4 decoder.",
+  "entries": [
+    {
+      "thing": "mp3on4_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mp3on4_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpegaudiodec_fixed.o"
+  ],
+  "configFlags": [
+    "MP3ON4_DECODER"
+  ],
+  "baseHelpers": [
+    "mpeg4audio",
+    "mpegaudio"
+  ]
+}

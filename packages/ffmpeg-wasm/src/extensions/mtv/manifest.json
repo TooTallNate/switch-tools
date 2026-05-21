@@ -1,0 +1,18 @@
+{
+  "slug": "mtv",
+  "description": "MTV demuxer.",
+  "entries": [
+    {
+      "thing": "mtv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mtv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mtv.o"
+  ],
+  "configFlags": [
+    "MTV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

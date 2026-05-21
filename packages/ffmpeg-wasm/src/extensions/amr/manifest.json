@@ -1,0 +1,26 @@
+{
+  "slug": "amr",
+  "description": "AMR demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "amr_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_amr_demuxer"
+    },
+    {
+      "thing": "amr_muxer",
+      "kind": "muxer",
+      "symbol": "ff_amr_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/amr.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "AMR_DEMUXER",
+    "AMR_MUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "pmp",
+  "description": "PMP demuxer.",
+  "entries": [
+    {
+      "thing": "pmp_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_pmp_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pmpdec.o"
+  ],
+  "configFlags": [
+    "PMP_DEMUXER"
+  ],
+  "baseHelpers": []
+}

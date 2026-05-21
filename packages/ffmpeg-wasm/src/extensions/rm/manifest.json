@@ -1,0 +1,27 @@
+{
+  "slug": "rm",
+  "description": "RM demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "rm_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_rm_demuxer"
+    },
+    {
+      "thing": "rm_muxer",
+      "kind": "muxer",
+      "symbol": "ff_rm_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rm.o",
+    "libavformat/rmdec.o",
+    "libavformat/rmenc.o",
+    "libavformat/rmsipr.o"
+  ],
+  "configFlags": [
+    "RM_DEMUXER",
+    "RM_MUXER"
+  ],
+  "baseHelpers": []
+}

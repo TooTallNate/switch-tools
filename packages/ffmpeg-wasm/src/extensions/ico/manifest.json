@@ -1,0 +1,25 @@
+{
+  "slug": "ico",
+  "description": "ICO demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "ico_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ico_demuxer"
+    },
+    {
+      "thing": "ico_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ico_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/icodec.o",
+    "libavformat/icoenc.o"
+  ],
+  "configFlags": [
+    "ICO_DEMUXER",
+    "ICO_MUXER"
+  ],
+  "baseHelpers": []
+}

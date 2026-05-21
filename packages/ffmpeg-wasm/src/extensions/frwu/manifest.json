@@ -1,0 +1,18 @@
+{
+  "slug": "frwu",
+  "description": "FRWU decoder.",
+  "entries": [
+    {
+      "thing": "frwu_decoder",
+      "kind": "decoder",
+      "symbol": "ff_frwu_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/frwu.o"
+  ],
+  "configFlags": [
+    "FRWU_DECODER"
+  ],
+  "baseHelpers": []
+}

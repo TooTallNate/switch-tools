@@ -1,0 +1,20 @@
+{
+  "slug": "ylc",
+  "description": "YLC decoder.",
+  "entries": [
+    {
+      "thing": "ylc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_ylc_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ylc.o"
+  ],
+  "configFlags": [
+    "YLC_DECODER"
+  ],
+  "baseHelpers": [
+    "bswapdsp"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "slug": "tmv",
+  "description": "TMV decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "tmv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_tmv_decoder"
+    },
+    {
+      "thing": "tmv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_tmv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/cga_data.o",
+    "libavcodec/tmv.o",
+    "libavformat/tmv.o"
+  ],
+  "configFlags": [
+    "TMV_DECODER",
+    "TMV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

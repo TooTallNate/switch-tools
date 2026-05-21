@@ -1,0 +1,19 @@
+{
+  "slug": "msrle",
+  "description": "MSRLE decoder.",
+  "entries": [
+    {
+      "thing": "msrle_decoder",
+      "kind": "decoder",
+      "symbol": "ff_msrle_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/msrle.o",
+    "libavcodec/msrledec.o"
+  ],
+  "configFlags": [
+    "MSRLE_DECODER"
+  ],
+  "baseHelpers": []
+}

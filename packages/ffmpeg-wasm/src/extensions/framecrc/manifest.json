@@ -1,0 +1,19 @@
+{
+  "slug": "framecrc",
+  "description": "FRAMECRC muxer.",
+  "entries": [
+    {
+      "thing": "framecrc_muxer",
+      "kind": "muxer",
+      "symbol": "ff_framecrc_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/framecrcenc.o",
+    "libavformat/framehash.o"
+  ],
+  "configFlags": [
+    "FRAMECRC_MUXER"
+  ],
+  "baseHelpers": []
+}

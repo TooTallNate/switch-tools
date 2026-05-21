@@ -1,0 +1,19 @@
+{
+  "slug": "framehash",
+  "description": "FRAMEHASH muxer.",
+  "entries": [
+    {
+      "thing": "framehash_muxer",
+      "kind": "muxer",
+      "symbol": "ff_framehash_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/framehash.o",
+    "libavformat/hashenc.o"
+  ],
+  "configFlags": [
+    "FRAMEHASH_MUXER"
+  ],
+  "baseHelpers": []
+}

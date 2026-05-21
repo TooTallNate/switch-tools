@@ -1,0 +1,19 @@
+{
+  "slug": "aea",
+  "description": "AEA demuxer.",
+  "entries": [
+    {
+      "thing": "aea_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_aea_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/aea.o",
+    "libavformat/pcm.o"
+  ],
+  "configFlags": [
+    "AEA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

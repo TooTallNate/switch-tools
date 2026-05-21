@@ -1,0 +1,20 @@
+{
+  "slug": "dds",
+  "description": "DDS decoder.",
+  "entries": [
+    {
+      "thing": "dds_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dds_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dds.o",
+    "libavcodec/texturedsp.o"
+  ],
+  "configFlags": [
+    "DDS_DECODER",
+    "TEXTUREDSP"
+  ],
+  "baseHelpers": []
+}

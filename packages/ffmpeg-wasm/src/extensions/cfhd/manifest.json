@@ -1,0 +1,28 @@
+{
+  "slug": "cfhd",
+  "description": "CFHD decoder, encoder.",
+  "entries": [
+    {
+      "thing": "cfhd_decoder",
+      "kind": "decoder",
+      "symbol": "ff_cfhd_decoder"
+    },
+    {
+      "thing": "cfhd_encoder",
+      "kind": "encoder",
+      "symbol": "ff_cfhd_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/cfhd.o",
+    "libavcodec/cfhddata.o",
+    "libavcodec/cfhddsp.o",
+    "libavcodec/cfhdenc.o",
+    "libavcodec/cfhdencdsp.o"
+  ],
+  "configFlags": [
+    "CFHD_DECODER",
+    "CFHD_ENCODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "mm",
+  "description": "MM demuxer.",
+  "entries": [
+    {
+      "thing": "mm_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mm_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mm.o"
+  ],
+  "configFlags": [
+    "MM_DEMUXER"
+  ],
+  "baseHelpers": []
+}

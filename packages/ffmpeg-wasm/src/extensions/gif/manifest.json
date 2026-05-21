@@ -1,0 +1,41 @@
+{
+  "slug": "gif",
+  "description": "GIF decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "gif_decoder",
+      "kind": "decoder",
+      "symbol": "ff_gif_decoder"
+    },
+    {
+      "thing": "gif_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_gif_demuxer"
+    },
+    {
+      "thing": "gif_encoder",
+      "kind": "encoder",
+      "symbol": "ff_gif_encoder"
+    },
+    {
+      "thing": "gif_muxer",
+      "kind": "muxer",
+      "symbol": "ff_gif_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/gif.o",
+    "libavcodec/gifdec.o",
+    "libavcodec/lzw.o",
+    "libavcodec/lzwenc.o",
+    "libavformat/gif.o",
+    "libavformat/gifdec.o"
+  ],
+  "configFlags": [
+    "GIF_DECODER",
+    "GIF_DEMUXER",
+    "GIF_ENCODER",
+    "GIF_MUXER"
+  ],
+  "baseHelpers": []
+}

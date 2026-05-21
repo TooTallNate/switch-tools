@@ -1,0 +1,18 @@
+{
+  "slug": "m101",
+  "description": "M101 decoder.",
+  "entries": [
+    {
+      "thing": "m101_decoder",
+      "kind": "decoder",
+      "symbol": "ff_m101_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/m101.o"
+  ],
+  "configFlags": [
+    "M101_DECODER"
+  ],
+  "baseHelpers": []
+}

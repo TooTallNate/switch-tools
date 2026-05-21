@@ -1,0 +1,19 @@
+{
+  "slug": "a64",
+  "description": "A64 muxer.",
+  "entries": [
+    {
+      "thing": "a64_muxer",
+      "kind": "muxer",
+      "symbol": "ff_a64_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/a64.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "A64_MUXER"
+  ],
+  "baseHelpers": []
+}

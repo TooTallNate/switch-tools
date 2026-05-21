@@ -1,0 +1,33 @@
+{
+  "slug": "amrwb",
+  "description": "AMRWB decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "amrwb_decoder",
+      "kind": "decoder",
+      "symbol": "ff_amrwb_decoder"
+    },
+    {
+      "thing": "amrwb_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_amrwb_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/acelp_filters.o",
+    "libavcodec/acelp_pitch_delay.o",
+    "libavcodec/acelp_vectors.o",
+    "libavcodec/amrwbdec.o",
+    "libavcodec/celp_filters.o",
+    "libavcodec/celp_math.o",
+    "libavcodec/lsp.o",
+    "libavformat/amr.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "AMRWB_DECODER",
+    "AMRWB_DEMUXER",
+    "LSP"
+  ],
+  "baseHelpers": []
+}

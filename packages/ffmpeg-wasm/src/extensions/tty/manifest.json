@@ -1,0 +1,19 @@
+{
+  "slug": "tty",
+  "description": "TTY demuxer.",
+  "entries": [
+    {
+      "thing": "tty_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_tty_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/sauce.o",
+    "libavformat/tty.o"
+  ],
+  "configFlags": [
+    "TTY_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,24 @@
+{
+  "slug": "vp7",
+  "description": "VP7 decoder.",
+  "entries": [
+    {
+      "thing": "vp7_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vp7_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/vp56rac.o",
+    "libavcodec/vp8.o",
+    "libavcodec/vp8dsp.o"
+  ],
+  "configFlags": [
+    "VP7_DECODER",
+    "VP8DSP"
+  ],
+  "baseHelpers": [
+    "h264pred",
+    "videodsp"
+  ]
+}

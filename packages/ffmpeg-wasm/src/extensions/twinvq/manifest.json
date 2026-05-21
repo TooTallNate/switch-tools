@@ -1,0 +1,25 @@
+{
+  "slug": "twinvq",
+  "description": "TWINVQ decoder.",
+  "entries": [
+    {
+      "thing": "twinvq_decoder",
+      "kind": "decoder",
+      "symbol": "ff_twinvq_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/lsp.o",
+    "libavcodec/metasound_data.o",
+    "libavcodec/twinvq.o",
+    "libavcodec/twinvqdec.o"
+  ],
+  "configFlags": [
+    "LSP",
+    "TWINVQ_DECODER"
+  ],
+  "baseHelpers": [
+    "mdct",
+    "sinewin"
+  ]
+}

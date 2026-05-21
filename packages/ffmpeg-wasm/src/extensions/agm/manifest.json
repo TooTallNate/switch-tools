@@ -1,0 +1,18 @@
+{
+  "slug": "agm",
+  "description": "AGM decoder.",
+  "entries": [
+    {
+      "thing": "agm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_agm_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/agm.o"
+  ],
+  "configFlags": [
+    "AGM_DECODER"
+  ],
+  "baseHelpers": []
+}

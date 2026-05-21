@@ -1,0 +1,18 @@
+{
+  "slug": "vpk",
+  "description": "VPK demuxer.",
+  "entries": [
+    {
+      "thing": "vpk_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_vpk_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/vpk.o"
+  ],
+  "configFlags": [
+    "VPK_DEMUXER"
+  ],
+  "baseHelpers": []
+}

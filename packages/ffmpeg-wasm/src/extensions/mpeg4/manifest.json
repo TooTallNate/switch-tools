@@ -1,0 +1,44 @@
+{
+  "slug": "mpeg4",
+  "description": "MPEG4 decoder, encoder.",
+  "entries": [
+    {
+      "thing": "mpeg4_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mpeg4_decoder"
+    },
+    {
+      "thing": "mpeg4_encoder",
+      "kind": "encoder",
+      "symbol": "ff_mpeg4_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/h263_parser.o",
+    "libavcodec/h263.o",
+    "libavcodec/h263data.o",
+    "libavcodec/h263dec.o",
+    "libavcodec/h263dsp.o",
+    "libavcodec/ituh263dec.o",
+    "libavcodec/ituh263enc.o",
+    "libavcodec/mpeg4video_parser.o",
+    "libavcodec/mpeg4video.o",
+    "libavcodec/mpeg4videodec.o",
+    "libavcodec/mpeg4videoenc.o",
+    "libavcodec/xvididct.o"
+  ],
+  "configFlags": [
+    "H263DSP",
+    "H263_DECODER",
+    "H263_ENCODER",
+    "H263_PARSER",
+    "MPEG4VIDEO_PARSER",
+    "MPEG4_DECODER",
+    "MPEG4_ENCODER"
+  ],
+  "baseHelpers": [
+    "mpegvideodec",
+    "mpegvideoenc",
+    "qpeldsp"
+  ]
+}

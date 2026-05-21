@@ -1,0 +1,49 @@
+{
+  "slug": "truehd",
+  "description": "TRUEHD decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "truehd_decoder",
+      "kind": "decoder",
+      "symbol": "ff_truehd_decoder"
+    },
+    {
+      "thing": "truehd_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_truehd_demuxer"
+    },
+    {
+      "thing": "truehd_encoder",
+      "kind": "encoder",
+      "symbol": "ff_truehd_encoder"
+    },
+    {
+      "thing": "truehd_muxer",
+      "kind": "muxer",
+      "symbol": "ff_truehd_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/lpc.o",
+    "libavcodec/mlp_parse.o",
+    "libavcodec/mlp_parser.o",
+    "libavcodec/mlp.o",
+    "libavcodec/mlpdec.o",
+    "libavcodec/mlpdsp.o",
+    "libavcodec/mlpenc.o",
+    "libavformat/mlpdec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "LPC",
+    "MLP_PARSER",
+    "TRUEHD_DECODER",
+    "TRUEHD_DEMUXER",
+    "TRUEHD_ENCODER",
+    "TRUEHD_MUXER"
+  ],
+  "baseHelpers": [
+    "audio_frame_queue"
+  ]
+}

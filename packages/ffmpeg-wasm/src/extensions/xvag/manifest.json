@@ -1,0 +1,18 @@
+{
+  "slug": "xvag",
+  "description": "XVAG demuxer.",
+  "entries": [
+    {
+      "thing": "xvag_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_xvag_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/xvag.o"
+  ],
+  "configFlags": [
+    "XVAG_DEMUXER"
+  ],
+  "baseHelpers": []
+}

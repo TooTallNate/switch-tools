@@ -1,0 +1,18 @@
+{
+  "slug": "mvc1",
+  "description": "MVC1 decoder.",
+  "entries": [
+    {
+      "thing": "mvc1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mvc1_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mvcdec.o"
+  ],
+  "configFlags": [
+    "MVC1_DECODER"
+  ],
+  "baseHelpers": []
+}

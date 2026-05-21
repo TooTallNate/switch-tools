@@ -1,0 +1,45 @@
+{
+  "slug": "dirac",
+  "description": "DIRAC decoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "dirac_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dirac_decoder"
+    },
+    {
+      "thing": "dirac_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dirac_demuxer"
+    },
+    {
+      "thing": "dirac_muxer",
+      "kind": "muxer",
+      "symbol": "ff_dirac_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/dirac_arith.o",
+    "libavcodec/dirac_dwt.o",
+    "libavcodec/dirac_parser.o",
+    "libavcodec/dirac_vlc.o",
+    "libavcodec/diracdec.o",
+    "libavcodec/diracdsp.o",
+    "libavcodec/diractab.o",
+    "libavcodec/golomb.o",
+    "libavformat/diracdec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "DIRAC_DECODER",
+    "DIRAC_DEMUXER",
+    "DIRAC_MUXER",
+    "DIRAC_PARSER",
+    "GOLOMB"
+  ],
+  "baseHelpers": [
+    "mpegvideoenc",
+    "videodsp"
+  ]
+}

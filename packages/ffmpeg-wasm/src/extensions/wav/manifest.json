@@ -1,0 +1,30 @@
+{
+  "slug": "wav",
+  "description": "WAV demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "wav_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_wav_demuxer"
+    },
+    {
+      "thing": "wav_muxer",
+      "kind": "muxer",
+      "symbol": "ff_wav_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcm.o",
+    "libavformat/riffdec.o",
+    "libavformat/riffenc.o",
+    "libavformat/wavdec.o",
+    "libavformat/wavenc.o"
+  ],
+  "configFlags": [
+    "RIFFDEC",
+    "RIFFENC",
+    "WAV_DEMUXER",
+    "WAV_MUXER"
+  ],
+  "baseHelpers": []
+}

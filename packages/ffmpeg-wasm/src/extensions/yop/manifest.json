@@ -1,0 +1,25 @@
+{
+  "slug": "yop",
+  "description": "YOP decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "yop_decoder",
+      "kind": "decoder",
+      "symbol": "ff_yop_decoder"
+    },
+    {
+      "thing": "yop_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_yop_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/yop.o",
+    "libavformat/yop.o"
+  ],
+  "configFlags": [
+    "YOP_DECODER",
+    "YOP_DEMUXER"
+  ],
+  "baseHelpers": []
+}

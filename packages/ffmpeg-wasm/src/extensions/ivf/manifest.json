@@ -1,0 +1,34 @@
+{
+  "slug": "ivf",
+  "description": "IVF demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "ivf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ivf_demuxer"
+    },
+    {
+      "thing": "ivf_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ivf_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/av1_metadata_bsf.o",
+    "libavcodec/cbs_av1.o",
+    "libavcodec/cbs_bsf.o",
+    "libavcodec/cbs.o",
+    "libavcodec/vp9_superframe_bsf.o",
+    "libavformat/ivfdec.o",
+    "libavformat/ivfenc.o"
+  ],
+  "configFlags": [
+    "AV1_METADATA_BSF",
+    "CBS",
+    "CBS_AV1",
+    "IVF_DEMUXER",
+    "IVF_MUXER",
+    "VP9_SUPERFRAME_BSF"
+  ],
+  "baseHelpers": []
+}

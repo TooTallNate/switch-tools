@@ -1,0 +1,31 @@
+{
+  "slug": "vorbis",
+  "description": "VORBIS decoder, encoder.",
+  "entries": [
+    {
+      "thing": "vorbis_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vorbis_decoder"
+    },
+    {
+      "thing": "vorbis_encoder",
+      "kind": "encoder",
+      "symbol": "ff_vorbis_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/vorbis_data.o",
+    "libavcodec/vorbis.o",
+    "libavcodec/vorbisdec.o",
+    "libavcodec/vorbisdsp.o",
+    "libavcodec/vorbisenc.o"
+  ],
+  "configFlags": [
+    "VORBIS_DECODER",
+    "VORBIS_ENCODER"
+  ],
+  "baseHelpers": [
+    "audio_frame_queue",
+    "mdct"
+  ]
+}

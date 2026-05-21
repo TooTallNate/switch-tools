@@ -1,0 +1,18 @@
+{
+  "slug": "eacmv",
+  "description": "EACMV decoder.",
+  "entries": [
+    {
+      "thing": "eacmv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_eacmv_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/eacmv.o"
+  ],
+  "configFlags": [
+    "EACMV_DECODER"
+  ],
+  "baseHelpers": []
+}

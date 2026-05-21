@@ -1,0 +1,30 @@
+{
+  "slug": "nellymoser",
+  "description": "NELLYMOSER decoder, encoder.",
+  "entries": [
+    {
+      "thing": "nellymoser_decoder",
+      "kind": "decoder",
+      "symbol": "ff_nellymoser_decoder"
+    },
+    {
+      "thing": "nellymoser_encoder",
+      "kind": "encoder",
+      "symbol": "ff_nellymoser_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/nellymoser.o",
+    "libavcodec/nellymoserdec.o",
+    "libavcodec/nellymoserenc.o"
+  ],
+  "configFlags": [
+    "NELLYMOSER_DECODER",
+    "NELLYMOSER_ENCODER"
+  ],
+  "baseHelpers": [
+    "audio_frame_queue",
+    "mdct",
+    "sinewin"
+  ]
+}

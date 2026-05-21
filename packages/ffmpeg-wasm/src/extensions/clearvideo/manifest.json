@@ -1,0 +1,20 @@
+{
+  "slug": "clearvideo",
+  "description": "CLEARVIDEO decoder.",
+  "entries": [
+    {
+      "thing": "clearvideo_decoder",
+      "kind": "decoder",
+      "symbol": "ff_clearvideo_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/clearvideo.o"
+  ],
+  "configFlags": [
+    "CLEARVIDEO_DECODER"
+  ],
+  "baseHelpers": [
+    "idctdsp"
+  ]
+}

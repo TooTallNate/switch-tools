@@ -1,0 +1,30 @@
+{
+  "slug": "ipu",
+  "description": "IPU decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "ipu_decoder",
+      "kind": "decoder",
+      "symbol": "ff_ipu_decoder"
+    },
+    {
+      "thing": "ipu_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ipu_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpeg12.o",
+    "libavcodec/mpeg12data.o",
+    "libavcodec/mpeg12dec.o",
+    "libavformat/ipudec.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "IPU_DECODER",
+    "IPU_DEMUXER"
+  ],
+  "baseHelpers": [
+    "mpegvideodec"
+  ]
+}

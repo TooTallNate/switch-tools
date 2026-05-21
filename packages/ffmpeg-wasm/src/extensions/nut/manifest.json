@@ -1,0 +1,28 @@
+{
+  "slug": "nut",
+  "description": "NUT demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "nut_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_nut_demuxer"
+    },
+    {
+      "thing": "nut_muxer",
+      "kind": "muxer",
+      "symbol": "ff_nut_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/nut.o",
+    "libavformat/nutdec.o",
+    "libavformat/nutenc.o",
+    "libavformat/riffenc.o"
+  ],
+  "configFlags": [
+    "NUT_DEMUXER",
+    "NUT_MUXER",
+    "RIFFENC"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,21 @@
+{
+  "slug": "cllc",
+  "description": "CLLC decoder.",
+  "entries": [
+    {
+      "thing": "cllc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_cllc_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/canopus.o",
+    "libavcodec/cllc.o"
+  ],
+  "configFlags": [
+    "CLLC_DECODER"
+  ],
+  "baseHelpers": [
+    "bswapdsp"
+  ]
+}

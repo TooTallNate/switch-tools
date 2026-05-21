@@ -1,0 +1,18 @@
+{
+  "slug": "loco",
+  "description": "LOCO decoder.",
+  "entries": [
+    {
+      "thing": "loco_decoder",
+      "kind": "decoder",
+      "symbol": "ff_loco_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/loco.o"
+  ],
+  "configFlags": [
+    "LOCO_DECODER"
+  ],
+  "baseHelpers": []
+}

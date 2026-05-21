@@ -1,0 +1,18 @@
+{
+  "slug": "iff-ilbm",
+  "description": "IFF ILBM decoder.",
+  "entries": [
+    {
+      "thing": "iff_ilbm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_iff_ilbm_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/iff.o"
+  ],
+  "configFlags": [
+    "IFF_ILBM_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,25 @@
+{
+  "slug": "apm",
+  "description": "APM demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "apm_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_apm_demuxer"
+    },
+    {
+      "thing": "apm_muxer",
+      "kind": "muxer",
+      "symbol": "ff_apm_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/apm.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "APM_DEMUXER",
+    "APM_MUXER"
+  ],
+  "baseHelpers": []
+}

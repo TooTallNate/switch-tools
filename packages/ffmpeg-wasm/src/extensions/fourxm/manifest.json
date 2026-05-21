@@ -1,0 +1,28 @@
+{
+  "slug": "fourxm",
+  "description": "FOURXM decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "fourxm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_fourxm_decoder"
+    },
+    {
+      "thing": "fourxm_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_fourxm_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/4xm.o",
+    "libavformat/4xm.o"
+  ],
+  "configFlags": [
+    "FOURXM_DECODER",
+    "FOURXM_DEMUXER"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "bswapdsp"
+  ]
+}

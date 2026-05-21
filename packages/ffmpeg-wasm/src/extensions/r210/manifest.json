@@ -1,0 +1,25 @@
+{
+  "slug": "r210",
+  "description": "R210 decoder, encoder.",
+  "entries": [
+    {
+      "thing": "r210_decoder",
+      "kind": "decoder",
+      "symbol": "ff_r210_decoder"
+    },
+    {
+      "thing": "r210_encoder",
+      "kind": "encoder",
+      "symbol": "ff_r210_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/r210dec.o",
+    "libavcodec/r210enc.o"
+  ],
+  "configFlags": [
+    "R210_DECODER",
+    "R210_ENCODER"
+  ],
+  "baseHelpers": []
+}

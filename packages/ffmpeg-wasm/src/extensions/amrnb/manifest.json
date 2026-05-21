@@ -1,0 +1,33 @@
+{
+  "slug": "amrnb",
+  "description": "AMRNB decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "amrnb_decoder",
+      "kind": "decoder",
+      "symbol": "ff_amrnb_decoder"
+    },
+    {
+      "thing": "amrnb_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_amrnb_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/acelp_filters.o",
+    "libavcodec/acelp_pitch_delay.o",
+    "libavcodec/acelp_vectors.o",
+    "libavcodec/amrnbdec.o",
+    "libavcodec/celp_filters.o",
+    "libavcodec/celp_math.o",
+    "libavcodec/lsp.o",
+    "libavformat/amr.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "AMRNB_DECODER",
+    "AMRNB_DEMUXER",
+    "LSP"
+  ],
+  "baseHelpers": []
+}

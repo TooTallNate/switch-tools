@@ -1,0 +1,39 @@
+{
+  "slug": "dca",
+  "description": "DCA decoder, encoder.",
+  "entries": [
+    {
+      "thing": "dca_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dca_decoder"
+    },
+    {
+      "thing": "dca_encoder",
+      "kind": "encoder",
+      "symbol": "ff_dca_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dca_core.o",
+    "libavcodec/dca_exss.o",
+    "libavcodec/dca_lbr.o",
+    "libavcodec/dca_sample_rate_tab.o",
+    "libavcodec/dca_xll.o",
+    "libavcodec/dca.o",
+    "libavcodec/dcaadpcm.o",
+    "libavcodec/dcadata.o",
+    "libavcodec/dcadct.o",
+    "libavcodec/dcadec.o",
+    "libavcodec/dcadsp.o",
+    "libavcodec/dcaenc.o",
+    "libavcodec/dcahuff.o",
+    "libavcodec/synth_filter.o"
+  ],
+  "configFlags": [
+    "DCA_DECODER",
+    "DCA_ENCODER"
+  ],
+  "baseHelpers": [
+    "mdct"
+  ]
+}

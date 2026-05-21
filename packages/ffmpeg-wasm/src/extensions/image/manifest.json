@@ -1,0 +1,301 @@
+{
+  "slug": "image",
+  "description": "IMAGE family (24 decoders, 15 encoders, 1 demuxer).",
+  "entries": [
+    {
+      "thing": "alias_pix_decoder",
+      "kind": "decoder",
+      "symbol": "ff_alias_pix_decoder"
+    },
+    {
+      "thing": "alias_pix_encoder",
+      "kind": "encoder",
+      "symbol": "ff_alias_pix_encoder"
+    },
+    {
+      "thing": "bitpacked_decoder",
+      "kind": "decoder",
+      "symbol": "ff_bitpacked_decoder"
+    },
+    {
+      "thing": "bitpacked_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_bitpacked_demuxer"
+    },
+    {
+      "thing": "bitpacked_encoder",
+      "kind": "encoder",
+      "symbol": "ff_bitpacked_encoder"
+    },
+    {
+      "thing": "brender_pix_decoder",
+      "kind": "decoder",
+      "symbol": "ff_brender_pix_decoder"
+    },
+    {
+      "thing": "cri_decoder",
+      "kind": "decoder",
+      "symbol": "ff_cri_decoder"
+    },
+    {
+      "thing": "dpx_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dpx_decoder"
+    },
+    {
+      "thing": "dpx_encoder",
+      "kind": "encoder",
+      "symbol": "ff_dpx_encoder"
+    },
+    {
+      "thing": "gem_decoder",
+      "kind": "decoder",
+      "symbol": "ff_gem_decoder"
+    },
+    {
+      "thing": "pam_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pam_decoder"
+    },
+    {
+      "thing": "pam_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pam_encoder"
+    },
+    {
+      "thing": "pbm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pbm_decoder"
+    },
+    {
+      "thing": "pbm_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pbm_encoder"
+    },
+    {
+      "thing": "pcx_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pcx_decoder"
+    },
+    {
+      "thing": "pcx_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pcx_encoder"
+    },
+    {
+      "thing": "pfm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pfm_decoder"
+    },
+    {
+      "thing": "pfm_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pfm_encoder"
+    },
+    {
+      "thing": "pgm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pgm_decoder"
+    },
+    {
+      "thing": "pgm_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pgm_encoder"
+    },
+    {
+      "thing": "pgmyuv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pgmyuv_decoder"
+    },
+    {
+      "thing": "pgmyuv_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pgmyuv_encoder"
+    },
+    {
+      "thing": "pgx_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pgx_decoder"
+    },
+    {
+      "thing": "photocd_decoder",
+      "kind": "decoder",
+      "symbol": "ff_photocd_decoder"
+    },
+    {
+      "thing": "pictor_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pictor_decoder"
+    },
+    {
+      "thing": "ppm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_ppm_decoder"
+    },
+    {
+      "thing": "ppm_encoder",
+      "kind": "encoder",
+      "symbol": "ff_ppm_encoder"
+    },
+    {
+      "thing": "psd_decoder",
+      "kind": "decoder",
+      "symbol": "ff_psd_decoder"
+    },
+    {
+      "thing": "qdraw_decoder",
+      "kind": "decoder",
+      "symbol": "ff_qdraw_decoder"
+    },
+    {
+      "thing": "sgi_decoder",
+      "kind": "decoder",
+      "symbol": "ff_sgi_decoder"
+    },
+    {
+      "thing": "sgi_encoder",
+      "kind": "encoder",
+      "symbol": "ff_sgi_encoder"
+    },
+    {
+      "thing": "sunrast_decoder",
+      "kind": "decoder",
+      "symbol": "ff_sunrast_decoder"
+    },
+    {
+      "thing": "sunrast_encoder",
+      "kind": "encoder",
+      "symbol": "ff_sunrast_encoder"
+    },
+    {
+      "thing": "vbn_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vbn_decoder"
+    },
+    {
+      "thing": "vbn_encoder",
+      "kind": "encoder",
+      "symbol": "ff_vbn_encoder"
+    },
+    {
+      "thing": "xbm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_xbm_decoder"
+    },
+    {
+      "thing": "xbm_encoder",
+      "kind": "encoder",
+      "symbol": "ff_xbm_encoder"
+    },
+    {
+      "thing": "xpm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_xpm_decoder"
+    },
+    {
+      "thing": "xwd_decoder",
+      "kind": "decoder",
+      "symbol": "ff_xwd_decoder"
+    },
+    {
+      "thing": "xwd_encoder",
+      "kind": "encoder",
+      "symbol": "ff_xwd_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/aliaspixdec.o",
+    "libavcodec/aliaspixenc.o",
+    "libavcodec/bitpacked_dec.o",
+    "libavcodec/bitpacked_enc.o",
+    "libavcodec/brenderpix.o",
+    "libavcodec/cga_data.o",
+    "libavcodec/cri.o",
+    "libavcodec/dpx.o",
+    "libavcodec/dpxenc.o",
+    "libavcodec/exif.o",
+    "libavcodec/gemdec.o",
+    "libavcodec/jpegtables.o",
+    "libavcodec/mjpegdec_common.o",
+    "libavcodec/mjpegdec.o",
+    "libavcodec/pamenc.o",
+    "libavcodec/pcx.o",
+    "libavcodec/pcxenc.o",
+    "libavcodec/pgxdec.o",
+    "libavcodec/photocd.o",
+    "libavcodec/pictordec.o",
+    "libavcodec/pnm.o",
+    "libavcodec/pnmdec.o",
+    "libavcodec/pnmenc.o",
+    "libavcodec/psd.o",
+    "libavcodec/qdrw.o",
+    "libavcodec/rle.o",
+    "libavcodec/sgidec.o",
+    "libavcodec/sgienc.o",
+    "libavcodec/sunrast.o",
+    "libavcodec/sunrastenc.o",
+    "libavcodec/texturedsp.o",
+    "libavcodec/texturedspenc.o",
+    "libavcodec/tiff_common.o",
+    "libavcodec/vbndec.o",
+    "libavcodec/vbnenc.o",
+    "libavcodec/xbmdec.o",
+    "libavcodec/xbmenc.o",
+    "libavcodec/xpmdec.o",
+    "libavcodec/xwddec.o",
+    "libavcodec/xwdenc.o",
+    "libavformat/rawvideodec.o"
+  ],
+  "configFlags": [
+    "ALIAS_PIX_DECODER",
+    "ALIAS_PIX_ENCODER",
+    "BITPACKED_DECODER",
+    "BITPACKED_DEMUXER",
+    "BITPACKED_ENCODER",
+    "BRENDER_PIX_DECODER",
+    "CRI_DECODER",
+    "DPX_DECODER",
+    "DPX_ENCODER",
+    "EXIF",
+    "GEM_DECODER",
+    "JPEGTABLES",
+    "MJPEG_DECODER",
+    "PAM_DECODER",
+    "PAM_ENCODER",
+    "PBM_DECODER",
+    "PBM_ENCODER",
+    "PCX_DECODER",
+    "PCX_ENCODER",
+    "PFM_DECODER",
+    "PFM_ENCODER",
+    "PGMYUV_DECODER",
+    "PGMYUV_ENCODER",
+    "PGM_DECODER",
+    "PGM_ENCODER",
+    "PGX_DECODER",
+    "PHOTOCD_DECODER",
+    "PICTOR_DECODER",
+    "PPM_DECODER",
+    "PPM_ENCODER",
+    "PSD_DECODER",
+    "QDRAW_DECODER",
+    "SGI_DECODER",
+    "SGI_ENCODER",
+    "SUNRAST_DECODER",
+    "SUNRAST_ENCODER",
+    "TEXTUREDSP",
+    "TEXTUREDSPENC",
+    "VBN_DECODER",
+    "VBN_ENCODER",
+    "XBM_DECODER",
+    "XBM_ENCODER",
+    "XPM_DECODER",
+    "XWD_DECODER",
+    "XWD_ENCODER"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "hpeldsp",
+    "idctdsp"
+  ]
+}

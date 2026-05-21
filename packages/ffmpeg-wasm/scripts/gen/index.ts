@@ -32,8 +32,9 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, resolve as pathResolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { emitFiles } from "./emit.ts"
+import { emitFiles, type ExtensionEntry } from "./emit.ts"
 import { enumerateFromFiles, type EnumeratedEntry } from "./enumerate.ts"
+import { groupFor } from "./grouping.ts"
 import { parseConfigureFile } from "./parse-configure.ts"
 import { parseExternalLibsFile } from "./parse-external-libs.ts"
 import { parseMakefileFile } from "./parse-makefile.ts"
@@ -194,21 +195,55 @@ const KNOWN_BROKEN = new Set([
 	"image_xwd_pipe_demuxer",
 ])
 
-/** Slug convention: lowercase + hyphens. */
-function slugify(thing: string): string {
-	return thing.replaceAll("_", "-")
+/** Slug convention: lowercase + hyphens (groupFor already lowercase + underscores). */
+function slugify(groupName: string): string {
+	return groupName.replaceAll("_", "-")
 }
 
-/** Friendly one-liner for the manifest / Makefile header. */
-function describe(e: EnumeratedEntry): string {
-	const kindLabel = ({
-		decoder: "decoder",
-		encoder: "encoder",
-		demuxer: "demuxer",
-		muxer: "muxer",
-	} as const)[e.kind]
-	const stem = e.stem.replaceAll("_", " ").toUpperCase()
-	return `${stem} ${kindLabel}.`
+/**
+ * Pretty one-line description for an extension that bundles
+ * multiple entries.
+ *
+ * - Single entry: `"AAC decoder."`
+ * - Two entries: `"AAC decoder + AAC encoder."`
+ * - Many entries: `"AAC decoder, encoder, demuxer, muxer."`
+ * - Mixed kinds across many stems: `"PCM family (35 decoders, 31 encoders, 21 demuxers, 21 muxers)."`
+ */
+function describeGroup(slug: string, entries: EnumeratedEntry[]): string {
+	if (entries.length === 1) {
+		const e = entries[0]!
+		return `${e.stem.replaceAll("_", " ").toUpperCase()} ${e.kind}.`
+	}
+
+	// Group entries by kind for tidy reporting.
+	const byKind: Partial<Record<EnumeratedEntry["kind"], EnumeratedEntry[]>> = {}
+	for (const e of entries) {
+		;(byKind[e.kind] ??= []).push(e)
+	}
+	const kindOrder: EnumeratedEntry["kind"][] = [
+		"decoder",
+		"encoder",
+		"demuxer",
+		"muxer",
+	]
+
+	// All entries share a single stem (e.g. flac decoder/encoder/demuxer/muxer).
+	const uniqueStems = new Set(entries.map((e) => e.stem))
+	if (uniqueStems.size === 1) {
+		const stem = entries[0]!.stem.replaceAll("_", " ").toUpperCase()
+		const kinds = kindOrder.filter((k) => byKind[k]?.length)
+		return `${stem} ${kinds.join(", ")}.`
+	}
+
+	// Family group with many stems (PCM, ADPCM, image, ...).
+	const counts = kindOrder
+		.filter((k) => byKind[k]?.length)
+		.map((k) => {
+			const n = byKind[k]!.length
+			return `${n} ${k}${n === 1 ? "" : "s"}`
+		})
+		.join(", ")
+	return `${slug.toUpperCase()} family (${counts}).`
 }
 
 function cTypeFor(kind: EnumeratedEntry["kind"]): string {
@@ -254,46 +289,84 @@ function main() {
 	const extRoot = pathResolve(pkgRoot, "src", "extensions")
 	mkdirSync(extRoot, { recursive: true })
 
-	const manifestEntries: Array<{
-		slug: string
-		kind: string
-		thing: string
-		stem: string
-		symbol: string
-		classification: string
-		description: string
-	}> = []
+	// Step 1: filter + group entries by their groupFor() slug.
+	const groups = new Map<string, EnumeratedEntry[]>()
 	const skipped: Record<string, number> = {}
-
-	let generated = 0
 	for (const e of enumerated) {
-		const skip = inclusionFilter(e)
-		if (skip) {
-			skipped[skip] = (skipped[skip] ?? 0) + 1
+		const reason = inclusionFilter(e)
+		if (reason) {
+			skipped[reason] = (skipped[reason] ?? 0) + 1
 			continue
 		}
+		const slug = slugify(groupFor(e.stem))
+		if (!groups.has(slug)) groups.set(slug, [])
+		groups.get(slug)!.push(e)
+	}
 
-		const slug = slugify(e.thing)
-		const r = resolve(e.thing, resolveOpts)
-		// The own CONFIG flag must always be in the closure even
-		// if the resolver missed it (happens when the entry's own
-		// `_select` cascade doesn't bring it back in).
-		if (!r.configFlags.includes(e.configFlag)) {
-			r.configFlags.push(e.configFlag)
+	// Step 2: emit one extension per group, unioning all the
+	// resolved objs / configFlags from its member entries.
+	const manifestGroups: Array<{
+		slug: string
+		description: string
+		entries: Array<{
+			thing: string
+			stem: string
+			kind: string
+			symbol: string
+		}>
+	}> = []
+	let generated = 0
+	for (const [slug, members] of [...groups.entries()].sort((a, b) =>
+		a[0].localeCompare(b[0]),
+	)) {
+		// Stable ordering of members for deterministic output.
+		members.sort((a, b) =>
+			a.thing === b.thing
+				? 0
+				: a.thing < b.thing
+					? -1
+					: 1,
+		)
+
+		// Union the resolver output across members. Most members
+		// share huge overlaps (e.g. all 32 PCM variants compile
+		// pcm.o); deduping is critical to avoid re-emitting the
+		// same `.o` rule.
+		const objSet = new Set<string>()
+		const objsUnion: Array<{ library: string; obj: string }> = []
+		const flagSet = new Set<string>()
+		const baseSet = new Set<string>()
+		for (const e of members) {
+			const r = resolve(e.thing, resolveOpts)
+			for (const o of r.objs) {
+				const key = `${o.library}/${o.obj}`
+				if (objSet.has(key)) continue
+				objSet.add(key)
+				objsUnion.push(o)
+			}
+			for (const f of r.configFlags) flagSet.add(f)
+			for (const b of r.resolvedFromBase) baseSet.add(b)
+			// The member's own CONFIG_X must always be on, even
+			// if the resolver missed it from select-cascade.
+			flagSet.add(e.configFlag)
 		}
+
+		const extensionEntries: ExtensionEntry[] = members.map((e) => ({
+			thing: e.thing,
+			kind: e.kind,
+			symbol: e.symbol,
+			cType: cTypeFor(e.kind),
+		}))
 
 		const files = emitFiles({
 			slug,
-			description: describe(e),
-			entries: [
-				{
-					thing: e.thing,
-					kind: e.kind,
-					symbol: e.symbol,
-					cType: cTypeFor(e.kind),
-				},
-			],
-			resolved: r,
+			description: describeGroup(slug, members),
+			entries: extensionEntries,
+			resolved: {
+				objs: objsUnion,
+				configFlags: [...flagSet].sort(),
+				resolvedFromBase: [...baseSet].sort(),
+			},
 			baseRel: "../../..",
 		})
 
@@ -302,14 +375,15 @@ function main() {
 		for (const [name, content] of Object.entries(files)) {
 			writeFileSync(pathResolve(dir, name), content)
 		}
-		manifestEntries.push({
+		manifestGroups.push({
 			slug,
-			kind: e.kind,
-			thing: e.thing,
-			stem: e.stem,
-			symbol: e.symbol,
-			classification: e.classification,
-			description: describe(e),
+			description: describeGroup(slug, members),
+			entries: members.map((e) => ({
+				thing: e.thing,
+				stem: e.stem,
+				kind: e.kind,
+				symbol: e.symbol,
+			})),
 		})
 		generated++
 	}
@@ -319,16 +393,17 @@ function main() {
 	mkdirSync(distDir, { recursive: true })
 	writeFileSync(
 		pathResolve(distDir, "extensions-manifest.json"),
-		JSON.stringify(
-			manifestEntries.sort((a, b) =>
-				a.slug.localeCompare(b.slug),
-			),
-			null,
-			2,
-		) + "\n",
+		JSON.stringify(manifestGroups, null, 2) + "\n",
 	)
 
 	console.log(`Generated ${generated} extension(s) in ${extRoot}`)
+	const totalThings = [...groups.values()].reduce(
+		(sum, m) => sum + m.length,
+		0,
+	)
+	console.log(
+		`  bundling ${totalThings} thing(s); avg ${(totalThings / generated).toFixed(1)} per extension`,
+	)
 	console.log()
 	console.log("Skipped:")
 	for (const [reason, n] of Object.entries(skipped).sort(

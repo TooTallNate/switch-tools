@@ -1,0 +1,18 @@
+{
+  "slug": "rsd",
+  "description": "RSD demuxer.",
+  "entries": [
+    {
+      "thing": "rsd_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_rsd_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rsd.o"
+  ],
+  "configFlags": [
+    "RSD_DEMUXER"
+  ],
+  "baseHelpers": []
+}

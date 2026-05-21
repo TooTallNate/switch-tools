@@ -1,0 +1,25 @@
+{
+  "slug": "idcin",
+  "description": "IDCIN decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "idcin_decoder",
+      "kind": "decoder",
+      "symbol": "ff_idcin_decoder"
+    },
+    {
+      "thing": "idcin_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_idcin_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/idcinvideo.o",
+    "libavformat/idcin.o"
+  ],
+  "configFlags": [
+    "IDCIN_DECODER",
+    "IDCIN_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,25 @@
+{
+  "slug": "data",
+  "description": "DATA demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "data_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_data_demuxer"
+    },
+    {
+      "thing": "data_muxer",
+      "kind": "muxer",
+      "symbol": "ff_data_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "DATA_DEMUXER",
+    "DATA_MUXER"
+  ],
+  "baseHelpers": []
+}

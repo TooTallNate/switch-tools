@@ -1,0 +1,24 @@
+{
+  "slug": "wrapped-avframe",
+  "description": "WRAPPED AVFRAME decoder, encoder.",
+  "entries": [
+    {
+      "thing": "wrapped_avframe_decoder",
+      "kind": "decoder",
+      "symbol": "ff_wrapped_avframe_decoder"
+    },
+    {
+      "thing": "wrapped_avframe_encoder",
+      "kind": "encoder",
+      "symbol": "ff_wrapped_avframe_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/wrapped_avframe.o"
+  ],
+  "configFlags": [
+    "WRAPPED_AVFRAME_DECODER",
+    "WRAPPED_AVFRAME_ENCODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,28 @@
+{
+  "slug": "rso",
+  "description": "RSO demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "rso_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_rso_demuxer"
+    },
+    {
+      "thing": "rso_muxer",
+      "kind": "muxer",
+      "symbol": "ff_rso_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcm.o",
+    "libavformat/rawenc.o",
+    "libavformat/rso.o",
+    "libavformat/rsodec.o",
+    "libavformat/rsoenc.o"
+  ],
+  "configFlags": [
+    "RSO_DEMUXER",
+    "RSO_MUXER"
+  ],
+  "baseHelpers": []
+}

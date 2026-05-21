@@ -1,0 +1,18 @@
+{
+  "slug": "vividas",
+  "description": "VIVIDAS demuxer.",
+  "entries": [
+    {
+      "thing": "vividas_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_vividas_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/vividas.o"
+  ],
+  "configFlags": [
+    "VIVIDAS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

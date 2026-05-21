@@ -1,0 +1,27 @@
+{
+  "slug": "mmf",
+  "description": "MMF demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "mmf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mmf_demuxer"
+    },
+    {
+      "thing": "mmf_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mmf_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mmf.o",
+    "libavformat/rawenc.o",
+    "libavformat/riffenc.o"
+  ],
+  "configFlags": [
+    "MMF_DEMUXER",
+    "MMF_MUXER",
+    "RIFFENC"
+  ],
+  "baseHelpers": []
+}

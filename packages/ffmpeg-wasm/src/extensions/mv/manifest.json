@@ -1,0 +1,18 @@
+{
+  "slug": "mv",
+  "description": "MV demuxer.",
+  "entries": [
+    {
+      "thing": "mv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mvdec.o"
+  ],
+  "configFlags": [
+    "MV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

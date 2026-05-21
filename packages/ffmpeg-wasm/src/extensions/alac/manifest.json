@@ -1,0 +1,29 @@
+{
+  "slug": "alac",
+  "description": "ALAC decoder, encoder.",
+  "entries": [
+    {
+      "thing": "alac_decoder",
+      "kind": "decoder",
+      "symbol": "ff_alac_decoder"
+    },
+    {
+      "thing": "alac_encoder",
+      "kind": "encoder",
+      "symbol": "ff_alac_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/alac_data.o",
+    "libavcodec/alac.o",
+    "libavcodec/alacdsp.o",
+    "libavcodec/alacenc.o",
+    "libavcodec/lpc.o"
+  ],
+  "configFlags": [
+    "ALAC_DECODER",
+    "ALAC_ENCODER",
+    "LPC"
+  ],
+  "baseHelpers": []
+}

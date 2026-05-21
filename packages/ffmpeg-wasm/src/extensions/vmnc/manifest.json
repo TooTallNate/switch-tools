@@ -1,0 +1,18 @@
+{
+  "slug": "vmnc",
+  "description": "VMNC decoder.",
+  "entries": [
+    {
+      "thing": "vmnc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vmnc_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/vmnc.o"
+  ],
+  "configFlags": [
+    "VMNC_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,27 @@
+{
+  "slug": "gxf",
+  "description": "GXF demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "gxf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_gxf_demuxer"
+    },
+    {
+      "thing": "gxf_muxer",
+      "kind": "muxer",
+      "symbol": "ff_gxf_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm_rechunk_bsf.o",
+    "libavformat/gxf.o",
+    "libavformat/gxfenc.o"
+  ],
+  "configFlags": [
+    "GXF_DEMUXER",
+    "GXF_MUXER",
+    "PCM_RECHUNK_BSF"
+  ],
+  "baseHelpers": []
+}

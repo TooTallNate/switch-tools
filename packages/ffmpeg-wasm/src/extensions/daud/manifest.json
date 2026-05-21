@@ -1,0 +1,25 @@
+{
+  "slug": "daud",
+  "description": "DAUD demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "daud_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_daud_demuxer"
+    },
+    {
+      "thing": "daud_muxer",
+      "kind": "muxer",
+      "symbol": "ff_daud_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/dauddec.o",
+    "libavformat/daudenc.o"
+  ],
+  "configFlags": [
+    "DAUD_DEMUXER",
+    "DAUD_MUXER"
+  ],
+  "baseHelpers": []
+}

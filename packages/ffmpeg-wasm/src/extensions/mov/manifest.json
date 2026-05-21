@@ -1,0 +1,55 @@
+{
+  "slug": "mov",
+  "description": "MOV demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "mov_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mov_demuxer"
+    },
+    {
+      "thing": "mov_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mov_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/aac_adtstoasc_bsf.o",
+    "libavcodec/adts_header.o",
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavcodec/vp9_superframe_bsf.o",
+    "libavformat/av1.o",
+    "libavformat/avc.o",
+    "libavformat/dovi_isom.o",
+    "libavformat/hevc.o",
+    "libavformat/mov_chan.o",
+    "libavformat/mov_esds.o",
+    "libavformat/mov.o",
+    "libavformat/movenc_ttml.o",
+    "libavformat/movenc.o",
+    "libavformat/movenccenc.o",
+    "libavformat/movenchint.o",
+    "libavformat/qtpalette.o",
+    "libavformat/rawutils.o",
+    "libavformat/replaygain.o",
+    "libavformat/riffdec.o",
+    "libavformat/riffenc.o",
+    "libavformat/rtp.o",
+    "libavformat/rtpenc_chain.o",
+    "libavformat/vpcc.o"
+  ],
+  "configFlags": [
+    "AAC_ADTSTOASC_BSF",
+    "ADTS_HEADER",
+    "MOV_DEMUXER",
+    "MOV_MUXER",
+    "RIFFDEC",
+    "RIFFENC",
+    "RTPENC_CHAIN",
+    "VP9_SUPERFRAME_BSF"
+  ],
+  "baseHelpers": [
+    "iso_media",
+    "mpeg4audio"
+  ]
+}

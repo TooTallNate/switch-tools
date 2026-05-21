@@ -1,0 +1,38 @@
+{
+  "slug": "mp2",
+  "description": "MP2 decoder, encoder, muxer.",
+  "entries": [
+    {
+      "thing": "mp2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mp2_decoder"
+    },
+    {
+      "thing": "mp2_encoder",
+      "kind": "encoder",
+      "symbol": "ff_mp2_encoder"
+    },
+    {
+      "thing": "mp2_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mp2_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpegaudio.o",
+    "libavcodec/mpegaudiodata.o",
+    "libavcodec/mpegaudiodec_fixed.o",
+    "libavcodec/mpegaudiodsp_data.o",
+    "libavcodec/mpegaudioenc_float.o",
+    "libavcodec/mpegaudiotabs.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "MP2_DECODER",
+    "MP2_ENCODER",
+    "MP2_MUXER"
+  ],
+  "baseHelpers": [
+    "mpegaudio"
+  ]
+}

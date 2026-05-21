@@ -1,0 +1,42 @@
+{
+  "slug": "aptx",
+  "description": "APTX decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "aptx_decoder",
+      "kind": "decoder",
+      "symbol": "ff_aptx_decoder"
+    },
+    {
+      "thing": "aptx_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_aptx_demuxer"
+    },
+    {
+      "thing": "aptx_encoder",
+      "kind": "encoder",
+      "symbol": "ff_aptx_encoder"
+    },
+    {
+      "thing": "aptx_muxer",
+      "kind": "muxer",
+      "symbol": "ff_aptx_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/aptx.o",
+    "libavcodec/aptxdec.o",
+    "libavcodec/aptxenc.o",
+    "libavformat/aptxdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "APTX_DECODER",
+    "APTX_DEMUXER",
+    "APTX_ENCODER",
+    "APTX_MUXER"
+  ],
+  "baseHelpers": [
+    "audio_frame_queue"
+  ]
+}

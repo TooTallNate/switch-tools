@@ -1,0 +1,19 @@
+{
+  "slug": "fwse",
+  "description": "FWSE demuxer.",
+  "entries": [
+    {
+      "thing": "fwse_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_fwse_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/fwse.o",
+    "libavformat/pcm.o"
+  ],
+  "configFlags": [
+    "FWSE_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,102 @@
+{
+  "slug": "g7xx",
+  "description": "G7XX family (2 decoders, 1 encoder, 5 demuxers, 4 muxers).",
+  "entries": [
+    {
+      "thing": "g722_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_g722_demuxer"
+    },
+    {
+      "thing": "g722_muxer",
+      "kind": "muxer",
+      "symbol": "ff_g722_muxer"
+    },
+    {
+      "thing": "g723_1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_g723_1_decoder"
+    },
+    {
+      "thing": "g723_1_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_g723_1_demuxer"
+    },
+    {
+      "thing": "g723_1_encoder",
+      "kind": "encoder",
+      "symbol": "ff_g723_1_encoder"
+    },
+    {
+      "thing": "g723_1_muxer",
+      "kind": "muxer",
+      "symbol": "ff_g723_1_muxer"
+    },
+    {
+      "thing": "g726_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_g726_demuxer"
+    },
+    {
+      "thing": "g726_muxer",
+      "kind": "muxer",
+      "symbol": "ff_g726_muxer"
+    },
+    {
+      "thing": "g726le_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_g726le_demuxer"
+    },
+    {
+      "thing": "g726le_muxer",
+      "kind": "muxer",
+      "symbol": "ff_g726le_muxer"
+    },
+    {
+      "thing": "g729_decoder",
+      "kind": "decoder",
+      "symbol": "ff_g729_decoder"
+    },
+    {
+      "thing": "g729_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_g729_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/acelp_filters.o",
+    "libavcodec/acelp_pitch_delay.o",
+    "libavcodec/acelp_vectors.o",
+    "libavcodec/celp_filters.o",
+    "libavcodec/celp_math.o",
+    "libavcodec/g723_1.o",
+    "libavcodec/g723_1dec.o",
+    "libavcodec/g723_1enc.o",
+    "libavcodec/g729dec.o",
+    "libavcodec/g729postfilter.o",
+    "libavcodec/lsp.o",
+    "libavformat/g722.o",
+    "libavformat/g723_1.o",
+    "libavformat/g726.o",
+    "libavformat/g729dec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "G722_DEMUXER",
+    "G722_MUXER",
+    "G723_1_DECODER",
+    "G723_1_DEMUXER",
+    "G723_1_ENCODER",
+    "G723_1_MUXER",
+    "G726LE_DEMUXER",
+    "G726LE_MUXER",
+    "G726_DEMUXER",
+    "G726_MUXER",
+    "G729_DECODER",
+    "G729_DEMUXER"
+  ],
+  "baseHelpers": [
+    "audiodsp"
+  ]
+}

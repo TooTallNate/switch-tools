@@ -1,0 +1,55 @@
+{
+  "slug": "flac",
+  "description": "FLAC decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "flac_decoder",
+      "kind": "decoder",
+      "symbol": "ff_flac_decoder"
+    },
+    {
+      "thing": "flac_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_flac_demuxer"
+    },
+    {
+      "thing": "flac_encoder",
+      "kind": "encoder",
+      "symbol": "ff_flac_encoder"
+    },
+    {
+      "thing": "flac_muxer",
+      "kind": "muxer",
+      "symbol": "ff_flac_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/flac_parser.o",
+    "libavcodec/flac.o",
+    "libavcodec/flacdata.o",
+    "libavcodec/flacdec.o",
+    "libavcodec/flacdsp.o",
+    "libavcodec/flacenc.o",
+    "libavcodec/lpc.o",
+    "libavformat/flac_picture.o",
+    "libavformat/flacdec.o",
+    "libavformat/flacenc_header.o",
+    "libavformat/flacenc.o",
+    "libavformat/oggparsevorbis.o",
+    "libavformat/rawdec.o",
+    "libavformat/replaygain.o",
+    "libavformat/vorbiscomment.o"
+  ],
+  "configFlags": [
+    "FLACDSP",
+    "FLAC_DECODER",
+    "FLAC_DEMUXER",
+    "FLAC_ENCODER",
+    "FLAC_MUXER",
+    "FLAC_PARSER",
+    "LPC"
+  ],
+  "baseHelpers": [
+    "bswapdsp"
+  ]
+}

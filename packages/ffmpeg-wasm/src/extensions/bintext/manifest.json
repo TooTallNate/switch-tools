@@ -1,0 +1,27 @@
+{
+  "slug": "bintext",
+  "description": "BINTEXT decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "bintext_decoder",
+      "kind": "decoder",
+      "symbol": "ff_bintext_decoder"
+    },
+    {
+      "thing": "bintext_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_bintext_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/bintext.o",
+    "libavcodec/cga_data.o",
+    "libavformat/bintext.o",
+    "libavformat/sauce.o"
+  ],
+  "configFlags": [
+    "BINTEXT_DECODER",
+    "BINTEXT_DEMUXER"
+  ],
+  "baseHelpers": []
+}

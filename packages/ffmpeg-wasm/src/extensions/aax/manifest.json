@@ -1,0 +1,18 @@
+{
+  "slug": "aax",
+  "description": "AAX demuxer.",
+  "entries": [
+    {
+      "thing": "aax_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_aax_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/aaxdec.o"
+  ],
+  "configFlags": [
+    "AAX_DEMUXER"
+  ],
+  "baseHelpers": []
+}

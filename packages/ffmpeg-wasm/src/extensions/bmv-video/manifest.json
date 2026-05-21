@@ -1,0 +1,18 @@
+{
+  "slug": "bmv-video",
+  "description": "BMV VIDEO decoder.",
+  "entries": [
+    {
+      "thing": "bmv_video_decoder",
+      "kind": "decoder",
+      "symbol": "ff_bmv_video_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/bmvvideo.o"
+  ],
+  "configFlags": [
+    "BMV_VIDEO_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "vqf",
+  "description": "VQF demuxer.",
+  "entries": [
+    {
+      "thing": "vqf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_vqf_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/vqf.o"
+  ],
+  "configFlags": [
+    "VQF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

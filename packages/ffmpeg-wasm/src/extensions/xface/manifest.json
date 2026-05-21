@@ -1,0 +1,26 @@
+{
+  "slug": "xface",
+  "description": "XFACE decoder, encoder.",
+  "entries": [
+    {
+      "thing": "xface_decoder",
+      "kind": "decoder",
+      "symbol": "ff_xface_decoder"
+    },
+    {
+      "thing": "xface_encoder",
+      "kind": "encoder",
+      "symbol": "ff_xface_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/xface.o",
+    "libavcodec/xfacedec.o",
+    "libavcodec/xfaceenc.o"
+  ],
+  "configFlags": [
+    "XFACE_DECODER",
+    "XFACE_ENCODER"
+  ],
+  "baseHelpers": []
+}

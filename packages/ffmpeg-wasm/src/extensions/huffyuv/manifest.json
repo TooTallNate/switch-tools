@@ -1,0 +1,36 @@
+{
+  "slug": "huffyuv",
+  "description": "HUFFYUV decoder, encoder.",
+  "entries": [
+    {
+      "thing": "huffyuv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_huffyuv_decoder"
+    },
+    {
+      "thing": "huffyuv_encoder",
+      "kind": "encoder",
+      "symbol": "ff_huffyuv_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/huffman.o",
+    "libavcodec/huffyuv.o",
+    "libavcodec/huffyuvdec.o",
+    "libavcodec/huffyuvenc.o",
+    "libavcodec/lossless_videodsp.o",
+    "libavcodec/lossless_videoencdsp.o"
+  ],
+  "configFlags": [
+    "HUFFMAN",
+    "HUFFYUV_DECODER",
+    "HUFFYUV_ENCODER",
+    "LLVIDDSP",
+    "LLVIDENCDSP"
+  ],
+  "baseHelpers": [
+    "bswapdsp",
+    "huffyuvdsp",
+    "huffyuvencdsp"
+  ]
+}

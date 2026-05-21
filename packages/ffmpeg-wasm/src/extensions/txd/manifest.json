@@ -1,0 +1,27 @@
+{
+  "slug": "txd",
+  "description": "TXD decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "txd_decoder",
+      "kind": "decoder",
+      "symbol": "ff_txd_decoder"
+    },
+    {
+      "thing": "txd_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_txd_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/texturedsp.o",
+    "libavcodec/txd.o",
+    "libavformat/txd.o"
+  ],
+  "configFlags": [
+    "TEXTUREDSP",
+    "TXD_DECODER",
+    "TXD_DEMUXER"
+  ],
+  "baseHelpers": []
+}

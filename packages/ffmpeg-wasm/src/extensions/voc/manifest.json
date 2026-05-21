@@ -1,0 +1,27 @@
+{
+  "slug": "voc",
+  "description": "VOC demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "voc_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_voc_demuxer"
+    },
+    {
+      "thing": "voc_muxer",
+      "kind": "muxer",
+      "symbol": "ff_voc_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/voc_packet.o",
+    "libavformat/voc.o",
+    "libavformat/vocdec.o",
+    "libavformat/vocenc.o"
+  ],
+  "configFlags": [
+    "VOC_DEMUXER",
+    "VOC_MUXER"
+  ],
+  "baseHelpers": []
+}

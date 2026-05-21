@@ -1,0 +1,18 @@
+{
+  "slug": "crc",
+  "description": "CRC muxer.",
+  "entries": [
+    {
+      "thing": "crc_muxer",
+      "kind": "muxer",
+      "symbol": "ff_crc_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/crcenc.o"
+  ],
+  "configFlags": [
+    "CRC_MUXER"
+  ],
+  "baseHelpers": []
+}

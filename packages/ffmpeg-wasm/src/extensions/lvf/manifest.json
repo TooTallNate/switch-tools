@@ -1,0 +1,18 @@
+{
+  "slug": "lvf",
+  "description": "LVF demuxer.",
+  "entries": [
+    {
+      "thing": "lvf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_lvf_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/lvfdec.o"
+  ],
+  "configFlags": [
+    "LVF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

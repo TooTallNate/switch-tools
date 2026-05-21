@@ -1,0 +1,24 @@
+{
+  "slug": "argo-cvg",
+  "description": "ARGO CVG demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "argo_cvg_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_argo_cvg_demuxer"
+    },
+    {
+      "thing": "argo_cvg_muxer",
+      "kind": "muxer",
+      "symbol": "ff_argo_cvg_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/argo_cvg.o"
+  ],
+  "configFlags": [
+    "ARGO_CVG_DEMUXER",
+    "ARGO_CVG_MUXER"
+  ],
+  "baseHelpers": []
+}

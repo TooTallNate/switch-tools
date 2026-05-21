@@ -1,0 +1,35 @@
+{
+  "slug": "vp9",
+  "description": "VP9 decoder.",
+  "entries": [
+    {
+      "thing": "vp9_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vp9_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/vp56rac.o",
+    "libavcodec/vp9_parser.o",
+    "libavcodec/vp9_superframe_split_bsf.o",
+    "libavcodec/vp9.o",
+    "libavcodec/vp9block.o",
+    "libavcodec/vp9data.o",
+    "libavcodec/vp9dsp_10bpp.o",
+    "libavcodec/vp9dsp_12bpp.o",
+    "libavcodec/vp9dsp_8bpp.o",
+    "libavcodec/vp9dsp.o",
+    "libavcodec/vp9lpf.o",
+    "libavcodec/vp9mvs.o",
+    "libavcodec/vp9prob.o",
+    "libavcodec/vp9recon.o"
+  ],
+  "configFlags": [
+    "VP9_DECODER",
+    "VP9_PARSER",
+    "VP9_SUPERFRAME_SPLIT_BSF"
+  ],
+  "baseHelpers": [
+    "videodsp"
+  ]
+}

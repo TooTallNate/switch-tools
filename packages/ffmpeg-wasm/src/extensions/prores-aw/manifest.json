@@ -1,0 +1,19 @@
+{
+  "slug": "prores-aw",
+  "description": "PRORES AW encoder.",
+  "entries": [
+    {
+      "thing": "prores_aw_encoder",
+      "kind": "encoder",
+      "symbol": "ff_prores_aw_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/proresdata.o",
+    "libavcodec/proresenc_anatoliy.o"
+  ],
+  "configFlags": [
+    "PRORES_AW_ENCODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "argo",
+  "description": "ARGO decoder.",
+  "entries": [
+    {
+      "thing": "argo_decoder",
+      "kind": "decoder",
+      "symbol": "ff_argo_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/argo.o"
+  ],
+  "configFlags": [
+    "ARGO_DECODER"
+  ],
+  "baseHelpers": []
+}

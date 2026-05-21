@@ -1,0 +1,19 @@
+{
+  "slug": "epaf",
+  "description": "EPAF demuxer.",
+  "entries": [
+    {
+      "thing": "epaf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_epaf_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/epafdec.o",
+    "libavformat/pcm.o"
+  ],
+  "configFlags": [
+    "EPAF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

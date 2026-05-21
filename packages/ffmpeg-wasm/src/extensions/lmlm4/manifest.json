@@ -1,0 +1,18 @@
+{
+  "slug": "lmlm4",
+  "description": "LMLM4 demuxer.",
+  "entries": [
+    {
+      "thing": "lmlm4_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_lmlm4_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/lmlm4.o"
+  ],
+  "configFlags": [
+    "LMLM4_DEMUXER"
+  ],
+  "baseHelpers": []
+}

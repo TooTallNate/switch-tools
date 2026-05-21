@@ -1,0 +1,18 @@
+{
+  "slug": "zero12v",
+  "description": "ZERO12V decoder.",
+  "entries": [
+    {
+      "thing": "zero12v_decoder",
+      "kind": "decoder",
+      "symbol": "ff_zero12v_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/012v.o"
+  ],
+  "configFlags": [
+    "ZERO12V_DECODER"
+  ],
+  "baseHelpers": []
+}

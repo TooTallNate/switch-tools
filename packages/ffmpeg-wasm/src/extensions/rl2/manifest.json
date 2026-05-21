@@ -1,0 +1,25 @@
+{
+  "slug": "rl2",
+  "description": "RL2 decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "rl2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_rl2_decoder"
+    },
+    {
+      "thing": "rl2_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_rl2_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/rl2.o",
+    "libavformat/rl2.o"
+  ],
+  "configFlags": [
+    "RL2_DECODER",
+    "RL2_DEMUXER"
+  ],
+  "baseHelpers": []
+}

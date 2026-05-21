@@ -1,0 +1,18 @@
+{
+  "slug": "ea-cdata",
+  "description": "EA CDATA demuxer.",
+  "entries": [
+    {
+      "thing": "ea_cdata_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ea_cdata_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/eacdata.o"
+  ],
+  "configFlags": [
+    "EA_CDATA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

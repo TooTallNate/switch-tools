@@ -1,0 +1,18 @@
+{
+  "slug": "wnv1",
+  "description": "WNV1 decoder.",
+  "entries": [
+    {
+      "thing": "wnv1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_wnv1_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/wnv1.o"
+  ],
+  "configFlags": [
+    "WNV1_DECODER"
+  ],
+  "baseHelpers": []
+}

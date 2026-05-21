@@ -1,0 +1,40 @@
+{
+  "slug": "mp3",
+  "description": "MP3 decoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "mp3_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mp3_decoder"
+    },
+    {
+      "thing": "mp3_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mp3_demuxer"
+    },
+    {
+      "thing": "mp3_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mp3_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpegaudio_parser.o",
+    "libavcodec/mpegaudiodec_fixed.o",
+    "libavformat/id3v2enc.o",
+    "libavformat/mp3dec.o",
+    "libavformat/mp3enc.o",
+    "libavformat/rawenc.o",
+    "libavformat/replaygain.o"
+  ],
+  "configFlags": [
+    "MP3_DECODER",
+    "MP3_DEMUXER",
+    "MP3_MUXER",
+    "MPEGAUDIO_PARSER"
+  ],
+  "baseHelpers": [
+    "mpegaudio",
+    "mpegaudioheader"
+  ]
+}

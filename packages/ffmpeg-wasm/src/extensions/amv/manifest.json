@@ -1,0 +1,32 @@
+{
+  "slug": "amv",
+  "description": "AMV encoder, muxer.",
+  "entries": [
+    {
+      "thing": "amv_encoder",
+      "kind": "encoder",
+      "symbol": "ff_amv_encoder"
+    },
+    {
+      "thing": "amv_muxer",
+      "kind": "muxer",
+      "symbol": "ff_amv_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/jpegtables.o",
+    "libavcodec/mjpegenc_common.o",
+    "libavcodec/mjpegenc.o",
+    "libavformat/amvenc.o",
+    "libavformat/riffenc.o"
+  ],
+  "configFlags": [
+    "AMV_ENCODER",
+    "AMV_MUXER",
+    "JPEGTABLES",
+    "RIFFENC"
+  ],
+  "baseHelpers": [
+    "mpegvideoenc"
+  ]
+}

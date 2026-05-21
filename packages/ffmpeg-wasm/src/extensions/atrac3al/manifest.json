@@ -1,0 +1,21 @@
+{
+  "slug": "atrac3al",
+  "description": "ATRAC3AL decoder.",
+  "entries": [
+    {
+      "thing": "atrac3al_decoder",
+      "kind": "decoder",
+      "symbol": "ff_atrac3al_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/atrac.o",
+    "libavcodec/atrac3.o"
+  ],
+  "configFlags": [
+    "ATRAC3AL_DECODER"
+  ],
+  "baseHelpers": [
+    "mdct"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "pva",
+  "description": "PVA demuxer.",
+  "entries": [
+    {
+      "thing": "pva_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_pva_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pva.o"
+  ],
+  "configFlags": [
+    "PVA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

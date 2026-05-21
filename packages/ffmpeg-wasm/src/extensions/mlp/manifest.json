@@ -1,0 +1,49 @@
+{
+  "slug": "mlp",
+  "description": "MLP decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "mlp_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mlp_decoder"
+    },
+    {
+      "thing": "mlp_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mlp_demuxer"
+    },
+    {
+      "thing": "mlp_encoder",
+      "kind": "encoder",
+      "symbol": "ff_mlp_encoder"
+    },
+    {
+      "thing": "mlp_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mlp_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/lpc.o",
+    "libavcodec/mlp_parse.o",
+    "libavcodec/mlp_parser.o",
+    "libavcodec/mlp.o",
+    "libavcodec/mlpdec.o",
+    "libavcodec/mlpdsp.o",
+    "libavcodec/mlpenc.o",
+    "libavformat/mlpdec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "LPC",
+    "MLP_DECODER",
+    "MLP_DEMUXER",
+    "MLP_ENCODER",
+    "MLP_MUXER",
+    "MLP_PARSER"
+  ],
+  "baseHelpers": [
+    "audio_frame_queue"
+  ]
+}

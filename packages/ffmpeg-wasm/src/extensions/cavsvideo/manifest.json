@@ -1,0 +1,26 @@
+{
+  "slug": "cavsvideo",
+  "description": "CAVSVIDEO demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "cavsvideo_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_cavsvideo_demuxer"
+    },
+    {
+      "thing": "cavsvideo_muxer",
+      "kind": "muxer",
+      "symbol": "ff_cavsvideo_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/cavsvideodec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "CAVSVIDEO_DEMUXER",
+    "CAVSVIDEO_MUXER"
+  ],
+  "baseHelpers": []
+}

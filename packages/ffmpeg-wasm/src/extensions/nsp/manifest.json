@@ -1,0 +1,19 @@
+{
+  "slug": "nsp",
+  "description": "NSP demuxer.",
+  "entries": [
+    {
+      "thing": "nsp_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_nsp_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/nspdec.o",
+    "libavformat/pcm.o"
+  ],
+  "configFlags": [
+    "NSP_DEMUXER"
+  ],
+  "baseHelpers": []
+}

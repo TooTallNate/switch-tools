@@ -1,0 +1,25 @@
+{
+  "slug": "qtrle",
+  "description": "QTRLE decoder, encoder.",
+  "entries": [
+    {
+      "thing": "qtrle_decoder",
+      "kind": "decoder",
+      "symbol": "ff_qtrle_decoder"
+    },
+    {
+      "thing": "qtrle_encoder",
+      "kind": "encoder",
+      "symbol": "ff_qtrle_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/qtrle.o",
+    "libavcodec/qtrleenc.o"
+  ],
+  "configFlags": [
+    "QTRLE_DECODER",
+    "QTRLE_ENCODER"
+  ],
+  "baseHelpers": []
+}

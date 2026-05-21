@@ -1,0 +1,19 @@
+{
+  "slug": "ccaption",
+  "description": "CCAPTION decoder.",
+  "entries": [
+    {
+      "thing": "ccaption_decoder",
+      "kind": "decoder",
+      "symbol": "ff_ccaption_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ass.o",
+    "libavcodec/ccaption_dec.o"
+  ],
+  "configFlags": [
+    "CCAPTION_DECODER"
+  ],
+  "baseHelpers": []
+}

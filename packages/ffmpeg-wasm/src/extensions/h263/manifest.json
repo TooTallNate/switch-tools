@@ -1,0 +1,53 @@
+{
+  "slug": "h263",
+  "description": "H263 decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "h263_decoder",
+      "kind": "decoder",
+      "symbol": "ff_h263_decoder"
+    },
+    {
+      "thing": "h263_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_h263_demuxer"
+    },
+    {
+      "thing": "h263_encoder",
+      "kind": "encoder",
+      "symbol": "ff_h263_encoder"
+    },
+    {
+      "thing": "h263_muxer",
+      "kind": "muxer",
+      "symbol": "ff_h263_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/h263_parser.o",
+    "libavcodec/h263.o",
+    "libavcodec/h263data.o",
+    "libavcodec/h263dec.o",
+    "libavcodec/h263dsp.o",
+    "libavcodec/ituh263dec.o",
+    "libavcodec/ituh263enc.o",
+    "libavcodec/mpeg4video.o",
+    "libavcodec/mpeg4videodec.o",
+    "libavformat/h263dec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "H263DSP",
+    "H263_DECODER",
+    "H263_DEMUXER",
+    "H263_ENCODER",
+    "H263_MUXER",
+    "H263_PARSER"
+  ],
+  "baseHelpers": [
+    "mpegvideodec",
+    "mpegvideoenc",
+    "qpeldsp"
+  ]
+}

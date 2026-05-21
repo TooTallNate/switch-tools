@@ -1,0 +1,41 @@
+{
+  "slug": "tiff",
+  "description": "TIFF decoder, encoder.",
+  "entries": [
+    {
+      "thing": "tiff_decoder",
+      "kind": "decoder",
+      "symbol": "ff_tiff_decoder"
+    },
+    {
+      "thing": "tiff_encoder",
+      "kind": "encoder",
+      "symbol": "ff_tiff_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/exif.o",
+    "libavcodec/faxcompr.o",
+    "libavcodec/jpegtables.o",
+    "libavcodec/lzw.o",
+    "libavcodec/lzwenc.o",
+    "libavcodec/mjpegdec_common.o",
+    "libavcodec/mjpegdec.o",
+    "libavcodec/rle.o",
+    "libavcodec/tiff_common.o",
+    "libavcodec/tiff.o",
+    "libavcodec/tiffenc.o"
+  ],
+  "configFlags": [
+    "EXIF",
+    "JPEGTABLES",
+    "MJPEG_DECODER",
+    "TIFF_DECODER",
+    "TIFF_ENCODER"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "hpeldsp",
+    "idctdsp"
+  ]
+}

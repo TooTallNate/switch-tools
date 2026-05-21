@@ -1,0 +1,18 @@
+{
+  "slug": "vivo",
+  "description": "VIVO demuxer.",
+  "entries": [
+    {
+      "thing": "vivo_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_vivo_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/vivo.o"
+  ],
+  "configFlags": [
+    "VIVO_DEMUXER"
+  ],
+  "baseHelpers": []
+}

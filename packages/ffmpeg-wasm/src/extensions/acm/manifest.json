@@ -1,0 +1,19 @@
+{
+  "slug": "acm",
+  "description": "ACM demuxer.",
+  "entries": [
+    {
+      "thing": "acm_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_acm_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/acm.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "ACM_DEMUXER"
+  ],
+  "baseHelpers": []
+}

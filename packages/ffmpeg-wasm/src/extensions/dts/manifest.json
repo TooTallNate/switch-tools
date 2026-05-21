@@ -1,0 +1,31 @@
+{
+  "slug": "dts",
+  "description": "DTS demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "dts_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dts_demuxer"
+    },
+    {
+      "thing": "dts_muxer",
+      "kind": "muxer",
+      "symbol": "ff_dts_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/dca_exss.o",
+    "libavcodec/dca_parser.o",
+    "libavcodec/dca_sample_rate_tab.o",
+    "libavcodec/dca.o",
+    "libavformat/dtsdec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "DCA_PARSER",
+    "DTS_DEMUXER",
+    "DTS_MUXER"
+  ],
+  "baseHelpers": []
+}

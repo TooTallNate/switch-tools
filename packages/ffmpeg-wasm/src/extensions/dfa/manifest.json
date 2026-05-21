@@ -1,0 +1,25 @@
+{
+  "slug": "dfa",
+  "description": "DFA decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "dfa_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dfa_decoder"
+    },
+    {
+      "thing": "dfa_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dfa_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/dfa.o",
+    "libavformat/dfa.o"
+  ],
+  "configFlags": [
+    "DFA_DECODER",
+    "DFA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

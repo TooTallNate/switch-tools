@@ -1,0 +1,19 @@
+{
+  "slug": "loas",
+  "description": "LOAS demuxer.",
+  "entries": [
+    {
+      "thing": "loas_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_loas_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/loasdec.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "LOAS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

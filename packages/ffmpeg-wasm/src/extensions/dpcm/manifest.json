@@ -1,0 +1,61 @@
+{
+  "slug": "dpcm",
+  "description": "DPCM family (7 decoders, 1 encoder).",
+  "entries": [
+    {
+      "thing": "derf_dpcm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_derf_dpcm_decoder"
+    },
+    {
+      "thing": "gremlin_dpcm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_gremlin_dpcm_decoder"
+    },
+    {
+      "thing": "interplay_dpcm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_interplay_dpcm_decoder"
+    },
+    {
+      "thing": "roq_dpcm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_roq_dpcm_decoder"
+    },
+    {
+      "thing": "roq_dpcm_encoder",
+      "kind": "encoder",
+      "symbol": "ff_roq_dpcm_encoder"
+    },
+    {
+      "thing": "sdx2_dpcm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_sdx2_dpcm_decoder"
+    },
+    {
+      "thing": "sol_dpcm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_sol_dpcm_decoder"
+    },
+    {
+      "thing": "xan_dpcm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_xan_dpcm_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dpcm.o",
+    "libavcodec/roqaudioenc.o"
+  ],
+  "configFlags": [
+    "DERF_DPCM_DECODER",
+    "GREMLIN_DPCM_DECODER",
+    "INTERPLAY_DPCM_DECODER",
+    "ROQ_DPCM_DECODER",
+    "ROQ_DPCM_ENCODER",
+    "SDX2_DPCM_DECODER",
+    "SOL_DPCM_DECODER",
+    "XAN_DPCM_DECODER"
+  ],
+  "baseHelpers": []
+}

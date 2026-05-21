@@ -1,0 +1,18 @@
+{
+  "slug": "threedostr",
+  "description": "THREEDOSTR demuxer.",
+  "entries": [
+    {
+      "thing": "threedostr_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_threedostr_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/3dostr.o"
+  ],
+  "configFlags": [
+    "THREEDOSTR_DEMUXER"
+  ],
+  "baseHelpers": []
+}

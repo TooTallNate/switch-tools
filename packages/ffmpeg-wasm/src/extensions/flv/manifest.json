@@ -1,0 +1,63 @@
+{
+  "slug": "flv",
+  "description": "FLV decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "flv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_flv_decoder"
+    },
+    {
+      "thing": "flv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_flv_demuxer"
+    },
+    {
+      "thing": "flv_encoder",
+      "kind": "encoder",
+      "symbol": "ff_flv_encoder"
+    },
+    {
+      "thing": "flv_muxer",
+      "kind": "muxer",
+      "symbol": "ff_flv_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/aac_adtstoasc_bsf.o",
+    "libavcodec/adts_header.o",
+    "libavcodec/flvdec.o",
+    "libavcodec/flvenc.o",
+    "libavcodec/h263_parser.o",
+    "libavcodec/h263.o",
+    "libavcodec/h263data.o",
+    "libavcodec/h263dec.o",
+    "libavcodec/h263dsp.o",
+    "libavcodec/ituh263dec.o",
+    "libavcodec/ituh263enc.o",
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavcodec/mpeg4video.o",
+    "libavcodec/mpeg4videodec.o",
+    "libavformat/avc.o",
+    "libavformat/flvdec.o",
+    "libavformat/flvenc.o"
+  ],
+  "configFlags": [
+    "AAC_ADTSTOASC_BSF",
+    "ADTS_HEADER",
+    "FLV_DECODER",
+    "FLV_DEMUXER",
+    "FLV_ENCODER",
+    "FLV_MUXER",
+    "H263DSP",
+    "H263_DECODER",
+    "H263_ENCODER",
+    "H263_PARSER"
+  ],
+  "baseHelpers": [
+    "mpeg4audio",
+    "mpegvideodec",
+    "mpegvideoenc",
+    "qpeldsp"
+  ]
+}

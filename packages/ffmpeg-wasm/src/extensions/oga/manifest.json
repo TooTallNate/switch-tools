@@ -1,0 +1,20 @@
+{
+  "slug": "oga",
+  "description": "OGA muxer.",
+  "entries": [
+    {
+      "thing": "oga_muxer",
+      "kind": "muxer",
+      "symbol": "ff_oga_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/oggenc.o",
+    "libavformat/vorbiscomment.o"
+  ],
+  "configFlags": [
+    "OGA_MUXER",
+    "OGG_MUXER"
+  ],
+  "baseHelpers": []
+}

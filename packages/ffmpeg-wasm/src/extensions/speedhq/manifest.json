@@ -1,0 +1,32 @@
+{
+  "slug": "speedhq",
+  "description": "SPEEDHQ decoder, encoder.",
+  "entries": [
+    {
+      "thing": "speedhq_decoder",
+      "kind": "decoder",
+      "symbol": "ff_speedhq_decoder"
+    },
+    {
+      "thing": "speedhq_encoder",
+      "kind": "encoder",
+      "symbol": "ff_speedhq_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpeg12.o",
+    "libavcodec/mpeg12data.o",
+    "libavcodec/mpeg12enc.o",
+    "libavcodec/simple_idct.o",
+    "libavcodec/speedhq.o",
+    "libavcodec/speedhqenc.o"
+  ],
+  "configFlags": [
+    "SPEEDHQ_DECODER",
+    "SPEEDHQ_ENCODER"
+  ],
+  "baseHelpers": [
+    "mpegvideo",
+    "mpegvideoenc"
+  ]
+}

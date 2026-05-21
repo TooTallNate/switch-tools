@@ -1,0 +1,36 @@
+{
+  "slug": "obu",
+  "description": "OBU demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "obu_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_obu_demuxer"
+    },
+    {
+      "thing": "obu_muxer",
+      "kind": "muxer",
+      "symbol": "ff_obu_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/av1_frame_merge_bsf.o",
+    "libavcodec/av1_metadata_bsf.o",
+    "libavcodec/av1_parser.o",
+    "libavcodec/cbs_av1.o",
+    "libavcodec/cbs_bsf.o",
+    "libavcodec/cbs.o",
+    "libavformat/av1dec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "AV1_FRAME_MERGE_BSF",
+    "AV1_METADATA_BSF",
+    "AV1_PARSER",
+    "CBS",
+    "CBS_AV1",
+    "OBU_DEMUXER",
+    "OBU_MUXER"
+  ],
+  "baseHelpers": []
+}

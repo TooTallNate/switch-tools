@@ -1,0 +1,24 @@
+{
+  "slug": "argo-asf",
+  "description": "ARGO ASF demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "argo_asf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_argo_asf_demuxer"
+    },
+    {
+      "thing": "argo_asf_muxer",
+      "kind": "muxer",
+      "symbol": "ff_argo_asf_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/argo_asf.o"
+  ],
+  "configFlags": [
+    "ARGO_ASF_DEMUXER",
+    "ARGO_ASF_MUXER"
+  ],
+  "baseHelpers": []
+}

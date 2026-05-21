@@ -1,0 +1,31 @@
+{
+  "slug": "prores",
+  "description": "PRORES decoder, encoder.",
+  "entries": [
+    {
+      "thing": "prores_decoder",
+      "kind": "decoder",
+      "symbol": "ff_prores_decoder"
+    },
+    {
+      "thing": "prores_encoder",
+      "kind": "encoder",
+      "symbol": "ff_prores_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/proresdata.o",
+    "libavcodec/proresdec2.o",
+    "libavcodec/proresdsp.o",
+    "libavcodec/proresenc_anatoliy.o"
+  ],
+  "configFlags": [
+    "PRORES_DECODER",
+    "PRORES_ENCODER"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "fdctdsp",
+    "idctdsp"
+  ]
+}

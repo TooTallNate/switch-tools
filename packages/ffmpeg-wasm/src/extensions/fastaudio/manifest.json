@@ -1,0 +1,18 @@
+{
+  "slug": "fastaudio",
+  "description": "FASTAUDIO decoder.",
+  "entries": [
+    {
+      "thing": "fastaudio_decoder",
+      "kind": "decoder",
+      "symbol": "ff_fastaudio_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/fastaudio.o"
+  ],
+  "configFlags": [
+    "FASTAUDIO_DECODER"
+  ],
+  "baseHelpers": []
+}

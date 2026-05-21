@@ -1,0 +1,18 @@
+{
+  "slug": "dsicinvideo",
+  "description": "DSICINVIDEO decoder.",
+  "entries": [
+    {
+      "thing": "dsicinvideo_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dsicinvideo_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dsicinvideo.o"
+  ],
+  "configFlags": [
+    "DSICINVIDEO_DECODER"
+  ],
+  "baseHelpers": []
+}

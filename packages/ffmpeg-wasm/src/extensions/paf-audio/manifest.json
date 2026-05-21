@@ -1,0 +1,18 @@
+{
+  "slug": "paf-audio",
+  "description": "PAF AUDIO decoder.",
+  "entries": [
+    {
+      "thing": "paf_audio_decoder",
+      "kind": "decoder",
+      "symbol": "ff_paf_audio_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pafaudio.o"
+  ],
+  "configFlags": [
+    "PAF_AUDIO_DECODER"
+  ],
+  "baseHelpers": []
+}

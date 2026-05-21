@@ -1,0 +1,26 @@
+{
+  "slug": "codec2raw",
+  "description": "CODEC2RAW demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "codec2raw_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_codec2raw_demuxer"
+    },
+    {
+      "thing": "codec2raw_muxer",
+      "kind": "muxer",
+      "symbol": "ff_codec2raw_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/codec2.o",
+    "libavformat/pcm.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "CODEC2RAW_DEMUXER",
+    "CODEC2RAW_MUXER"
+  ],
+  "baseHelpers": []
+}

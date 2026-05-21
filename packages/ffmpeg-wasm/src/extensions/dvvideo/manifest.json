@@ -1,0 +1,32 @@
+{
+  "slug": "dvvideo",
+  "description": "DVVIDEO decoder, encoder.",
+  "entries": [
+    {
+      "thing": "dvvideo_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dvvideo_decoder"
+    },
+    {
+      "thing": "dvvideo_encoder",
+      "kind": "encoder",
+      "symbol": "ff_dvvideo_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dv.o",
+    "libavcodec/dvdata.o",
+    "libavcodec/dvdec.o",
+    "libavcodec/dvenc.o"
+  ],
+  "configFlags": [
+    "DVVIDEO_DECODER",
+    "DVVIDEO_ENCODER"
+  ],
+  "baseHelpers": [
+    "fdctdsp",
+    "idctdsp",
+    "me_cmp",
+    "pixblockdsp"
+  ]
+}

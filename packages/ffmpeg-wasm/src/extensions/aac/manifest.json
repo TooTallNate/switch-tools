@@ -1,0 +1,66 @@
+{
+  "slug": "aac",
+  "description": "AAC decoder, encoder, demuxer.",
+  "entries": [
+    {
+      "thing": "aac_decoder",
+      "kind": "decoder",
+      "symbol": "ff_aac_decoder"
+    },
+    {
+      "thing": "aac_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_aac_demuxer"
+    },
+    {
+      "thing": "aac_encoder",
+      "kind": "encoder",
+      "symbol": "ff_aac_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/aaccoder.o",
+    "libavcodec/aacdec.o",
+    "libavcodec/aacenc_is.o",
+    "libavcodec/aacenc_ltp.o",
+    "libavcodec/aacenc_pred.o",
+    "libavcodec/aacenc_tns.o",
+    "libavcodec/aacenc.o",
+    "libavcodec/aacenctab.o",
+    "libavcodec/aacps_common.o",
+    "libavcodec/aacps_float.o",
+    "libavcodec/aacpsdsp_float.o",
+    "libavcodec/aacpsy.o",
+    "libavcodec/aacsbr.o",
+    "libavcodec/aactab.o",
+    "libavcodec/adts_header.o",
+    "libavcodec/cbrt_data.o",
+    "libavcodec/iirfilter.o",
+    "libavcodec/kbdwin.o",
+    "libavcodec/lpc.o",
+    "libavcodec/mdct15.o",
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavcodec/psymodel.o",
+    "libavcodec/sbrdsp.o",
+    "libavformat/aacdec.o",
+    "libavformat/apetag.o",
+    "libavformat/img2.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "AAC_DECODER",
+    "AAC_DEMUXER",
+    "AAC_ENCODER",
+    "ADTS_HEADER",
+    "IIRFILTER",
+    "LPC",
+    "MDCT15"
+  ],
+  "baseHelpers": [
+    "audio_frame_queue",
+    "fft",
+    "mdct",
+    "mpeg4audio",
+    "sinewin"
+  ]
+}

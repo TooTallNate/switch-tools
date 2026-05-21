@@ -1,0 +1,21 @@
+{
+  "slug": "mp3on4float",
+  "description": "MP3ON4FLOAT decoder.",
+  "entries": [
+    {
+      "thing": "mp3on4float_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mp3on4float_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpegaudiodec_float.o"
+  ],
+  "configFlags": [
+    "MP3ON4FLOAT_DECODER"
+  ],
+  "baseHelpers": [
+    "mpeg4audio",
+    "mpegaudio"
+  ]
+}

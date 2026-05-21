@@ -1,0 +1,18 @@
+{
+  "slug": "scd",
+  "description": "SCD demuxer.",
+  "entries": [
+    {
+      "thing": "scd_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_scd_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/scd.o"
+  ],
+  "configFlags": [
+    "SCD_DEMUXER"
+  ],
+  "baseHelpers": []
+}

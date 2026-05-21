@@ -1,0 +1,26 @@
+{
+  "slug": "avs3",
+  "description": "AVS3 demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "avs3_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_avs3_demuxer"
+    },
+    {
+      "thing": "avs3_muxer",
+      "kind": "muxer",
+      "symbol": "ff_avs3_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/avs3dec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "AVS3_DEMUXER",
+    "AVS3_MUXER"
+  ],
+  "baseHelpers": []
+}

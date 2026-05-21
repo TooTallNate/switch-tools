@@ -1,0 +1,26 @@
+{
+  "slug": "smjpeg",
+  "description": "SMJPEG demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "smjpeg_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_smjpeg_demuxer"
+    },
+    {
+      "thing": "smjpeg_muxer",
+      "kind": "muxer",
+      "symbol": "ff_smjpeg_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/smjpeg.o",
+    "libavformat/smjpegdec.o",
+    "libavformat/smjpegenc.o"
+  ],
+  "configFlags": [
+    "SMJPEG_DEMUXER",
+    "SMJPEG_MUXER"
+  ],
+  "baseHelpers": []
+}

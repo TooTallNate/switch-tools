@@ -1,0 +1,27 @@
+{
+  "slug": "sox",
+  "description": "SOX demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "sox_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_sox_demuxer"
+    },
+    {
+      "thing": "sox_muxer",
+      "kind": "muxer",
+      "symbol": "ff_sox_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcm.o",
+    "libavformat/rawenc.o",
+    "libavformat/soxdec.o",
+    "libavformat/soxenc.o"
+  ],
+  "configFlags": [
+    "SOX_DEMUXER",
+    "SOX_MUXER"
+  ],
+  "baseHelpers": []
+}

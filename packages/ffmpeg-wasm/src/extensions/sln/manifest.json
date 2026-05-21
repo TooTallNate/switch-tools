@@ -1,0 +1,19 @@
+{
+  "slug": "sln",
+  "description": "SLN demuxer.",
+  "entries": [
+    {
+      "thing": "sln_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_sln_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcm.o",
+    "libavformat/pcmdec.o"
+  ],
+  "configFlags": [
+    "SLN_DEMUXER"
+  ],
+  "baseHelpers": []
+}

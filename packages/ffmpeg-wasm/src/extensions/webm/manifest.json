@@ -1,0 +1,21 @@
+{
+  "slug": "webm",
+  "description": "WEBM muxer.",
+  "entries": [
+    {
+      "thing": "webm_muxer",
+      "kind": "muxer",
+      "symbol": "ff_webm_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/av1.o",
+    "libavformat/avlanguage.o",
+    "libavformat/matroska.o",
+    "libavformat/matroskaenc.o"
+  ],
+  "configFlags": [
+    "WEBM_MUXER"
+  ],
+  "baseHelpers": []
+}

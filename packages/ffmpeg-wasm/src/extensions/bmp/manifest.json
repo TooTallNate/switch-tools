@@ -1,0 +1,26 @@
+{
+  "slug": "bmp",
+  "description": "BMP decoder, encoder.",
+  "entries": [
+    {
+      "thing": "bmp_decoder",
+      "kind": "decoder",
+      "symbol": "ff_bmp_decoder"
+    },
+    {
+      "thing": "bmp_encoder",
+      "kind": "encoder",
+      "symbol": "ff_bmp_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/bmp.o",
+    "libavcodec/bmpenc.o",
+    "libavcodec/msrledec.o"
+  ],
+  "configFlags": [
+    "BMP_DECODER",
+    "BMP_ENCODER"
+  ],
+  "baseHelpers": []
+}

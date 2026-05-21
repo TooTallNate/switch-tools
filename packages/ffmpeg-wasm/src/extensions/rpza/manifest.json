@@ -1,0 +1,25 @@
+{
+  "slug": "rpza",
+  "description": "RPZA decoder, encoder.",
+  "entries": [
+    {
+      "thing": "rpza_decoder",
+      "kind": "decoder",
+      "symbol": "ff_rpza_decoder"
+    },
+    {
+      "thing": "rpza_encoder",
+      "kind": "encoder",
+      "symbol": "ff_rpza_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/rpza.o",
+    "libavcodec/rpzaenc.o"
+  ],
+  "configFlags": [
+    "RPZA_DECODER",
+    "RPZA_ENCODER"
+  ],
+  "baseHelpers": []
+}

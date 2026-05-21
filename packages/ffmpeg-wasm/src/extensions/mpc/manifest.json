@@ -1,0 +1,20 @@
+{
+  "slug": "mpc",
+  "description": "MPC demuxer.",
+  "entries": [
+    {
+      "thing": "mpc_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mpc_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/apetag.o",
+    "libavformat/img2.o",
+    "libavformat/mpc.o"
+  ],
+  "configFlags": [
+    "MPC_DEMUXER"
+  ],
+  "baseHelpers": []
+}

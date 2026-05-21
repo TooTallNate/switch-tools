@@ -1,0 +1,18 @@
+{
+  "slug": "boa",
+  "description": "BOA demuxer.",
+  "entries": [
+    {
+      "thing": "boa_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_boa_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/boadec.o"
+  ],
+  "configFlags": [
+    "BOA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

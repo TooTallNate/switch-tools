@@ -1,0 +1,25 @@
+{
+  "slug": "dv",
+  "description": "DV demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "dv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dv_demuxer"
+    },
+    {
+      "thing": "dv_muxer",
+      "kind": "muxer",
+      "symbol": "ff_dv_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/dv.o",
+    "libavformat/dvenc.o"
+  ],
+  "configFlags": [
+    "DV_DEMUXER",
+    "DV_MUXER"
+  ],
+  "baseHelpers": []
+}

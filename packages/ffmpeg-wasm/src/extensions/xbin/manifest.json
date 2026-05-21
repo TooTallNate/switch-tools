@@ -1,0 +1,27 @@
+{
+  "slug": "xbin",
+  "description": "XBIN decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "xbin_decoder",
+      "kind": "decoder",
+      "symbol": "ff_xbin_decoder"
+    },
+    {
+      "thing": "xbin_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_xbin_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/bintext.o",
+    "libavcodec/cga_data.o",
+    "libavformat/bintext.o",
+    "libavformat/sauce.o"
+  ],
+  "configFlags": [
+    "XBIN_DECODER",
+    "XBIN_DEMUXER"
+  ],
+  "baseHelpers": []
+}

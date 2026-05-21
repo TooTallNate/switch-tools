@@ -1,0 +1,31 @@
+{
+  "slug": "ape",
+  "description": "APE decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "ape_decoder",
+      "kind": "decoder",
+      "symbol": "ff_ape_decoder"
+    },
+    {
+      "thing": "ape_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ape_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/apedec.o",
+    "libavcodec/lossless_audiodsp.o",
+    "libavformat/ape.o",
+    "libavformat/apetag.o",
+    "libavformat/img2.o"
+  ],
+  "configFlags": [
+    "APE_DECODER",
+    "APE_DEMUXER",
+    "LLAUDDSP"
+  ],
+  "baseHelpers": [
+    "bswapdsp"
+  ]
+}

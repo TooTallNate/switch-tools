@@ -1,0 +1,26 @@
+{
+  "slug": "m4v",
+  "description": "M4V demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "m4v_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_m4v_demuxer"
+    },
+    {
+      "thing": "m4v_muxer",
+      "kind": "muxer",
+      "symbol": "ff_m4v_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/m4vdec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "M4V_DEMUXER",
+    "M4V_MUXER"
+  ],
+  "baseHelpers": []
+}

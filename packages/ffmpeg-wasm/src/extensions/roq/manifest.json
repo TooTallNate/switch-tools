@@ -1,0 +1,42 @@
+{
+  "slug": "roq",
+  "description": "ROQ decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "roq_decoder",
+      "kind": "decoder",
+      "symbol": "ff_roq_decoder"
+    },
+    {
+      "thing": "roq_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_roq_demuxer"
+    },
+    {
+      "thing": "roq_encoder",
+      "kind": "encoder",
+      "symbol": "ff_roq_encoder"
+    },
+    {
+      "thing": "roq_muxer",
+      "kind": "muxer",
+      "symbol": "ff_roq_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/elbg.o",
+    "libavcodec/roqvideo.o",
+    "libavcodec/roqvideodec.o",
+    "libavcodec/roqvideoenc.o",
+    "libavformat/idroqdec.o",
+    "libavformat/idroqenc.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "ROQ_DECODER",
+    "ROQ_DEMUXER",
+    "ROQ_ENCODER",
+    "ROQ_MUXER"
+  ],
+  "baseHelpers": []
+}

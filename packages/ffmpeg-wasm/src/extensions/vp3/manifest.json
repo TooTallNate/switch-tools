@@ -1,0 +1,22 @@
+{
+  "slug": "vp3",
+  "description": "VP3 decoder.",
+  "entries": [
+    {
+      "thing": "vp3_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vp3_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/vp3.o"
+  ],
+  "configFlags": [
+    "VP3_DECODER"
+  ],
+  "baseHelpers": [
+    "hpeldsp",
+    "videodsp",
+    "vp3dsp"
+  ]
+}

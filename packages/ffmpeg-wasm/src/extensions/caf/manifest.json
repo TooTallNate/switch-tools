@@ -1,0 +1,30 @@
+{
+  "slug": "caf",
+  "description": "CAF demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "caf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_caf_demuxer"
+    },
+    {
+      "thing": "caf_muxer",
+      "kind": "muxer",
+      "symbol": "ff_caf_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/caf.o",
+    "libavformat/cafdec.o",
+    "libavformat/cafenc.o",
+    "libavformat/mov_chan.o",
+    "libavformat/mov_esds.o"
+  ],
+  "configFlags": [
+    "CAF_DEMUXER",
+    "CAF_MUXER"
+  ],
+  "baseHelpers": [
+    "iso_media"
+  ]
+}

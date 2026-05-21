@@ -1,0 +1,25 @@
+{
+  "slug": "yuv4mpegpipe",
+  "description": "YUV4MPEGPIPE demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "yuv4mpegpipe_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_yuv4mpegpipe_demuxer"
+    },
+    {
+      "thing": "yuv4mpegpipe_muxer",
+      "kind": "muxer",
+      "symbol": "ff_yuv4mpegpipe_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/yuv4mpegdec.o",
+    "libavformat/yuv4mpegenc.o"
+  ],
+  "configFlags": [
+    "YUV4MPEGPIPE_DEMUXER",
+    "YUV4MPEGPIPE_MUXER"
+  ],
+  "baseHelpers": []
+}

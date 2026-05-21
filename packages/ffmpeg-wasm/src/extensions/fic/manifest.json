@@ -1,0 +1,20 @@
+{
+  "slug": "fic",
+  "description": "FIC decoder.",
+  "entries": [
+    {
+      "thing": "fic_decoder",
+      "kind": "decoder",
+      "symbol": "ff_fic_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/fic.o",
+    "libavcodec/golomb.o"
+  ],
+  "configFlags": [
+    "FIC_DECODER",
+    "GOLOMB"
+  ],
+  "baseHelpers": []
+}

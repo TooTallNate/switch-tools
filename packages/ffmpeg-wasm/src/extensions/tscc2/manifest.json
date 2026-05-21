@@ -1,0 +1,18 @@
+{
+  "slug": "tscc2",
+  "description": "TSCC2 decoder.",
+  "entries": [
+    {
+      "thing": "tscc2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_tscc2_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/tscc2.o"
+  ],
+  "configFlags": [
+    "TSCC2_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "vag",
+  "description": "VAG demuxer.",
+  "entries": [
+    {
+      "thing": "vag_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_vag_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/vag.o"
+  ],
+  "configFlags": [
+    "VAG_DEMUXER"
+  ],
+  "baseHelpers": []
+}

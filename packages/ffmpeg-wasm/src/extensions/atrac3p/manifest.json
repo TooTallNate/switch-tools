@@ -1,0 +1,24 @@
+{
+  "slug": "atrac3p",
+  "description": "ATRAC3P decoder.",
+  "entries": [
+    {
+      "thing": "atrac3p_decoder",
+      "kind": "decoder",
+      "symbol": "ff_atrac3p_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/atrac.o",
+    "libavcodec/atrac3plus.o",
+    "libavcodec/atrac3plusdec.o",
+    "libavcodec/atrac3plusdsp.o"
+  ],
+  "configFlags": [
+    "ATRAC3P_DECODER"
+  ],
+  "baseHelpers": [
+    "mdct",
+    "sinewin"
+  ]
+}

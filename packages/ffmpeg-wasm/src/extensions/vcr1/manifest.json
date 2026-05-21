@@ -1,0 +1,18 @@
+{
+  "slug": "vcr1",
+  "description": "VCR1 decoder.",
+  "entries": [
+    {
+      "thing": "vcr1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vcr1_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/vcr1.o"
+  ],
+  "configFlags": [
+    "VCR1_DECODER"
+  ],
+  "baseHelpers": []
+}

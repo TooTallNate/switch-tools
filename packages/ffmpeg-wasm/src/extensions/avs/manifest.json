@@ -1,0 +1,27 @@
+{
+  "slug": "avs",
+  "description": "AVS decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "avs_decoder",
+      "kind": "decoder",
+      "symbol": "ff_avs_decoder"
+    },
+    {
+      "thing": "avs_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_avs_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/avs.o",
+    "libavformat/avs.o",
+    "libavformat/voc_packet.o",
+    "libavformat/voc.o"
+  ],
+  "configFlags": [
+    "AVS_DECODER",
+    "AVS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

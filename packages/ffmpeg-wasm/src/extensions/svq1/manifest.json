@@ -1,0 +1,33 @@
+{
+  "slug": "svq1",
+  "description": "SVQ1 decoder, encoder.",
+  "entries": [
+    {
+      "thing": "svq1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_svq1_decoder"
+    },
+    {
+      "thing": "svq1_encoder",
+      "kind": "encoder",
+      "symbol": "ff_svq1_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/h263.o",
+    "libavcodec/h263data.o",
+    "libavcodec/ituh263enc.o",
+    "libavcodec/svq1.o",
+    "libavcodec/svq1dec.o",
+    "libavcodec/svq1enc.o"
+  ],
+  "configFlags": [
+    "SVQ1_DECODER",
+    "SVQ1_ENCODER"
+  ],
+  "baseHelpers": [
+    "hpeldsp",
+    "me_cmp",
+    "mpegvideoenc"
+  ]
+}

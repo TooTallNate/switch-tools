@@ -1,0 +1,21 @@
+{
+  "slug": "hq-hqa",
+  "description": "HQ HQA decoder.",
+  "entries": [
+    {
+      "thing": "hq_hqa_decoder",
+      "kind": "decoder",
+      "symbol": "ff_hq_hqa_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/canopus.o",
+    "libavcodec/hq_hqa.o",
+    "libavcodec/hq_hqadata.o",
+    "libavcodec/hq_hqadsp.o"
+  ],
+  "configFlags": [
+    "HQ_HQA_DECODER"
+  ],
+  "baseHelpers": []
+}

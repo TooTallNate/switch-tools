@@ -1,0 +1,416 @@
+{
+  "slug": "subtitle",
+  "description": "SUBTITLE family (20 decoders, 10 encoders, 19 demuxers, 9 muxers).",
+  "entries": [
+    {
+      "thing": "aqtitle_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_aqtitle_demuxer"
+    },
+    {
+      "thing": "ass_decoder",
+      "kind": "decoder",
+      "symbol": "ff_ass_decoder"
+    },
+    {
+      "thing": "ass_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ass_demuxer"
+    },
+    {
+      "thing": "ass_encoder",
+      "kind": "encoder",
+      "symbol": "ff_ass_encoder"
+    },
+    {
+      "thing": "ass_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ass_muxer"
+    },
+    {
+      "thing": "dvbsub_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dvbsub_decoder"
+    },
+    {
+      "thing": "dvbsub_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dvbsub_demuxer"
+    },
+    {
+      "thing": "dvbsub_encoder",
+      "kind": "encoder",
+      "symbol": "ff_dvbsub_encoder"
+    },
+    {
+      "thing": "dvdsub_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dvdsub_decoder"
+    },
+    {
+      "thing": "dvdsub_encoder",
+      "kind": "encoder",
+      "symbol": "ff_dvdsub_encoder"
+    },
+    {
+      "thing": "jacosub_decoder",
+      "kind": "decoder",
+      "symbol": "ff_jacosub_decoder"
+    },
+    {
+      "thing": "jacosub_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_jacosub_demuxer"
+    },
+    {
+      "thing": "jacosub_muxer",
+      "kind": "muxer",
+      "symbol": "ff_jacosub_muxer"
+    },
+    {
+      "thing": "lrc_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_lrc_demuxer"
+    },
+    {
+      "thing": "lrc_muxer",
+      "kind": "muxer",
+      "symbol": "ff_lrc_muxer"
+    },
+    {
+      "thing": "mcc_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mcc_demuxer"
+    },
+    {
+      "thing": "microdvd_decoder",
+      "kind": "decoder",
+      "symbol": "ff_microdvd_decoder"
+    },
+    {
+      "thing": "microdvd_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_microdvd_demuxer"
+    },
+    {
+      "thing": "microdvd_muxer",
+      "kind": "muxer",
+      "symbol": "ff_microdvd_muxer"
+    },
+    {
+      "thing": "mpl2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mpl2_decoder"
+    },
+    {
+      "thing": "mpl2_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mpl2_demuxer"
+    },
+    {
+      "thing": "pgssub_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pgssub_decoder"
+    },
+    {
+      "thing": "pjs_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pjs_decoder"
+    },
+    {
+      "thing": "pjs_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_pjs_demuxer"
+    },
+    {
+      "thing": "realtext_decoder",
+      "kind": "decoder",
+      "symbol": "ff_realtext_decoder"
+    },
+    {
+      "thing": "realtext_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_realtext_demuxer"
+    },
+    {
+      "thing": "sami_decoder",
+      "kind": "decoder",
+      "symbol": "ff_sami_decoder"
+    },
+    {
+      "thing": "sami_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_sami_demuxer"
+    },
+    {
+      "thing": "scc_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_scc_demuxer"
+    },
+    {
+      "thing": "scc_muxer",
+      "kind": "muxer",
+      "symbol": "ff_scc_muxer"
+    },
+    {
+      "thing": "srt_decoder",
+      "kind": "decoder",
+      "symbol": "ff_srt_decoder"
+    },
+    {
+      "thing": "srt_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_srt_demuxer"
+    },
+    {
+      "thing": "srt_encoder",
+      "kind": "encoder",
+      "symbol": "ff_srt_encoder"
+    },
+    {
+      "thing": "srt_muxer",
+      "kind": "muxer",
+      "symbol": "ff_srt_muxer"
+    },
+    {
+      "thing": "ssa_decoder",
+      "kind": "decoder",
+      "symbol": "ff_ssa_decoder"
+    },
+    {
+      "thing": "ssa_encoder",
+      "kind": "encoder",
+      "symbol": "ff_ssa_encoder"
+    },
+    {
+      "thing": "stl_decoder",
+      "kind": "decoder",
+      "symbol": "ff_stl_decoder"
+    },
+    {
+      "thing": "stl_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_stl_demuxer"
+    },
+    {
+      "thing": "subrip_decoder",
+      "kind": "decoder",
+      "symbol": "ff_subrip_decoder"
+    },
+    {
+      "thing": "subrip_encoder",
+      "kind": "encoder",
+      "symbol": "ff_subrip_encoder"
+    },
+    {
+      "thing": "subviewer_decoder",
+      "kind": "decoder",
+      "symbol": "ff_subviewer_decoder"
+    },
+    {
+      "thing": "subviewer_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_subviewer_demuxer"
+    },
+    {
+      "thing": "subviewer1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_subviewer1_decoder"
+    },
+    {
+      "thing": "subviewer1_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_subviewer1_demuxer"
+    },
+    {
+      "thing": "sup_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_sup_demuxer"
+    },
+    {
+      "thing": "sup_muxer",
+      "kind": "muxer",
+      "symbol": "ff_sup_muxer"
+    },
+    {
+      "thing": "text_decoder",
+      "kind": "decoder",
+      "symbol": "ff_text_decoder"
+    },
+    {
+      "thing": "text_encoder",
+      "kind": "encoder",
+      "symbol": "ff_text_encoder"
+    },
+    {
+      "thing": "ttml_encoder",
+      "kind": "encoder",
+      "symbol": "ff_ttml_encoder"
+    },
+    {
+      "thing": "ttml_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ttml_muxer"
+    },
+    {
+      "thing": "vplayer_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vplayer_decoder"
+    },
+    {
+      "thing": "vplayer_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_vplayer_demuxer"
+    },
+    {
+      "thing": "webvtt_decoder",
+      "kind": "decoder",
+      "symbol": "ff_webvtt_decoder"
+    },
+    {
+      "thing": "webvtt_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_webvtt_demuxer"
+    },
+    {
+      "thing": "webvtt_encoder",
+      "kind": "encoder",
+      "symbol": "ff_webvtt_encoder"
+    },
+    {
+      "thing": "webvtt_muxer",
+      "kind": "muxer",
+      "symbol": "ff_webvtt_muxer"
+    },
+    {
+      "thing": "xsub_decoder",
+      "kind": "decoder",
+      "symbol": "ff_xsub_decoder"
+    },
+    {
+      "thing": "xsub_encoder",
+      "kind": "encoder",
+      "symbol": "ff_xsub_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ass_split.o",
+    "libavcodec/ass.o",
+    "libavcodec/assdec.o",
+    "libavcodec/assenc.o",
+    "libavcodec/dvbsubdec.o",
+    "libavcodec/dvbsubenc.o",
+    "libavcodec/dvdsub.o",
+    "libavcodec/dvdsubdec.o",
+    "libavcodec/dvdsubenc.o",
+    "libavcodec/htmlsubtitles.o",
+    "libavcodec/jacosubdec.o",
+    "libavcodec/microdvddec.o",
+    "libavcodec/mpl2dec.o",
+    "libavcodec/pgssubdec.o",
+    "libavcodec/realtextdec.o",
+    "libavcodec/samidec.o",
+    "libavcodec/srtdec.o",
+    "libavcodec/srtenc.o",
+    "libavcodec/subviewerdec.o",
+    "libavcodec/textdec.o",
+    "libavcodec/ttmlenc.o",
+    "libavcodec/webvttdec.o",
+    "libavcodec/webvttenc.o",
+    "libavcodec/xsubdec.o",
+    "libavcodec/xsubenc.o",
+    "libavformat/aqtitledec.o",
+    "libavformat/assdec.o",
+    "libavformat/assenc.o",
+    "libavformat/dvbsub.o",
+    "libavformat/jacosubdec.o",
+    "libavformat/jacosubenc.o",
+    "libavformat/lrc.o",
+    "libavformat/lrcdec.o",
+    "libavformat/lrcenc.o",
+    "libavformat/mccdec.o",
+    "libavformat/microdvddec.o",
+    "libavformat/microdvdenc.o",
+    "libavformat/mpl2dec.o",
+    "libavformat/pjsdec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o",
+    "libavformat/realtextdec.o",
+    "libavformat/samidec.o",
+    "libavformat/sccdec.o",
+    "libavformat/sccenc.o",
+    "libavformat/srtdec.o",
+    "libavformat/srtenc.o",
+    "libavformat/stldec.o",
+    "libavformat/subtitles.o",
+    "libavformat/subviewer1dec.o",
+    "libavformat/subviewerdec.o",
+    "libavformat/supdec.o",
+    "libavformat/supenc.o",
+    "libavformat/ttmlenc.o",
+    "libavformat/vplayerdec.o",
+    "libavformat/webvttdec.o",
+    "libavformat/webvttenc.o"
+  ],
+  "configFlags": [
+    "AQTITLE_DEMUXER",
+    "ASS_DECODER",
+    "ASS_DEMUXER",
+    "ASS_ENCODER",
+    "ASS_MUXER",
+    "DVBSUB_DECODER",
+    "DVBSUB_DEMUXER",
+    "DVBSUB_ENCODER",
+    "DVDSUB_DECODER",
+    "DVDSUB_ENCODER",
+    "JACOSUB_DECODER",
+    "JACOSUB_DEMUXER",
+    "JACOSUB_MUXER",
+    "LRC_DEMUXER",
+    "LRC_MUXER",
+    "MCC_DEMUXER",
+    "MICRODVD_DECODER",
+    "MICRODVD_DEMUXER",
+    "MICRODVD_MUXER",
+    "MPL2_DECODER",
+    "MPL2_DEMUXER",
+    "PGSSUB_DECODER",
+    "PJS_DECODER",
+    "PJS_DEMUXER",
+    "REALTEXT_DECODER",
+    "REALTEXT_DEMUXER",
+    "SAMI_DECODER",
+    "SAMI_DEMUXER",
+    "SCC_DEMUXER",
+    "SCC_MUXER",
+    "SRT_DECODER",
+    "SRT_DEMUXER",
+    "SRT_ENCODER",
+    "SRT_MUXER",
+    "SSA_DECODER",
+    "SSA_ENCODER",
+    "STL_DECODER",
+    "STL_DEMUXER",
+    "SUBRIP_DECODER",
+    "SUBRIP_ENCODER",
+    "SUBVIEWER1_DECODER",
+    "SUBVIEWER1_DEMUXER",
+    "SUBVIEWER_DECODER",
+    "SUBVIEWER_DEMUXER",
+    "SUP_DEMUXER",
+    "SUP_MUXER",
+    "TEXT_DECODER",
+    "TEXT_ENCODER",
+    "TTML_ENCODER",
+    "TTML_MUXER",
+    "VPLAYER_DECODER",
+    "VPLAYER_DEMUXER",
+    "WEBVTT_DECODER",
+    "WEBVTT_DEMUXER",
+    "WEBVTT_ENCODER",
+    "WEBVTT_MUXER",
+    "XSUB_DECODER",
+    "XSUB_ENCODER"
+  ],
+  "baseHelpers": []
+}

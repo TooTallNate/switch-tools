@@ -1,0 +1,25 @@
+{
+  "slug": "flic",
+  "description": "FLIC decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "flic_decoder",
+      "kind": "decoder",
+      "symbol": "ff_flic_decoder"
+    },
+    {
+      "thing": "flic_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_flic_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/flicvideo.o",
+    "libavformat/flic.o"
+  ],
+  "configFlags": [
+    "FLIC_DECODER",
+    "FLIC_DEMUXER"
+  ],
+  "baseHelpers": []
+}

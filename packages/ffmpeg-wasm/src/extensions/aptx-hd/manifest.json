@@ -1,0 +1,42 @@
+{
+  "slug": "aptx-hd",
+  "description": "APTX HD decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "aptx_hd_decoder",
+      "kind": "decoder",
+      "symbol": "ff_aptx_hd_decoder"
+    },
+    {
+      "thing": "aptx_hd_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_aptx_hd_demuxer"
+    },
+    {
+      "thing": "aptx_hd_encoder",
+      "kind": "encoder",
+      "symbol": "ff_aptx_hd_encoder"
+    },
+    {
+      "thing": "aptx_hd_muxer",
+      "kind": "muxer",
+      "symbol": "ff_aptx_hd_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/aptx.o",
+    "libavcodec/aptxdec.o",
+    "libavcodec/aptxenc.o",
+    "libavformat/aptxdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "APTX_HD_DECODER",
+    "APTX_HD_DEMUXER",
+    "APTX_HD_ENCODER",
+    "APTX_HD_MUXER"
+  ],
+  "baseHelpers": [
+    "audio_frame_queue"
+  ]
+}

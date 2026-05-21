@@ -1,0 +1,32 @@
+{
+  "slug": "v210",
+  "description": "V210 decoder, encoder, demuxer.",
+  "entries": [
+    {
+      "thing": "v210_decoder",
+      "kind": "decoder",
+      "symbol": "ff_v210_decoder"
+    },
+    {
+      "thing": "v210_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_v210_demuxer"
+    },
+    {
+      "thing": "v210_encoder",
+      "kind": "encoder",
+      "symbol": "ff_v210_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/v210dec.o",
+    "libavcodec/v210enc.o",
+    "libavformat/rawvideodec.o"
+  ],
+  "configFlags": [
+    "V210_DECODER",
+    "V210_DEMUXER",
+    "V210_ENCODER"
+  ],
+  "baseHelpers": []
+}

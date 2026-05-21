@@ -1,0 +1,225 @@
+{
+  "slug": "wmv",
+  "description": "WMV family (10 decoders, 4 encoders, 5 demuxers, 3 muxers).",
+  "entries": [
+    {
+      "thing": "asf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_asf_demuxer"
+    },
+    {
+      "thing": "asf_muxer",
+      "kind": "muxer",
+      "symbol": "ff_asf_muxer"
+    },
+    {
+      "thing": "asf_o_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_asf_o_demuxer"
+    },
+    {
+      "thing": "vc1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vc1_decoder"
+    },
+    {
+      "thing": "vc1_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_vc1_demuxer"
+    },
+    {
+      "thing": "vc1_muxer",
+      "kind": "muxer",
+      "symbol": "ff_vc1_muxer"
+    },
+    {
+      "thing": "vc1t_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_vc1t_demuxer"
+    },
+    {
+      "thing": "vc1t_muxer",
+      "kind": "muxer",
+      "symbol": "ff_vc1t_muxer"
+    },
+    {
+      "thing": "wmalossless_decoder",
+      "kind": "decoder",
+      "symbol": "ff_wmalossless_decoder"
+    },
+    {
+      "thing": "wmapro_decoder",
+      "kind": "decoder",
+      "symbol": "ff_wmapro_decoder"
+    },
+    {
+      "thing": "wmav1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_wmav1_decoder"
+    },
+    {
+      "thing": "wmav1_encoder",
+      "kind": "encoder",
+      "symbol": "ff_wmav1_encoder"
+    },
+    {
+      "thing": "wmav2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_wmav2_decoder"
+    },
+    {
+      "thing": "wmav2_encoder",
+      "kind": "encoder",
+      "symbol": "ff_wmav2_encoder"
+    },
+    {
+      "thing": "wmavoice_decoder",
+      "kind": "decoder",
+      "symbol": "ff_wmavoice_decoder"
+    },
+    {
+      "thing": "wmv1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_wmv1_decoder"
+    },
+    {
+      "thing": "wmv1_encoder",
+      "kind": "encoder",
+      "symbol": "ff_wmv1_encoder"
+    },
+    {
+      "thing": "wmv2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_wmv2_decoder"
+    },
+    {
+      "thing": "wmv2_encoder",
+      "kind": "encoder",
+      "symbol": "ff_wmv2_encoder"
+    },
+    {
+      "thing": "xma1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_xma1_decoder"
+    },
+    {
+      "thing": "xma2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_xma2_decoder"
+    },
+    {
+      "thing": "xwma_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_xwma_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/aactab.o",
+    "libavcodec/acelp_filters.o",
+    "libavcodec/acelp_vectors.o",
+    "libavcodec/celp_filters.o",
+    "libavcodec/h263_parser.o",
+    "libavcodec/h263.o",
+    "libavcodec/h263data.o",
+    "libavcodec/h263dec.o",
+    "libavcodec/h263dsp.o",
+    "libavcodec/ituh263dec.o",
+    "libavcodec/ituh263enc.o",
+    "libavcodec/lossless_audiodsp.o",
+    "libavcodec/lsp.o",
+    "libavcodec/mpeg4video.o",
+    "libavcodec/mpeg4videodec.o",
+    "libavcodec/msmpeg4.o",
+    "libavcodec/msmpeg4data.o",
+    "libavcodec/msmpeg4dec.o",
+    "libavcodec/msmpeg4enc.o",
+    "libavcodec/startcode.o",
+    "libavcodec/vc1_block.o",
+    "libavcodec/vc1_loopfilter.o",
+    "libavcodec/vc1_mc.o",
+    "libavcodec/vc1_pred.o",
+    "libavcodec/vc1.o",
+    "libavcodec/vc1data.o",
+    "libavcodec/vc1dec.o",
+    "libavcodec/vc1dsp.o",
+    "libavcodec/wma_common.o",
+    "libavcodec/wma.o",
+    "libavcodec/wmadec.o",
+    "libavcodec/wmaenc.o",
+    "libavcodec/wmalosslessdec.o",
+    "libavcodec/wmaprodec.o",
+    "libavcodec/wmavoice.o",
+    "libavcodec/wmv2.o",
+    "libavcodec/wmv2data.o",
+    "libavcodec/wmv2dec.o",
+    "libavcodec/wmv2dsp.o",
+    "libavcodec/wmv2enc.o",
+    "libavformat/asf_tags.o",
+    "libavformat/asf.o",
+    "libavformat/asfcrypt.o",
+    "libavformat/asfdec_f.o",
+    "libavformat/asfdec_o.o",
+    "libavformat/asfenc.o",
+    "libavformat/avlanguage.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o",
+    "libavformat/riffdec.o",
+    "libavformat/riffenc.o",
+    "libavformat/vc1dec.o",
+    "libavformat/vc1test.o",
+    "libavformat/vc1testenc.o",
+    "libavformat/xwma.o"
+  ],
+  "configFlags": [
+    "ASF_DEMUXER",
+    "ASF_MUXER",
+    "ASF_O_DEMUXER",
+    "H263DSP",
+    "H263_DECODER",
+    "H263_ENCODER",
+    "H263_PARSER",
+    "LLAUDDSP",
+    "LSP",
+    "RIFFDEC",
+    "RIFFENC",
+    "STARTCODE",
+    "VC1DSP",
+    "VC1T_DEMUXER",
+    "VC1T_MUXER",
+    "VC1_DECODER",
+    "VC1_DEMUXER",
+    "VC1_MUXER",
+    "WMALOSSLESS_DECODER",
+    "WMAPRO_DECODER",
+    "WMAV1_DECODER",
+    "WMAV1_ENCODER",
+    "WMAV2_DECODER",
+    "WMAV2_ENCODER",
+    "WMAVOICE_DECODER",
+    "WMV1_DECODER",
+    "WMV1_ENCODER",
+    "WMV2_DECODER",
+    "WMV2_ENCODER",
+    "XMA1_DECODER",
+    "XMA2_DECODER",
+    "XWMA_DEMUXER"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "dct",
+    "error_resilience",
+    "h264chroma",
+    "h264qpel",
+    "idctdsp",
+    "intrax8",
+    "mdct",
+    "mpegvideodec",
+    "mpegvideoenc",
+    "qpeldsp",
+    "rdft",
+    "sinewin",
+    "videodsp",
+    "wma_freqs",
+    "wmv2dsp"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "slug": "jv",
+  "description": "JV decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "jv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_jv_decoder"
+    },
+    {
+      "thing": "jv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_jv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/jvdec.o",
+    "libavformat/jvdec.o"
+  ],
+  "configFlags": [
+    "JV_DECODER",
+    "JV_DEMUXER"
+  ],
+  "baseHelpers": [
+    "blockdsp"
+  ]
+}

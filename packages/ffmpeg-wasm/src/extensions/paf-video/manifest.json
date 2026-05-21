@@ -1,0 +1,18 @@
+{
+  "slug": "paf-video",
+  "description": "PAF VIDEO decoder.",
+  "entries": [
+    {
+      "thing": "paf_video_decoder",
+      "kind": "decoder",
+      "symbol": "ff_paf_video_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pafvideo.o"
+  ],
+  "configFlags": [
+    "PAF_VIDEO_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,25 @@
+{
+  "slug": "sga",
+  "description": "SGA decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "sga_decoder",
+      "kind": "decoder",
+      "symbol": "ff_sga_decoder"
+    },
+    {
+      "thing": "sga_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_sga_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/sga.o",
+    "libavformat/sga.o"
+  ],
+  "configFlags": [
+    "SGA_DECODER",
+    "SGA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

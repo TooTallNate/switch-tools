@@ -1,0 +1,19 @@
+{
+  "slug": "mss1",
+  "description": "MSS1 decoder.",
+  "entries": [
+    {
+      "thing": "mss1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mss1_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mss1.o",
+    "libavcodec/mss12.o"
+  ],
+  "configFlags": [
+    "MSS1_DECODER"
+  ],
+  "baseHelpers": []
+}

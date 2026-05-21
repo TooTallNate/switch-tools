@@ -1,0 +1,22 @@
+{
+  "slug": "mp2fixed",
+  "description": "MP2FIXED encoder.",
+  "entries": [
+    {
+      "thing": "mp2fixed_encoder",
+      "kind": "encoder",
+      "symbol": "ff_mp2fixed_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpegaudio.o",
+    "libavcodec/mpegaudiodata.o",
+    "libavcodec/mpegaudiodsp_data.o",
+    "libavcodec/mpegaudioenc_fixed.o",
+    "libavcodec/mpegaudiotabs.o"
+  ],
+  "configFlags": [
+    "MP2FIXED_ENCODER"
+  ],
+  "baseHelpers": []
+}

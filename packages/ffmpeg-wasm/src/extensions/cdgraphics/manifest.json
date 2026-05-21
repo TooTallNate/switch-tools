@@ -1,0 +1,18 @@
+{
+  "slug": "cdgraphics",
+  "description": "CDGRAPHICS decoder.",
+  "entries": [
+    {
+      "thing": "cdgraphics_decoder",
+      "kind": "decoder",
+      "symbol": "ff_cdgraphics_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/cdgraphics.o"
+  ],
+  "configFlags": [
+    "CDGRAPHICS_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "frm",
+  "description": "FRM demuxer.",
+  "entries": [
+    {
+      "thing": "frm_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_frm_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/frmdec.o"
+  ],
+  "configFlags": [
+    "FRM_DEMUXER"
+  ],
+  "baseHelpers": []
+}

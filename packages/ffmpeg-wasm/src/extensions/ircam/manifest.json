@@ -1,0 +1,28 @@
+{
+  "slug": "ircam",
+  "description": "IRCAM demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "ircam_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ircam_demuxer"
+    },
+    {
+      "thing": "ircam_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ircam_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ircam.o",
+    "libavformat/ircamdec.o",
+    "libavformat/ircamenc.o",
+    "libavformat/pcm.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "IRCAM_DEMUXER",
+    "IRCAM_MUXER"
+  ],
+  "baseHelpers": []
+}

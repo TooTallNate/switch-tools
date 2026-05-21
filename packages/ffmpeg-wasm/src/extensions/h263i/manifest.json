@@ -1,0 +1,32 @@
+{
+  "slug": "h263i",
+  "description": "H263I decoder.",
+  "entries": [
+    {
+      "thing": "h263i_decoder",
+      "kind": "decoder",
+      "symbol": "ff_h263i_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/h263_parser.o",
+    "libavcodec/h263.o",
+    "libavcodec/h263data.o",
+    "libavcodec/h263dec.o",
+    "libavcodec/h263dsp.o",
+    "libavcodec/intelh263dec.o",
+    "libavcodec/ituh263dec.o",
+    "libavcodec/mpeg4video.o",
+    "libavcodec/mpeg4videodec.o"
+  ],
+  "configFlags": [
+    "H263DSP",
+    "H263I_DECODER",
+    "H263_DECODER",
+    "H263_PARSER"
+  ],
+  "baseHelpers": [
+    "mpegvideodec",
+    "qpeldsp"
+  ]
+}

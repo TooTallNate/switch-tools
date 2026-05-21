@@ -1,0 +1,18 @@
+{
+  "slug": "aa",
+  "description": "AA demuxer.",
+  "entries": [
+    {
+      "thing": "aa_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_aa_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/aadec.o"
+  ],
+  "configFlags": [
+    "AA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

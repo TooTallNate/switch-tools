@@ -1,0 +1,18 @@
+{
+  "slug": "tiertexseq",
+  "description": "TIERTEXSEQ demuxer.",
+  "entries": [
+    {
+      "thing": "tiertexseq_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_tiertexseq_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/tiertexseq.o"
+  ],
+  "configFlags": [
+    "TIERTEXSEQ_DEMUXER"
+  ],
+  "baseHelpers": []
+}

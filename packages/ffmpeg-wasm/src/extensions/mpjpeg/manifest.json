@@ -1,0 +1,25 @@
+{
+  "slug": "mpjpeg",
+  "description": "MPJPEG demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "mpjpeg_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mpjpeg_demuxer"
+    },
+    {
+      "thing": "mpjpeg_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mpjpeg_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mpjpeg.o",
+    "libavformat/mpjpegdec.o"
+  ],
+  "configFlags": [
+    "MPJPEG_DEMUXER",
+    "MPJPEG_MUXER"
+  ],
+  "baseHelpers": []
+}

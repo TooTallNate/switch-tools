@@ -1,0 +1,27 @@
+{
+  "slug": "c93",
+  "description": "C93 decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "c93_decoder",
+      "kind": "decoder",
+      "symbol": "ff_c93_decoder"
+    },
+    {
+      "thing": "c93_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_c93_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/c93.o",
+    "libavformat/c93.o",
+    "libavformat/voc_packet.o",
+    "libavformat/voc.o"
+  ],
+  "configFlags": [
+    "C93_DECODER",
+    "C93_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,29 @@
+{
+  "slug": "spdif",
+  "description": "SPDIF demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "spdif_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_spdif_demuxer"
+    },
+    {
+      "thing": "spdif_muxer",
+      "kind": "muxer",
+      "symbol": "ff_spdif_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/adts_header.o",
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavformat/spdif.o",
+    "libavformat/spdifdec.o",
+    "libavformat/spdifenc.o"
+  ],
+  "configFlags": [
+    "ADTS_HEADER",
+    "SPDIF_DEMUXER",
+    "SPDIF_MUXER"
+  ],
+  "baseHelpers": []
+}

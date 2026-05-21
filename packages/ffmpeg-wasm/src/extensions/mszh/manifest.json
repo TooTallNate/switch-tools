@@ -1,0 +1,18 @@
+{
+  "slug": "mszh",
+  "description": "MSZH decoder.",
+  "entries": [
+    {
+      "thing": "mszh_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mszh_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/lcldec.o"
+  ],
+  "configFlags": [
+    "MSZH_DECODER"
+  ],
+  "baseHelpers": []
+}

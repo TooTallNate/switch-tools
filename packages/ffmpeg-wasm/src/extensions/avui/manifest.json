@@ -1,0 +1,25 @@
+{
+  "slug": "avui",
+  "description": "AVUI decoder, encoder.",
+  "entries": [
+    {
+      "thing": "avui_decoder",
+      "kind": "decoder",
+      "symbol": "ff_avui_decoder"
+    },
+    {
+      "thing": "avui_encoder",
+      "kind": "encoder",
+      "symbol": "ff_avui_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/avuidec.o",
+    "libavcodec/avuienc.o"
+  ],
+  "configFlags": [
+    "AVUI_DECODER",
+    "AVUI_ENCODER"
+  ],
+  "baseHelpers": []
+}

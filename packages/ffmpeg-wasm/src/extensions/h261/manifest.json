@@ -1,0 +1,45 @@
+{
+  "slug": "h261",
+  "description": "H261 decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "h261_decoder",
+      "kind": "decoder",
+      "symbol": "ff_h261_decoder"
+    },
+    {
+      "thing": "h261_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_h261_demuxer"
+    },
+    {
+      "thing": "h261_encoder",
+      "kind": "encoder",
+      "symbol": "ff_h261_encoder"
+    },
+    {
+      "thing": "h261_muxer",
+      "kind": "muxer",
+      "symbol": "ff_h261_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/h261.o",
+    "libavcodec/h261data.o",
+    "libavcodec/h261dec.o",
+    "libavcodec/h261enc.o",
+    "libavformat/h261dec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "H261_DECODER",
+    "H261_DEMUXER",
+    "H261_ENCODER",
+    "H261_MUXER"
+  ],
+  "baseHelpers": [
+    "mpegvideodec",
+    "mpegvideoenc"
+  ]
+}

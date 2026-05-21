@@ -1,0 +1,23 @@
+{
+  "slug": "qcelp",
+  "description": "QCELP decoder.",
+  "entries": [
+    {
+      "thing": "qcelp_decoder",
+      "kind": "decoder",
+      "symbol": "ff_qcelp_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/acelp_filters.o",
+    "libavcodec/acelp_vectors.o",
+    "libavcodec/celp_filters.o",
+    "libavcodec/lsp.o",
+    "libavcodec/qcelpdec.o"
+  ],
+  "configFlags": [
+    "LSP",
+    "QCELP_DECODER"
+  ],
+  "baseHelpers": []
+}

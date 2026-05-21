@@ -1,0 +1,419 @@
+{
+  "slug": "adpcm",
+  "description": "ADPCM family (51 decoders, 15 encoders).",
+  "entries": [
+    {
+      "thing": "adpcm_4xm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_4xm_decoder"
+    },
+    {
+      "thing": "adpcm_adx_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_adx_decoder"
+    },
+    {
+      "thing": "adpcm_adx_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_adx_encoder"
+    },
+    {
+      "thing": "adpcm_afc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_afc_decoder"
+    },
+    {
+      "thing": "adpcm_agm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_agm_decoder"
+    },
+    {
+      "thing": "adpcm_aica_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_aica_decoder"
+    },
+    {
+      "thing": "adpcm_argo_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_argo_decoder"
+    },
+    {
+      "thing": "adpcm_argo_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_argo_encoder"
+    },
+    {
+      "thing": "adpcm_ct_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ct_decoder"
+    },
+    {
+      "thing": "adpcm_dtk_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_dtk_decoder"
+    },
+    {
+      "thing": "adpcm_ea_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ea_decoder"
+    },
+    {
+      "thing": "adpcm_ea_maxis_xa_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ea_maxis_xa_decoder"
+    },
+    {
+      "thing": "adpcm_ea_r1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ea_r1_decoder"
+    },
+    {
+      "thing": "adpcm_ea_r2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ea_r2_decoder"
+    },
+    {
+      "thing": "adpcm_ea_r3_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ea_r3_decoder"
+    },
+    {
+      "thing": "adpcm_ea_xas_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ea_xas_decoder"
+    },
+    {
+      "thing": "adpcm_g722_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_g722_decoder"
+    },
+    {
+      "thing": "adpcm_g722_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_g722_encoder"
+    },
+    {
+      "thing": "adpcm_g726_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_g726_decoder"
+    },
+    {
+      "thing": "adpcm_g726_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_g726_encoder"
+    },
+    {
+      "thing": "adpcm_g726le_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_g726le_decoder"
+    },
+    {
+      "thing": "adpcm_g726le_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_g726le_encoder"
+    },
+    {
+      "thing": "adpcm_ima_acorn_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_acorn_decoder"
+    },
+    {
+      "thing": "adpcm_ima_alp_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_alp_decoder"
+    },
+    {
+      "thing": "adpcm_ima_alp_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_ima_alp_encoder"
+    },
+    {
+      "thing": "adpcm_ima_amv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_amv_decoder"
+    },
+    {
+      "thing": "adpcm_ima_amv_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_ima_amv_encoder"
+    },
+    {
+      "thing": "adpcm_ima_apc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_apc_decoder"
+    },
+    {
+      "thing": "adpcm_ima_apm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_apm_decoder"
+    },
+    {
+      "thing": "adpcm_ima_apm_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_ima_apm_encoder"
+    },
+    {
+      "thing": "adpcm_ima_cunning_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_cunning_decoder"
+    },
+    {
+      "thing": "adpcm_ima_dat4_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_dat4_decoder"
+    },
+    {
+      "thing": "adpcm_ima_dk3_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_dk3_decoder"
+    },
+    {
+      "thing": "adpcm_ima_dk4_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_dk4_decoder"
+    },
+    {
+      "thing": "adpcm_ima_ea_eacs_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_ea_eacs_decoder"
+    },
+    {
+      "thing": "adpcm_ima_ea_sead_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_ea_sead_decoder"
+    },
+    {
+      "thing": "adpcm_ima_iss_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_iss_decoder"
+    },
+    {
+      "thing": "adpcm_ima_moflex_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_moflex_decoder"
+    },
+    {
+      "thing": "adpcm_ima_mtf_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_mtf_decoder"
+    },
+    {
+      "thing": "adpcm_ima_oki_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_oki_decoder"
+    },
+    {
+      "thing": "adpcm_ima_qt_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_qt_decoder"
+    },
+    {
+      "thing": "adpcm_ima_qt_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_ima_qt_encoder"
+    },
+    {
+      "thing": "adpcm_ima_rad_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_rad_decoder"
+    },
+    {
+      "thing": "adpcm_ima_smjpeg_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_smjpeg_decoder"
+    },
+    {
+      "thing": "adpcm_ima_ssi_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_ssi_decoder"
+    },
+    {
+      "thing": "adpcm_ima_ssi_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_ima_ssi_encoder"
+    },
+    {
+      "thing": "adpcm_ima_wav_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_wav_decoder"
+    },
+    {
+      "thing": "adpcm_ima_wav_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_ima_wav_encoder"
+    },
+    {
+      "thing": "adpcm_ima_ws_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_ws_decoder"
+    },
+    {
+      "thing": "adpcm_ima_ws_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_ima_ws_encoder"
+    },
+    {
+      "thing": "adpcm_ms_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ms_decoder"
+    },
+    {
+      "thing": "adpcm_ms_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_ms_encoder"
+    },
+    {
+      "thing": "adpcm_mtaf_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_mtaf_decoder"
+    },
+    {
+      "thing": "adpcm_psx_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_psx_decoder"
+    },
+    {
+      "thing": "adpcm_sbpro_2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_sbpro_2_decoder"
+    },
+    {
+      "thing": "adpcm_sbpro_3_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_sbpro_3_decoder"
+    },
+    {
+      "thing": "adpcm_sbpro_4_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_sbpro_4_decoder"
+    },
+    {
+      "thing": "adpcm_swf_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_swf_decoder"
+    },
+    {
+      "thing": "adpcm_swf_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_swf_encoder"
+    },
+    {
+      "thing": "adpcm_thp_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_thp_decoder"
+    },
+    {
+      "thing": "adpcm_thp_le_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_thp_le_decoder"
+    },
+    {
+      "thing": "adpcm_vima_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_vima_decoder"
+    },
+    {
+      "thing": "adpcm_xa_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_xa_decoder"
+    },
+    {
+      "thing": "adpcm_yamaha_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_yamaha_decoder"
+    },
+    {
+      "thing": "adpcm_yamaha_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_yamaha_encoder"
+    },
+    {
+      "thing": "adpcm_zork_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_zork_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o",
+    "libavcodec/adpcmenc.o",
+    "libavcodec/adx.o",
+    "libavcodec/adxdec.o",
+    "libavcodec/adxenc.o",
+    "libavcodec/g722.o",
+    "libavcodec/g722dec.o",
+    "libavcodec/g722dsp.o",
+    "libavcodec/g722enc.o",
+    "libavcodec/g726.o",
+    "libavcodec/vima.o"
+  ],
+  "configFlags": [
+    "ADPCM_4XM_DECODER",
+    "ADPCM_ADX_DECODER",
+    "ADPCM_ADX_ENCODER",
+    "ADPCM_AFC_DECODER",
+    "ADPCM_AGM_DECODER",
+    "ADPCM_AICA_DECODER",
+    "ADPCM_ARGO_DECODER",
+    "ADPCM_ARGO_ENCODER",
+    "ADPCM_CT_DECODER",
+    "ADPCM_DTK_DECODER",
+    "ADPCM_EA_DECODER",
+    "ADPCM_EA_MAXIS_XA_DECODER",
+    "ADPCM_EA_R1_DECODER",
+    "ADPCM_EA_R2_DECODER",
+    "ADPCM_EA_R3_DECODER",
+    "ADPCM_EA_XAS_DECODER",
+    "ADPCM_G722_DECODER",
+    "ADPCM_G722_ENCODER",
+    "ADPCM_G726LE_DECODER",
+    "ADPCM_G726LE_ENCODER",
+    "ADPCM_G726_DECODER",
+    "ADPCM_G726_ENCODER",
+    "ADPCM_IMA_ACORN_DECODER",
+    "ADPCM_IMA_ALP_DECODER",
+    "ADPCM_IMA_ALP_ENCODER",
+    "ADPCM_IMA_AMV_DECODER",
+    "ADPCM_IMA_AMV_ENCODER",
+    "ADPCM_IMA_APC_DECODER",
+    "ADPCM_IMA_APM_DECODER",
+    "ADPCM_IMA_APM_ENCODER",
+    "ADPCM_IMA_CUNNING_DECODER",
+    "ADPCM_IMA_DAT4_DECODER",
+    "ADPCM_IMA_DK3_DECODER",
+    "ADPCM_IMA_DK4_DECODER",
+    "ADPCM_IMA_EA_EACS_DECODER",
+    "ADPCM_IMA_EA_SEAD_DECODER",
+    "ADPCM_IMA_ISS_DECODER",
+    "ADPCM_IMA_MOFLEX_DECODER",
+    "ADPCM_IMA_MTF_DECODER",
+    "ADPCM_IMA_OKI_DECODER",
+    "ADPCM_IMA_QT_DECODER",
+    "ADPCM_IMA_QT_ENCODER",
+    "ADPCM_IMA_RAD_DECODER",
+    "ADPCM_IMA_SMJPEG_DECODER",
+    "ADPCM_IMA_SSI_DECODER",
+    "ADPCM_IMA_SSI_ENCODER",
+    "ADPCM_IMA_WAV_DECODER",
+    "ADPCM_IMA_WAV_ENCODER",
+    "ADPCM_IMA_WS_DECODER",
+    "ADPCM_IMA_WS_ENCODER",
+    "ADPCM_MS_DECODER",
+    "ADPCM_MS_ENCODER",
+    "ADPCM_MTAF_DECODER",
+    "ADPCM_PSX_DECODER",
+    "ADPCM_SBPRO_2_DECODER",
+    "ADPCM_SBPRO_3_DECODER",
+    "ADPCM_SBPRO_4_DECODER",
+    "ADPCM_SWF_DECODER",
+    "ADPCM_SWF_ENCODER",
+    "ADPCM_THP_DECODER",
+    "ADPCM_THP_LE_DECODER",
+    "ADPCM_VIMA_DECODER",
+    "ADPCM_XA_DECODER",
+    "ADPCM_YAMAHA_DECODER",
+    "ADPCM_YAMAHA_ENCODER",
+    "ADPCM_ZORK_DECODER"
+  ],
+  "baseHelpers": []
+}

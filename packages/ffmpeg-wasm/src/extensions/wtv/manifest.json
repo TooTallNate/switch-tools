@@ -1,0 +1,59 @@
+{
+  "slug": "wtv",
+  "description": "WTV demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "wtv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_wtv_demuxer"
+    },
+    {
+      "thing": "wtv_muxer",
+      "kind": "muxer",
+      "symbol": "ff_wtv_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/aac_ac3_parser.o",
+    "libavcodec/aac_adtstoasc_bsf.o",
+    "libavcodec/ac3_channel_layout_tab.o",
+    "libavcodec/ac3tab.o",
+    "libavcodec/adts_header.o",
+    "libavcodec/h264_mp4toannexb_bsf.o",
+    "libavcodec/hevc_mp4toannexb_bsf.o",
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavformat/adtsenc.o",
+    "libavformat/apetag.o",
+    "libavformat/asf.o",
+    "libavformat/id3v2enc.o",
+    "libavformat/img2.o",
+    "libavformat/latmenc.o",
+    "libavformat/mpegts.o",
+    "libavformat/mpegtsenc.o",
+    "libavformat/rawenc.o",
+    "libavformat/riffdec.o",
+    "libavformat/riffenc.o",
+    "libavformat/wtv_common.o",
+    "libavformat/wtvdec.o",
+    "libavformat/wtvenc.o"
+  ],
+  "configFlags": [
+    "AAC_ADTSTOASC_BSF",
+    "AC3_PARSER",
+    "ADTS_HEADER",
+    "ADTS_MUXER",
+    "H264_MP4TOANNEXB_BSF",
+    "HEVC_MP4TOANNEXB_BSF",
+    "LATM_MUXER",
+    "MPEGTS_DEMUXER",
+    "MPEGTS_MUXER",
+    "RIFFDEC",
+    "RIFFENC",
+    "WTV_DEMUXER",
+    "WTV_MUXER"
+  ],
+  "baseHelpers": [
+    "iso_media",
+    "mpeg4audio"
+  ]
+}

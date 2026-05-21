@@ -1,0 +1,39 @@
+{
+  "slug": "mpeg2video",
+  "description": "MPEG2VIDEO decoder, encoder, muxer.",
+  "entries": [
+    {
+      "thing": "mpeg2video_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mpeg2video_decoder"
+    },
+    {
+      "thing": "mpeg2video_encoder",
+      "kind": "encoder",
+      "symbol": "ff_mpeg2video_encoder"
+    },
+    {
+      "thing": "mpeg2video_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mpeg2video_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/h263dsp.o",
+    "libavcodec/mpeg12.o",
+    "libavcodec/mpeg12data.o",
+    "libavcodec/mpeg12dec.o",
+    "libavcodec/mpeg12enc.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "H263DSP",
+    "MPEG2VIDEO_DECODER",
+    "MPEG2VIDEO_ENCODER",
+    "MPEG2VIDEO_MUXER"
+  ],
+  "baseHelpers": [
+    "mpegvideodec",
+    "mpegvideoenc"
+  ]
+}

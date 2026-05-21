@@ -1,0 +1,22 @@
+{
+  "slug": "fraps",
+  "description": "FRAPS decoder.",
+  "entries": [
+    {
+      "thing": "fraps_decoder",
+      "kind": "decoder",
+      "symbol": "ff_fraps_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/fraps.o",
+    "libavcodec/huffman.o"
+  ],
+  "configFlags": [
+    "FRAPS_DECODER",
+    "HUFFMAN"
+  ],
+  "baseHelpers": [
+    "bswapdsp"
+  ]
+}

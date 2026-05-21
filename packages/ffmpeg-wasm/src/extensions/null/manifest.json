@@ -1,0 +1,18 @@
+{
+  "slug": "null",
+  "description": "NULL muxer.",
+  "entries": [
+    {
+      "thing": "null_muxer",
+      "kind": "muxer",
+      "symbol": "ff_null_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/nullenc.o"
+  ],
+  "configFlags": [
+    "NULL_MUXER"
+  ],
+  "baseHelpers": []
+}

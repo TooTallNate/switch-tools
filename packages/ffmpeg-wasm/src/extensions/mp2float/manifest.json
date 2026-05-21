@@ -1,0 +1,20 @@
+{
+  "slug": "mp2float",
+  "description": "MP2FLOAT decoder.",
+  "entries": [
+    {
+      "thing": "mp2float_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mp2float_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpegaudiodec_float.o"
+  ],
+  "configFlags": [
+    "MP2FLOAT_DECODER"
+  ],
+  "baseHelpers": [
+    "mpegaudio"
+  ]
+}

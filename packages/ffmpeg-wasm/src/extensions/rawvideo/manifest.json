@@ -1,0 +1,41 @@
+{
+  "slug": "rawvideo",
+  "description": "RAWVIDEO decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "rawvideo_decoder",
+      "kind": "decoder",
+      "symbol": "ff_rawvideo_decoder"
+    },
+    {
+      "thing": "rawvideo_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_rawvideo_demuxer"
+    },
+    {
+      "thing": "rawvideo_encoder",
+      "kind": "encoder",
+      "symbol": "ff_rawvideo_encoder"
+    },
+    {
+      "thing": "rawvideo_muxer",
+      "kind": "muxer",
+      "symbol": "ff_rawvideo_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/rawdec.o",
+    "libavcodec/rawenc.o",
+    "libavformat/rawenc.o",
+    "libavformat/rawvideodec.o"
+  ],
+  "configFlags": [
+    "RAWVIDEO_DECODER",
+    "RAWVIDEO_DEMUXER",
+    "RAWVIDEO_ENCODER",
+    "RAWVIDEO_MUXER"
+  ],
+  "baseHelpers": [
+    "bswapdsp"
+  ]
+}

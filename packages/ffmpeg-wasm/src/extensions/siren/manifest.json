@@ -1,0 +1,18 @@
+{
+  "slug": "siren",
+  "description": "SIREN decoder.",
+  "entries": [
+    {
+      "thing": "siren_decoder",
+      "kind": "decoder",
+      "symbol": "ff_siren_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/siren.o"
+  ],
+  "configFlags": [
+    "SIREN_DECODER"
+  ],
+  "baseHelpers": []
+}

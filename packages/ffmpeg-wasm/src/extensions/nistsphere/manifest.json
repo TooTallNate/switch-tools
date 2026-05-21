@@ -1,0 +1,19 @@
+{
+  "slug": "nistsphere",
+  "description": "NISTSPHERE demuxer.",
+  "entries": [
+    {
+      "thing": "nistsphere_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_nistsphere_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/nistspheredec.o",
+    "libavformat/pcm.o"
+  ],
+  "configFlags": [
+    "NISTSPHERE_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,26 @@
+{
+  "slug": "sipr",
+  "description": "SIPR decoder.",
+  "entries": [
+    {
+      "thing": "sipr_decoder",
+      "kind": "decoder",
+      "symbol": "ff_sipr_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/acelp_filters.o",
+    "libavcodec/acelp_pitch_delay.o",
+    "libavcodec/acelp_vectors.o",
+    "libavcodec/celp_filters.o",
+    "libavcodec/celp_math.o",
+    "libavcodec/lsp.o",
+    "libavcodec/sipr.o",
+    "libavcodec/sipr16k.o"
+  ],
+  "configFlags": [
+    "LSP",
+    "SIPR_DECODER"
+  ],
+  "baseHelpers": []
+}

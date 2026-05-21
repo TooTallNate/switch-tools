@@ -1,0 +1,18 @@
+{
+  "slug": "svag",
+  "description": "SVAG demuxer.",
+  "entries": [
+    {
+      "thing": "svag_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_svag_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/svag.o"
+  ],
+  "configFlags": [
+    "SVAG_DEMUXER"
+  ],
+  "baseHelpers": []
+}

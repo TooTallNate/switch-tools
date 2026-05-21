@@ -1,0 +1,24 @@
+{
+  "slug": "bit",
+  "description": "BIT demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "bit_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_bit_demuxer"
+    },
+    {
+      "thing": "bit_muxer",
+      "kind": "muxer",
+      "symbol": "ff_bit_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/bit.o"
+  ],
+  "configFlags": [
+    "BIT_DEMUXER",
+    "BIT_MUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "smush",
+  "description": "SMUSH demuxer.",
+  "entries": [
+    {
+      "thing": "smush_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_smush_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/smush.o"
+  ],
+  "configFlags": [
+    "SMUSH_DEMUXER"
+  ],
+  "baseHelpers": []
+}

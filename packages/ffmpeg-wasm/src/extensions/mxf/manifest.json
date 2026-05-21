@@ -1,0 +1,30 @@
+{
+  "slug": "mxf",
+  "description": "MXF demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "mxf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mxf_demuxer"
+    },
+    {
+      "thing": "mxf_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mxf_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm_rechunk_bsf.o",
+    "libavformat/avc.o",
+    "libavformat/avlanguage.o",
+    "libavformat/mxf.o",
+    "libavformat/mxfdec.o",
+    "libavformat/mxfenc.o"
+  ],
+  "configFlags": [
+    "MXF_DEMUXER",
+    "MXF_MUXER",
+    "PCM_RECHUNK_BSF"
+  ],
+  "baseHelpers": []
+}

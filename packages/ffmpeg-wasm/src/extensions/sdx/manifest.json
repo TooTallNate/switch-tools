@@ -1,0 +1,19 @@
+{
+  "slug": "sdx",
+  "description": "SDX demuxer.",
+  "entries": [
+    {
+      "thing": "sdx_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_sdx_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcm.o",
+    "libavformat/sdxdec.o"
+  ],
+  "configFlags": [
+    "SDX_DEMUXER"
+  ],
+  "baseHelpers": []
+}

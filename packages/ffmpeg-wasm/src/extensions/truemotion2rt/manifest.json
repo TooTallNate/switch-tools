@@ -1,0 +1,18 @@
+{
+  "slug": "truemotion2rt",
+  "description": "TRUEMOTION2RT decoder.",
+  "entries": [
+    {
+      "thing": "truemotion2rt_decoder",
+      "kind": "decoder",
+      "symbol": "ff_truemotion2rt_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/truemotion2rt.o"
+  ],
+  "configFlags": [
+    "TRUEMOTION2RT_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "arbc",
+  "description": "ARBC decoder.",
+  "entries": [
+    {
+      "thing": "arbc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_arbc_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/arbc.o"
+  ],
+  "configFlags": [
+    "ARBC_DECODER"
+  ],
+  "baseHelpers": []
+}

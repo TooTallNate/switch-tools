@@ -1,0 +1,18 @@
+{
+  "slug": "cine",
+  "description": "CINE demuxer.",
+  "entries": [
+    {
+      "thing": "cine_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_cine_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/cinedec.o"
+  ],
+  "configFlags": [
+    "CINE_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,25 @@
+{
+  "slug": "simbiosis-imx",
+  "description": "SIMBIOSIS IMX decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "simbiosis_imx_decoder",
+      "kind": "decoder",
+      "symbol": "ff_simbiosis_imx_decoder"
+    },
+    {
+      "thing": "simbiosis_imx_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_simbiosis_imx_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/imx.o",
+    "libavformat/imx.o"
+  ],
+  "configFlags": [
+    "SIMBIOSIS_IMX_DECODER",
+    "SIMBIOSIS_IMX_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "ads",
+  "description": "ADS demuxer.",
+  "entries": [
+    {
+      "thing": "ads_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ads_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ads.o"
+  ],
+  "configFlags": [
+    "ADS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

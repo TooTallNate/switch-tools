@@ -1,0 +1,18 @@
+{
+  "slug": "cyuv",
+  "description": "CYUV decoder.",
+  "entries": [
+    {
+      "thing": "cyuv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_cyuv_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/cyuv.o"
+  ],
+  "configFlags": [
+    "CYUV_DECODER"
+  ],
+  "baseHelpers": []
+}

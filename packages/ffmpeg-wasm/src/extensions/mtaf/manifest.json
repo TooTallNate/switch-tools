@@ -1,0 +1,18 @@
+{
+  "slug": "mtaf",
+  "description": "MTAF demuxer.",
+  "entries": [
+    {
+      "thing": "mtaf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mtaf_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mtaf.o"
+  ],
+  "configFlags": [
+    "MTAF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

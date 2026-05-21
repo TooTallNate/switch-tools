@@ -1,0 +1,18 @@
+{
+  "slug": "bmv",
+  "description": "BMV demuxer.",
+  "entries": [
+    {
+      "thing": "bmv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_bmv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/bmv.o"
+  ],
+  "configFlags": [
+    "BMV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

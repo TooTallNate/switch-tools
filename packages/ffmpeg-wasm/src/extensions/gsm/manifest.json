@@ -1,0 +1,34 @@
+{
+  "slug": "gsm",
+  "description": "GSM decoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "gsm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_gsm_decoder"
+    },
+    {
+      "thing": "gsm_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_gsm_demuxer"
+    },
+    {
+      "thing": "gsm_muxer",
+      "kind": "muxer",
+      "symbol": "ff_gsm_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/gsmdec_data.o",
+    "libavcodec/gsmdec.o",
+    "libavcodec/msgsmdec.o",
+    "libavformat/gsmdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "GSM_DECODER",
+    "GSM_DEMUXER",
+    "GSM_MUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,25 @@
+{
+  "slug": "bfi",
+  "description": "BFI decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "bfi_decoder",
+      "kind": "decoder",
+      "symbol": "ff_bfi_decoder"
+    },
+    {
+      "thing": "bfi_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_bfi_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/bfi.o",
+    "libavformat/bfi.o"
+  ],
+  "configFlags": [
+    "BFI_DECODER",
+    "BFI_DEMUXER"
+  ],
+  "baseHelpers": []
+}

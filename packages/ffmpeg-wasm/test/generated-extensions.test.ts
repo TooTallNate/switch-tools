@@ -24,23 +24,41 @@ const baseWasm = readFileSync(pathResolve(pkgRoot, "src/ffmpeg.wasm"))
 
 interface ExtCase {
 	slug: string
-	/** Decoder/encoder name the extension is expected to register. */
-	codecName?: string
-	/** Demuxer name expected. */
-	demuxerName?: string
-	/** Muxer name expected. */
-	muxerName?: string
+	/** Decoder/encoder name(s) the extension is expected to register. */
+	codecNames?: string[]
+	/** Demuxer name(s) expected. */
+	demuxerNames?: string[]
+	/** Muxer name(s) expected. */
+	muxerNames?: string[]
 }
 
 const CASES: ExtCase[] = [
-	{ slug: "pcm-s16le-decoder", codecName: "pcm_s16le" },
-	{ slug: "hca-decoder", codecName: "hca" },
-	{ slug: "flac-decoder", codecName: "flac" },
-	{ slug: "aac-decoder", codecName: "aac" },
-	{ slug: "wav-demuxer", demuxerName: "wav" },
-	{ slug: "wav-muxer", muxerName: "wav" },
-	{ slug: "adts-muxer", muxerName: "adts" },
-	{ slug: "flac-demuxer", demuxerName: "flac" },
+	// `pcm` bundles all 32 PCM variants + their demuxers + muxers
+	// into one extension. We just sample a few.
+	{
+		slug: "pcm",
+		codecNames: ["pcm_s16le", "pcm_s24be", "pcm_f32le"],
+		demuxerNames: ["s16le", "s24be"],
+	},
+	// HCA: decoder-only, no encoder / mux / demux.
+	{ slug: "hca", codecNames: ["hca"] },
+	// FLAC: full decoder + encoder + demuxer + muxer bundle.
+	{
+		slug: "flac",
+		codecNames: ["flac"],
+		demuxerNames: ["flac"],
+		muxerNames: ["flac"],
+	},
+	// AAC: decoder + fixed-point decoder + encoder + ADTS demuxer/muxer +
+	// raw AAC demuxer + LATM muxer all bundled.
+	{
+		slug: "aac",
+		codecNames: ["aac"],
+	},
+	// WAV: demuxer + muxer (no PCM codec — that lives in `pcm`).
+	{ slug: "wav", demuxerNames: ["wav"], muxerNames: ["wav"] },
+	// ADTS muxer lives in `aac` group.
+	// FLAC demuxer is already covered in `flac` above.
 ]
 
 describe("generated extensions", () => {
@@ -54,42 +72,48 @@ describe("generated extensions", () => {
 				extensions: [{ name: c.slug, wasm: so }],
 			})
 
-			if (c.codecName) {
+			if (c.codecNames) {
 				const codecs = ff.listCodecs()
-				expect(codecs.length).toBeGreaterThanOrEqual(1)
-				const codec = codecs.find((x) => x.name === c.codecName)
-				expect(codec, `codec ${c.codecName} should be registered`).toBeDefined()
-				expect(codec!.longName.length).toBeGreaterThan(0)
-				expect(codec!.isDecoder || codec!.isEncoder).toBe(true)
+				expect(codecs.length).toBeGreaterThanOrEqual(c.codecNames.length)
+				for (const name of c.codecNames) {
+					const codec = codecs.find((x) => x.name === name)
+					expect(codec, `codec ${name} should be registered`).toBeDefined()
+					expect(codec!.longName.length).toBeGreaterThan(0)
+					expect(codec!.isDecoder || codec!.isEncoder).toBe(true)
+				}
 			}
 
-			if (c.demuxerName) {
+			if (c.demuxerNames) {
 				const demuxers = ff.listDemuxers()
-				expect(demuxers.length).toBeGreaterThanOrEqual(1)
-				const demuxer = demuxers.find((x) => x.name === c.demuxerName)
-				expect(
-					demuxer,
-					`demuxer ${c.demuxerName} should be registered`,
-				).toBeDefined()
-				expect(demuxer!.longName.length).toBeGreaterThan(0)
+				expect(demuxers.length).toBeGreaterThanOrEqual(c.demuxerNames.length)
+				for (const name of c.demuxerNames) {
+					const demuxer = demuxers.find((x) => x.name === name)
+					expect(
+						demuxer,
+						`demuxer ${name} should be registered`,
+					).toBeDefined()
+					expect(demuxer!.longName.length).toBeGreaterThan(0)
+				}
 			}
 
-			if (c.muxerName) {
+			if (c.muxerNames) {
 				const muxers = ff.listMuxers()
-				expect(muxers.length).toBeGreaterThanOrEqual(1)
-				const muxer = muxers.find((x) => x.name === c.muxerName)
-				expect(
-					muxer,
-					`muxer ${c.muxerName} should be registered`,
-				).toBeDefined()
-				expect(muxer!.longName.length).toBeGreaterThan(0)
+				expect(muxers.length).toBeGreaterThanOrEqual(c.muxerNames.length)
+				for (const name of c.muxerNames) {
+					const muxer = muxers.find((x) => x.name === name)
+					expect(
+						muxer,
+						`muxer ${name} should be registered`,
+					).toBeDefined()
+					expect(muxer!.longName.length).toBeGreaterThan(0)
+				}
 			}
 
 			ff.dispose()
 		})
 	}
 
-	it("loads many extensions and lists everything", async () => {
+	it("loads sampled grouped extensions and lists their contents", async () => {
 		const exts = CASES.map((c) => ({
 			name: c.slug,
 			wasm: readFileSync(
@@ -98,29 +122,36 @@ describe("generated extensions", () => {
 		}))
 		const ff = await Ffmpeg.create({ wasm: baseWasm, extensions: exts })
 
+		// We expect AT LEAST the explicitly named things, plus
+		// whatever else gets bundled into those groups.
 		const codecs = ff.listCodecs()
 		const demuxers = ff.listDemuxers()
 		const muxers = ff.listMuxers()
 
-		// One codec per codec-extension, etc.
-		const expectedCodecNames = CASES.filter((c) => c.codecName).map(
-			(c) => c.codecName!,
-		)
-		const expectedDemuxerNames = CASES.filter((c) => c.demuxerName).map(
-			(c) => c.demuxerName!,
-		)
-		const expectedMuxerNames = CASES.filter((c) => c.muxerName).map(
-			(c) => c.muxerName!,
-		)
-		expect(codecs.map((c) => c.name).sort()).toEqual(
-			expectedCodecNames.sort(),
-		)
-		expect(demuxers.map((d) => d.name).sort()).toEqual(
-			expectedDemuxerNames.sort(),
-		)
-		expect(muxers.map((m) => m.name).sort()).toEqual(
-			expectedMuxerNames.sort(),
-		)
+		for (const c of CASES) {
+			for (const name of c.codecNames ?? []) {
+				expect(
+					codecs.some((x) => x.name === name),
+					`expected codec ${name} from ${c.slug}`,
+				).toBe(true)
+			}
+			for (const name of c.demuxerNames ?? []) {
+				expect(
+					demuxers.some((x) => x.name === name),
+					`expected demuxer ${name} from ${c.slug}`,
+				).toBe(true)
+			}
+			for (const name of c.muxerNames ?? []) {
+				expect(
+					muxers.some((x) => x.name === name),
+					`expected muxer ${name} from ${c.slug}`,
+				).toBe(true)
+			}
+		}
+
+		// Sanity: PCM extension alone registers dozens of codecs.
+		const pcmCodecs = codecs.filter((c) => c.name.startsWith("pcm_"))
+		expect(pcmCodecs.length).toBeGreaterThanOrEqual(20)
 
 		ff.dispose()
 	})
@@ -181,7 +212,7 @@ describe("generated extensions", () => {
 
 		// We should have at least the basic core working — if this
 		// regresses, something broke. Bump as the surface grows.
-		expect(loadable.length).toBeGreaterThanOrEqual(400)
+		expect(loadable.length).toBeGreaterThanOrEqual(300)
 
 		const exts = loadable.map((e) => ({ name: e.slug, wasm: e.wasm }))
 		const ff = await Ffmpeg.create({ wasm: baseWasm, extensions: exts })
@@ -190,16 +221,21 @@ describe("generated extensions", () => {
 		const demuxers = ff.listDemuxers()
 		const muxers = ff.listMuxers()
 
-		// Each loadable slug should register exactly one thing
-		// matching its kind suffix.
-		const decoderSlugs = loadable.filter((e) => e.slug.endsWith("-decoder"))
-		const encoderSlugs = loadable.filter((e) => e.slug.endsWith("-encoder"))
-		const demuxerSlugs = loadable.filter((e) => e.slug.endsWith("-demuxer"))
-		const muxerSlugs = loadable.filter((e) => e.slug.endsWith("-muxer"))
+		// Loaded extensions register one or more things each.
+		// We just sanity-check totals are positive and that no
+		// extension claims duplicates within the same kind.
+		expect(codecs.length).toBeGreaterThan(0)
+		expect(demuxers.length).toBeGreaterThan(0)
+		expect(muxers.length).toBeGreaterThan(0)
 
-		expect(codecs.length).toBe(decoderSlugs.length + encoderSlugs.length)
-		expect(demuxers.length).toBe(demuxerSlugs.length)
-		expect(muxers.length).toBe(muxerSlugs.length)
+		// Uniqueness: no two registered codecs should share both
+		// name AND kind (decoder vs encoder), no duplicate
+		// demuxer/muxer names.
+		expect(
+			new Set(codecs.map((c) => `${c.name}/${c.isDecoder ? "d" : "e"}`)).size,
+		).toBe(codecs.length)
+		expect(new Set(demuxers.map((d) => d.name)).size).toBe(demuxers.length)
+		expect(new Set(muxers.map((m) => m.name)).size).toBe(muxers.length)
 
 		ff.dispose()
 

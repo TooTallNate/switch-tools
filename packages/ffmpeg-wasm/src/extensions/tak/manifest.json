@@ -1,0 +1,34 @@
+{
+  "slug": "tak",
+  "description": "TAK decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "tak_decoder",
+      "kind": "decoder",
+      "symbol": "ff_tak_decoder"
+    },
+    {
+      "thing": "tak_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_tak_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/tak_parser.o",
+    "libavcodec/tak.o",
+    "libavcodec/takdec.o",
+    "libavcodec/takdsp.o",
+    "libavformat/apetag.o",
+    "libavformat/img2.o",
+    "libavformat/rawdec.o",
+    "libavformat/takdec.o"
+  ],
+  "configFlags": [
+    "TAK_DECODER",
+    "TAK_DEMUXER",
+    "TAK_PARSER"
+  ],
+  "baseHelpers": [
+    "audiodsp"
+  ]
+}

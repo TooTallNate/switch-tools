@@ -1,0 +1,40 @@
+{
+  "slug": "fits",
+  "description": "FITS decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "fits_decoder",
+      "kind": "decoder",
+      "symbol": "ff_fits_decoder"
+    },
+    {
+      "thing": "fits_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_fits_demuxer"
+    },
+    {
+      "thing": "fits_encoder",
+      "kind": "encoder",
+      "symbol": "ff_fits_encoder"
+    },
+    {
+      "thing": "fits_muxer",
+      "kind": "muxer",
+      "symbol": "ff_fits_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/fits.o",
+    "libavcodec/fitsdec.o",
+    "libavcodec/fitsenc.o",
+    "libavformat/fitsdec.o",
+    "libavformat/fitsenc.o"
+  ],
+  "configFlags": [
+    "FITS_DECODER",
+    "FITS_DEMUXER",
+    "FITS_ENCODER",
+    "FITS_MUXER"
+  ],
+  "baseHelpers": []
+}

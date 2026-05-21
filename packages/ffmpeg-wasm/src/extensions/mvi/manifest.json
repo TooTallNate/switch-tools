@@ -1,0 +1,18 @@
+{
+  "slug": "mvi",
+  "description": "MVI demuxer.",
+  "entries": [
+    {
+      "thing": "mvi_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mvi_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mvi.o"
+  ],
+  "configFlags": [
+    "MVI_DEMUXER"
+  ],
+  "baseHelpers": []
+}

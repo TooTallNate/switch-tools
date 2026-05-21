@@ -369,6 +369,15 @@ extern int  ff_mpeg4audio_get_config_gb(void *c, void *gb, int sync_extension,
 /* WMV2 DSP — used by intrax8. */
 extern void ff_wmv2dsp_init(void *c);
 
+/* MD5 (libavutil/md5.h). */
+extern void *av_md5_alloc(void);
+extern void av_md5_init(void *ctx);
+extern void av_md5_update(void *ctx, const uint8_t *src, size_t len);
+extern void av_md5_final(void *ctx, uint8_t *dst);
+
+/* ID3v2 PRIV dict variant (libavformat internal). */
+extern int ff_id3v2_parse_priv_dict(AVDictionary **m, void *extra_meta);
+
 /* The following are declared in libavutil/libavcodec/libavformat
  * public headers we already include:
  *   - av_buffer_pool_*           (buffer.h)
@@ -986,6 +995,11 @@ void * volatile ffmpeg_keepalive_table[] = {
 	(void *)&avpriv_mpeg4audio_get_config2,
 	(void *)&ff_mpeg4audio_get_config_gb,
 	(void *)&ff_wmv2dsp_init,
+	(void *)&av_md5_alloc,
+	(void *)&av_md5_init,
+	(void *)&av_md5_update,
+	(void *)&av_md5_final,
+	(void *)&ff_id3v2_parse_priv_dict,
 
 	/* Buffer pool API. */
 	(void *)&av_buffer_pool_init,

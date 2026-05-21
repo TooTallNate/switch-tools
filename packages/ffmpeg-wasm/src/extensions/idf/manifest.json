@@ -1,0 +1,27 @@
+{
+  "slug": "idf",
+  "description": "IDF decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "idf_decoder",
+      "kind": "decoder",
+      "symbol": "ff_idf_decoder"
+    },
+    {
+      "thing": "idf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_idf_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/bintext.o",
+    "libavcodec/cga_data.o",
+    "libavformat/bintext.o",
+    "libavformat/sauce.o"
+  ],
+  "configFlags": [
+    "IDF_DECODER",
+    "IDF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "dsd-lsbf",
+  "description": "DSD LSBF decoder.",
+  "entries": [
+    {
+      "thing": "dsd_lsbf_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dsd_lsbf_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dsd.o",
+    "libavcodec/dsddec.o"
+  ],
+  "configFlags": [
+    "DSD_LSBF_DECODER"
+  ],
+  "baseHelpers": []
+}

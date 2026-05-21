@@ -1,0 +1,25 @@
+{
+  "slug": "gdv",
+  "description": "GDV decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "gdv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_gdv_decoder"
+    },
+    {
+      "thing": "gdv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_gdv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/gdv.o",
+    "libavformat/gdv.o"
+  ],
+  "configFlags": [
+    "GDV_DECODER",
+    "GDV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

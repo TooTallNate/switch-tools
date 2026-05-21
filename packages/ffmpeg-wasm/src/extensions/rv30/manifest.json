@@ -1,0 +1,28 @@
+{
+  "slug": "rv30",
+  "description": "RV30 decoder.",
+  "entries": [
+    {
+      "thing": "rv30_decoder",
+      "kind": "decoder",
+      "symbol": "ff_rv30_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/golomb.o",
+    "libavcodec/rv30.o",
+    "libavcodec/rv30dsp.o",
+    "libavcodec/rv34.o",
+    "libavcodec/rv34dsp.o"
+  ],
+  "configFlags": [
+    "GOLOMB",
+    "RV30_DECODER",
+    "RV34DSP"
+  ],
+  "baseHelpers": [
+    "h264pred",
+    "h264qpel",
+    "mpegvideodec"
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "slug": "dfpwm",
+  "description": "DFPWM decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "dfpwm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dfpwm_decoder"
+    },
+    {
+      "thing": "dfpwm_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dfpwm_demuxer"
+    },
+    {
+      "thing": "dfpwm_encoder",
+      "kind": "encoder",
+      "symbol": "ff_dfpwm_encoder"
+    },
+    {
+      "thing": "dfpwm_muxer",
+      "kind": "muxer",
+      "symbol": "ff_dfpwm_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/dfpwmdec.o",
+    "libavcodec/dfpwmenc.o",
+    "libavformat/dfpwmdec.o",
+    "libavformat/pcm.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "DFPWM_DECODER",
+    "DFPWM_DEMUXER",
+    "DFPWM_ENCODER",
+    "DFPWM_MUXER"
+  ],
+  "baseHelpers": []
+}

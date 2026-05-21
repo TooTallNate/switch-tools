@@ -1,0 +1,18 @@
+{
+  "slug": "concat",
+  "description": "CONCAT demuxer.",
+  "entries": [
+    {
+      "thing": "concat_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_concat_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/concatdec.o"
+  ],
+  "configFlags": [
+    "CONCAT_DEMUXER"
+  ],
+  "baseHelpers": []
+}

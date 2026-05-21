@@ -1,0 +1,18 @@
+{
+  "slug": "kux",
+  "description": "KUX demuxer.",
+  "entries": [
+    {
+      "thing": "kux_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_kux_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/flvdec.o"
+  ],
+  "configFlags": [
+    "KUX_DEMUXER"
+  ],
+  "baseHelpers": []
+}

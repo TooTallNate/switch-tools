@@ -1,0 +1,44 @@
+{
+  "slug": "sbc",
+  "description": "SBC decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "sbc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_sbc_decoder"
+    },
+    {
+      "thing": "sbc_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_sbc_demuxer"
+    },
+    {
+      "thing": "sbc_encoder",
+      "kind": "encoder",
+      "symbol": "ff_sbc_encoder"
+    },
+    {
+      "thing": "sbc_muxer",
+      "kind": "muxer",
+      "symbol": "ff_sbc_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/sbc.o",
+    "libavcodec/sbcdec_data.o",
+    "libavcodec/sbcdec.o",
+    "libavcodec/sbcdsp_data.o",
+    "libavcodec/sbcdsp.o",
+    "libavcodec/sbcenc.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o",
+    "libavformat/sbcdec.o"
+  ],
+  "configFlags": [
+    "SBC_DECODER",
+    "SBC_DEMUXER",
+    "SBC_ENCODER",
+    "SBC_MUXER"
+  ],
+  "baseHelpers": []
+}

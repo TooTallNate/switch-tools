@@ -1,0 +1,26 @@
+{
+  "slug": "hcom",
+  "description": "HCOM decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "hcom_decoder",
+      "kind": "decoder",
+      "symbol": "ff_hcom_decoder"
+    },
+    {
+      "thing": "hcom_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_hcom_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/hcom.o",
+    "libavformat/hcom.o",
+    "libavformat/pcm.o"
+  ],
+  "configFlags": [
+    "HCOM_DECODER",
+    "HCOM_DEMUXER"
+  ],
+  "baseHelpers": []
+}

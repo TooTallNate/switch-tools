@@ -1,0 +1,18 @@
+{
+  "slug": "xl",
+  "description": "XL decoder.",
+  "entries": [
+    {
+      "thing": "xl_decoder",
+      "kind": "decoder",
+      "symbol": "ff_xl_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/xl.o"
+  ],
+  "configFlags": [
+    "XL_DECODER"
+  ],
+  "baseHelpers": []
+}

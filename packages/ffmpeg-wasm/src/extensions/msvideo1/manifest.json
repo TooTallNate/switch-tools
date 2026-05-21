@@ -1,0 +1,26 @@
+{
+  "slug": "msvideo1",
+  "description": "MSVIDEO1 decoder, encoder.",
+  "entries": [
+    {
+      "thing": "msvideo1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_msvideo1_decoder"
+    },
+    {
+      "thing": "msvideo1_encoder",
+      "kind": "encoder",
+      "symbol": "ff_msvideo1_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/elbg.o",
+    "libavcodec/msvideo1.o",
+    "libavcodec/msvideo1enc.o"
+  ],
+  "configFlags": [
+    "MSVIDEO1_DECODER",
+    "MSVIDEO1_ENCODER"
+  ],
+  "baseHelpers": []
+}

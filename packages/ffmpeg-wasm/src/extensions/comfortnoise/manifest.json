@@ -1,0 +1,28 @@
+{
+  "slug": "comfortnoise",
+  "description": "COMFORTNOISE decoder, encoder.",
+  "entries": [
+    {
+      "thing": "comfortnoise_decoder",
+      "kind": "decoder",
+      "symbol": "ff_comfortnoise_decoder"
+    },
+    {
+      "thing": "comfortnoise_encoder",
+      "kind": "encoder",
+      "symbol": "ff_comfortnoise_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/celp_filters.o",
+    "libavcodec/cngdec.o",
+    "libavcodec/cngenc.o",
+    "libavcodec/lpc.o"
+  ],
+  "configFlags": [
+    "COMFORTNOISE_DECODER",
+    "COMFORTNOISE_ENCODER",
+    "LPC"
+  ],
+  "baseHelpers": []
+}

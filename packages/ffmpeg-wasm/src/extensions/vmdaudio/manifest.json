@@ -1,0 +1,18 @@
+{
+  "slug": "vmdaudio",
+  "description": "VMDAUDIO decoder.",
+  "entries": [
+    {
+      "thing": "vmdaudio_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vmdaudio_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/vmdaudio.o"
+  ],
+  "configFlags": [
+    "VMDAUDIO_DECODER"
+  ],
+  "baseHelpers": []
+}

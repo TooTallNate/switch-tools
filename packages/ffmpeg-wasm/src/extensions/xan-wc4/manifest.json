@@ -1,0 +1,18 @@
+{
+  "slug": "xan-wc4",
+  "description": "XAN WC4 decoder.",
+  "entries": [
+    {
+      "thing": "xan_wc4_decoder",
+      "kind": "decoder",
+      "symbol": "ff_xan_wc4_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/xxan.o"
+  ],
+  "configFlags": [
+    "XAN_WC4_DECODER"
+  ],
+  "baseHelpers": []
+}

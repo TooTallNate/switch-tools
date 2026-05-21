@@ -1,0 +1,26 @@
+{
+  "slug": "ast",
+  "description": "AST demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "ast_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ast_demuxer"
+    },
+    {
+      "thing": "ast_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ast_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ast.o",
+    "libavformat/astdec.o",
+    "libavformat/astenc.o"
+  ],
+  "configFlags": [
+    "AST_DEMUXER",
+    "AST_MUXER"
+  ],
+  "baseHelpers": []
+}

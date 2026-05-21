@@ -1,0 +1,26 @@
+{
+  "slug": "filmstrip",
+  "description": "FILMSTRIP demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "filmstrip_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_filmstrip_demuxer"
+    },
+    {
+      "thing": "filmstrip_muxer",
+      "kind": "muxer",
+      "symbol": "ff_filmstrip_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/filmstripdec.o",
+    "libavformat/filmstripenc.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "FILMSTRIP_DEMUXER",
+    "FILMSTRIP_MUXER"
+  ],
+  "baseHelpers": []
+}

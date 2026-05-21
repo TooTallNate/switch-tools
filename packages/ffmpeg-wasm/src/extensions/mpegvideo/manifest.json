@@ -1,0 +1,30 @@
+{
+  "slug": "mpegvideo",
+  "description": "MPEGVIDEO decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "mpegvideo_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mpegvideo_decoder"
+    },
+    {
+      "thing": "mpegvideo_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mpegvideo_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpeg12.o",
+    "libavcodec/mpeg12data.o",
+    "libavcodec/mpeg12dec.o",
+    "libavformat/mpegvideodec.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "MPEGVIDEO_DECODER",
+    "MPEGVIDEO_DEMUXER"
+  ],
+  "baseHelpers": [
+    "mpegvideodec"
+  ]
+}

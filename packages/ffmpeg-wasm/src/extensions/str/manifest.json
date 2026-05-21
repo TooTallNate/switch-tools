@@ -1,0 +1,18 @@
+{
+  "slug": "str",
+  "description": "STR demuxer.",
+  "entries": [
+    {
+      "thing": "str_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_str_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/psxstr.o"
+  ],
+  "configFlags": [
+    "STR_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,44 @@
+{
+  "slug": "tta",
+  "description": "TTA decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "tta_decoder",
+      "kind": "decoder",
+      "symbol": "ff_tta_decoder"
+    },
+    {
+      "thing": "tta_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_tta_demuxer"
+    },
+    {
+      "thing": "tta_encoder",
+      "kind": "encoder",
+      "symbol": "ff_tta_encoder"
+    },
+    {
+      "thing": "tta_muxer",
+      "kind": "muxer",
+      "symbol": "ff_tta_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/tta.o",
+    "libavcodec/ttadata.o",
+    "libavcodec/ttadsp.o",
+    "libavcodec/ttaenc.o",
+    "libavcodec/ttaencdsp.o",
+    "libavformat/apetag.o",
+    "libavformat/img2.o",
+    "libavformat/tta.o",
+    "libavformat/ttaenc.o"
+  ],
+  "configFlags": [
+    "TTA_DECODER",
+    "TTA_DEMUXER",
+    "TTA_ENCODER",
+    "TTA_MUXER"
+  ],
+  "baseHelpers": []
+}

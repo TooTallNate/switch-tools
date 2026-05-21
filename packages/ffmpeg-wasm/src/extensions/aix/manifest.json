@@ -1,0 +1,18 @@
+{
+  "slug": "aix",
+  "description": "AIX demuxer.",
+  "entries": [
+    {
+      "thing": "aix_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_aix_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/aixdec.o"
+  ],
+  "configFlags": [
+    "AIX_DEMUXER"
+  ],
+  "baseHelpers": []
+}

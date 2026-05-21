@@ -1,0 +1,25 @@
+{
+  "slug": "anm",
+  "description": "ANM decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "anm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_anm_decoder"
+    },
+    {
+      "thing": "anm_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_anm_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/anm.o",
+    "libavformat/anm.o"
+  ],
+  "configFlags": [
+    "ANM_DECODER",
+    "ANM_DEMUXER"
+  ],
+  "baseHelpers": []
+}

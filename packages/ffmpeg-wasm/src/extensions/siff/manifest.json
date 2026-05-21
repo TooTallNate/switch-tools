@@ -1,0 +1,18 @@
+{
+  "slug": "siff",
+  "description": "SIFF demuxer.",
+  "entries": [
+    {
+      "thing": "siff_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_siff_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/siff.o"
+  ],
+  "configFlags": [
+    "SIFF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

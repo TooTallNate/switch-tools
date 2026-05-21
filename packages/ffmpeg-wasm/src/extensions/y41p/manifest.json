@@ -1,0 +1,25 @@
+{
+  "slug": "y41p",
+  "description": "Y41P decoder, encoder.",
+  "entries": [
+    {
+      "thing": "y41p_decoder",
+      "kind": "decoder",
+      "symbol": "ff_y41p_decoder"
+    },
+    {
+      "thing": "y41p_encoder",
+      "kind": "encoder",
+      "symbol": "ff_y41p_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/y41pdec.o",
+    "libavcodec/y41penc.o"
+  ],
+  "configFlags": [
+    "Y41P_DECODER",
+    "Y41P_ENCODER"
+  ],
+  "baseHelpers": []
+}

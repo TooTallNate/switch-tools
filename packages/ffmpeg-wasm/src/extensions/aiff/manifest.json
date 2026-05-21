@@ -1,0 +1,32 @@
+{
+  "slug": "aiff",
+  "description": "AIFF demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "aiff_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_aiff_demuxer"
+    },
+    {
+      "thing": "aiff_muxer",
+      "kind": "muxer",
+      "symbol": "ff_aiff_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/aiff.o",
+    "libavformat/aiffdec.o",
+    "libavformat/aiffenc.o",
+    "libavformat/id3v2enc.o",
+    "libavformat/mov_chan.o",
+    "libavformat/pcm.o",
+    "libavformat/replaygain.o"
+  ],
+  "configFlags": [
+    "AIFF_DEMUXER",
+    "AIFF_MUXER"
+  ],
+  "baseHelpers": [
+    "iso_media"
+  ]
+}

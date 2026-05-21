@@ -1,0 +1,26 @@
+{
+  "slug": "latm",
+  "description": "LATM muxer.",
+  "entries": [
+    {
+      "thing": "latm_muxer",
+      "kind": "muxer",
+      "symbol": "ff_latm_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/aac_adtstoasc_bsf.o",
+    "libavcodec/adts_header.o",
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavformat/latmenc.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "AAC_ADTSTOASC_BSF",
+    "ADTS_HEADER",
+    "LATM_MUXER"
+  ],
+  "baseHelpers": [
+    "mpeg4audio"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "mpeg2svcd",
+  "description": "MPEG2SVCD muxer.",
+  "entries": [
+    {
+      "thing": "mpeg2svcd_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mpeg2svcd_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mpegenc.o"
+  ],
+  "configFlags": [
+    "MPEG2SVCD_MUXER"
+  ],
+  "baseHelpers": []
+}

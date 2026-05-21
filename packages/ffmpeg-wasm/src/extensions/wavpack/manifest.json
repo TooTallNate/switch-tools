@@ -1,0 +1,27 @@
+{
+  "slug": "wavpack",
+  "description": "WAVPACK decoder, encoder.",
+  "entries": [
+    {
+      "thing": "wavpack_decoder",
+      "kind": "decoder",
+      "symbol": "ff_wavpack_decoder"
+    },
+    {
+      "thing": "wavpack_encoder",
+      "kind": "encoder",
+      "symbol": "ff_wavpack_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dsd.o",
+    "libavcodec/wavpack.o",
+    "libavcodec/wavpackdata.o",
+    "libavcodec/wavpackenc.o"
+  ],
+  "configFlags": [
+    "WAVPACK_DECODER",
+    "WAVPACK_ENCODER"
+  ],
+  "baseHelpers": []
+}

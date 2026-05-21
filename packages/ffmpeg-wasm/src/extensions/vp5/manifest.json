@@ -1,0 +1,28 @@
+{
+  "slug": "vp5",
+  "description": "VP5 decoder.",
+  "entries": [
+    {
+      "thing": "vp5_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vp5_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/vp5.o",
+    "libavcodec/vp56.o",
+    "libavcodec/vp56data.o",
+    "libavcodec/vp56dsp.o",
+    "libavcodec/vp56rac.o"
+  ],
+  "configFlags": [
+    "VP56DSP",
+    "VP5_DECODER"
+  ],
+  "baseHelpers": [
+    "h264chroma",
+    "hpeldsp",
+    "videodsp",
+    "vp3dsp"
+  ]
+}

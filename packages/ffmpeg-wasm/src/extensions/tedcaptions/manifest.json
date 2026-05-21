@@ -1,0 +1,19 @@
+{
+  "slug": "tedcaptions",
+  "description": "TEDCAPTIONS demuxer.",
+  "entries": [
+    {
+      "thing": "tedcaptions_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_tedcaptions_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/subtitles.o",
+    "libavformat/tedcaptionsdec.o"
+  ],
+  "configFlags": [
+    "TEDCAPTIONS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

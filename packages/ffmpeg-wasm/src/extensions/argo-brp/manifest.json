@@ -1,0 +1,19 @@
+{
+  "slug": "argo-brp",
+  "description": "ARGO BRP demuxer.",
+  "entries": [
+    {
+      "thing": "argo_brp_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_argo_brp_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/argo_asf.o",
+    "libavformat/argo_brp.o"
+  ],
+  "configFlags": [
+    "ARGO_BRP_DEMUXER"
+  ],
+  "baseHelpers": []
+}

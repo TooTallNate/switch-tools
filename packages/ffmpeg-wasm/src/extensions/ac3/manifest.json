@@ -1,0 +1,57 @@
+{
+  "slug": "ac3",
+  "description": "AC3 decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "ac3_decoder",
+      "kind": "decoder",
+      "symbol": "ff_ac3_decoder"
+    },
+    {
+      "thing": "ac3_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ac3_demuxer"
+    },
+    {
+      "thing": "ac3_encoder",
+      "kind": "encoder",
+      "symbol": "ff_ac3_encoder"
+    },
+    {
+      "thing": "ac3_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ac3_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/aac_ac3_parser.o",
+    "libavcodec/ac3_channel_layout_tab.o",
+    "libavcodec/ac3.o",
+    "libavcodec/ac3dec_data.o",
+    "libavcodec/ac3dec_float.o",
+    "libavcodec/ac3dsp.o",
+    "libavcodec/ac3enc_float.o",
+    "libavcodec/ac3enc.o",
+    "libavcodec/ac3tab.o",
+    "libavcodec/fmtconvert.o",
+    "libavcodec/kbdwin.o",
+    "libavformat/ac3dec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "AC3DSP",
+    "AC3_DECODER",
+    "AC3_DEMUXER",
+    "AC3_ENCODER",
+    "AC3_MUXER",
+    "AC3_PARSER",
+    "FMTCONVERT"
+  ],
+  "baseHelpers": [
+    "audiodsp",
+    "bswapdsp",
+    "mdct",
+    "me_cmp"
+  ]
+}

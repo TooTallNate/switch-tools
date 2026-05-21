@@ -1,0 +1,25 @@
+{
+  "slug": "hca",
+  "description": "HCA decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "hca_decoder",
+      "kind": "decoder",
+      "symbol": "ff_hca_decoder"
+    },
+    {
+      "thing": "hca_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_hca_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/hcadec.o",
+    "libavformat/hca.o"
+  ],
+  "configFlags": [
+    "HCA_DECODER",
+    "HCA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

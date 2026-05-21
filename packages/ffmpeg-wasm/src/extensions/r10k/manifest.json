@@ -1,0 +1,25 @@
+{
+  "slug": "r10k",
+  "description": "R10K decoder, encoder.",
+  "entries": [
+    {
+      "thing": "r10k_decoder",
+      "kind": "decoder",
+      "symbol": "ff_r10k_decoder"
+    },
+    {
+      "thing": "r10k_encoder",
+      "kind": "encoder",
+      "symbol": "ff_r10k_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/r210dec.o",
+    "libavcodec/r210enc.o"
+  ],
+  "configFlags": [
+    "R10K_DECODER",
+    "R10K_ENCODER"
+  ],
+  "baseHelpers": []
+}

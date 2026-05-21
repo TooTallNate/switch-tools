@@ -1,0 +1,18 @@
+{
+  "slug": "mxg",
+  "description": "MXG demuxer.",
+  "entries": [
+    {
+      "thing": "mxg_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mxg_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mxg.o"
+  ],
+  "configFlags": [
+    "MXG_DEMUXER"
+  ],
+  "baseHelpers": []
+}

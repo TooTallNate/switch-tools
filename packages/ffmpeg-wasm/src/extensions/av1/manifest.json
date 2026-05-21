@@ -1,0 +1,34 @@
+{
+  "slug": "av1",
+  "description": "AV1 decoder, demuxer.",
+  "entries": [
+    {
+      "thing": "av1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_av1_decoder"
+    },
+    {
+      "thing": "av1_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_av1_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/av1_frame_merge_bsf.o",
+    "libavcodec/av1_parser.o",
+    "libavcodec/av1dec.o",
+    "libavcodec/cbs_av1.o",
+    "libavcodec/cbs_bsf.o",
+    "libavcodec/cbs.o",
+    "libavformat/av1dec.o"
+  ],
+  "configFlags": [
+    "AV1_DECODER",
+    "AV1_DEMUXER",
+    "AV1_FRAME_MERGE_BSF",
+    "AV1_PARSER",
+    "CBS",
+    "CBS_AV1"
+  ],
+  "baseHelpers": []
+}

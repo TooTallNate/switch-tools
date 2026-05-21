@@ -1,0 +1,47 @@
+{
+  "slug": "dnxhd",
+  "description": "DNXHD decoder, encoder, demuxer, muxer.",
+  "entries": [
+    {
+      "thing": "dnxhd_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dnxhd_decoder"
+    },
+    {
+      "thing": "dnxhd_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dnxhd_demuxer"
+    },
+    {
+      "thing": "dnxhd_encoder",
+      "kind": "encoder",
+      "symbol": "ff_dnxhd_encoder"
+    },
+    {
+      "thing": "dnxhd_muxer",
+      "kind": "muxer",
+      "symbol": "ff_dnxhd_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/dnxhddata.o",
+    "libavcodec/dnxhddec.o",
+    "libavcodec/dnxhdenc.o",
+    "libavformat/dnxhddec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "DNXHD_DECODER",
+    "DNXHD_DEMUXER",
+    "DNXHD_ENCODER",
+    "DNXHD_MUXER"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "fdctdsp",
+    "idctdsp",
+    "mpegvideoenc",
+    "pixblockdsp"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "slug": "mp3float",
+  "description": "MP3FLOAT decoder.",
+  "entries": [
+    {
+      "thing": "mp3float_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mp3float_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpegaudiodec_float.o"
+  ],
+  "configFlags": [
+    "MP3FLOAT_DECODER"
+  ],
+  "baseHelpers": [
+    "mpegaudio"
+  ]
+}

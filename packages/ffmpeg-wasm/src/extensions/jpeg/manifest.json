@@ -1,0 +1,108 @@
+{
+  "slug": "jpeg",
+  "description": "JPEG family (4 decoders, 4 encoders, 2 demuxers, 1 muxer).",
+  "entries": [
+    {
+      "thing": "jpeg2000_decoder",
+      "kind": "decoder",
+      "symbol": "ff_jpeg2000_decoder"
+    },
+    {
+      "thing": "jpeg2000_encoder",
+      "kind": "encoder",
+      "symbol": "ff_jpeg2000_encoder"
+    },
+    {
+      "thing": "jpegls_decoder",
+      "kind": "decoder",
+      "symbol": "ff_jpegls_decoder"
+    },
+    {
+      "thing": "jpegls_encoder",
+      "kind": "encoder",
+      "symbol": "ff_jpegls_encoder"
+    },
+    {
+      "thing": "ljpeg_encoder",
+      "kind": "encoder",
+      "symbol": "ff_ljpeg_encoder"
+    },
+    {
+      "thing": "mjpeg_2000_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mjpeg_2000_demuxer"
+    },
+    {
+      "thing": "mjpeg_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mjpeg_decoder"
+    },
+    {
+      "thing": "mjpeg_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mjpeg_demuxer"
+    },
+    {
+      "thing": "mjpeg_encoder",
+      "kind": "encoder",
+      "symbol": "ff_mjpeg_encoder"
+    },
+    {
+      "thing": "mjpeg_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mjpeg_muxer"
+    },
+    {
+      "thing": "mjpegb_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mjpegb_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/exif.o",
+    "libavcodec/j2kenc.o",
+    "libavcodec/jpeg2000.o",
+    "libavcodec/jpeg2000dec.o",
+    "libavcodec/jpeg2000dsp.o",
+    "libavcodec/jpeg2000dwt.o",
+    "libavcodec/jpegls.o",
+    "libavcodec/jpeglsdec.o",
+    "libavcodec/jpeglsenc.o",
+    "libavcodec/jpegtables.o",
+    "libavcodec/ljpegenc.o",
+    "libavcodec/mjpegbdec.o",
+    "libavcodec/mjpegdec_common.o",
+    "libavcodec/mjpegdec.o",
+    "libavcodec/mjpegenc_common.o",
+    "libavcodec/mjpegenc_huffman.o",
+    "libavcodec/mjpegenc.o",
+    "libavcodec/mqc.o",
+    "libavcodec/mqcdec.o",
+    "libavcodec/mqcenc.o",
+    "libavcodec/tiff_common.o",
+    "libavformat/mj2kdec.o",
+    "libavformat/rawdec.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "EXIF",
+    "JPEG2000_DECODER",
+    "JPEG2000_ENCODER",
+    "JPEGLS_DECODER",
+    "JPEGLS_ENCODER",
+    "JPEGTABLES",
+    "LJPEG_ENCODER",
+    "MJPEGB_DECODER",
+    "MJPEG_2000_DEMUXER",
+    "MJPEG_DECODER",
+    "MJPEG_DEMUXER",
+    "MJPEG_ENCODER",
+    "MJPEG_MUXER"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "hpeldsp",
+    "idctdsp",
+    "mpegvideoenc"
+  ]
+}

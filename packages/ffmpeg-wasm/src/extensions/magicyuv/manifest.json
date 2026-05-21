@@ -1,0 +1,29 @@
+{
+  "slug": "magicyuv",
+  "description": "MAGICYUV decoder, encoder.",
+  "entries": [
+    {
+      "thing": "magicyuv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_magicyuv_decoder"
+    },
+    {
+      "thing": "magicyuv_encoder",
+      "kind": "encoder",
+      "symbol": "ff_magicyuv_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/lossless_videodsp.o",
+    "libavcodec/lossless_videoencdsp.o",
+    "libavcodec/magicyuv.o",
+    "libavcodec/magicyuvenc.o"
+  ],
+  "configFlags": [
+    "LLVIDDSP",
+    "LLVIDENCDSP",
+    "MAGICYUV_DECODER",
+    "MAGICYUV_ENCODER"
+  ],
+  "baseHelpers": []
+}

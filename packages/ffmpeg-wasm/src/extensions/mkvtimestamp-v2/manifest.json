@@ -1,0 +1,18 @@
+{
+  "slug": "mkvtimestamp-v2",
+  "description": "MKVTIMESTAMP V2 muxer.",
+  "entries": [
+    {
+      "thing": "mkvtimestamp_v2_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mkvtimestamp_v2_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mkvtimestamp_v2.o"
+  ],
+  "configFlags": [
+    "MKVTIMESTAMP_V2_MUXER"
+  ],
+  "baseHelpers": []
+}

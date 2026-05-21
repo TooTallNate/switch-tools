@@ -1,0 +1,32 @@
+{
+  "slug": "aac-fixed",
+  "description": "AAC FIXED decoder.",
+  "entries": [
+    {
+      "thing": "aac_fixed_decoder",
+      "kind": "decoder",
+      "symbol": "ff_aac_fixed_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/aacdec_fixed.o",
+    "libavcodec/aacps_common.o",
+    "libavcodec/aacps_fixed.o",
+    "libavcodec/aacpsdsp_fixed.o",
+    "libavcodec/aacsbr_fixed.o",
+    "libavcodec/aactab.o",
+    "libavcodec/adts_header.o",
+    "libavcodec/cbrt_data_fixed.o",
+    "libavcodec/kbdwin.o",
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavcodec/sbrdsp_fixed.o"
+  ],
+  "configFlags": [
+    "AAC_FIXED_DECODER",
+    "ADTS_HEADER"
+  ],
+  "baseHelpers": [
+    "mdct",
+    "mpeg4audio"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "vb",
+  "description": "VB decoder.",
+  "entries": [
+    {
+      "thing": "vb_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vb_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/vb.o"
+  ],
+  "configFlags": [
+    "VB_DECODER"
+  ],
+  "baseHelpers": []
+}

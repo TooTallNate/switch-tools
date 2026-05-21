@@ -1,0 +1,22 @@
+{
+  "slug": "aic",
+  "description": "AIC decoder.",
+  "entries": [
+    {
+      "thing": "aic_decoder",
+      "kind": "decoder",
+      "symbol": "ff_aic_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/aic.o",
+    "libavcodec/golomb.o"
+  ],
+  "configFlags": [
+    "AIC_DECODER",
+    "GOLOMB"
+  ],
+  "baseHelpers": [
+    "idctdsp"
+  ]
+}

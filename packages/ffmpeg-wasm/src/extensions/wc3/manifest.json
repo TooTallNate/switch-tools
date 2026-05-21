@@ -1,0 +1,18 @@
+{
+  "slug": "wc3",
+  "description": "WC3 demuxer.",
+  "entries": [
+    {
+      "thing": "wc3_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_wc3_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/wc3movie.o"
+  ],
+  "configFlags": [
+    "WC3_DEMUXER"
+  ],
+  "baseHelpers": []
+}

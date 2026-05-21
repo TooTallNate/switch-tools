@@ -1,0 +1,18 @@
+{
+  "slug": "dss",
+  "description": "DSS demuxer.",
+  "entries": [
+    {
+      "thing": "dss_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dss_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/dss.o"
+  ],
+  "configFlags": [
+    "DSS_DEMUXER"
+  ],
+  "baseHelpers": []
+}
