@@ -1,0 +1,23 @@
+{
+  "slug": "vorbis-decoder",
+  "description": "VORBIS decoder.",
+  "entries": [
+    {
+      "thing": "vorbis_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vorbis_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/vorbis_data.o",
+    "libavcodec/vorbis.o",
+    "libavcodec/vorbisdec.o",
+    "libavcodec/vorbisdsp.o"
+  ],
+  "configFlags": [
+    "VORBIS_DECODER"
+  ],
+  "baseHelpers": [
+    "mdct"
+  ]
+}

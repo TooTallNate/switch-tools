@@ -1,0 +1,18 @@
+{
+  "slug": "adp-demuxer",
+  "description": "ADP demuxer.",
+  "entries": [
+    {
+      "thing": "adp_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_adp_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/adp.o"
+  ],
+  "configFlags": [
+    "ADP_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "msp-demuxer",
+  "description": "MSP demuxer.",
+  "entries": [
+    {
+      "thing": "msp_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_msp_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mspdec.o"
+  ],
+  "configFlags": [
+    "MSP_DEMUXER"
+  ],
+  "baseHelpers": []
+}

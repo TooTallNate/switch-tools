@@ -1,0 +1,22 @@
+{
+  "slug": "qdm2-decoder",
+  "description": "QDM2 decoder.",
+  "entries": [
+    {
+      "thing": "qdm2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_qdm2_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/qdm2.o"
+  ],
+  "configFlags": [
+    "QDM2_DECODER"
+  ],
+  "baseHelpers": [
+    "mdct",
+    "mpegaudiodsp",
+    "rdft"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-adx-decoder",
+  "description": "ADPCM ADX decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_adx_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_adx_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adx.o",
+    "libavcodec/adxdec.o"
+  ],
+  "configFlags": [
+    "ADPCM_ADX_DECODER"
+  ],
+  "baseHelpers": []
+}

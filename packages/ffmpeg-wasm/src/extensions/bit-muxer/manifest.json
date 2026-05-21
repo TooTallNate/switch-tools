@@ -1,0 +1,18 @@
+{
+  "slug": "bit-muxer",
+  "description": "BIT muxer.",
+  "entries": [
+    {
+      "thing": "bit_muxer",
+      "kind": "muxer",
+      "symbol": "ff_bit_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/bit.o"
+  ],
+  "configFlags": [
+    "BIT_MUXER"
+  ],
+  "baseHelpers": []
+}

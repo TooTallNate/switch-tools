@@ -1,0 +1,19 @@
+{
+  "slug": "au-muxer",
+  "description": "AU muxer.",
+  "entries": [
+    {
+      "thing": "au_muxer",
+      "kind": "muxer",
+      "symbol": "ff_au_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/au.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "AU_MUXER"
+  ],
+  "baseHelpers": []
+}

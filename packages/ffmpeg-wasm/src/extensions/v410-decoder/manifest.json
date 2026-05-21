@@ -1,0 +1,18 @@
+{
+  "slug": "v410-decoder",
+  "description": "V410 decoder.",
+  "entries": [
+    {
+      "thing": "v410_decoder",
+      "kind": "decoder",
+      "symbol": "ff_v410_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/v410dec.o"
+  ],
+  "configFlags": [
+    "V410_DECODER"
+  ],
+  "baseHelpers": []
+}

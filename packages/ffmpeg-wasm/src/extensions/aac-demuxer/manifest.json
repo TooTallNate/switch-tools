@@ -1,0 +1,21 @@
+{
+  "slug": "aac-demuxer",
+  "description": "AAC demuxer.",
+  "entries": [
+    {
+      "thing": "aac_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_aac_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/aacdec.o",
+    "libavformat/apetag.o",
+    "libavformat/img2.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "AAC_DEMUXER"
+  ],
+  "baseHelpers": []
+}

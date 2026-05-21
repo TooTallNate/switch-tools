@@ -1,0 +1,18 @@
+{
+  "slug": "genh-demuxer",
+  "description": "GENH demuxer.",
+  "entries": [
+    {
+      "thing": "genh_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_genh_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/genh.o"
+  ],
+  "configFlags": [
+    "GENH_DEMUXER"
+  ],
+  "baseHelpers": []
+}

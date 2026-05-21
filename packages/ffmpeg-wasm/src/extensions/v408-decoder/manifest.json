@@ -1,0 +1,18 @@
+{
+  "slug": "v408-decoder",
+  "description": "V408 decoder.",
+  "entries": [
+    {
+      "thing": "v408_decoder",
+      "kind": "decoder",
+      "symbol": "ff_v408_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/v408dec.o"
+  ],
+  "configFlags": [
+    "V408_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "microdvd-demuxer",
+  "description": "MICRODVD demuxer.",
+  "entries": [
+    {
+      "thing": "microdvd_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_microdvd_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/microdvddec.o",
+    "libavformat/subtitles.o"
+  ],
+  "configFlags": [
+    "MICRODVD_DEMUXER"
+  ],
+  "baseHelpers": []
+}

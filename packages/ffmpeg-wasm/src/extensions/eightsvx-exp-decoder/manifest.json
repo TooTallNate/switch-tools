@@ -1,0 +1,18 @@
+{
+  "slug": "eightsvx-exp-decoder",
+  "description": "EIGHTSVX EXP decoder.",
+  "entries": [
+    {
+      "thing": "eightsvx_exp_decoder",
+      "kind": "decoder",
+      "symbol": "ff_eightsvx_exp_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/8svx.o"
+  ],
+  "configFlags": [
+    "EIGHTSVX_EXP_DECODER"
+  ],
+  "baseHelpers": []
+}

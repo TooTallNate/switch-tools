@@ -1,0 +1,24 @@
+{
+  "slug": "mjpeg-encoder",
+  "description": "MJPEG encoder.",
+  "entries": [
+    {
+      "thing": "mjpeg_encoder",
+      "kind": "encoder",
+      "symbol": "ff_mjpeg_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/jpegtables.o",
+    "libavcodec/mjpegenc_common.o",
+    "libavcodec/mjpegenc_huffman.o",
+    "libavcodec/mjpegenc.o"
+  ],
+  "configFlags": [
+    "JPEGTABLES",
+    "MJPEG_ENCODER"
+  ],
+  "baseHelpers": [
+    "mpegvideoenc"
+  ]
+}

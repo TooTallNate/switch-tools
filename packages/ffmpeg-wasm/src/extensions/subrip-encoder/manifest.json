@@ -1,0 +1,19 @@
+{
+  "slug": "subrip-encoder",
+  "description": "SUBRIP encoder.",
+  "entries": [
+    {
+      "thing": "subrip_encoder",
+      "kind": "encoder",
+      "symbol": "ff_subrip_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ass_split.o",
+    "libavcodec/srtenc.o"
+  ],
+  "configFlags": [
+    "SUBRIP_ENCODER"
+  ],
+  "baseHelpers": []
+}

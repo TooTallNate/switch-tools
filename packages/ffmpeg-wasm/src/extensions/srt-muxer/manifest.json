@@ -1,0 +1,18 @@
+{
+  "slug": "srt-muxer",
+  "description": "SRT muxer.",
+  "entries": [
+    {
+      "thing": "srt_muxer",
+      "kind": "muxer",
+      "symbol": "ff_srt_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/srtenc.o"
+  ],
+  "configFlags": [
+    "SRT_MUXER"
+  ],
+  "baseHelpers": []
+}

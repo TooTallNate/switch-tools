@@ -1,0 +1,44 @@
+{
+  "slug": "mov-muxer",
+  "description": "MOV muxer.",
+  "entries": [
+    {
+      "thing": "mov_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mov_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/aac_adtstoasc_bsf.o",
+    "libavcodec/adts_header.o",
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavcodec/mpeg4audio.o",
+    "libavcodec/vp9_superframe_bsf.o",
+    "libavformat/av1.o",
+    "libavformat/avc.o",
+    "libavformat/dovi_isom.o",
+    "libavformat/hevc.o",
+    "libavformat/isom.o",
+    "libavformat/mov_chan.o",
+    "libavformat/movenc_ttml.o",
+    "libavformat/movenc.o",
+    "libavformat/movenccenc.o",
+    "libavformat/movenchint.o",
+    "libavformat/rawutils.o",
+    "libavformat/riffenc.o",
+    "libavformat/rtp.o",
+    "libavformat/rtpenc_chain.o",
+    "libavformat/vpcc.o"
+  ],
+  "configFlags": [
+    "AAC_ADTSTOASC_BSF",
+    "ADTS_HEADER",
+    "ISO_MEDIA",
+    "MOV_MUXER",
+    "MPEG4AUDIO",
+    "RIFFENC",
+    "RTPENC_CHAIN",
+    "VP9_SUPERFRAME_BSF"
+  ],
+  "baseHelpers": []
+}

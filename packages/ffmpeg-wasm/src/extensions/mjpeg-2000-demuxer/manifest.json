@@ -1,0 +1,19 @@
+{
+  "slug": "mjpeg-2000-demuxer",
+  "description": "MJPEG 2000 demuxer.",
+  "entries": [
+    {
+      "thing": "mjpeg_2000_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mjpeg_2000_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mj2kdec.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "MJPEG_2000_DEMUXER"
+  ],
+  "baseHelpers": []
+}

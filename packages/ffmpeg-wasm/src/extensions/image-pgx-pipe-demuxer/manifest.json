@@ -1,0 +1,19 @@
+{
+  "slug": "image-pgx-pipe-demuxer",
+  "description": "IMAGE PGX PIPE demuxer.",
+  "entries": [
+    {
+      "thing": "image_pgx_pipe_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_image_pgx_pipe_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/img2.o",
+    "libavformat/img2dec.o"
+  ],
+  "configFlags": [
+    "IMAGE_PGX_PIPE_DEMUXER"
+  ],
+  "baseHelpers": []
+}

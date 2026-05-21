@@ -1,0 +1,18 @@
+{
+  "slug": "vmd-demuxer",
+  "description": "VMD demuxer.",
+  "entries": [
+    {
+      "thing": "vmd_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_vmd_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/sierravmd.o"
+  ],
+  "configFlags": [
+    "VMD_DEMUXER"
+  ],
+  "baseHelpers": []
+}

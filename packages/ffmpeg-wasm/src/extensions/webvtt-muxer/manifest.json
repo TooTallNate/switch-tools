@@ -1,0 +1,18 @@
+{
+  "slug": "webvtt-muxer",
+  "description": "WEBVTT muxer.",
+  "entries": [
+    {
+      "thing": "webvtt_muxer",
+      "kind": "muxer",
+      "symbol": "ff_webvtt_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/webvttenc.o"
+  ],
+  "configFlags": [
+    "WEBVTT_MUXER"
+  ],
+  "baseHelpers": []
+}

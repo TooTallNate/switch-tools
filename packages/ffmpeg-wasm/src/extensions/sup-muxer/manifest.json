@@ -1,0 +1,18 @@
+{
+  "slug": "sup-muxer",
+  "description": "SUP muxer.",
+  "entries": [
+    {
+      "thing": "sup_muxer",
+      "kind": "muxer",
+      "symbol": "ff_sup_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/supenc.o"
+  ],
+  "configFlags": [
+    "SUP_MUXER"
+  ],
+  "baseHelpers": []
+}

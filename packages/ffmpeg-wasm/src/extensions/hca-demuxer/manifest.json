@@ -1,0 +1,18 @@
+{
+  "slug": "hca-demuxer",
+  "description": "HCA demuxer.",
+  "entries": [
+    {
+      "thing": "hca_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_hca_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/hca.o"
+  ],
+  "configFlags": [
+    "HCA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

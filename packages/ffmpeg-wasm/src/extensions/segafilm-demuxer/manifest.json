@@ -1,0 +1,18 @@
+{
+  "slug": "segafilm-demuxer",
+  "description": "SEGAFILM demuxer.",
+  "entries": [
+    {
+      "thing": "segafilm_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_segafilm_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/segafilm.o"
+  ],
+  "configFlags": [
+    "SEGAFILM_DEMUXER"
+  ],
+  "baseHelpers": []
+}

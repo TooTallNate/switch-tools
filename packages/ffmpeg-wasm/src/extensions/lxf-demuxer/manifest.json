@@ -1,0 +1,18 @@
+{
+  "slug": "lxf-demuxer",
+  "description": "LXF demuxer.",
+  "entries": [
+    {
+      "thing": "lxf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_lxf_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/lxfdec.o"
+  ],
+  "configFlags": [
+    "LXF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

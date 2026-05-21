@@ -1,0 +1,18 @@
+{
+  "slug": "sdx2-dpcm-decoder",
+  "description": "SDX2 DPCM decoder.",
+  "entries": [
+    {
+      "thing": "sdx2_dpcm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_sdx2_dpcm_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dpcm.o"
+  ],
+  "configFlags": [
+    "SDX2_DPCM_DECODER"
+  ],
+  "baseHelpers": []
+}

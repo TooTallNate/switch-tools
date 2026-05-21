@@ -1,0 +1,18 @@
+{
+  "slug": "segafilm-muxer",
+  "description": "SEGAFILM muxer.",
+  "entries": [
+    {
+      "thing": "segafilm_muxer",
+      "kind": "muxer",
+      "symbol": "ff_segafilm_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/segafilmenc.o"
+  ],
+  "configFlags": [
+    "SEGAFILM_MUXER"
+  ],
+  "baseHelpers": []
+}

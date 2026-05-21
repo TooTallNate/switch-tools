@@ -1,0 +1,19 @@
+{
+  "slug": "shorten-demuxer",
+  "description": "SHORTEN demuxer.",
+  "entries": [
+    {
+      "thing": "shorten_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_shorten_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawdec.o",
+    "libavformat/shortendec.o"
+  ],
+  "configFlags": [
+    "SHORTEN_DEMUXER"
+  ],
+  "baseHelpers": []
+}

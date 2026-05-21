@@ -1,0 +1,19 @@
+{
+  "slug": "avr-demuxer",
+  "description": "AVR demuxer.",
+  "entries": [
+    {
+      "thing": "avr_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_avr_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/avr.o",
+    "libavformat/pcm.o"
+  ],
+  "configFlags": [
+    "AVR_DEMUXER"
+  ],
+  "baseHelpers": []
+}

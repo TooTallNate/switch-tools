@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-f64le-encoder",
+  "description": "PCM F64LE encoder.",
+  "entries": [
+    {
+      "thing": "pcm_f64le_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pcm_f64le_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_F64LE_ENCODER"
+  ],
+  "baseHelpers": []
+}

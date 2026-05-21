@@ -1,0 +1,18 @@
+{
+  "slug": "fsb-demuxer",
+  "description": "FSB demuxer.",
+  "entries": [
+    {
+      "thing": "fsb_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_fsb_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/fsb.o"
+  ],
+  "configFlags": [
+    "FSB_DEMUXER"
+  ],
+  "baseHelpers": []
+}

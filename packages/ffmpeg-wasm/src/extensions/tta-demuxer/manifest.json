@@ -1,0 +1,20 @@
+{
+  "slug": "tta-demuxer",
+  "description": "TTA demuxer.",
+  "entries": [
+    {
+      "thing": "tta_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_tta_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/apetag.o",
+    "libavformat/img2.o",
+    "libavformat/tta.o"
+  ],
+  "configFlags": [
+    "TTA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

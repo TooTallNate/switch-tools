@@ -1,0 +1,19 @@
+{
+  "slug": "pvf-demuxer",
+  "description": "PVF demuxer.",
+  "entries": [
+    {
+      "thing": "pvf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_pvf_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcm.o",
+    "libavformat/pvfdec.o"
+  ],
+  "configFlags": [
+    "PVF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

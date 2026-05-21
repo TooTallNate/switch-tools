@@ -1,0 +1,30 @@
+{
+  "slug": "opus-decoder",
+  "description": "OPUS decoder.",
+  "entries": [
+    {
+      "thing": "opus_decoder",
+      "kind": "decoder",
+      "symbol": "ff_opus_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mdct15.o",
+    "libavcodec/opus_celt.o",
+    "libavcodec/opus_pvq.o",
+    "libavcodec/opus_rc.o",
+    "libavcodec/opus_silk.o",
+    "libavcodec/opus.o",
+    "libavcodec/opusdec.o",
+    "libavcodec/opusdsp.o",
+    "libavcodec/opustab.o",
+    "libavcodec/vorbis_data.o"
+  ],
+  "configFlags": [
+    "MDCT15",
+    "OPUS_DECODER"
+  ],
+  "baseHelpers": [
+    "fft"
+  ]
+}

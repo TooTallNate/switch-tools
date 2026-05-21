@@ -1,0 +1,19 @@
+{
+  "slug": "pjs-demuxer",
+  "description": "PJS demuxer.",
+  "entries": [
+    {
+      "thing": "pjs_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_pjs_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pjsdec.o",
+    "libavformat/subtitles.o"
+  ],
+  "configFlags": [
+    "PJS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

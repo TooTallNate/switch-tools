@@ -1,0 +1,18 @@
+{
+  "slug": "dpx-encoder",
+  "description": "DPX encoder.",
+  "entries": [
+    {
+      "thing": "dpx_encoder",
+      "kind": "encoder",
+      "symbol": "ff_dpx_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dpxenc.o"
+  ],
+  "configFlags": [
+    "DPX_ENCODER"
+  ],
+  "baseHelpers": []
+}

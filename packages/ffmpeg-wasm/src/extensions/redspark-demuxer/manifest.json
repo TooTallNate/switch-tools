@@ -1,0 +1,18 @@
+{
+  "slug": "redspark-demuxer",
+  "description": "REDSPARK demuxer.",
+  "entries": [
+    {
+      "thing": "redspark_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_redspark_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/redspark.o"
+  ],
+  "configFlags": [
+    "REDSPARK_DEMUXER"
+  ],
+  "baseHelpers": []
+}

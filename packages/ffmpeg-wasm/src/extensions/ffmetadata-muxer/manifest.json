@@ -1,0 +1,18 @@
+{
+  "slug": "ffmetadata-muxer",
+  "description": "FFMETADATA muxer.",
+  "entries": [
+    {
+      "thing": "ffmetadata_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ffmetadata_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ffmetaenc.o"
+  ],
+  "configFlags": [
+    "FFMETADATA_MUXER"
+  ],
+  "baseHelpers": []
+}

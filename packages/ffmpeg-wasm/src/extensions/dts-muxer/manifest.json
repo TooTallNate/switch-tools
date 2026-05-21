@@ -1,0 +1,18 @@
+{
+  "slug": "dts-muxer",
+  "description": "DTS muxer.",
+  "entries": [
+    {
+      "thing": "dts_muxer",
+      "kind": "muxer",
+      "symbol": "ff_dts_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "DTS_MUXER"
+  ],
+  "baseHelpers": []
+}

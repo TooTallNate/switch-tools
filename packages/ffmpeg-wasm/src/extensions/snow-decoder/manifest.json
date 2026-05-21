@@ -1,0 +1,27 @@
+{
+  "slug": "snow-decoder",
+  "description": "SNOW decoder.",
+  "entries": [
+    {
+      "thing": "snow_decoder",
+      "kind": "decoder",
+      "symbol": "ff_snow_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/rangecoder.o",
+    "libavcodec/snow_dwt.o",
+    "libavcodec/snow.o",
+    "libavcodec/snowdec.o"
+  ],
+  "configFlags": [
+    "RANGECODER",
+    "SNOW_DECODER"
+  ],
+  "baseHelpers": [
+    "h264qpel",
+    "hpeldsp",
+    "me_cmp",
+    "videodsp"
+  ]
+}

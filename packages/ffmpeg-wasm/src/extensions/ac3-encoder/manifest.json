@@ -1,0 +1,28 @@
+{
+  "slug": "ac3-encoder",
+  "description": "AC3 encoder.",
+  "entries": [
+    {
+      "thing": "ac3_encoder",
+      "kind": "encoder",
+      "symbol": "ff_ac3_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ac3.o",
+    "libavcodec/ac3dsp.o",
+    "libavcodec/ac3enc_float.o",
+    "libavcodec/ac3enc.o",
+    "libavcodec/ac3tab.o",
+    "libavcodec/kbdwin.o"
+  ],
+  "configFlags": [
+    "AC3DSP",
+    "AC3_ENCODER"
+  ],
+  "baseHelpers": [
+    "audiodsp",
+    "mdct",
+    "me_cmp"
+  ]
+}

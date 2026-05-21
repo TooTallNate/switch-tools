@@ -1,0 +1,22 @@
+{
+  "slug": "h261-encoder",
+  "description": "H261 encoder.",
+  "entries": [
+    {
+      "thing": "h261_encoder",
+      "kind": "encoder",
+      "symbol": "ff_h261_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/h261.o",
+    "libavcodec/h261data.o",
+    "libavcodec/h261enc.o"
+  ],
+  "configFlags": [
+    "H261_ENCODER"
+  ],
+  "baseHelpers": [
+    "mpegvideoenc"
+  ]
+}

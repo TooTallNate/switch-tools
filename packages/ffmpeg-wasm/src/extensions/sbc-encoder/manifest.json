@@ -1,0 +1,21 @@
+{
+  "slug": "sbc-encoder",
+  "description": "SBC encoder.",
+  "entries": [
+    {
+      "thing": "sbc_encoder",
+      "kind": "encoder",
+      "symbol": "ff_sbc_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/sbc.o",
+    "libavcodec/sbcdsp_data.o",
+    "libavcodec/sbcdsp.o",
+    "libavcodec/sbcenc.o"
+  ],
+  "configFlags": [
+    "SBC_ENCODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "hevc-muxer",
+  "description": "HEVC muxer.",
+  "entries": [
+    {
+      "thing": "hevc_muxer",
+      "kind": "muxer",
+      "symbol": "ff_hevc_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "HEVC_MUXER"
+  ],
+  "baseHelpers": []
+}

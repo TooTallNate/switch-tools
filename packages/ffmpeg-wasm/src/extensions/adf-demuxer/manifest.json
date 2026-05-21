@@ -1,0 +1,19 @@
+{
+  "slug": "adf-demuxer",
+  "description": "ADF demuxer.",
+  "entries": [
+    {
+      "thing": "adf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_adf_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/bintext.o",
+    "libavformat/sauce.o"
+  ],
+  "configFlags": [
+    "ADF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

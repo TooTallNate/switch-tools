@@ -1,0 +1,18 @@
+{
+  "slug": "aptx-hd-muxer",
+  "description": "APTX HD muxer.",
+  "entries": [
+    {
+      "thing": "aptx_hd_muxer",
+      "kind": "muxer",
+      "symbol": "ff_aptx_hd_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "APTX_HD_MUXER"
+  ],
+  "baseHelpers": []
+}

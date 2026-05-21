@@ -1,0 +1,18 @@
+{
+  "slug": "cscd-decoder",
+  "description": "CSCD decoder.",
+  "entries": [
+    {
+      "thing": "cscd_decoder",
+      "kind": "decoder",
+      "symbol": "ff_cscd_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/cscd.o"
+  ],
+  "configFlags": [
+    "CSCD_DECODER"
+  ],
+  "baseHelpers": []
+}

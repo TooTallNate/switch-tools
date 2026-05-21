@@ -1,0 +1,18 @@
+{
+  "slug": "idcin-demuxer",
+  "description": "IDCIN demuxer.",
+  "entries": [
+    {
+      "thing": "idcin_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_idcin_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/idcin.o"
+  ],
+  "configFlags": [
+    "IDCIN_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "pcm-s24le-muxer",
+  "description": "PCM S24LE muxer.",
+  "entries": [
+    {
+      "thing": "pcm_s24le_muxer",
+      "kind": "muxer",
+      "symbol": "ff_pcm_s24le_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcmenc.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "PCM_S24LE_MUXER"
+  ],
+  "baseHelpers": []
+}

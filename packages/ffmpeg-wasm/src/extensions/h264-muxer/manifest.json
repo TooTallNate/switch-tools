@@ -1,0 +1,18 @@
+{
+  "slug": "h264-muxer",
+  "description": "H264 muxer.",
+  "entries": [
+    {
+      "thing": "h264_muxer",
+      "kind": "muxer",
+      "symbol": "ff_h264_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "H264_MUXER"
+  ],
+  "baseHelpers": []
+}

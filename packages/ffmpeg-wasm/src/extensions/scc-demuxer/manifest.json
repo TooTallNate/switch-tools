@@ -1,0 +1,19 @@
+{
+  "slug": "scc-demuxer",
+  "description": "SCC demuxer.",
+  "entries": [
+    {
+      "thing": "scc_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_scc_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/sccdec.o",
+    "libavformat/subtitles.o"
+  ],
+  "configFlags": [
+    "SCC_DEMUXER"
+  ],
+  "baseHelpers": []
+}

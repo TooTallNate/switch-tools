@@ -1,0 +1,18 @@
+{
+  "slug": "ilbc-demuxer",
+  "description": "ILBC demuxer.",
+  "entries": [
+    {
+      "thing": "ilbc_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ilbc_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ilbc.o"
+  ],
+  "configFlags": [
+    "ILBC_DEMUXER"
+  ],
+  "baseHelpers": []
+}

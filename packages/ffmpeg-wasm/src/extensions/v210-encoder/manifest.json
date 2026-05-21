@@ -1,0 +1,18 @@
+{
+  "slug": "v210-encoder",
+  "description": "V210 encoder.",
+  "entries": [
+    {
+      "thing": "v210_encoder",
+      "kind": "encoder",
+      "symbol": "ff_v210_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/v210enc.o"
+  ],
+  "configFlags": [
+    "V210_ENCODER"
+  ],
+  "baseHelpers": []
+}

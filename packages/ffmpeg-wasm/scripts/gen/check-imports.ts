@@ -36,16 +36,25 @@ const slugs = readdirSync(extRoot).filter((n) => {
 
 const allMissing = new Map<string, Set<string>>() // symbol → which extensions need it
 
+let okCount = 0
+let unsatisfiedCount = 0
+let parseErrorCount = 0
 for (const slug of slugs) {
 	const soPath = pathResolve(extRoot, slug, `${slug}.so`)
 	let buf: Buffer
 	try {
 		buf = readFileSync(soPath)
 	} catch {
-		console.log(`${slug}: <not built>`)
 		continue
 	}
-	const mod = new WebAssembly.Module(buf)
+	let mod: WebAssembly.Module
+	try {
+		mod = new WebAssembly.Module(buf)
+	} catch (err) {
+		parseErrorCount++
+		console.log(`${slug}: PARSE ERROR — ${(err as Error).message}`)
+		continue
+	}
 	const imports = WebAssembly.Module.imports(mod)
 	const envImports = imports
 		.filter((i) => i.module === "env")
@@ -54,18 +63,19 @@ for (const slug of slugs) {
 		.filter((n) => !baseExports.has(n) && !LOADER_PROVIDED.has(n))
 		.sort()
 	if (missing.length === 0) {
-		console.log(`${slug}: OK (${envImports.length} env imports, all satisfied)`)
+		okCount++
 		continue
 	}
-	console.log(
-		`${slug}: ${missing.length}/${envImports.length} env imports missing`,
-	)
+	unsatisfiedCount++
 	for (const m of missing) {
-		console.log(`  - ${m}`)
 		if (!allMissing.has(m)) allMissing.set(m, new Set())
 		allMissing.get(m)!.add(slug)
 	}
 }
+
+console.log(`OK: ${okCount}`)
+console.log(`Unsatisfied: ${unsatisfiedCount}`)
+console.log(`Parse errors: ${parseErrorCount}`)
 
 console.log()
 console.log(`unique missing symbols across all extensions: ${allMissing.size}`)

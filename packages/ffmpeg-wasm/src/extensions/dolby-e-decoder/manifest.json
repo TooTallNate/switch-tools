@@ -1,0 +1,22 @@
+{
+  "slug": "dolby-e-decoder",
+  "description": "DOLBY E decoder.",
+  "entries": [
+    {
+      "thing": "dolby_e_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dolby_e_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dolby_e_parse.o",
+    "libavcodec/dolby_e.o",
+    "libavcodec/kbdwin.o"
+  ],
+  "configFlags": [
+    "DOLBY_E_DECODER"
+  ],
+  "baseHelpers": [
+    "mdct"
+  ]
+}

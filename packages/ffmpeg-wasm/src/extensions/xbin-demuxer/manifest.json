@@ -1,0 +1,19 @@
+{
+  "slug": "xbin-demuxer",
+  "description": "XBIN demuxer.",
+  "entries": [
+    {
+      "thing": "xbin_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_xbin_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/bintext.o",
+    "libavformat/sauce.o"
+  ],
+  "configFlags": [
+    "XBIN_DEMUXER"
+  ],
+  "baseHelpers": []
+}

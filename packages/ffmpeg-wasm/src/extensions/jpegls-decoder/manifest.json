@@ -1,0 +1,31 @@
+{
+  "slug": "jpegls-decoder",
+  "description": "JPEGLS decoder.",
+  "entries": [
+    {
+      "thing": "jpegls_decoder",
+      "kind": "decoder",
+      "symbol": "ff_jpegls_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/exif.o",
+    "libavcodec/jpegls.o",
+    "libavcodec/jpeglsdec.o",
+    "libavcodec/jpegtables.o",
+    "libavcodec/mjpegdec_common.o",
+    "libavcodec/mjpegdec.o",
+    "libavcodec/tiff_common.o"
+  ],
+  "configFlags": [
+    "EXIF",
+    "JPEGLS_DECODER",
+    "JPEGTABLES",
+    "MJPEG_DECODER"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "hpeldsp",
+    "idctdsp"
+  ]
+}

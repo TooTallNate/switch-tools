@@ -1,0 +1,26 @@
+{
+  "slug": "hls-demuxer",
+  "description": "HLS demuxer.",
+  "entries": [
+    {
+      "thing": "hls_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_hls_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/aac_ac3_parser.o",
+    "libavcodec/ac3_channel_layout_tab.o",
+    "libavcodec/ac3tab.o",
+    "libavcodec/adts_header.o",
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavformat/hls_sample_encryption.o",
+    "libavformat/hls.o"
+  ],
+  "configFlags": [
+    "AC3_PARSER",
+    "ADTS_HEADER",
+    "HLS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

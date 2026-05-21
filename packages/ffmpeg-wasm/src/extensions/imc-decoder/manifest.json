@@ -1,0 +1,23 @@
+{
+  "slug": "imc-decoder",
+  "description": "IMC decoder.",
+  "entries": [
+    {
+      "thing": "imc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_imc_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/imc.o"
+  ],
+  "configFlags": [
+    "IMC_DECODER"
+  ],
+  "baseHelpers": [
+    "bswapdsp",
+    "fft",
+    "mdct",
+    "sinewin"
+  ]
+}

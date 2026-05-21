@@ -1,0 +1,25 @@
+{
+  "slug": "als-decoder",
+  "description": "ALS decoder.",
+  "entries": [
+    {
+      "thing": "als_decoder",
+      "kind": "decoder",
+      "symbol": "ff_als_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/alsdec.o",
+    "libavcodec/bgmc.o",
+    "libavcodec/mlz.o",
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavcodec/mpeg4audio.o"
+  ],
+  "configFlags": [
+    "ALS_DECODER",
+    "MPEG4AUDIO"
+  ],
+  "baseHelpers": [
+    "bswapdsp"
+  ]
+}

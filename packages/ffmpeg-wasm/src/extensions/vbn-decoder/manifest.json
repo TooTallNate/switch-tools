@@ -1,0 +1,20 @@
+{
+  "slug": "vbn-decoder",
+  "description": "VBN decoder.",
+  "entries": [
+    {
+      "thing": "vbn_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vbn_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/texturedsp.o",
+    "libavcodec/vbndec.o"
+  ],
+  "configFlags": [
+    "TEXTUREDSP",
+    "VBN_DECODER"
+  ],
+  "baseHelpers": []
+}

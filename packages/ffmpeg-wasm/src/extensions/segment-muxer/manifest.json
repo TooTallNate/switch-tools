@@ -1,0 +1,18 @@
+{
+  "slug": "segment-muxer",
+  "description": "SEGMENT muxer.",
+  "entries": [
+    {
+      "thing": "segment_muxer",
+      "kind": "muxer",
+      "symbol": "ff_segment_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/segment.o"
+  ],
+  "configFlags": [
+    "SEGMENT_MUXER"
+  ],
+  "baseHelpers": []
+}

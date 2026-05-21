@@ -1,0 +1,19 @@
+{
+  "slug": "s337m-demuxer",
+  "description": "S337M demuxer.",
+  "entries": [
+    {
+      "thing": "s337m_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_s337m_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/s337m.o",
+    "libavformat/spdif.o"
+  ],
+  "configFlags": [
+    "S337M_DEMUXER"
+  ],
+  "baseHelpers": []
+}

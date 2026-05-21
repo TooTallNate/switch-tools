@@ -1,0 +1,18 @@
+{
+  "slug": "anm-decoder",
+  "description": "ANM decoder.",
+  "entries": [
+    {
+      "thing": "anm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_anm_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/anm.o"
+  ],
+  "configFlags": [
+    "ANM_DECODER"
+  ],
+  "baseHelpers": []
+}

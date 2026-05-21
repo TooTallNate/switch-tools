@@ -1,0 +1,18 @@
+{
+  "slug": "dhav-demuxer",
+  "description": "DHAV demuxer.",
+  "entries": [
+    {
+      "thing": "dhav_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dhav_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/dhav.o"
+  ],
+  "configFlags": [
+    "DHAV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

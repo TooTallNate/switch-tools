@@ -1,0 +1,24 @@
+{
+  "slug": "asv1-decoder",
+  "description": "ASV1 decoder.",
+  "entries": [
+    {
+      "thing": "asv1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_asv1_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/asv.o",
+    "libavcodec/asvdec.o",
+    "libavcodec/mpeg12data.o"
+  ],
+  "configFlags": [
+    "ASV1_DECODER"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "bswapdsp",
+    "idctdsp"
+  ]
+}

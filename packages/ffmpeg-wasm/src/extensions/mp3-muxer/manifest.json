@@ -1,0 +1,23 @@
+{
+  "slug": "mp3-muxer",
+  "description": "MP3 muxer.",
+  "entries": [
+    {
+      "thing": "mp3_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mp3_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpegaudiodecheader.o",
+    "libavcodec/mpegaudiotabs.o",
+    "libavformat/id3v2enc.o",
+    "libavformat/mp3enc.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "MP3_MUXER",
+    "MPEGAUDIOHEADER"
+  ],
+  "baseHelpers": []
+}

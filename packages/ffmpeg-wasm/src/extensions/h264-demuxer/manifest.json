@@ -1,0 +1,19 @@
+{
+  "slug": "h264-demuxer",
+  "description": "H264 demuxer.",
+  "entries": [
+    {
+      "thing": "h264_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_h264_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/h264dec.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "H264_DEMUXER"
+  ],
+  "baseHelpers": []
+}

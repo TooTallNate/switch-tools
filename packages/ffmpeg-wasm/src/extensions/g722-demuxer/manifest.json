@@ -1,0 +1,19 @@
+{
+  "slug": "g722-demuxer",
+  "description": "G722 demuxer.",
+  "entries": [
+    {
+      "thing": "g722_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_g722_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/g722.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "G722_DEMUXER"
+  ],
+  "baseHelpers": []
+}

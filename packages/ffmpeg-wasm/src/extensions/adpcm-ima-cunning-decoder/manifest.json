@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-ima-cunning-decoder",
+  "description": "ADPCM IMA CUNNING decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_ima_cunning_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_cunning_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_IMA_CUNNING_DECODER"
+  ],
+  "baseHelpers": []
+}

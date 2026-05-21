@@ -1,0 +1,18 @@
+{
+  "slug": "apc-demuxer",
+  "description": "APC demuxer.",
+  "entries": [
+    {
+      "thing": "apc_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_apc_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/apc.o"
+  ],
+  "configFlags": [
+    "APC_DEMUXER"
+  ],
+  "baseHelpers": []
+}

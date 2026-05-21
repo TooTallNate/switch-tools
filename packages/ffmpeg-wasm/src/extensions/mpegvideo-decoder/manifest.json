@@ -1,0 +1,22 @@
+{
+  "slug": "mpegvideo-decoder",
+  "description": "MPEGVIDEO decoder.",
+  "entries": [
+    {
+      "thing": "mpegvideo_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mpegvideo_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpeg12.o",
+    "libavcodec/mpeg12data.o",
+    "libavcodec/mpeg12dec.o"
+  ],
+  "configFlags": [
+    "MPEGVIDEO_DECODER"
+  ],
+  "baseHelpers": [
+    "mpegvideodec"
+  ]
+}

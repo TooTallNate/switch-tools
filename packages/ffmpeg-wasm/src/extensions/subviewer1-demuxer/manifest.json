@@ -1,0 +1,19 @@
+{
+  "slug": "subviewer1-demuxer",
+  "description": "SUBVIEWER1 demuxer.",
+  "entries": [
+    {
+      "thing": "subviewer1_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_subviewer1_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/subtitles.o",
+    "libavformat/subviewer1dec.o"
+  ],
+  "configFlags": [
+    "SUBVIEWER1_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "pam-encoder",
+  "description": "PAM encoder.",
+  "entries": [
+    {
+      "thing": "pam_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pam_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pamenc.o"
+  ],
+  "configFlags": [
+    "PAM_ENCODER"
+  ],
+  "baseHelpers": []
+}

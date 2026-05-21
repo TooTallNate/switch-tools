@@ -1,0 +1,18 @@
+{
+  "slug": "mp2-muxer",
+  "description": "MP2 muxer.",
+  "entries": [
+    {
+      "thing": "mp2_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mp2_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "MP2_MUXER"
+  ],
+  "baseHelpers": []
+}

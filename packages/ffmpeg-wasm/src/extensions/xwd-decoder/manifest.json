@@ -1,0 +1,18 @@
+{
+  "slug": "xwd-decoder",
+  "description": "XWD decoder.",
+  "entries": [
+    {
+      "thing": "xwd_decoder",
+      "kind": "decoder",
+      "symbol": "ff_xwd_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/xwddec.o"
+  ],
+  "configFlags": [
+    "XWD_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-s24daud-decoder",
+  "description": "PCM S24DAUD decoder.",
+  "entries": [
+    {
+      "thing": "pcm_s24daud_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pcm_s24daud_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_S24DAUD_DECODER"
+  ],
+  "baseHelpers": []
+}

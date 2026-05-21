@@ -1,0 +1,19 @@
+{
+  "slug": "idf-decoder",
+  "description": "IDF decoder.",
+  "entries": [
+    {
+      "thing": "idf_decoder",
+      "kind": "decoder",
+      "symbol": "ff_idf_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/bintext.o",
+    "libavcodec/cga_data.o"
+  ],
+  "configFlags": [
+    "IDF_DECODER"
+  ],
+  "baseHelpers": []
+}

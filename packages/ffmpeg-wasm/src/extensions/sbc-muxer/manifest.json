@@ -1,0 +1,18 @@
+{
+  "slug": "sbc-muxer",
+  "description": "SBC muxer.",
+  "entries": [
+    {
+      "thing": "sbc_muxer",
+      "kind": "muxer",
+      "symbol": "ff_sbc_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "SBC_MUXER"
+  ],
+  "baseHelpers": []
+}

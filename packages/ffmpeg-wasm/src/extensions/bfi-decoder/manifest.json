@@ -1,0 +1,18 @@
+{
+  "slug": "bfi-decoder",
+  "description": "BFI decoder.",
+  "entries": [
+    {
+      "thing": "bfi_decoder",
+      "kind": "decoder",
+      "symbol": "ff_bfi_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/bfi.o"
+  ],
+  "configFlags": [
+    "BFI_DECODER"
+  ],
+  "baseHelpers": []
+}

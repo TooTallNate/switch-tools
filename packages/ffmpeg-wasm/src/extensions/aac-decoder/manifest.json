@@ -1,6 +1,6 @@
 {
   "slug": "aac-decoder",
-  "description": "AAC (Advanced Audio Coding) decoder.",
+  "description": "AAC decoder.",
   "entries": [
     {
       "thing": "aac_decoder",

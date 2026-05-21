@@ -1,0 +1,18 @@
+{
+  "slug": "fifo-test-muxer",
+  "description": "FIFO TEST muxer.",
+  "entries": [
+    {
+      "thing": "fifo_test_muxer",
+      "kind": "muxer",
+      "symbol": "ff_fifo_test_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/fifo_test.o"
+  ],
+  "configFlags": [
+    "FIFO_TEST_MUXER"
+  ],
+  "baseHelpers": []
+}

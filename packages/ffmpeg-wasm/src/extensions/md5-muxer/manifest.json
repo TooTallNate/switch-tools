@@ -1,0 +1,18 @@
+{
+  "slug": "md5-muxer",
+  "description": "MD5 muxer.",
+  "entries": [
+    {
+      "thing": "md5_muxer",
+      "kind": "muxer",
+      "symbol": "ff_md5_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/hashenc.o"
+  ],
+  "configFlags": [
+    "MD5_MUXER"
+  ],
+  "baseHelpers": []
+}

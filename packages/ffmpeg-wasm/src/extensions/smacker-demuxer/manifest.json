@@ -1,0 +1,18 @@
+{
+  "slug": "smacker-demuxer",
+  "description": "SMACKER demuxer.",
+  "entries": [
+    {
+      "thing": "smacker_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_smacker_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/smacker.o"
+  ],
+  "configFlags": [
+    "SMACKER_DEMUXER"
+  ],
+  "baseHelpers": []
+}

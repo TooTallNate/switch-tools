@@ -1,0 +1,19 @@
+{
+  "slug": "vplayer-demuxer",
+  "description": "VPLAYER demuxer.",
+  "entries": [
+    {
+      "thing": "vplayer_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_vplayer_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/subtitles.o",
+    "libavformat/vplayerdec.o"
+  ],
+  "configFlags": [
+    "VPLAYER_DEMUXER"
+  ],
+  "baseHelpers": []
+}

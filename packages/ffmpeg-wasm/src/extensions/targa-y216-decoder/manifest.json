@@ -1,0 +1,18 @@
+{
+  "slug": "targa-y216-decoder",
+  "description": "TARGA Y216 decoder.",
+  "entries": [
+    {
+      "thing": "targa_y216_decoder",
+      "kind": "decoder",
+      "symbol": "ff_targa_y216_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/targa_y216dec.o"
+  ],
+  "configFlags": [
+    "TARGA_Y216_DECODER"
+  ],
+  "baseHelpers": []
+}

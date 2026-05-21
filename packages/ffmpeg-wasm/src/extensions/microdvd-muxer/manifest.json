@@ -1,0 +1,18 @@
+{
+  "slug": "microdvd-muxer",
+  "description": "MICRODVD muxer.",
+  "entries": [
+    {
+      "thing": "microdvd_muxer",
+      "kind": "muxer",
+      "symbol": "ff_microdvd_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/microdvdenc.o"
+  ],
+  "configFlags": [
+    "MICRODVD_MUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "pam-decoder",
+  "description": "PAM decoder.",
+  "entries": [
+    {
+      "thing": "pam_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pam_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pnm.o",
+    "libavcodec/pnmdec.o"
+  ],
+  "configFlags": [
+    "PAM_DECODER"
+  ],
+  "baseHelpers": []
+}

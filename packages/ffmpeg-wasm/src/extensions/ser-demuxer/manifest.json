@@ -1,0 +1,18 @@
+{
+  "slug": "ser-demuxer",
+  "description": "SER demuxer.",
+  "entries": [
+    {
+      "thing": "ser_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ser_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/serdec.o"
+  ],
+  "configFlags": [
+    "SER_DEMUXER"
+  ],
+  "baseHelpers": []
+}

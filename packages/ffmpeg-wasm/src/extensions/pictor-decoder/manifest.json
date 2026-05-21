@@ -1,0 +1,19 @@
+{
+  "slug": "pictor-decoder",
+  "description": "PICTOR decoder.",
+  "entries": [
+    {
+      "thing": "pictor_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pictor_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/cga_data.o",
+    "libavcodec/pictordec.o"
+  ],
+  "configFlags": [
+    "PICTOR_DECODER"
+  ],
+  "baseHelpers": []
+}

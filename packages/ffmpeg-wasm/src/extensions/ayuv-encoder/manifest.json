@@ -1,0 +1,18 @@
+{
+  "slug": "ayuv-encoder",
+  "description": "AYUV encoder.",
+  "entries": [
+    {
+      "thing": "ayuv_encoder",
+      "kind": "encoder",
+      "symbol": "ff_ayuv_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/v408enc.o"
+  ],
+  "configFlags": [
+    "AYUV_ENCODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "ast-muxer",
+  "description": "AST muxer.",
+  "entries": [
+    {
+      "thing": "ast_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ast_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ast.o",
+    "libavformat/astenc.o"
+  ],
+  "configFlags": [
+    "AST_MUXER"
+  ],
+  "baseHelpers": []
+}

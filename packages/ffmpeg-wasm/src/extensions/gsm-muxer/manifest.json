@@ -1,0 +1,18 @@
+{
+  "slug": "gsm-muxer",
+  "description": "GSM muxer.",
+  "entries": [
+    {
+      "thing": "gsm_muxer",
+      "kind": "muxer",
+      "symbol": "ff_gsm_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "GSM_MUXER"
+  ],
+  "baseHelpers": []
+}

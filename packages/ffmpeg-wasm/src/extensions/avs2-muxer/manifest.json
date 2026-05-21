@@ -1,0 +1,18 @@
+{
+  "slug": "avs2-muxer",
+  "description": "AVS2 muxer.",
+  "entries": [
+    {
+      "thing": "avs2_muxer",
+      "kind": "muxer",
+      "symbol": "ff_avs2_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "AVS2_MUXER"
+  ],
+  "baseHelpers": []
+}

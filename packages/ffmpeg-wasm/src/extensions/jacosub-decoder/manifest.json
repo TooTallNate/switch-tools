@@ -1,0 +1,19 @@
+{
+  "slug": "jacosub-decoder",
+  "description": "JACOSUB decoder.",
+  "entries": [
+    {
+      "thing": "jacosub_decoder",
+      "kind": "decoder",
+      "symbol": "ff_jacosub_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ass.o",
+    "libavcodec/jacosubdec.o"
+  ],
+  "configFlags": [
+    "JACOSUB_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "r3d-demuxer",
+  "description": "R3D demuxer.",
+  "entries": [
+    {
+      "thing": "r3d_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_r3d_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/r3d.o"
+  ],
+  "configFlags": [
+    "R3D_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "fmvc-decoder",
+  "description": "FMVC decoder.",
+  "entries": [
+    {
+      "thing": "fmvc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_fmvc_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/fmvc.o"
+  ],
+  "configFlags": [
+    "FMVC_DECODER"
+  ],
+  "baseHelpers": []
+}

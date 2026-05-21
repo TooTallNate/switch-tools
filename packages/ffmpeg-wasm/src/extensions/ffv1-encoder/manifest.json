@@ -1,0 +1,21 @@
+{
+  "slug": "ffv1-encoder",
+  "description": "FFV1 encoder.",
+  "entries": [
+    {
+      "thing": "ffv1_encoder",
+      "kind": "encoder",
+      "symbol": "ff_ffv1_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ffv1.o",
+    "libavcodec/ffv1enc.o",
+    "libavcodec/rangecoder.o"
+  ],
+  "configFlags": [
+    "FFV1_ENCODER",
+    "RANGECODER"
+  ],
+  "baseHelpers": []
+}

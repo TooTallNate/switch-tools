@@ -1,0 +1,24 @@
+{
+  "slug": "huffyuv-decoder",
+  "description": "HUFFYUV decoder.",
+  "entries": [
+    {
+      "thing": "huffyuv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_huffyuv_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/huffyuv.o",
+    "libavcodec/huffyuvdec.o",
+    "libavcodec/lossless_videodsp.o"
+  ],
+  "configFlags": [
+    "HUFFYUV_DECODER",
+    "LLVIDDSP"
+  ],
+  "baseHelpers": [
+    "bswapdsp",
+    "huffyuvdsp"
+  ]
+}

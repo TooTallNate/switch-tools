@@ -1,0 +1,43 @@
+{
+  "slug": "hevc-decoder",
+  "description": "HEVC decoder.",
+  "entries": [
+    {
+      "thing": "hevc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_hevc_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/atsc_a53.o",
+    "libavcodec/dovi_rpu.o",
+    "libavcodec/dynamic_hdr_vivid.o",
+    "libavcodec/dynamic_hdr10_plus.o",
+    "libavcodec/golomb.o",
+    "libavcodec/h2645_parse.o",
+    "libavcodec/h274.o",
+    "libavcodec/hevc_cabac.o",
+    "libavcodec/hevc_data.o",
+    "libavcodec/hevc_filter.o",
+    "libavcodec/hevc_mvs.o",
+    "libavcodec/hevc_parse.o",
+    "libavcodec/hevc_ps.o",
+    "libavcodec/hevc_refs.o",
+    "libavcodec/hevc_sei.o",
+    "libavcodec/hevcdec.o",
+    "libavcodec/hevcdsp.o",
+    "libavcodec/hevcpred.o"
+  ],
+  "configFlags": [
+    "ATSC_A53",
+    "DOVI_RPU",
+    "GOLOMB",
+    "HEVCPARSE",
+    "HEVC_DECODER"
+  ],
+  "baseHelpers": [
+    "bswapdsp",
+    "cabac",
+    "videodsp"
+  ]
+}

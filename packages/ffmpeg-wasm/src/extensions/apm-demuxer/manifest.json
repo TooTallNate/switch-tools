@@ -1,0 +1,18 @@
+{
+  "slug": "apm-demuxer",
+  "description": "APM demuxer.",
+  "entries": [
+    {
+      "thing": "apm_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_apm_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/apm.o"
+  ],
+  "configFlags": [
+    "APM_DEMUXER"
+  ],
+  "baseHelpers": []
+}

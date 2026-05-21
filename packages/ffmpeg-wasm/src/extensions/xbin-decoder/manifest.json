@@ -1,0 +1,19 @@
+{
+  "slug": "xbin-decoder",
+  "description": "XBIN decoder.",
+  "entries": [
+    {
+      "thing": "xbin_decoder",
+      "kind": "decoder",
+      "symbol": "ff_xbin_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/bintext.o",
+    "libavcodec/cga_data.o"
+  ],
+  "configFlags": [
+    "XBIN_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-ima-ssi-decoder",
+  "description": "ADPCM IMA SSI decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_ima_ssi_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_ssi_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_IMA_SSI_DECODER"
+  ],
+  "baseHelpers": []
+}

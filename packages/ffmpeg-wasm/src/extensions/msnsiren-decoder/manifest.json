@@ -1,0 +1,18 @@
+{
+  "slug": "msnsiren-decoder",
+  "description": "MSNSIREN decoder.",
+  "entries": [
+    {
+      "thing": "msnsiren_decoder",
+      "kind": "decoder",
+      "symbol": "ff_msnsiren_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/siren.o"
+  ],
+  "configFlags": [
+    "MSNSIREN_DECODER"
+  ],
+  "baseHelpers": []
+}

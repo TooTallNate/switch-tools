@@ -1,0 +1,28 @@
+{
+  "slug": "wmavoice-decoder",
+  "description": "WMAVOICE decoder.",
+  "entries": [
+    {
+      "thing": "wmavoice_decoder",
+      "kind": "decoder",
+      "symbol": "ff_wmavoice_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/acelp_filters.o",
+    "libavcodec/acelp_vectors.o",
+    "libavcodec/celp_filters.o",
+    "libavcodec/lsp.o",
+    "libavcodec/wmavoice.o"
+  ],
+  "configFlags": [
+    "LSP",
+    "WMAVOICE_DECODER"
+  ],
+  "baseHelpers": [
+    "dct",
+    "mdct",
+    "rdft",
+    "sinewin"
+  ]
+}

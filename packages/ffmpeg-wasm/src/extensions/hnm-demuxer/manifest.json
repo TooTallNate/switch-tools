@@ -1,0 +1,18 @@
+{
+  "slug": "hnm-demuxer",
+  "description": "HNM demuxer.",
+  "entries": [
+    {
+      "thing": "hnm_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_hnm_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/hnm.o"
+  ],
+  "configFlags": [
+    "HNM_DEMUXER"
+  ],
+  "baseHelpers": []
+}

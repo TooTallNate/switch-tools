@@ -1,0 +1,18 @@
+{
+  "slug": "ass-muxer",
+  "description": "ASS muxer.",
+  "entries": [
+    {
+      "thing": "ass_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ass_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/assenc.o"
+  ],
+  "configFlags": [
+    "ASS_MUXER"
+  ],
+  "baseHelpers": []
+}

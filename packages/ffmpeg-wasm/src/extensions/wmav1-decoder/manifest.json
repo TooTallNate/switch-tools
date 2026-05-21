@@ -1,0 +1,25 @@
+{
+  "slug": "wmav1-decoder",
+  "description": "WMAV1 decoder.",
+  "entries": [
+    {
+      "thing": "wmav1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_wmav1_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/aactab.o",
+    "libavcodec/wma_common.o",
+    "libavcodec/wma.o",
+    "libavcodec/wmadec.o"
+  ],
+  "configFlags": [
+    "WMAV1_DECODER"
+  ],
+  "baseHelpers": [
+    "mdct",
+    "sinewin",
+    "wma_freqs"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-ima-dk3-decoder",
+  "description": "ADPCM IMA DK3 decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_ima_dk3_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_dk3_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_IMA_DK3_DECODER"
+  ],
+  "baseHelpers": []
+}

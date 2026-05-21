@@ -1,0 +1,18 @@
+{
+  "slug": "cinepak-decoder",
+  "description": "CINEPAK decoder.",
+  "entries": [
+    {
+      "thing": "cinepak_decoder",
+      "kind": "decoder",
+      "symbol": "ff_cinepak_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/cinepak.o"
+  ],
+  "configFlags": [
+    "CINEPAK_DECODER"
+  ],
+  "baseHelpers": []
+}

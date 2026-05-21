@@ -1,0 +1,19 @@
+{
+  "slug": "ssa-decoder",
+  "description": "SSA decoder.",
+  "entries": [
+    {
+      "thing": "ssa_decoder",
+      "kind": "decoder",
+      "symbol": "ff_ssa_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ass.o",
+    "libavcodec/assdec.o"
+  ],
+  "configFlags": [
+    "SSA_DECODER"
+  ],
+  "baseHelpers": []
+}

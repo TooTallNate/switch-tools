@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-u24be-decoder",
+  "description": "PCM U24BE decoder.",
+  "entries": [
+    {
+      "thing": "pcm_u24be_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pcm_u24be_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_U24BE_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "dvdsub-decoder",
+  "description": "DVDSUB decoder.",
+  "entries": [
+    {
+      "thing": "dvdsub_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dvdsub_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dvdsub.o",
+    "libavcodec/dvdsubdec.o"
+  ],
+  "configFlags": [
+    "DVDSUB_DECODER"
+  ],
+  "baseHelpers": []
+}

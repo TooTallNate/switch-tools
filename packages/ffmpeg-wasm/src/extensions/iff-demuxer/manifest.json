@@ -1,0 +1,18 @@
+{
+  "slug": "iff-demuxer",
+  "description": "IFF demuxer.",
+  "entries": [
+    {
+      "thing": "iff_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_iff_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/iff.o"
+  ],
+  "configFlags": [
+    "IFF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

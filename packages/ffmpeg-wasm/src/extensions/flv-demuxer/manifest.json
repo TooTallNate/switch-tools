@@ -1,0 +1,18 @@
+{
+  "slug": "flv-demuxer",
+  "description": "FLV demuxer.",
+  "entries": [
+    {
+      "thing": "flv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_flv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/flvdec.o"
+  ],
+  "configFlags": [
+    "FLV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

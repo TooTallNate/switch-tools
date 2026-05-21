@@ -1,0 +1,18 @@
+{
+  "slug": "mods-demuxer",
+  "description": "MODS demuxer.",
+  "entries": [
+    {
+      "thing": "mods_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mods_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mods.o"
+  ],
+  "configFlags": [
+    "MODS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

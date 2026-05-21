@@ -1,0 +1,20 @@
+{
+  "slug": "nuv-demuxer",
+  "description": "NUV demuxer.",
+  "entries": [
+    {
+      "thing": "nuv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_nuv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/nuv.o",
+    "libavformat/riffdec.o"
+  ],
+  "configFlags": [
+    "NUV_DEMUXER",
+    "RIFFDEC"
+  ],
+  "baseHelpers": []
+}

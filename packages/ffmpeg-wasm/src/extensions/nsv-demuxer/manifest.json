@@ -1,0 +1,18 @@
+{
+  "slug": "nsv-demuxer",
+  "description": "NSV demuxer.",
+  "entries": [
+    {
+      "thing": "nsv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_nsv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/nsvdec.o"
+  ],
+  "configFlags": [
+    "NSV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

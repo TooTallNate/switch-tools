@@ -1,0 +1,18 @@
+{
+  "slug": "dss-sp-decoder",
+  "description": "DSS SP decoder.",
+  "entries": [
+    {
+      "thing": "dss_sp_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dss_sp_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dss_sp.o"
+  ],
+  "configFlags": [
+    "DSS_SP_DECODER"
+  ],
+  "baseHelpers": []
+}

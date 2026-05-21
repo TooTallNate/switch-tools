@@ -1,0 +1,18 @@
+{
+  "slug": "smc-encoder",
+  "description": "SMC encoder.",
+  "entries": [
+    {
+      "thing": "smc_encoder",
+      "kind": "encoder",
+      "symbol": "ff_smc_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/smcenc.o"
+  ],
+  "configFlags": [
+    "SMC_ENCODER"
+  ],
+  "baseHelpers": []
+}

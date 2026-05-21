@@ -1,0 +1,18 @@
+{
+  "slug": "xsub-encoder",
+  "description": "XSUB encoder.",
+  "entries": [
+    {
+      "thing": "xsub_encoder",
+      "kind": "encoder",
+      "symbol": "ff_xsub_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/xsubenc.o"
+  ],
+  "configFlags": [
+    "XSUB_ENCODER"
+  ],
+  "baseHelpers": []
+}

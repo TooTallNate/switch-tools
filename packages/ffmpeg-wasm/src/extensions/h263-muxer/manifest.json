@@ -1,0 +1,18 @@
+{
+  "slug": "h263-muxer",
+  "description": "H263 muxer.",
+  "entries": [
+    {
+      "thing": "h263_muxer",
+      "kind": "muxer",
+      "symbol": "ff_h263_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "H263_MUXER"
+  ],
+  "baseHelpers": []
+}

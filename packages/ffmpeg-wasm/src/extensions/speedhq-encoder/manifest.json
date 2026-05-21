@@ -1,0 +1,23 @@
+{
+  "slug": "speedhq-encoder",
+  "description": "SPEEDHQ encoder.",
+  "entries": [
+    {
+      "thing": "speedhq_encoder",
+      "kind": "encoder",
+      "symbol": "ff_speedhq_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpeg12data.o",
+    "libavcodec/mpeg12enc.o",
+    "libavcodec/speedhq.o",
+    "libavcodec/speedhqenc.o"
+  ],
+  "configFlags": [
+    "SPEEDHQ_ENCODER"
+  ],
+  "baseHelpers": [
+    "mpegvideoenc"
+  ]
+}

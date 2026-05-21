@@ -1,0 +1,19 @@
+{
+  "slug": "jpegls-encoder",
+  "description": "JPEGLS encoder.",
+  "entries": [
+    {
+      "thing": "jpegls_encoder",
+      "kind": "encoder",
+      "symbol": "ff_jpegls_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/jpegls.o",
+    "libavcodec/jpeglsenc.o"
+  ],
+  "configFlags": [
+    "JPEGLS_ENCODER"
+  ],
+  "baseHelpers": []
+}

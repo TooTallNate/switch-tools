@@ -1,0 +1,19 @@
+{
+  "slug": "realtext-decoder",
+  "description": "REALTEXT decoder.",
+  "entries": [
+    {
+      "thing": "realtext_decoder",
+      "kind": "decoder",
+      "symbol": "ff_realtext_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ass.o",
+    "libavcodec/realtextdec.o"
+  ],
+  "configFlags": [
+    "REALTEXT_DECODER"
+  ],
+  "baseHelpers": []
+}

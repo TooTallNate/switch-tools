@@ -1,0 +1,20 @@
+{
+  "slug": "roq-encoder",
+  "description": "ROQ encoder.",
+  "entries": [
+    {
+      "thing": "roq_encoder",
+      "kind": "encoder",
+      "symbol": "ff_roq_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/elbg.o",
+    "libavcodec/roqvideo.o",
+    "libavcodec/roqvideoenc.o"
+  ],
+  "configFlags": [
+    "ROQ_ENCODER"
+  ],
+  "baseHelpers": []
+}

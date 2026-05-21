@@ -1,0 +1,18 @@
+{
+  "slug": "alias-pix-decoder",
+  "description": "ALIAS PIX decoder.",
+  "entries": [
+    {
+      "thing": "alias_pix_decoder",
+      "kind": "decoder",
+      "symbol": "ff_alias_pix_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/aliaspixdec.o"
+  ],
+  "configFlags": [
+    "ALIAS_PIX_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,20 @@
+{
+  "slug": "ivr-demuxer",
+  "description": "IVR demuxer.",
+  "entries": [
+    {
+      "thing": "ivr_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ivr_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rm.o",
+    "libavformat/rmdec.o",
+    "libavformat/rmsipr.o"
+  ],
+  "configFlags": [
+    "IVR_DEMUXER"
+  ],
+  "baseHelpers": []
+}

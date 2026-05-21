@@ -1,0 +1,24 @@
+{
+  "slug": "asf-o-demuxer",
+  "description": "ASF O demuxer.",
+  "entries": [
+    {
+      "thing": "asf_o_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_asf_o_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/asf_tags.o",
+    "libavformat/asf.o",
+    "libavformat/asfcrypt.o",
+    "libavformat/asfdec_o.o",
+    "libavformat/avlanguage.o",
+    "libavformat/riffdec.o"
+  ],
+  "configFlags": [
+    "ASF_O_DEMUXER",
+    "RIFFDEC"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,25 @@
+{
+  "slug": "wmav2-encoder",
+  "description": "WMAV2 encoder.",
+  "entries": [
+    {
+      "thing": "wmav2_encoder",
+      "kind": "encoder",
+      "symbol": "ff_wmav2_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/aactab.o",
+    "libavcodec/wma_common.o",
+    "libavcodec/wma.o",
+    "libavcodec/wmaenc.o"
+  ],
+  "configFlags": [
+    "WMAV2_ENCODER"
+  ],
+  "baseHelpers": [
+    "mdct",
+    "sinewin",
+    "wma_freqs"
+  ]
+}

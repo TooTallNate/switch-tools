@@ -1,0 +1,19 @@
+{
+  "slug": "framemd5-muxer",
+  "description": "FRAMEMD5 muxer.",
+  "entries": [
+    {
+      "thing": "framemd5_muxer",
+      "kind": "muxer",
+      "symbol": "ff_framemd5_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/framehash.o",
+    "libavformat/hashenc.o"
+  ],
+  "configFlags": [
+    "FRAMEMD5_MUXER"
+  ],
+  "baseHelpers": []
+}

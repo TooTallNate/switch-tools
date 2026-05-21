@@ -1,0 +1,18 @@
+{
+  "slug": "adpcm-g726le-decoder",
+  "description": "ADPCM G726LE decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_g726le_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_g726le_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/g726.o"
+  ],
+  "configFlags": [
+    "ADPCM_G726LE_DECODER"
+  ],
+  "baseHelpers": []
+}

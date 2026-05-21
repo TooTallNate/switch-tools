@@ -1,0 +1,19 @@
+{
+  "slug": "avm2-muxer",
+  "description": "AVM2 muxer.",
+  "entries": [
+    {
+      "thing": "avm2_muxer",
+      "kind": "muxer",
+      "symbol": "ff_avm2_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/swf.o",
+    "libavformat/swfenc.o"
+  ],
+  "configFlags": [
+    "AVM2_MUXER"
+  ],
+  "baseHelpers": []
+}

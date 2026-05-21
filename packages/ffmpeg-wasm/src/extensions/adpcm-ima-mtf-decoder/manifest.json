@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-ima-mtf-decoder",
+  "description": "ADPCM IMA MTF decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_ima_mtf_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_mtf_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_IMA_MTF_DECODER"
+  ],
+  "baseHelpers": []
+}

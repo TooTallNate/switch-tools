@@ -1,0 +1,19 @@
+{
+  "slug": "aqtitle-demuxer",
+  "description": "AQTITLE demuxer.",
+  "entries": [
+    {
+      "thing": "aqtitle_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_aqtitle_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/aqtitledec.o",
+    "libavformat/subtitles.o"
+  ],
+  "configFlags": [
+    "AQTITLE_DEMUXER"
+  ],
+  "baseHelpers": []
+}

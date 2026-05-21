@@ -1,0 +1,21 @@
+{
+  "slug": "indeo4-decoder",
+  "description": "INDEO4 decoder.",
+  "entries": [
+    {
+      "thing": "indeo4_decoder",
+      "kind": "decoder",
+      "symbol": "ff_indeo4_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/indeo4.o",
+    "libavcodec/ivi_dsp.o",
+    "libavcodec/ivi.o"
+  ],
+  "configFlags": [
+    "INDEO4_DECODER",
+    "IVIDSP"
+  ],
+  "baseHelpers": []
+}

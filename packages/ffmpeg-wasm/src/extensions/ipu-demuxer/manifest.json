@@ -1,0 +1,19 @@
+{
+  "slug": "ipu-demuxer",
+  "description": "IPU demuxer.",
+  "entries": [
+    {
+      "thing": "ipu_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ipu_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ipudec.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "IPU_DEMUXER"
+  ],
+  "baseHelpers": []
+}

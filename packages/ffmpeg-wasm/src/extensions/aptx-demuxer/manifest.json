@@ -1,0 +1,18 @@
+{
+  "slug": "aptx-demuxer",
+  "description": "APTX demuxer.",
+  "entries": [
+    {
+      "thing": "aptx_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_aptx_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/aptxdec.o"
+  ],
+  "configFlags": [
+    "APTX_DEMUXER"
+  ],
+  "baseHelpers": []
+}

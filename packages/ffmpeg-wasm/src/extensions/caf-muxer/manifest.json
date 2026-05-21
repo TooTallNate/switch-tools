@@ -1,0 +1,24 @@
+{
+  "slug": "caf-muxer",
+  "description": "CAF muxer.",
+  "entries": [
+    {
+      "thing": "caf_muxer",
+      "kind": "muxer",
+      "symbol": "ff_caf_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavcodec/mpeg4audio.o",
+    "libavformat/caf.o",
+    "libavformat/cafenc.o",
+    "libavformat/isom.o"
+  ],
+  "configFlags": [
+    "CAF_MUXER",
+    "ISO_MEDIA",
+    "MPEG4AUDIO"
+  ],
+  "baseHelpers": []
+}

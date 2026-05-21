@@ -1,0 +1,18 @@
+{
+  "slug": "vmdvideo-decoder",
+  "description": "VMDVIDEO decoder.",
+  "entries": [
+    {
+      "thing": "vmdvideo_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vmdvideo_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/vmdvideo.o"
+  ],
+  "configFlags": [
+    "VMDVIDEO_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "targa-encoder",
+  "description": "TARGA encoder.",
+  "entries": [
+    {
+      "thing": "targa_encoder",
+      "kind": "encoder",
+      "symbol": "ff_targa_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/rle.o",
+    "libavcodec/targaenc.o"
+  ],
+  "configFlags": [
+    "TARGA_ENCODER"
+  ],
+  "baseHelpers": []
+}

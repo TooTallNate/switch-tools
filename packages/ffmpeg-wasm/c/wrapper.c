@@ -73,9 +73,9 @@
  * our current decode-only pipeline doesn't consult them.
  */
 
-#define FF_MAX_REGISTERED_CODECS   64
-#define FF_MAX_REGISTERED_DEMUXERS 32
-#define FF_MAX_REGISTERED_MUXERS   32
+#define FF_MAX_REGISTERED_CODECS   1024
+#define FF_MAX_REGISTERED_DEMUXERS 512
+#define FF_MAX_REGISTERED_MUXERS   512
 
 static const AVCodec        *g_codecs[FF_MAX_REGISTERED_CODECS];
 static int                   g_codec_count = 0;

@@ -1,0 +1,23 @@
+{
+  "slug": "ljpeg-encoder",
+  "description": "LJPEG encoder.",
+  "entries": [
+    {
+      "thing": "ljpeg_encoder",
+      "kind": "encoder",
+      "symbol": "ff_ljpeg_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/jpegtables.o",
+    "libavcodec/ljpegenc.o",
+    "libavcodec/mjpegenc_common.o"
+  ],
+  "configFlags": [
+    "JPEGTABLES",
+    "LJPEG_ENCODER"
+  ],
+  "baseHelpers": [
+    "idctdsp"
+  ]
+}

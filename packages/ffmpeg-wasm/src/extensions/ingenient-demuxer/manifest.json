@@ -1,0 +1,19 @@
+{
+  "slug": "ingenient-demuxer",
+  "description": "INGENIENT demuxer.",
+  "entries": [
+    {
+      "thing": "ingenient_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ingenient_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ingenientdec.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "INGENIENT_DEMUXER"
+  ],
+  "baseHelpers": []
+}

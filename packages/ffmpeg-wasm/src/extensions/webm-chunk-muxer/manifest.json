@@ -1,0 +1,23 @@
+{
+  "slug": "webm-chunk-muxer",
+  "description": "WEBM CHUNK muxer.",
+  "entries": [
+    {
+      "thing": "webm_chunk_muxer",
+      "kind": "muxer",
+      "symbol": "ff_webm_chunk_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/av1.o",
+    "libavformat/avlanguage.o",
+    "libavformat/matroska.o",
+    "libavformat/matroskaenc.o",
+    "libavformat/webm_chunk.o"
+  ],
+  "configFlags": [
+    "WEBM_CHUNK_MUXER",
+    "WEBM_MUXER"
+  ],
+  "baseHelpers": []
+}

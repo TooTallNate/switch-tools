@@ -1,0 +1,19 @@
+{
+  "slug": "amr-muxer",
+  "description": "AMR muxer.",
+  "entries": [
+    {
+      "thing": "amr_muxer",
+      "kind": "muxer",
+      "symbol": "ff_amr_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/amr.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "AMR_MUXER"
+  ],
+  "baseHelpers": []
+}

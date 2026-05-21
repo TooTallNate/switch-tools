@@ -1,0 +1,18 @@
+{
+  "slug": "ifv-demuxer",
+  "description": "IFV demuxer.",
+  "entries": [
+    {
+      "thing": "ifv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ifv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ifv.o"
+  ],
+  "configFlags": [
+    "IFV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

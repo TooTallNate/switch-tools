@@ -1,0 +1,19 @@
+{
+  "slug": "movtext-decoder",
+  "description": "MOVTEXT decoder.",
+  "entries": [
+    {
+      "thing": "movtext_decoder",
+      "kind": "decoder",
+      "symbol": "ff_movtext_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ass.o",
+    "libavcodec/movtextdec.o"
+  ],
+  "configFlags": [
+    "MOVTEXT_DECODER"
+  ],
+  "baseHelpers": []
+}

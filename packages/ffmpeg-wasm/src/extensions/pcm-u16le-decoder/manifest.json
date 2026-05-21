@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-u16le-decoder",
+  "description": "PCM U16LE decoder.",
+  "entries": [
+    {
+      "thing": "pcm_u16le_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pcm_u16le_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_U16LE_DECODER"
+  ],
+  "baseHelpers": []
+}

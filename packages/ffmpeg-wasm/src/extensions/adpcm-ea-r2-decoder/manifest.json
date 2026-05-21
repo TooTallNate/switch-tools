@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-ea-r2-decoder",
+  "description": "ADPCM EA R2 decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_ea_r2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ea_r2_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_EA_R2_DECODER"
+  ],
+  "baseHelpers": []
+}

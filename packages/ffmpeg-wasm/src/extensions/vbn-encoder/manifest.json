@@ -1,0 +1,20 @@
+{
+  "slug": "vbn-encoder",
+  "description": "VBN encoder.",
+  "entries": [
+    {
+      "thing": "vbn_encoder",
+      "kind": "encoder",
+      "symbol": "ff_vbn_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/texturedspenc.o",
+    "libavcodec/vbnenc.o"
+  ],
+  "configFlags": [
+    "TEXTUREDSPENC",
+    "VBN_ENCODER"
+  ],
+  "baseHelpers": []
+}

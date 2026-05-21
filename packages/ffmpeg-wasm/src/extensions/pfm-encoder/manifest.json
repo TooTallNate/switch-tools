@@ -1,0 +1,18 @@
+{
+  "slug": "pfm-encoder",
+  "description": "PFM encoder.",
+  "entries": [
+    {
+      "thing": "pfm_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pfm_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pnmenc.o"
+  ],
+  "configFlags": [
+    "PFM_ENCODER"
+  ],
+  "baseHelpers": []
+}

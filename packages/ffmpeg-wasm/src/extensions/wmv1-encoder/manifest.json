@@ -1,0 +1,29 @@
+{
+  "slug": "wmv1-encoder",
+  "description": "WMV1 encoder.",
+  "entries": [
+    {
+      "thing": "wmv1_encoder",
+      "kind": "encoder",
+      "symbol": "ff_wmv1_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/h263.o",
+    "libavcodec/h263data.o",
+    "libavcodec/h263dsp.o",
+    "libavcodec/ituh263enc.o",
+    "libavcodec/mpeg4video.o",
+    "libavcodec/msmpeg4.o",
+    "libavcodec/msmpeg4data.o",
+    "libavcodec/msmpeg4enc.o"
+  ],
+  "configFlags": [
+    "H263DSP",
+    "H263_ENCODER",
+    "WMV1_ENCODER"
+  ],
+  "baseHelpers": [
+    "mpegvideoenc"
+  ]
+}

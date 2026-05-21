@@ -1,0 +1,19 @@
+{
+  "slug": "stl-demuxer",
+  "description": "STL demuxer.",
+  "entries": [
+    {
+      "thing": "stl_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_stl_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/stldec.o",
+    "libavformat/subtitles.o"
+  ],
+  "configFlags": [
+    "STL_DEMUXER"
+  ],
+  "baseHelpers": []
+}

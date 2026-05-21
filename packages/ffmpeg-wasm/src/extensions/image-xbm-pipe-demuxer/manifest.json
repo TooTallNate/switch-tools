@@ -1,0 +1,19 @@
+{
+  "slug": "image-xbm-pipe-demuxer",
+  "description": "IMAGE XBM PIPE demuxer.",
+  "entries": [
+    {
+      "thing": "image_xbm_pipe_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_image_xbm_pipe_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/img2.o",
+    "libavformat/img2dec.o"
+  ],
+  "configFlags": [
+    "IMAGE_XBM_PIPE_DEMUXER"
+  ],
+  "baseHelpers": []
+}

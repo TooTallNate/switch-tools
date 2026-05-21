@@ -1,0 +1,20 @@
+{
+  "slug": "sbc-decoder",
+  "description": "SBC decoder.",
+  "entries": [
+    {
+      "thing": "sbc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_sbc_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/sbc.o",
+    "libavcodec/sbcdec_data.o",
+    "libavcodec/sbcdec.o"
+  ],
+  "configFlags": [
+    "SBC_DECODER"
+  ],
+  "baseHelpers": []
+}

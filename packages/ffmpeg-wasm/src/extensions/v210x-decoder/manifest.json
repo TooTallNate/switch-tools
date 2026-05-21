@@ -1,0 +1,18 @@
+{
+  "slug": "v210x-decoder",
+  "description": "V210X decoder.",
+  "entries": [
+    {
+      "thing": "v210x_decoder",
+      "kind": "decoder",
+      "symbol": "ff_v210x_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/v210x.o"
+  ],
+  "configFlags": [
+    "V210X_DECODER"
+  ],
+  "baseHelpers": []
+}

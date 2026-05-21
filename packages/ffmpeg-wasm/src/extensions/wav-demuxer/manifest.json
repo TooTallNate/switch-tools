@@ -1,6 +1,6 @@
 {
   "slug": "wav-demuxer",
-  "description": "WAV / RIFF audio container demuxer.",
+  "description": "WAV demuxer.",
   "entries": [
     {
       "thing": "wav_demuxer",

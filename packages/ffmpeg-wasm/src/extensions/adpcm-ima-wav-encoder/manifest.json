@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-ima-wav-encoder",
+  "description": "ADPCM IMA WAV encoder.",
+  "entries": [
+    {
+      "thing": "adpcm_ima_wav_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_ima_wav_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcmenc.o"
+  ],
+  "configFlags": [
+    "ADPCM_IMA_WAV_ENCODER"
+  ],
+  "baseHelpers": []
+}

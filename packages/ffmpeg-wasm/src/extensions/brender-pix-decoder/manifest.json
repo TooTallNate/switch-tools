@@ -1,0 +1,18 @@
+{
+  "slug": "brender-pix-decoder",
+  "description": "BRENDER PIX decoder.",
+  "entries": [
+    {
+      "thing": "brender_pix_decoder",
+      "kind": "decoder",
+      "symbol": "ff_brender_pix_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/brenderpix.o"
+  ],
+  "configFlags": [
+    "BRENDER_PIX_DECODER"
+  ],
+  "baseHelpers": []
+}

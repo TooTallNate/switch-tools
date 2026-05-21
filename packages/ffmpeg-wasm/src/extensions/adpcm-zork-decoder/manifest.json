@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-zork-decoder",
+  "description": "ADPCM ZORK decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_zork_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_zork_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_ZORK_DECODER"
+  ],
+  "baseHelpers": []
+}

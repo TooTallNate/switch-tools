@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-ima-iss-decoder",
+  "description": "ADPCM IMA ISS decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_ima_iss_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_iss_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_IMA_ISS_DECODER"
+  ],
+  "baseHelpers": []
+}

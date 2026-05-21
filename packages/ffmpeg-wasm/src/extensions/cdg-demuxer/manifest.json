@@ -1,0 +1,18 @@
+{
+  "slug": "cdg-demuxer",
+  "description": "CDG demuxer.",
+  "entries": [
+    {
+      "thing": "cdg_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_cdg_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/cdg.o"
+  ],
+  "configFlags": [
+    "CDG_DEMUXER"
+  ],
+  "baseHelpers": []
+}

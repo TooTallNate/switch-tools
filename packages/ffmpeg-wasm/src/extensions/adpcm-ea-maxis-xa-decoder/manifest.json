@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-ea-maxis-xa-decoder",
+  "description": "ADPCM EA MAXIS XA decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_ea_maxis_xa_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ea_maxis_xa_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_EA_MAXIS_XA_DECODER"
+  ],
+  "baseHelpers": []
+}

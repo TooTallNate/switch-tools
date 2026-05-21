@@ -1,0 +1,23 @@
+{
+  "slug": "amv-encoder",
+  "description": "AMV encoder.",
+  "entries": [
+    {
+      "thing": "amv_encoder",
+      "kind": "encoder",
+      "symbol": "ff_amv_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/jpegtables.o",
+    "libavcodec/mjpegenc_common.o",
+    "libavcodec/mjpegenc.o"
+  ],
+  "configFlags": [
+    "AMV_ENCODER",
+    "JPEGTABLES"
+  ],
+  "baseHelpers": [
+    "mpegvideoenc"
+  ]
+}

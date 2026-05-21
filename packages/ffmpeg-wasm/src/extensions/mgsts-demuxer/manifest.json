@@ -1,0 +1,18 @@
+{
+  "slug": "mgsts-demuxer",
+  "description": "MGSTS demuxer.",
+  "entries": [
+    {
+      "thing": "mgsts_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mgsts_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mgsts.o"
+  ],
+  "configFlags": [
+    "MGSTS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

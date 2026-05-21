@@ -1,0 +1,23 @@
+{
+  "slug": "prores-decoder",
+  "description": "PRORES decoder.",
+  "entries": [
+    {
+      "thing": "prores_decoder",
+      "kind": "decoder",
+      "symbol": "ff_prores_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/proresdata.o",
+    "libavcodec/proresdec2.o",
+    "libavcodec/proresdsp.o"
+  ],
+  "configFlags": [
+    "PRORES_DECODER"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "idctdsp"
+  ]
+}

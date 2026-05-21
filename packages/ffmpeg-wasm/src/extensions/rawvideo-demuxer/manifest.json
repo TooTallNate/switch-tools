@@ -1,0 +1,18 @@
+{
+  "slug": "rawvideo-demuxer",
+  "description": "RAWVIDEO demuxer.",
+  "entries": [
+    {
+      "thing": "rawvideo_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_rawvideo_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawvideodec.o"
+  ],
+  "configFlags": [
+    "RAWVIDEO_DEMUXER"
+  ],
+  "baseHelpers": []
+}

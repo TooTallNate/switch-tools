@@ -1,0 +1,18 @@
+{
+  "slug": "mpeg1vcd-muxer",
+  "description": "MPEG1VCD muxer.",
+  "entries": [
+    {
+      "thing": "mpeg1vcd_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mpeg1vcd_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mpegenc.o"
+  ],
+  "configFlags": [
+    "MPEG1VCD_MUXER"
+  ],
+  "baseHelpers": []
+}

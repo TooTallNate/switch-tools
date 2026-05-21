@@ -1,0 +1,22 @@
+{
+  "slug": "mxf-muxer",
+  "description": "MXF muxer.",
+  "entries": [
+    {
+      "thing": "mxf_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mxf_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm_rechunk_bsf.o",
+    "libavformat/avc.o",
+    "libavformat/mxf.o",
+    "libavformat/mxfenc.o"
+  ],
+  "configFlags": [
+    "MXF_MUXER",
+    "PCM_RECHUNK_BSF"
+  ],
+  "baseHelpers": []
+}

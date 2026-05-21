@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-ima-ea-eacs-decoder",
+  "description": "ADPCM IMA EA EACS decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_ima_ea_eacs_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_ea_eacs_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_IMA_EA_EACS_DECODER"
+  ],
+  "baseHelpers": []
+}

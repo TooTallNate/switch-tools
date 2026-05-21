@@ -1,0 +1,18 @@
+{
+  "slug": "gsm-demuxer",
+  "description": "GSM demuxer.",
+  "entries": [
+    {
+      "thing": "gsm_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_gsm_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/gsmdec.o"
+  ],
+  "configFlags": [
+    "GSM_DEMUXER"
+  ],
+  "baseHelpers": []
+}

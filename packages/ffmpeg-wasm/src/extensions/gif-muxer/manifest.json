@@ -1,0 +1,18 @@
+{
+  "slug": "gif-muxer",
+  "description": "GIF muxer.",
+  "entries": [
+    {
+      "thing": "gif_muxer",
+      "kind": "muxer",
+      "symbol": "ff_gif_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/gif.o"
+  ],
+  "configFlags": [
+    "GIF_MUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,32 @@
+{
+  "slug": "ac3-decoder",
+  "description": "AC3 decoder.",
+  "entries": [
+    {
+      "thing": "ac3_decoder",
+      "kind": "decoder",
+      "symbol": "ff_ac3_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/aac_ac3_parser.o",
+    "libavcodec/ac3_channel_layout_tab.o",
+    "libavcodec/ac3.o",
+    "libavcodec/ac3dec_data.o",
+    "libavcodec/ac3dec_float.o",
+    "libavcodec/ac3dsp.o",
+    "libavcodec/ac3tab.o",
+    "libavcodec/fmtconvert.o",
+    "libavcodec/kbdwin.o"
+  ],
+  "configFlags": [
+    "AC3DSP",
+    "AC3_DECODER",
+    "AC3_PARSER",
+    "FMTCONVERT"
+  ],
+  "baseHelpers": [
+    "bswapdsp",
+    "mdct"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "rawvideo-encoder",
+  "description": "RAWVIDEO encoder.",
+  "entries": [
+    {
+      "thing": "rawvideo_encoder",
+      "kind": "encoder",
+      "symbol": "ff_rawvideo_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/rawenc.o"
+  ],
+  "configFlags": [
+    "RAWVIDEO_ENCODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "ico-muxer",
+  "description": "ICO muxer.",
+  "entries": [
+    {
+      "thing": "ico_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ico_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/icoenc.o"
+  ],
+  "configFlags": [
+    "ICO_MUXER"
+  ],
+  "baseHelpers": []
+}

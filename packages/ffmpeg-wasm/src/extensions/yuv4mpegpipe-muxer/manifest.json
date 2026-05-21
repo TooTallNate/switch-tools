@@ -1,0 +1,18 @@
+{
+  "slug": "yuv4mpegpipe-muxer",
+  "description": "YUV4MPEGPIPE muxer.",
+  "entries": [
+    {
+      "thing": "yuv4mpegpipe_muxer",
+      "kind": "muxer",
+      "symbol": "ff_yuv4mpegpipe_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/yuv4mpegenc.o"
+  ],
+  "configFlags": [
+    "YUV4MPEGPIPE_MUXER"
+  ],
+  "baseHelpers": []
+}

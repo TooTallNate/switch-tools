@@ -1,0 +1,20 @@
+{
+  "slug": "msa1-decoder",
+  "description": "MSA1 decoder.",
+  "entries": [
+    {
+      "thing": "msa1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_msa1_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mss3.o",
+    "libavcodec/mss34dsp.o"
+  ],
+  "configFlags": [
+    "MSA1_DECODER",
+    "MSS34DSP"
+  ],
+  "baseHelpers": []
+}

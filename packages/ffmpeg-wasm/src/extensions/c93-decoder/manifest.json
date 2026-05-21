@@ -1,0 +1,18 @@
+{
+  "slug": "c93-decoder",
+  "description": "C93 decoder.",
+  "entries": [
+    {
+      "thing": "c93_decoder",
+      "kind": "decoder",
+      "symbol": "ff_c93_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/c93.o"
+  ],
+  "configFlags": [
+    "C93_DECODER"
+  ],
+  "baseHelpers": []
+}

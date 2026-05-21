@@ -1,0 +1,18 @@
+{
+  "slug": "v308-decoder",
+  "description": "V308 decoder.",
+  "entries": [
+    {
+      "thing": "v308_decoder",
+      "kind": "decoder",
+      "symbol": "ff_v308_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/v308dec.o"
+  ],
+  "configFlags": [
+    "V308_DECODER"
+  ],
+  "baseHelpers": []
+}

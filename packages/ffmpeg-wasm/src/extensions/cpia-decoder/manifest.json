@@ -1,0 +1,18 @@
+{
+  "slug": "cpia-decoder",
+  "description": "CPIA decoder.",
+  "entries": [
+    {
+      "thing": "cpia_decoder",
+      "kind": "decoder",
+      "symbol": "ff_cpia_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/cpia.o"
+  ],
+  "configFlags": [
+    "CPIA_DECODER"
+  ],
+  "baseHelpers": []
+}

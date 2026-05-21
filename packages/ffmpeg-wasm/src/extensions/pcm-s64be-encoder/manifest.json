@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-s64be-encoder",
+  "description": "PCM S64BE encoder.",
+  "entries": [
+    {
+      "thing": "pcm_s64be_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pcm_s64be_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_S64BE_ENCODER"
+  ],
+  "baseHelpers": []
+}

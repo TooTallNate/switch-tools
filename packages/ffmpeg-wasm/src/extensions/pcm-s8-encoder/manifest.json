@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-s8-encoder",
+  "description": "PCM S8 encoder.",
+  "entries": [
+    {
+      "thing": "pcm_s8_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pcm_s8_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_S8_ENCODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "ilbc-decoder",
+  "description": "ILBC decoder.",
+  "entries": [
+    {
+      "thing": "ilbc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_ilbc_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ilbcdec.o"
+  ],
+  "configFlags": [
+    "ILBC_DECODER"
+  ],
+  "baseHelpers": []
+}

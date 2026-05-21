@@ -1,0 +1,18 @@
+{
+  "slug": "bitpacked-encoder",
+  "description": "BITPACKED encoder.",
+  "entries": [
+    {
+      "thing": "bitpacked_encoder",
+      "kind": "encoder",
+      "symbol": "ff_bitpacked_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/bitpacked_enc.o"
+  ],
+  "configFlags": [
+    "BITPACKED_ENCODER"
+  ],
+  "baseHelpers": []
+}

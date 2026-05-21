@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-argo-decoder",
+  "description": "ADPCM ARGO decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_argo_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_argo_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_ARGO_DECODER"
+  ],
+  "baseHelpers": []
+}

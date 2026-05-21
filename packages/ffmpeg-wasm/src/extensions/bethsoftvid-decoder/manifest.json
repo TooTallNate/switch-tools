@@ -1,0 +1,18 @@
+{
+  "slug": "bethsoftvid-decoder",
+  "description": "BETHSOFTVID decoder.",
+  "entries": [
+    {
+      "thing": "bethsoftvid_decoder",
+      "kind": "decoder",
+      "symbol": "ff_bethsoftvid_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/bethsoftvideo.o"
+  ],
+  "configFlags": [
+    "BETHSOFTVID_DECODER"
+  ],
+  "baseHelpers": []
+}

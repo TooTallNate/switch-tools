@@ -1,0 +1,18 @@
+{
+  "slug": "eightsvx-fib-decoder",
+  "description": "EIGHTSVX FIB decoder.",
+  "entries": [
+    {
+      "thing": "eightsvx_fib_decoder",
+      "kind": "decoder",
+      "symbol": "ff_eightsvx_fib_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/8svx.o"
+  ],
+  "configFlags": [
+    "EIGHTSVX_FIB_DECODER"
+  ],
+  "baseHelpers": []
+}

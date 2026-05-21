@@ -1,0 +1,18 @@
+{
+  "slug": "ace-demuxer",
+  "description": "ACE demuxer.",
+  "entries": [
+    {
+      "thing": "ace_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ace_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/acedec.o"
+  ],
+  "configFlags": [
+    "ACE_DEMUXER"
+  ],
+  "baseHelpers": []
+}

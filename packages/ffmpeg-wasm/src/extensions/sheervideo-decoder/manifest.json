@@ -1,0 +1,18 @@
+{
+  "slug": "sheervideo-decoder",
+  "description": "SHEERVIDEO decoder.",
+  "entries": [
+    {
+      "thing": "sheervideo_decoder",
+      "kind": "decoder",
+      "symbol": "ff_sheervideo_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/sheervideo.o"
+  ],
+  "configFlags": [
+    "SHEERVIDEO_DECODER"
+  ],
+  "baseHelpers": []
+}

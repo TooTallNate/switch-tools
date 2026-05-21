@@ -1,0 +1,23 @@
+{
+  "slug": "mlp-encoder",
+  "description": "MLP encoder.",
+  "entries": [
+    {
+      "thing": "mlp_encoder",
+      "kind": "encoder",
+      "symbol": "ff_mlp_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/audio_frame_queue.o",
+    "libavcodec/lpc.o",
+    "libavcodec/mlp.o",
+    "libavcodec/mlpenc.o"
+  ],
+  "configFlags": [
+    "AUDIO_FRAME_QUEUE",
+    "LPC",
+    "MLP_ENCODER"
+  ],
+  "baseHelpers": []
+}

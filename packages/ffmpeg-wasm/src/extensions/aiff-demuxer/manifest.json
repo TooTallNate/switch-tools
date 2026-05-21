@@ -1,0 +1,22 @@
+{
+  "slug": "aiff-demuxer",
+  "description": "AIFF demuxer.",
+  "entries": [
+    {
+      "thing": "aiff_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_aiff_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/aiff.o",
+    "libavformat/aiffdec.o",
+    "libavformat/mov_chan.o",
+    "libavformat/pcm.o",
+    "libavformat/replaygain.o"
+  ],
+  "configFlags": [
+    "AIFF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "dsf-demuxer",
+  "description": "DSF demuxer.",
+  "entries": [
+    {
+      "thing": "dsf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dsf_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/dsfdec.o"
+  ],
+  "configFlags": [
+    "DSF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

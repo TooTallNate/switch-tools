@@ -1,0 +1,25 @@
+{
+  "slug": "aiff-muxer",
+  "description": "AIFF muxer.",
+  "entries": [
+    {
+      "thing": "aiff_muxer",
+      "kind": "muxer",
+      "symbol": "ff_aiff_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavcodec/mpeg4audio.o",
+    "libavformat/aiff.o",
+    "libavformat/aiffenc.o",
+    "libavformat/id3v2enc.o",
+    "libavformat/isom.o"
+  ],
+  "configFlags": [
+    "AIFF_MUXER",
+    "ISO_MEDIA",
+    "MPEG4AUDIO"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "rpl-demuxer",
+  "description": "RPL demuxer.",
+  "entries": [
+    {
+      "thing": "rpl_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_rpl_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rpl.o"
+  ],
+  "configFlags": [
+    "RPL_DEMUXER"
+  ],
+  "baseHelpers": []
+}

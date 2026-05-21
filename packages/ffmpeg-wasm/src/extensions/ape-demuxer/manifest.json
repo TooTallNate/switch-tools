@@ -1,0 +1,20 @@
+{
+  "slug": "ape-demuxer",
+  "description": "APE demuxer.",
+  "entries": [
+    {
+      "thing": "ape_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ape_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ape.o",
+    "libavformat/apetag.o",
+    "libavformat/img2.o"
+  ],
+  "configFlags": [
+    "APE_DEMUXER"
+  ],
+  "baseHelpers": []
+}

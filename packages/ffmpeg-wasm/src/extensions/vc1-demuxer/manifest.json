@@ -1,0 +1,19 @@
+{
+  "slug": "vc1-demuxer",
+  "description": "VC1 demuxer.",
+  "entries": [
+    {
+      "thing": "vc1_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_vc1_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawdec.o",
+    "libavformat/vc1dec.o"
+  ],
+  "configFlags": [
+    "VC1_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,25 @@
+{
+  "slug": "asv1-encoder",
+  "description": "ASV1 encoder.",
+  "entries": [
+    {
+      "thing": "asv1_encoder",
+      "kind": "encoder",
+      "symbol": "ff_asv1_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/asv.o",
+    "libavcodec/asvenc.o",
+    "libavcodec/mpeg12data.o"
+  ],
+  "configFlags": [
+    "ASV1_ENCODER"
+  ],
+  "baseHelpers": [
+    "aandcttables",
+    "bswapdsp",
+    "fdctdsp",
+    "pixblockdsp"
+  ]
+}

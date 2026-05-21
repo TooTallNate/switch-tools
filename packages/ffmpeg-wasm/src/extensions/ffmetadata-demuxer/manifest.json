@@ -1,0 +1,18 @@
+{
+  "slug": "ffmetadata-demuxer",
+  "description": "FFMETADATA demuxer.",
+  "entries": [
+    {
+      "thing": "ffmetadata_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ffmetadata_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ffmetadec.o"
+  ],
+  "configFlags": [
+    "FFMETADATA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

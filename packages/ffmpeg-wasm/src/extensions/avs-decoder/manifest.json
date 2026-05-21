@@ -1,0 +1,18 @@
+{
+  "slug": "avs-decoder",
+  "description": "AVS decoder.",
+  "entries": [
+    {
+      "thing": "avs_decoder",
+      "kind": "decoder",
+      "symbol": "ff_avs_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/avs.o"
+  ],
+  "configFlags": [
+    "AVS_DECODER"
+  ],
+  "baseHelpers": []
+}

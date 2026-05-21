@@ -1,0 +1,20 @@
+{
+  "slug": "indeo3-decoder",
+  "description": "INDEO3 decoder.",
+  "entries": [
+    {
+      "thing": "indeo3_decoder",
+      "kind": "decoder",
+      "symbol": "ff_indeo3_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/indeo3.o"
+  ],
+  "configFlags": [
+    "INDEO3_DECODER"
+  ],
+  "baseHelpers": [
+    "hpeldsp"
+  ]
+}

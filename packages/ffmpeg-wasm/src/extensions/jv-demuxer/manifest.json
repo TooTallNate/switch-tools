@@ -1,0 +1,18 @@
+{
+  "slug": "jv-demuxer",
+  "description": "JV demuxer.",
+  "entries": [
+    {
+      "thing": "jv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_jv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/jvdec.o"
+  ],
+  "configFlags": [
+    "JV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

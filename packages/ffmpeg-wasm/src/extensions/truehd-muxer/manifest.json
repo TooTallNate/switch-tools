@@ -1,0 +1,18 @@
+{
+  "slug": "truehd-muxer",
+  "description": "TRUEHD muxer.",
+  "entries": [
+    {
+      "thing": "truehd_muxer",
+      "kind": "muxer",
+      "symbol": "ff_truehd_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "TRUEHD_MUXER"
+  ],
+  "baseHelpers": []
+}

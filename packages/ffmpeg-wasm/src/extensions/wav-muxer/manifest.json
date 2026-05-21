@@ -1,6 +1,6 @@
 {
   "slug": "wav-muxer",
-  "description": "WAV / RIFF audio container muxer.",
+  "description": "WAV muxer.",
   "entries": [
     {
       "thing": "wav_muxer",

@@ -1,0 +1,18 @@
+{
+  "slug": "mjpeg-muxer",
+  "description": "MJPEG muxer.",
+  "entries": [
+    {
+      "thing": "mjpeg_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mjpeg_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "MJPEG_MUXER"
+  ],
+  "baseHelpers": []
+}

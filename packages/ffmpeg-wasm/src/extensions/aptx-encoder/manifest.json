@@ -1,0 +1,21 @@
+{
+  "slug": "aptx-encoder",
+  "description": "APTX encoder.",
+  "entries": [
+    {
+      "thing": "aptx_encoder",
+      "kind": "encoder",
+      "symbol": "ff_aptx_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/aptx.o",
+    "libavcodec/aptxenc.o",
+    "libavcodec/audio_frame_queue.o"
+  ],
+  "configFlags": [
+    "APTX_ENCODER",
+    "AUDIO_FRAME_QUEUE"
+  ],
+  "baseHelpers": []
+}

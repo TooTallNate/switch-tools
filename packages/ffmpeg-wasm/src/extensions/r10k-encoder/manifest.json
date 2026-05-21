@@ -1,0 +1,18 @@
+{
+  "slug": "r10k-encoder",
+  "description": "R10K encoder.",
+  "entries": [
+    {
+      "thing": "r10k_encoder",
+      "kind": "encoder",
+      "symbol": "ff_r10k_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/r210enc.o"
+  ],
+  "configFlags": [
+    "R10K_ENCODER"
+  ],
+  "baseHelpers": []
+}

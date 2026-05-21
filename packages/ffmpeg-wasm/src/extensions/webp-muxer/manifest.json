@@ -1,0 +1,18 @@
+{
+  "slug": "webp-muxer",
+  "description": "WEBP muxer.",
+  "entries": [
+    {
+      "thing": "webp_muxer",
+      "kind": "muxer",
+      "symbol": "ff_webp_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/webpenc.o"
+  ],
+  "configFlags": [
+    "WEBP_MUXER"
+  ],
+  "baseHelpers": []
+}

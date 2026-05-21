@@ -1,0 +1,18 @@
+{
+  "slug": "iss-demuxer",
+  "description": "ISS demuxer.",
+  "entries": [
+    {
+      "thing": "iss_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_iss_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/iss.o"
+  ],
+  "configFlags": [
+    "ISS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,21 @@
+{
+  "slug": "eatgq-decoder",
+  "description": "EATGQ decoder.",
+  "entries": [
+    {
+      "thing": "eatgq_decoder",
+      "kind": "decoder",
+      "symbol": "ff_eatgq_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/eaidct.o",
+    "libavcodec/eatgq.o"
+  ],
+  "configFlags": [
+    "EATGQ_DECODER"
+  ],
+  "baseHelpers": [
+    "aandcttables"
+  ]
+}

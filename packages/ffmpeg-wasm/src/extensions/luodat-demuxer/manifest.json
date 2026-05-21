@@ -1,0 +1,18 @@
+{
+  "slug": "luodat-demuxer",
+  "description": "LUODAT demuxer.",
+  "entries": [
+    {
+      "thing": "luodat_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_luodat_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/luodatdec.o"
+  ],
+  "configFlags": [
+    "LUODAT_DEMUXER"
+  ],
+  "baseHelpers": []
+}

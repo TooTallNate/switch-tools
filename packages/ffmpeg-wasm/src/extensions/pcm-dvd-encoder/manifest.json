@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-dvd-encoder",
+  "description": "PCM DVD encoder.",
+  "entries": [
+    {
+      "thing": "pcm_dvd_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pcm_dvd_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm-dvdenc.o"
+  ],
+  "configFlags": [
+    "PCM_DVD_ENCODER"
+  ],
+  "baseHelpers": []
+}

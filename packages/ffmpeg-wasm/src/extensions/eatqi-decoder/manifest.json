@@ -1,0 +1,27 @@
+{
+  "slug": "eatqi-decoder",
+  "description": "EATQI decoder.",
+  "entries": [
+    {
+      "thing": "eatqi_decoder",
+      "kind": "decoder",
+      "symbol": "ff_eatqi_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/eaidct.o",
+    "libavcodec/eatqi.o",
+    "libavcodec/mpeg12.o",
+    "libavcodec/mpeg12data.o",
+    "libavcodec/mpegvideodata.o"
+  ],
+  "configFlags": [
+    "EATQI_DECODER"
+  ],
+  "baseHelpers": [
+    "aandcttables",
+    "blockdsp",
+    "bswapdsp",
+    "idctdsp"
+  ]
+}

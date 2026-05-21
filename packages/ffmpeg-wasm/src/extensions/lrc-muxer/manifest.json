@@ -1,0 +1,19 @@
+{
+  "slug": "lrc-muxer",
+  "description": "LRC muxer.",
+  "entries": [
+    {
+      "thing": "lrc_muxer",
+      "kind": "muxer",
+      "symbol": "ff_lrc_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/lrc.o",
+    "libavformat/lrcenc.o"
+  ],
+  "configFlags": [
+    "LRC_MUXER"
+  ],
+  "baseHelpers": []
+}

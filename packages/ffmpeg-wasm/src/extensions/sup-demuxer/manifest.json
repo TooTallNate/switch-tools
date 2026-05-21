@@ -1,0 +1,18 @@
+{
+  "slug": "sup-demuxer",
+  "description": "SUP demuxer.",
+  "entries": [
+    {
+      "thing": "sup_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_sup_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/supdec.o"
+  ],
+  "configFlags": [
+    "SUP_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,26 @@
+{
+  "slug": "flac-encoder",
+  "description": "FLAC encoder.",
+  "entries": [
+    {
+      "thing": "flac_encoder",
+      "kind": "encoder",
+      "symbol": "ff_flac_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/flac.o",
+    "libavcodec/flacdata.o",
+    "libavcodec/flacdsp.o",
+    "libavcodec/flacenc.o",
+    "libavcodec/lpc.o"
+  ],
+  "configFlags": [
+    "FLACDSP",
+    "FLAC_ENCODER",
+    "LPC"
+  ],
+  "baseHelpers": [
+    "bswapdsp"
+  ]
+}

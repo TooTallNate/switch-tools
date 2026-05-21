@@ -1,0 +1,18 @@
+{
+  "slug": "fits-encoder",
+  "description": "FITS encoder.",
+  "entries": [
+    {
+      "thing": "fits_encoder",
+      "kind": "encoder",
+      "symbol": "ff_fits_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/fitsenc.o"
+  ],
+  "configFlags": [
+    "FITS_ENCODER"
+  ],
+  "baseHelpers": []
+}

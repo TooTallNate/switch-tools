@@ -1,0 +1,18 @@
+{
+  "slug": "flic-demuxer",
+  "description": "FLIC demuxer.",
+  "entries": [
+    {
+      "thing": "flic_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_flic_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/flic.o"
+  ],
+  "configFlags": [
+    "FLIC_DEMUXER"
+  ],
+  "baseHelpers": []
+}

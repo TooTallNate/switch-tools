@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-u8-decoder",
+  "description": "PCM U8 decoder.",
+  "entries": [
+    {
+      "thing": "pcm_u8_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pcm_u8_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_U8_DECODER"
+  ],
+  "baseHelpers": []
+}

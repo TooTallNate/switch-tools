@@ -1,0 +1,22 @@
+{
+  "slug": "atrac1-decoder",
+  "description": "ATRAC1 decoder.",
+  "entries": [
+    {
+      "thing": "atrac1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_atrac1_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/atrac.o",
+    "libavcodec/atrac1.o"
+  ],
+  "configFlags": [
+    "ATRAC1_DECODER"
+  ],
+  "baseHelpers": [
+    "mdct",
+    "sinewin"
+  ]
+}

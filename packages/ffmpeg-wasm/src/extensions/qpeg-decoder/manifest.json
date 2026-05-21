@@ -1,0 +1,18 @@
+{
+  "slug": "qpeg-decoder",
+  "description": "QPEG decoder.",
+  "entries": [
+    {
+      "thing": "qpeg_decoder",
+      "kind": "decoder",
+      "symbol": "ff_qpeg_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/qpeg.o"
+  ],
+  "configFlags": [
+    "QPEG_DECODER"
+  ],
+  "baseHelpers": []
+}

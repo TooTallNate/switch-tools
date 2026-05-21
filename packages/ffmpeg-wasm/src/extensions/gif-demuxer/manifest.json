@@ -1,0 +1,18 @@
+{
+  "slug": "gif-demuxer",
+  "description": "GIF demuxer.",
+  "entries": [
+    {
+      "thing": "gif_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_gif_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/gifdec.o"
+  ],
+  "configFlags": [
+    "GIF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

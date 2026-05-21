@@ -1,0 +1,18 @@
+{
+  "slug": "roq-demuxer",
+  "description": "ROQ demuxer.",
+  "entries": [
+    {
+      "thing": "roq_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_roq_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/idroqdec.o"
+  ],
+  "configFlags": [
+    "ROQ_DEMUXER"
+  ],
+  "baseHelpers": []
+}

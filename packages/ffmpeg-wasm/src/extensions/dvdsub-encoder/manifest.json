@@ -1,0 +1,19 @@
+{
+  "slug": "dvdsub-encoder",
+  "description": "DVDSUB encoder.",
+  "entries": [
+    {
+      "thing": "dvdsub_encoder",
+      "kind": "encoder",
+      "symbol": "ff_dvdsub_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dvdsub.o",
+    "libavcodec/dvdsubenc.o"
+  ],
+  "configFlags": [
+    "DVDSUB_ENCODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "pcm-u32le-muxer",
+  "description": "PCM U32LE muxer.",
+  "entries": [
+    {
+      "thing": "pcm_u32le_muxer",
+      "kind": "muxer",
+      "symbol": "ff_pcm_u32le_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcmenc.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "PCM_U32LE_MUXER"
+  ],
+  "baseHelpers": []
+}

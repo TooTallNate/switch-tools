@@ -1,0 +1,20 @@
+{
+  "slug": "lrc-demuxer",
+  "description": "LRC demuxer.",
+  "entries": [
+    {
+      "thing": "lrc_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_lrc_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/lrc.o",
+    "libavformat/lrcdec.o",
+    "libavformat/subtitles.o"
+  ],
+  "configFlags": [
+    "LRC_DEMUXER"
+  ],
+  "baseHelpers": []
+}

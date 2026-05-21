@@ -1,0 +1,22 @@
+{
+  "slug": "g723-1-encoder",
+  "description": "G723 1 encoder.",
+  "entries": [
+    {
+      "thing": "g723_1_encoder",
+      "kind": "encoder",
+      "symbol": "ff_g723_1_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/acelp_vectors.o",
+    "libavcodec/celp_filters.o",
+    "libavcodec/celp_math.o",
+    "libavcodec/g723_1.o",
+    "libavcodec/g723_1enc.o"
+  ],
+  "configFlags": [
+    "G723_1_ENCODER"
+  ],
+  "baseHelpers": []
+}

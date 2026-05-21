@@ -1,0 +1,20 @@
+{
+  "slug": "tta-encoder",
+  "description": "TTA encoder.",
+  "entries": [
+    {
+      "thing": "tta_encoder",
+      "kind": "encoder",
+      "symbol": "ff_tta_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ttadata.o",
+    "libavcodec/ttaenc.o",
+    "libavcodec/ttaencdsp.o"
+  ],
+  "configFlags": [
+    "TTA_ENCODER"
+  ],
+  "baseHelpers": []
+}

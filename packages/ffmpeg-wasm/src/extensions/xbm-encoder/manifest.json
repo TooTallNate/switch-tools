@@ -1,0 +1,18 @@
+{
+  "slug": "xbm-encoder",
+  "description": "XBM encoder.",
+  "entries": [
+    {
+      "thing": "xbm_encoder",
+      "kind": "encoder",
+      "symbol": "ff_xbm_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/xbmenc.o"
+  ],
+  "configFlags": [
+    "XBM_ENCODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "ppm-encoder",
+  "description": "PPM encoder.",
+  "entries": [
+    {
+      "thing": "ppm_encoder",
+      "kind": "encoder",
+      "symbol": "ff_ppm_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pnmenc.o"
+  ],
+  "configFlags": [
+    "PPM_ENCODER"
+  ],
+  "baseHelpers": []
+}

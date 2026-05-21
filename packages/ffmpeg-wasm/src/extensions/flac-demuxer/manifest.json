@@ -1,6 +1,6 @@
 {
   "slug": "flac-demuxer",
-  "description": "FLAC (Free Lossless Audio Codec) demuxer.",
+  "description": "FLAC demuxer.",
   "entries": [
     {
       "thing": "flac_demuxer",

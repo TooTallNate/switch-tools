@@ -1,0 +1,19 @@
+{
+  "slug": "wavpack-encoder",
+  "description": "WAVPACK encoder.",
+  "entries": [
+    {
+      "thing": "wavpack_encoder",
+      "kind": "encoder",
+      "symbol": "ff_wavpack_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/wavpackdata.o",
+    "libavcodec/wavpackenc.o"
+  ],
+  "configFlags": [
+    "WAVPACK_ENCODER"
+  ],
+  "baseHelpers": []
+}

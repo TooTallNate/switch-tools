@@ -1,0 +1,18 @@
+{
+  "slug": "aptx-muxer",
+  "description": "APTX muxer.",
+  "entries": [
+    {
+      "thing": "aptx_muxer",
+      "kind": "muxer",
+      "symbol": "ff_aptx_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "APTX_MUXER"
+  ],
+  "baseHelpers": []
+}

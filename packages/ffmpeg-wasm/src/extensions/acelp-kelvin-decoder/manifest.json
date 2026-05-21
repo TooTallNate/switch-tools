@@ -1,0 +1,27 @@
+{
+  "slug": "acelp-kelvin-decoder",
+  "description": "ACELP KELVIN decoder.",
+  "entries": [
+    {
+      "thing": "acelp_kelvin_decoder",
+      "kind": "decoder",
+      "symbol": "ff_acelp_kelvin_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/acelp_filters.o",
+    "libavcodec/acelp_pitch_delay.o",
+    "libavcodec/acelp_vectors.o",
+    "libavcodec/celp_filters.o",
+    "libavcodec/celp_math.o",
+    "libavcodec/g729dec.o",
+    "libavcodec/g729postfilter.o",
+    "libavcodec/lsp.o"
+  ],
+  "configFlags": [
+    "ACELP_KELVIN_DECODER"
+  ],
+  "baseHelpers": [
+    "audiodsp"
+  ]
+}

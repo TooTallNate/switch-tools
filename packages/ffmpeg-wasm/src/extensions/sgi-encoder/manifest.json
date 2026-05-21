@@ -1,0 +1,19 @@
+{
+  "slug": "sgi-encoder",
+  "description": "SGI encoder.",
+  "entries": [
+    {
+      "thing": "sgi_encoder",
+      "kind": "encoder",
+      "symbol": "ff_sgi_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/rle.o",
+    "libavcodec/sgienc.o"
+  ],
+  "configFlags": [
+    "SGI_ENCODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,25 @@
+{
+  "slug": "amrnb-decoder",
+  "description": "AMRNB decoder.",
+  "entries": [
+    {
+      "thing": "amrnb_decoder",
+      "kind": "decoder",
+      "symbol": "ff_amrnb_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/acelp_filters.o",
+    "libavcodec/acelp_pitch_delay.o",
+    "libavcodec/acelp_vectors.o",
+    "libavcodec/amrnbdec.o",
+    "libavcodec/celp_filters.o",
+    "libavcodec/celp_math.o",
+    "libavcodec/lsp.o"
+  ],
+  "configFlags": [
+    "AMRNB_DECODER",
+    "LSP"
+  ],
+  "baseHelpers": []
+}

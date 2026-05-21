@@ -1,0 +1,18 @@
+{
+  "slug": "ipmovie-demuxer",
+  "description": "IPMOVIE demuxer.",
+  "entries": [
+    {
+      "thing": "ipmovie_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ipmovie_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ipmovie.o"
+  ],
+  "configFlags": [
+    "IPMOVIE_DEMUXER"
+  ],
+  "baseHelpers": []
+}

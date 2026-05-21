@@ -1,6 +1,6 @@
 {
   "slug": "pcm-s16le-decoder",
-  "description": "16-bit signed little-endian PCM audio decoder.",
+  "description": "PCM S16LE decoder.",
   "entries": [
     {
       "thing": "pcm_s16le_decoder",

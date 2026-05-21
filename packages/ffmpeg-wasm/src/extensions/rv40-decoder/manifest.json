@@ -1,0 +1,28 @@
+{
+  "slug": "rv40-decoder",
+  "description": "RV40 decoder.",
+  "entries": [
+    {
+      "thing": "rv40_decoder",
+      "kind": "decoder",
+      "symbol": "ff_rv40_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/golomb.o",
+    "libavcodec/rv34.o",
+    "libavcodec/rv34dsp.o",
+    "libavcodec/rv40.o",
+    "libavcodec/rv40dsp.o"
+  ],
+  "configFlags": [
+    "GOLOMB",
+    "RV34DSP",
+    "RV40_DECODER"
+  ],
+  "baseHelpers": [
+    "h264pred",
+    "h264qpel",
+    "mpegvideodec"
+  ]
+}

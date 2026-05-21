@@ -1,0 +1,18 @@
+{
+  "slug": "smacker-decoder",
+  "description": "SMACKER decoder.",
+  "entries": [
+    {
+      "thing": "smacker_decoder",
+      "kind": "decoder",
+      "symbol": "ff_smacker_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/smacker.o"
+  ],
+  "configFlags": [
+    "SMACKER_DECODER"
+  ],
+  "baseHelpers": []
+}

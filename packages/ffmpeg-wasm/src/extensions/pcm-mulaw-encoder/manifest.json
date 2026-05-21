@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-mulaw-encoder",
+  "description": "PCM MULAW encoder.",
+  "entries": [
+    {
+      "thing": "pcm_mulaw_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pcm_mulaw_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_MULAW_ENCODER"
+  ],
+  "baseHelpers": []
+}

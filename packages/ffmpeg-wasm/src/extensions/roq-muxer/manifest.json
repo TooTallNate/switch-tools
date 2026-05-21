@@ -1,0 +1,19 @@
+{
+  "slug": "roq-muxer",
+  "description": "ROQ muxer.",
+  "entries": [
+    {
+      "thing": "roq_muxer",
+      "kind": "muxer",
+      "symbol": "ff_roq_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/idroqenc.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "ROQ_MUXER"
+  ],
+  "baseHelpers": []
+}

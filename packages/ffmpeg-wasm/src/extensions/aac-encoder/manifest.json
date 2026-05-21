@@ -1,0 +1,38 @@
+{
+  "slug": "aac-encoder",
+  "description": "AAC encoder.",
+  "entries": [
+    {
+      "thing": "aac_encoder",
+      "kind": "encoder",
+      "symbol": "ff_aac_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/aaccoder.o",
+    "libavcodec/aacenc_is.o",
+    "libavcodec/aacenc_ltp.o",
+    "libavcodec/aacenc_pred.o",
+    "libavcodec/aacenc_tns.o",
+    "libavcodec/aacenc.o",
+    "libavcodec/aacenctab.o",
+    "libavcodec/aacpsy.o",
+    "libavcodec/aactab.o",
+    "libavcodec/audio_frame_queue.o",
+    "libavcodec/iirfilter.o",
+    "libavcodec/kbdwin.o",
+    "libavcodec/lpc.o",
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavcodec/psymodel.o"
+  ],
+  "configFlags": [
+    "AAC_ENCODER",
+    "AUDIO_FRAME_QUEUE",
+    "IIRFILTER",
+    "LPC"
+  ],
+  "baseHelpers": [
+    "mdct",
+    "sinewin"
+  ]
+}

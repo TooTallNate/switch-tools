@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-u16be-encoder",
+  "description": "PCM U16BE encoder.",
+  "entries": [
+    {
+      "thing": "pcm_u16be_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pcm_u16be_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_U16BE_ENCODER"
+  ],
+  "baseHelpers": []
+}

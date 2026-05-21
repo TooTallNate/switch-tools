@@ -1,0 +1,19 @@
+{
+  "slug": "mpl2-decoder",
+  "description": "MPL2 decoder.",
+  "entries": [
+    {
+      "thing": "mpl2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mpl2_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ass.o",
+    "libavcodec/mpl2dec.o"
+  ],
+  "configFlags": [
+    "MPL2_DECODER"
+  ],
+  "baseHelpers": []
+}

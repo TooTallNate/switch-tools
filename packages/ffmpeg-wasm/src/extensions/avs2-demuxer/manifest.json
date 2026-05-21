@@ -1,0 +1,19 @@
+{
+  "slug": "avs2-demuxer",
+  "description": "AVS2 demuxer.",
+  "entries": [
+    {
+      "thing": "avs2_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_avs2_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/avs2dec.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "AVS2_DEMUXER"
+  ],
+  "baseHelpers": []
+}

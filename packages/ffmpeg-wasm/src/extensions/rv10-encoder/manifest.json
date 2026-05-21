@@ -1,0 +1,27 @@
+{
+  "slug": "rv10-encoder",
+  "description": "RV10 encoder.",
+  "entries": [
+    {
+      "thing": "rv10_encoder",
+      "kind": "encoder",
+      "symbol": "ff_rv10_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/h263.o",
+    "libavcodec/h263data.o",
+    "libavcodec/h263dsp.o",
+    "libavcodec/ituh263enc.o",
+    "libavcodec/mpeg4video.o",
+    "libavcodec/rv10enc.o"
+  ],
+  "configFlags": [
+    "H263DSP",
+    "H263_ENCODER",
+    "RV10_ENCODER"
+  ],
+  "baseHelpers": [
+    "mpegvideoenc"
+  ]
+}

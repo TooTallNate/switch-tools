@@ -1,0 +1,46 @@
+{
+  "slug": "wmv2-decoder",
+  "description": "WMV2 decoder.",
+  "entries": [
+    {
+      "thing": "wmv2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_wmv2_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/error_resilience.o",
+    "libavcodec/h263_parser.o",
+    "libavcodec/h263.o",
+    "libavcodec/h263data.o",
+    "libavcodec/h263dec.o",
+    "libavcodec/h263dsp.o",
+    "libavcodec/ituh263dec.o",
+    "libavcodec/mpeg4video.o",
+    "libavcodec/mpeg4videodec.o",
+    "libavcodec/msmpeg4.o",
+    "libavcodec/msmpeg4data.o",
+    "libavcodec/msmpeg4dec.o",
+    "libavcodec/wmv2.o",
+    "libavcodec/wmv2data.o",
+    "libavcodec/wmv2dec.o",
+    "libavcodec/wmv2dsp.o"
+  ],
+  "configFlags": [
+    "ERROR_RESILIENCE",
+    "H263DSP",
+    "H263_DECODER",
+    "H263_PARSER",
+    "WMV2DSP",
+    "WMV2_DECODER"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "idctdsp",
+    "intrax8",
+    "me_cmp",
+    "mpegvideodec",
+    "qpeldsp",
+    "videodsp"
+  ]
+}

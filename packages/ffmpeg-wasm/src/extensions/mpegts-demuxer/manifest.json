@@ -1,0 +1,23 @@
+{
+  "slug": "mpegts-demuxer",
+  "description": "MPEGTS demuxer.",
+  "entries": [
+    {
+      "thing": "mpegts_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mpegts_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavcodec/mpeg4audio.o",
+    "libavformat/isom.o",
+    "libavformat/mpegts.o"
+  ],
+  "configFlags": [
+    "ISO_MEDIA",
+    "MPEG4AUDIO",
+    "MPEGTS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

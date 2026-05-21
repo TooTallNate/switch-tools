@@ -1,0 +1,19 @@
+{
+  "slug": "wsd-demuxer",
+  "description": "WSD demuxer.",
+  "entries": [
+    {
+      "thing": "wsd_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_wsd_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawdec.o",
+    "libavformat/wsddec.o"
+  ],
+  "configFlags": [
+    "WSD_DEMUXER"
+  ],
+  "baseHelpers": []
+}

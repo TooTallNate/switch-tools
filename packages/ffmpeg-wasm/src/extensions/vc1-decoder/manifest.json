@@ -1,0 +1,51 @@
+{
+  "slug": "vc1-decoder",
+  "description": "VC1 decoder.",
+  "entries": [
+    {
+      "thing": "vc1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_vc1_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/h263_parser.o",
+    "libavcodec/h263.o",
+    "libavcodec/h263data.o",
+    "libavcodec/h263dec.o",
+    "libavcodec/h263dsp.o",
+    "libavcodec/ituh263dec.o",
+    "libavcodec/mpeg4video.o",
+    "libavcodec/mpeg4videodec.o",
+    "libavcodec/msmpeg4.o",
+    "libavcodec/msmpeg4data.o",
+    "libavcodec/msmpeg4dec.o",
+    "libavcodec/startcode.o",
+    "libavcodec/vc1_block.o",
+    "libavcodec/vc1_loopfilter.o",
+    "libavcodec/vc1_mc.o",
+    "libavcodec/vc1_pred.o",
+    "libavcodec/vc1.o",
+    "libavcodec/vc1data.o",
+    "libavcodec/vc1dec.o",
+    "libavcodec/vc1dsp.o",
+    "libavcodec/wmv2data.o",
+    "libavcodec/wmv2dsp.o"
+  ],
+  "configFlags": [
+    "H263DSP",
+    "H263_DECODER",
+    "H263_PARSER",
+    "STARTCODE",
+    "VC1DSP",
+    "VC1_DECODER"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "h264chroma",
+    "h264qpel",
+    "intrax8",
+    "mpegvideodec",
+    "qpeldsp"
+  ]
+}

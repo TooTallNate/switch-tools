@@ -1,0 +1,19 @@
+{
+  "slug": "image-xwd-pipe-demuxer",
+  "description": "IMAGE XWD PIPE demuxer.",
+  "entries": [
+    {
+      "thing": "image_xwd_pipe_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_image_xwd_pipe_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/img2.o",
+    "libavformat/img2dec.o"
+  ],
+  "configFlags": [
+    "IMAGE_XWD_PIPE_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-f32le-encoder",
+  "description": "PCM F32LE encoder.",
+  "entries": [
+    {
+      "thing": "pcm_f32le_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pcm_f32le_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_F32LE_ENCODER"
+  ],
+  "baseHelpers": []
+}

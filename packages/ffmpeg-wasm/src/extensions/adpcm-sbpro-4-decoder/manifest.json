@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-sbpro-4-decoder",
+  "description": "ADPCM SBPRO 4 decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_sbpro_4_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_sbpro_4_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_SBPRO_4_DECODER"
+  ],
+  "baseHelpers": []
+}

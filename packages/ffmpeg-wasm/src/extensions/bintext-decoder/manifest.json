@@ -1,0 +1,19 @@
+{
+  "slug": "bintext-decoder",
+  "description": "BINTEXT decoder.",
+  "entries": [
+    {
+      "thing": "bintext_decoder",
+      "kind": "decoder",
+      "symbol": "ff_bintext_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/bintext.o",
+    "libavcodec/cga_data.o"
+  ],
+  "configFlags": [
+    "BINTEXT_DECODER"
+  ],
+  "baseHelpers": []
+}

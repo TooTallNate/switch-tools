@@ -1,0 +1,21 @@
+{
+  "slug": "nut-muxer",
+  "description": "NUT muxer.",
+  "entries": [
+    {
+      "thing": "nut_muxer",
+      "kind": "muxer",
+      "symbol": "ff_nut_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/nut.o",
+    "libavformat/nutenc.o",
+    "libavformat/riffenc.o"
+  ],
+  "configFlags": [
+    "NUT_MUXER",
+    "RIFFENC"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,20 @@
+{
+  "slug": "adpcm-g722-decoder",
+  "description": "ADPCM G722 decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_g722_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_g722_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/g722.o",
+    "libavcodec/g722dec.o",
+    "libavcodec/g722dsp.o"
+  ],
+  "configFlags": [
+    "ADPCM_G722_DECODER"
+  ],
+  "baseHelpers": []
+}

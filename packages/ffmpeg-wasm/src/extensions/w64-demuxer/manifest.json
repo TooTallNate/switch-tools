@@ -1,0 +1,23 @@
+{
+  "slug": "w64-demuxer",
+  "description": "W64 demuxer.",
+  "entries": [
+    {
+      "thing": "w64_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_w64_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcm.o",
+    "libavformat/riffdec.o",
+    "libavformat/w64.o",
+    "libavformat/wavdec.o"
+  ],
+  "configFlags": [
+    "RIFFDEC",
+    "W64_DEMUXER",
+    "WAV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

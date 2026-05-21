@@ -1,0 +1,19 @@
+{
+  "slug": "realtext-demuxer",
+  "description": "REALTEXT demuxer.",
+  "entries": [
+    {
+      "thing": "realtext_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_realtext_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/realtextdec.o",
+    "libavformat/subtitles.o"
+  ],
+  "configFlags": [
+    "REALTEXT_DEMUXER"
+  ],
+  "baseHelpers": []
+}

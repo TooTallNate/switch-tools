@@ -1,0 +1,18 @@
+{
+  "slug": "msf-demuxer",
+  "description": "MSF demuxer.",
+  "entries": [
+    {
+      "thing": "msf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_msf_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/msf.o"
+  ],
+  "configFlags": [
+    "MSF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

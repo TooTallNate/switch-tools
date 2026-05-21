@@ -1,0 +1,19 @@
+{
+  "slug": "codec2-demuxer",
+  "description": "CODEC2 demuxer.",
+  "entries": [
+    {
+      "thing": "codec2_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_codec2_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/codec2.o",
+    "libavformat/pcm.o"
+  ],
+  "configFlags": [
+    "CODEC2_DEMUXER"
+  ],
+  "baseHelpers": []
+}

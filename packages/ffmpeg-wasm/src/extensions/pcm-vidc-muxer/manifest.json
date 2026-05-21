@@ -1,0 +1,19 @@
+{
+  "slug": "pcm-vidc-muxer",
+  "description": "PCM VIDC muxer.",
+  "entries": [
+    {
+      "thing": "pcm_vidc_muxer",
+      "kind": "muxer",
+      "symbol": "ff_pcm_vidc_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcmenc.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "PCM_VIDC_MUXER"
+  ],
+  "baseHelpers": []
+}

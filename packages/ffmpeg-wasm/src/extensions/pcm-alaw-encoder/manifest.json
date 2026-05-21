@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-alaw-encoder",
+  "description": "PCM ALAW encoder.",
+  "entries": [
+    {
+      "thing": "pcm_alaw_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pcm_alaw_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_ALAW_ENCODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-s8-planar-decoder",
+  "description": "PCM S8 PLANAR decoder.",
+  "entries": [
+    {
+      "thing": "pcm_s8_planar_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pcm_s8_planar_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_S8_PLANAR_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "vc1t-muxer",
+  "description": "VC1T muxer.",
+  "entries": [
+    {
+      "thing": "vc1t_muxer",
+      "kind": "muxer",
+      "symbol": "ff_vc1t_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/vc1testenc.o"
+  ],
+  "configFlags": [
+    "VC1T_MUXER"
+  ],
+  "baseHelpers": []
+}

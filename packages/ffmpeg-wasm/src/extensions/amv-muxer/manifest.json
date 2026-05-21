@@ -1,0 +1,20 @@
+{
+  "slug": "amv-muxer",
+  "description": "AMV muxer.",
+  "entries": [
+    {
+      "thing": "amv_muxer",
+      "kind": "muxer",
+      "symbol": "ff_amv_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/amvenc.o",
+    "libavformat/riffenc.o"
+  ],
+  "configFlags": [
+    "AMV_MUXER",
+    "RIFFENC"
+  ],
+  "baseHelpers": []
+}

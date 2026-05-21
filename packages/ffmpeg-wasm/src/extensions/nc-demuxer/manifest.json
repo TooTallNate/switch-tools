@@ -1,0 +1,18 @@
+{
+  "slug": "nc-demuxer",
+  "description": "NC demuxer.",
+  "entries": [
+    {
+      "thing": "nc_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_nc_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ncdec.o"
+  ],
+  "configFlags": [
+    "NC_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "ttml-muxer",
+  "description": "TTML muxer.",
+  "entries": [
+    {
+      "thing": "ttml_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ttml_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ttmlenc.o"
+  ],
+  "configFlags": [
+    "TTML_MUXER"
+  ],
+  "baseHelpers": []
+}

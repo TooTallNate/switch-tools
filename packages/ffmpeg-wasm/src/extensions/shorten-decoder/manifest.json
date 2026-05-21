@@ -1,0 +1,20 @@
+{
+  "slug": "shorten-decoder",
+  "description": "SHORTEN decoder.",
+  "entries": [
+    {
+      "thing": "shorten_decoder",
+      "kind": "decoder",
+      "symbol": "ff_shorten_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/shorten.o"
+  ],
+  "configFlags": [
+    "SHORTEN_DECODER"
+  ],
+  "baseHelpers": [
+    "bswapdsp"
+  ]
+}

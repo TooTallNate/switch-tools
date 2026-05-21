@@ -1,0 +1,22 @@
+{
+  "slug": "dvvideo-decoder",
+  "description": "DVVIDEO decoder.",
+  "entries": [
+    {
+      "thing": "dvvideo_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dvvideo_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dv.o",
+    "libavcodec/dvdata.o",
+    "libavcodec/dvdec.o"
+  ],
+  "configFlags": [
+    "DVVIDEO_DECODER"
+  ],
+  "baseHelpers": [
+    "idctdsp"
+  ]
+}

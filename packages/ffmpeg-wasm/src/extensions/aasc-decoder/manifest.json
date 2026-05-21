@@ -1,0 +1,19 @@
+{
+  "slug": "aasc-decoder",
+  "description": "AASC decoder.",
+  "entries": [
+    {
+      "thing": "aasc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_aasc_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/aasc.o",
+    "libavcodec/msrledec.o"
+  ],
+  "configFlags": [
+    "AASC_DECODER"
+  ],
+  "baseHelpers": []
+}

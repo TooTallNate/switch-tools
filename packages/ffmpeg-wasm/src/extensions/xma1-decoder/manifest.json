@@ -1,0 +1,25 @@
+{
+  "slug": "xma1-decoder",
+  "description": "XMA1 decoder.",
+  "entries": [
+    {
+      "thing": "xma1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_xma1_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/wma_common.o",
+    "libavcodec/wma.o",
+    "libavcodec/wmaprodec.o"
+  ],
+  "configFlags": [
+    "WMAPRO_DECODER",
+    "XMA1_DECODER"
+  ],
+  "baseHelpers": [
+    "mdct",
+    "sinewin",
+    "wma_freqs"
+  ]
+}

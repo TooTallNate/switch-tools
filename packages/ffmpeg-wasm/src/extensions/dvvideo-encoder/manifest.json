@@ -1,0 +1,24 @@
+{
+  "slug": "dvvideo-encoder",
+  "description": "DVVIDEO encoder.",
+  "entries": [
+    {
+      "thing": "dvvideo_encoder",
+      "kind": "encoder",
+      "symbol": "ff_dvvideo_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dv.o",
+    "libavcodec/dvdata.o",
+    "libavcodec/dvenc.o"
+  ],
+  "configFlags": [
+    "DVVIDEO_ENCODER"
+  ],
+  "baseHelpers": [
+    "fdctdsp",
+    "me_cmp",
+    "pixblockdsp"
+  ]
+}

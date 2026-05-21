@@ -1,0 +1,18 @@
+{
+  "slug": "mmf-demuxer",
+  "description": "MMF demuxer.",
+  "entries": [
+    {
+      "thing": "mmf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mmf_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mmf.o"
+  ],
+  "configFlags": [
+    "MMF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,24 @@
+{
+  "slug": "utvideo-encoder",
+  "description": "UTVIDEO encoder.",
+  "entries": [
+    {
+      "thing": "utvideo_encoder",
+      "kind": "encoder",
+      "symbol": "ff_utvideo_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/huffman.o",
+    "libavcodec/lossless_videoencdsp.o",
+    "libavcodec/utvideoenc.o"
+  ],
+  "configFlags": [
+    "HUFFMAN",
+    "LLVIDENCDSP",
+    "UTVIDEO_ENCODER"
+  ],
+  "baseHelpers": [
+    "bswapdsp"
+  ]
+}

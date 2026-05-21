@@ -1,0 +1,18 @@
+{
+  "slug": "dcstr-demuxer",
+  "description": "DCSTR demuxer.",
+  "entries": [
+    {
+      "thing": "dcstr_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dcstr_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/dcstr.o"
+  ],
+  "configFlags": [
+    "DCSTR_DEMUXER"
+  ],
+  "baseHelpers": []
+}

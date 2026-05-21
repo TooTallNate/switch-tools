@@ -1,0 +1,23 @@
+{
+  "slug": "jpeg2000-decoder",
+  "description": "JPEG2000 decoder.",
+  "entries": [
+    {
+      "thing": "jpeg2000_decoder",
+      "kind": "decoder",
+      "symbol": "ff_jpeg2000_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/jpeg2000.o",
+    "libavcodec/jpeg2000dec.o",
+    "libavcodec/jpeg2000dsp.o",
+    "libavcodec/jpeg2000dwt.o",
+    "libavcodec/mqc.o",
+    "libavcodec/mqcdec.o"
+  ],
+  "configFlags": [
+    "JPEG2000_DECODER"
+  ],
+  "baseHelpers": []
+}

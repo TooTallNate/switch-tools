@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-ea-r3-decoder",
+  "description": "ADPCM EA R3 decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_ea_r3_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ea_r3_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_EA_R3_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "gif-encoder",
+  "description": "GIF encoder.",
+  "entries": [
+    {
+      "thing": "gif_encoder",
+      "kind": "encoder",
+      "symbol": "ff_gif_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/gif.o",
+    "libavcodec/lzwenc.o"
+  ],
+  "configFlags": [
+    "GIF_ENCODER"
+  ],
+  "baseHelpers": []
+}

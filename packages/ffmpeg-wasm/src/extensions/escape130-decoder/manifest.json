@@ -1,0 +1,18 @@
+{
+  "slug": "escape130-decoder",
+  "description": "ESCAPE130 decoder.",
+  "entries": [
+    {
+      "thing": "escape130_decoder",
+      "kind": "decoder",
+      "symbol": "ff_escape130_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/escape130.o"
+  ],
+  "configFlags": [
+    "ESCAPE130_DECODER"
+  ],
+  "baseHelpers": []
+}

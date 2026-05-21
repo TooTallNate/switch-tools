@@ -1,0 +1,18 @@
+{
+  "slug": "g726le-muxer",
+  "description": "G726LE muxer.",
+  "entries": [
+    {
+      "thing": "g726le_muxer",
+      "kind": "muxer",
+      "symbol": "ff_g726le_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "G726LE_MUXER"
+  ],
+  "baseHelpers": []
+}

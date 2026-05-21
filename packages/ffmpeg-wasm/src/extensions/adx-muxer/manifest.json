@@ -1,0 +1,18 @@
+{
+  "slug": "adx-muxer",
+  "description": "ADX muxer.",
+  "entries": [
+    {
+      "thing": "adx_muxer",
+      "kind": "muxer",
+      "symbol": "ff_adx_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "ADX_MUXER"
+  ],
+  "baseHelpers": []
+}

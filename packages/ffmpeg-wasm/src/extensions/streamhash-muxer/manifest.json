@@ -1,0 +1,18 @@
+{
+  "slug": "streamhash-muxer",
+  "description": "STREAMHASH muxer.",
+  "entries": [
+    {
+      "thing": "streamhash_muxer",
+      "kind": "muxer",
+      "symbol": "ff_streamhash_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/hashenc.o"
+  ],
+  "configFlags": [
+    "STREAMHASH_MUXER"
+  ],
+  "baseHelpers": []
+}

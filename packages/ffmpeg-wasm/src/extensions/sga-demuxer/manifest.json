@@ -1,0 +1,18 @@
+{
+  "slug": "sga-demuxer",
+  "description": "SGA demuxer.",
+  "entries": [
+    {
+      "thing": "sga_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_sga_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/sga.o"
+  ],
+  "configFlags": [
+    "SGA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

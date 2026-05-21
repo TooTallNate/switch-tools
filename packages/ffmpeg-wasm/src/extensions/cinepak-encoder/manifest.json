@@ -1,0 +1,19 @@
+{
+  "slug": "cinepak-encoder",
+  "description": "CINEPAK encoder.",
+  "entries": [
+    {
+      "thing": "cinepak_encoder",
+      "kind": "encoder",
+      "symbol": "ff_cinepak_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/cinepakenc.o",
+    "libavcodec/elbg.o"
+  ],
+  "configFlags": [
+    "CINEPAK_ENCODER"
+  ],
+  "baseHelpers": []
+}

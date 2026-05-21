@@ -1,0 +1,20 @@
+{
+  "slug": "mxf-demuxer",
+  "description": "MXF demuxer.",
+  "entries": [
+    {
+      "thing": "mxf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mxf_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/avlanguage.o",
+    "libavformat/mxf.o",
+    "libavformat/mxfdec.o"
+  ],
+  "configFlags": [
+    "MXF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "wsaud-muxer",
+  "description": "WSAUD muxer.",
+  "entries": [
+    {
+      "thing": "wsaud_muxer",
+      "kind": "muxer",
+      "symbol": "ff_wsaud_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/westwood_audenc.o"
+  ],
+  "configFlags": [
+    "WSAUD_MUXER"
+  ],
+  "baseHelpers": []
+}

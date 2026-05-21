@@ -1,0 +1,20 @@
+{
+  "slug": "avs-demuxer",
+  "description": "AVS demuxer.",
+  "entries": [
+    {
+      "thing": "avs_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_avs_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/avs.o",
+    "libavformat/voc_packet.o",
+    "libavformat/voc.o"
+  ],
+  "configFlags": [
+    "AVS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

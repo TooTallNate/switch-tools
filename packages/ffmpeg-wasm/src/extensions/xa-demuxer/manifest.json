@@ -1,0 +1,18 @@
+{
+  "slug": "xa-demuxer",
+  "description": "XA demuxer.",
+  "entries": [
+    {
+      "thing": "xa_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_xa_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/xa.o"
+  ],
+  "configFlags": [
+    "XA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

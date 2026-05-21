@@ -1,0 +1,18 @@
+{
+  "slug": "ptx-decoder",
+  "description": "PTX decoder.",
+  "entries": [
+    {
+      "thing": "ptx_decoder",
+      "kind": "decoder",
+      "symbol": "ff_ptx_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ptx.o"
+  ],
+  "configFlags": [
+    "PTX_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "moflex-demuxer",
+  "description": "MOFLEX demuxer.",
+  "entries": [
+    {
+      "thing": "moflex_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_moflex_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/moflex.o"
+  ],
+  "configFlags": [
+    "MOFLEX_DEMUXER"
+  ],
+  "baseHelpers": []
+}

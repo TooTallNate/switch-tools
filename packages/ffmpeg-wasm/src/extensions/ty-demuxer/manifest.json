@@ -1,0 +1,18 @@
+{
+  "slug": "ty-demuxer",
+  "description": "TY demuxer.",
+  "entries": [
+    {
+      "thing": "ty_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ty_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/ty.o"
+  ],
+  "configFlags": [
+    "TY_DEMUXER"
+  ],
+  "baseHelpers": []
+}

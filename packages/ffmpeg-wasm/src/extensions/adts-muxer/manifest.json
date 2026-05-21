@@ -1,6 +1,6 @@
 {
   "slug": "adts-muxer",
-  "description": "ADTS (Audio Data Transport Stream) AAC muxer.",
+  "description": "ADTS muxer.",
   "entries": [
     {
       "thing": "adts_muxer",

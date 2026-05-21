@@ -1,0 +1,18 @@
+{
+  "slug": "dirac-muxer",
+  "description": "DIRAC muxer.",
+  "entries": [
+    {
+      "thing": "dirac_muxer",
+      "kind": "muxer",
+      "symbol": "ff_dirac_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "DIRAC_MUXER"
+  ],
+  "baseHelpers": []
+}

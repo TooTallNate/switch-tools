@@ -1,0 +1,23 @@
+{
+  "slug": "dca-encoder",
+  "description": "DCA encoder.",
+  "entries": [
+    {
+      "thing": "dca_encoder",
+      "kind": "encoder",
+      "symbol": "ff_dca_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dcaadpcm.o",
+    "libavcodec/dcadata.o",
+    "libavcodec/dcaenc.o",
+    "libavcodec/dcahuff.o"
+  ],
+  "configFlags": [
+    "DCA_ENCODER"
+  ],
+  "baseHelpers": [
+    "mdct"
+  ]
+}

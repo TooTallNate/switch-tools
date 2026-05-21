@@ -1,0 +1,18 @@
+{
+  "slug": "roq-dpcm-encoder",
+  "description": "ROQ DPCM encoder.",
+  "entries": [
+    {
+      "thing": "roq_dpcm_encoder",
+      "kind": "encoder",
+      "symbol": "ff_roq_dpcm_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/roqaudioenc.o"
+  ],
+  "configFlags": [
+    "ROQ_DPCM_ENCODER"
+  ],
+  "baseHelpers": []
+}

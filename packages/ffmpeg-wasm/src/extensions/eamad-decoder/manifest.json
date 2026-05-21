@@ -1,0 +1,27 @@
+{
+  "slug": "eamad-decoder",
+  "description": "EAMAD decoder.",
+  "entries": [
+    {
+      "thing": "eamad_decoder",
+      "kind": "decoder",
+      "symbol": "ff_eamad_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/eaidct.o",
+    "libavcodec/eamad.o",
+    "libavcodec/mpeg12.o",
+    "libavcodec/mpeg12data.o"
+  ],
+  "configFlags": [
+    "EAMAD_DECODER"
+  ],
+  "baseHelpers": [
+    "aandcttables",
+    "blockdsp",
+    "bswapdsp",
+    "idctdsp",
+    "mpegvideo"
+  ]
+}

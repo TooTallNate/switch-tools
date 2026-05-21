@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-swf-decoder",
+  "description": "ADPCM SWF decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_swf_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_swf_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_SWF_DECODER"
+  ],
+  "baseHelpers": []
+}

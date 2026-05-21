@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-s16be-planar-encoder",
+  "description": "PCM S16BE PLANAR encoder.",
+  "entries": [
+    {
+      "thing": "pcm_s16be_planar_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pcm_s16be_planar_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_S16BE_PLANAR_ENCODER"
+  ],
+  "baseHelpers": []
+}

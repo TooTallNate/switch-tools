@@ -1,0 +1,18 @@
+{
+  "slug": "scc-muxer",
+  "description": "SCC muxer.",
+  "entries": [
+    {
+      "thing": "scc_muxer",
+      "kind": "muxer",
+      "symbol": "ff_scc_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/sccenc.o"
+  ],
+  "configFlags": [
+    "SCC_MUXER"
+  ],
+  "baseHelpers": []
+}

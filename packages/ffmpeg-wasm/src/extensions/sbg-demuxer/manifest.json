@@ -1,0 +1,18 @@
+{
+  "slug": "sbg-demuxer",
+  "description": "SBG demuxer.",
+  "entries": [
+    {
+      "thing": "sbg_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_sbg_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/sbgdec.o"
+  ],
+  "configFlags": [
+    "SBG_DEMUXER"
+  ],
+  "baseHelpers": []
+}

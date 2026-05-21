@@ -1,0 +1,34 @@
+{
+  "slug": "msmpeg4v1-decoder",
+  "description": "MSMPEG4V1 decoder.",
+  "entries": [
+    {
+      "thing": "msmpeg4v1_decoder",
+      "kind": "decoder",
+      "symbol": "ff_msmpeg4v1_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/h263_parser.o",
+    "libavcodec/h263.o",
+    "libavcodec/h263data.o",
+    "libavcodec/h263dec.o",
+    "libavcodec/h263dsp.o",
+    "libavcodec/ituh263dec.o",
+    "libavcodec/mpeg4video.o",
+    "libavcodec/mpeg4videodec.o",
+    "libavcodec/msmpeg4.o",
+    "libavcodec/msmpeg4data.o",
+    "libavcodec/msmpeg4dec.o"
+  ],
+  "configFlags": [
+    "H263DSP",
+    "H263_DECODER",
+    "H263_PARSER",
+    "MSMPEG4V1_DECODER"
+  ],
+  "baseHelpers": [
+    "mpegvideodec",
+    "qpeldsp"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "iv8-demuxer",
+  "description": "IV8 demuxer.",
+  "entries": [
+    {
+      "thing": "iv8_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_iv8_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/iv8.o"
+  ],
+  "configFlags": [
+    "IV8_DEMUXER"
+  ],
+  "baseHelpers": []
+}

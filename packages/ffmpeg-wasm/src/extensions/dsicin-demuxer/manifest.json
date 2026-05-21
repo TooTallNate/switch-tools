@@ -1,0 +1,18 @@
+{
+  "slug": "dsicin-demuxer",
+  "description": "DSICIN demuxer.",
+  "entries": [
+    {
+      "thing": "dsicin_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dsicin_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/dsicin.o"
+  ],
+  "configFlags": [
+    "DSICIN_DEMUXER"
+  ],
+  "baseHelpers": []
+}

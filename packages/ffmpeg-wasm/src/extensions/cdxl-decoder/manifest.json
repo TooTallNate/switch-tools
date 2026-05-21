@@ -1,0 +1,18 @@
+{
+  "slug": "cdxl-decoder",
+  "description": "CDXL decoder.",
+  "entries": [
+    {
+      "thing": "cdxl_decoder",
+      "kind": "decoder",
+      "symbol": "ff_cdxl_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/cdxl.o"
+  ],
+  "configFlags": [
+    "CDXL_DECODER"
+  ],
+  "baseHelpers": []
+}

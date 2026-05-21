@@ -1,0 +1,26 @@
+{
+  "slug": "ra-144-encoder",
+  "description": "RA 144 encoder.",
+  "entries": [
+    {
+      "thing": "ra_144_encoder",
+      "kind": "encoder",
+      "symbol": "ff_ra_144_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/audio_frame_queue.o",
+    "libavcodec/celp_filters.o",
+    "libavcodec/lpc.o",
+    "libavcodec/ra144.o",
+    "libavcodec/ra144enc.o"
+  ],
+  "configFlags": [
+    "AUDIO_FRAME_QUEUE",
+    "LPC",
+    "RA_144_ENCODER"
+  ],
+  "baseHelpers": [
+    "audiodsp"
+  ]
+}

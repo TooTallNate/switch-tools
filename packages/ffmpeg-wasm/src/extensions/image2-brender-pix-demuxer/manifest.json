@@ -1,0 +1,21 @@
+{
+  "slug": "image2-brender-pix-demuxer",
+  "description": "IMAGE2 BRENDER PIX demuxer.",
+  "entries": [
+    {
+      "thing": "image2_brender_pix_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_image2_brender_pix_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/img2_brender_pix.o",
+    "libavformat/img2.o",
+    "libavformat/img2dec.o"
+  ],
+  "configFlags": [
+    "IMAGE2_BRENDER_PIX_DEMUXER",
+    "IMAGE2_DEMUXER"
+  ],
+  "baseHelpers": []
+}

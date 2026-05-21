@@ -1,0 +1,21 @@
+{
+  "slug": "aptx-hd-decoder",
+  "description": "APTX HD decoder.",
+  "entries": [
+    {
+      "thing": "aptx_hd_decoder",
+      "kind": "decoder",
+      "symbol": "ff_aptx_hd_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/aptx.o",
+    "libavcodec/aptxdec.o",
+    "libavcodec/audio_frame_queue.o"
+  ],
+  "configFlags": [
+    "APTX_HD_DECODER",
+    "AUDIO_FRAME_QUEUE"
+  ],
+  "baseHelpers": []
+}

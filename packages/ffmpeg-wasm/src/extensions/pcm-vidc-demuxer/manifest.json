@@ -1,0 +1,19 @@
+{
+  "slug": "pcm-vidc-demuxer",
+  "description": "PCM VIDC demuxer.",
+  "entries": [
+    {
+      "thing": "pcm_vidc_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_pcm_vidc_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcm.o",
+    "libavformat/pcmdec.o"
+  ],
+  "configFlags": [
+    "PCM_VIDC_DEMUXER"
+  ],
+  "baseHelpers": []
+}

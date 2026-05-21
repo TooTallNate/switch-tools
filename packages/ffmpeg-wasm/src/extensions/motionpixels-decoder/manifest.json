@@ -1,0 +1,20 @@
+{
+  "slug": "motionpixels-decoder",
+  "description": "MOTIONPIXELS decoder.",
+  "entries": [
+    {
+      "thing": "motionpixels_decoder",
+      "kind": "decoder",
+      "symbol": "ff_motionpixels_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/motionpixels.o"
+  ],
+  "configFlags": [
+    "MOTIONPIXELS_DECODER"
+  ],
+  "baseHelpers": [
+    "bswapdsp"
+  ]
+}

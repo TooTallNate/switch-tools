@@ -1,0 +1,19 @@
+{
+  "slug": "dnxhd-demuxer",
+  "description": "DNXHD demuxer.",
+  "entries": [
+    {
+      "thing": "dnxhd_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dnxhd_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/dnxhddec.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "DNXHD_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "musx-demuxer",
+  "description": "MUSX demuxer.",
+  "entries": [
+    {
+      "thing": "musx_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_musx_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/musx.o"
+  ],
+  "configFlags": [
+    "MUSX_DEMUXER"
+  ],
+  "baseHelpers": []
+}

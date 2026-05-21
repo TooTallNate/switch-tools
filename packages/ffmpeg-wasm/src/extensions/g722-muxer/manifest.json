@@ -1,0 +1,18 @@
+{
+  "slug": "g722-muxer",
+  "description": "G722 muxer.",
+  "entries": [
+    {
+      "thing": "g722_muxer",
+      "kind": "muxer",
+      "symbol": "ff_g722_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "G722_MUXER"
+  ],
+  "baseHelpers": []
+}

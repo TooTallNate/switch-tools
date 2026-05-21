@@ -1,0 +1,28 @@
+{
+  "slug": "matroska-demuxer",
+  "description": "MATROSKA demuxer.",
+  "entries": [
+    {
+      "thing": "matroska_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_matroska_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/dovi_isom.o",
+    "libavformat/flac_picture.o",
+    "libavformat/matroska.o",
+    "libavformat/matroskadec.o",
+    "libavformat/oggparsevorbis.o",
+    "libavformat/qtpalette.o",
+    "libavformat/replaygain.o",
+    "libavformat/riffdec.o",
+    "libavformat/rmsipr.o",
+    "libavformat/vorbiscomment.o"
+  ],
+  "configFlags": [
+    "MATROSKA_DEMUXER",
+    "RIFFDEC"
+  ],
+  "baseHelpers": []
+}

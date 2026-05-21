@@ -1,0 +1,19 @@
+{
+  "slug": "wve-demuxer",
+  "description": "WVE demuxer.",
+  "entries": [
+    {
+      "thing": "wve_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_wve_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcm.o",
+    "libavformat/wvedec.o"
+  ],
+  "configFlags": [
+    "WVE_DEMUXER"
+  ],
+  "baseHelpers": []
+}

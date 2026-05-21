@@ -1,0 +1,21 @@
+{
+  "slug": "nuv-decoder",
+  "description": "NUV decoder.",
+  "entries": [
+    {
+      "thing": "nuv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_nuv_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/nuv.o",
+    "libavcodec/rtjpeg.o"
+  ],
+  "configFlags": [
+    "NUV_DECODER"
+  ],
+  "baseHelpers": [
+    "idctdsp"
+  ]
+}

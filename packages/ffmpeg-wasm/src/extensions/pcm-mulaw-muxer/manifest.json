@@ -1,0 +1,19 @@
+{
+  "slug": "pcm-mulaw-muxer",
+  "description": "PCM MULAW muxer.",
+  "entries": [
+    {
+      "thing": "pcm_mulaw_muxer",
+      "kind": "muxer",
+      "symbol": "ff_pcm_mulaw_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcmenc.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "PCM_MULAW_MUXER"
+  ],
+  "baseHelpers": []
+}

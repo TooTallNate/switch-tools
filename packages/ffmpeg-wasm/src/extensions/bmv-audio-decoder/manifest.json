@@ -1,0 +1,18 @@
+{
+  "slug": "bmv-audio-decoder",
+  "description": "BMV AUDIO decoder.",
+  "entries": [
+    {
+      "thing": "bmv_audio_decoder",
+      "kind": "decoder",
+      "symbol": "ff_bmv_audio_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/bmvaudio.o"
+  ],
+  "configFlags": [
+    "BMV_AUDIO_DECODER"
+  ],
+  "baseHelpers": []
+}

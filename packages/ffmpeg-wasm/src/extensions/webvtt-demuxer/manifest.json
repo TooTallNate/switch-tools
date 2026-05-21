@@ -1,0 +1,19 @@
+{
+  "slug": "webvtt-demuxer",
+  "description": "WEBVTT demuxer.",
+  "entries": [
+    {
+      "thing": "webvtt_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_webvtt_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/subtitles.o",
+    "libavformat/webvttdec.o"
+  ],
+  "configFlags": [
+    "WEBVTT_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "dnxhd-muxer",
+  "description": "DNXHD muxer.",
+  "entries": [
+    {
+      "thing": "dnxhd_muxer",
+      "kind": "muxer",
+      "symbol": "ff_dnxhd_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "DNXHD_MUXER"
+  ],
+  "baseHelpers": []
+}

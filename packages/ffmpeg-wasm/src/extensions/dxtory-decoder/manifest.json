@@ -1,0 +1,18 @@
+{
+  "slug": "dxtory-decoder",
+  "description": "DXTORY decoder.",
+  "entries": [
+    {
+      "thing": "dxtory_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dxtory_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dxtory.o"
+  ],
+  "configFlags": [
+    "DXTORY_DECODER"
+  ],
+  "baseHelpers": []
+}

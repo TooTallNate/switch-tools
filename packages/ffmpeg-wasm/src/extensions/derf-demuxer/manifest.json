@@ -1,0 +1,19 @@
+{
+  "slug": "derf-demuxer",
+  "description": "DERF demuxer.",
+  "entries": [
+    {
+      "thing": "derf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_derf_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/derf.o",
+    "libavformat/pcm.o"
+  ],
+  "configFlags": [
+    "DERF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

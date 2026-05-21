@@ -1,0 +1,18 @@
+{
+  "slug": "cavsvideo-muxer",
+  "description": "CAVSVIDEO muxer.",
+  "entries": [
+    {
+      "thing": "cavsvideo_muxer",
+      "kind": "muxer",
+      "symbol": "ff_cavsvideo_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "CAVSVIDEO_MUXER"
+  ],
+  "baseHelpers": []
+}

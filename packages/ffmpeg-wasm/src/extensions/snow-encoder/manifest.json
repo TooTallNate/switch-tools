@@ -1,0 +1,30 @@
+{
+  "slug": "snow-encoder",
+  "description": "SNOW encoder.",
+  "entries": [
+    {
+      "thing": "snow_encoder",
+      "kind": "encoder",
+      "symbol": "ff_snow_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/h263.o",
+    "libavcodec/h263data.o",
+    "libavcodec/ituh263enc.o",
+    "libavcodec/rangecoder.o",
+    "libavcodec/snow_dwt.o",
+    "libavcodec/snow.o",
+    "libavcodec/snowenc.o"
+  ],
+  "configFlags": [
+    "RANGECODER",
+    "SNOW_ENCODER"
+  ],
+  "baseHelpers": [
+    "h264qpel",
+    "hpeldsp",
+    "me_cmp",
+    "mpegvideoenc"
+  ]
+}

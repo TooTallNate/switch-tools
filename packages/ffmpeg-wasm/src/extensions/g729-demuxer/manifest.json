@@ -1,0 +1,18 @@
+{
+  "slug": "g729-demuxer",
+  "description": "G729 demuxer.",
+  "entries": [
+    {
+      "thing": "g729_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_g729_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/g729dec.o"
+  ],
+  "configFlags": [
+    "G729_DEMUXER"
+  ],
+  "baseHelpers": []
+}

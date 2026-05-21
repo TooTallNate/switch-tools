@@ -1,0 +1,18 @@
+{
+  "slug": "argo-asf-muxer",
+  "description": "ARGO ASF muxer.",
+  "entries": [
+    {
+      "thing": "argo_asf_muxer",
+      "kind": "muxer",
+      "symbol": "ff_argo_asf_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/argo_asf.o"
+  ],
+  "configFlags": [
+    "ARGO_ASF_MUXER"
+  ],
+  "baseHelpers": []
+}

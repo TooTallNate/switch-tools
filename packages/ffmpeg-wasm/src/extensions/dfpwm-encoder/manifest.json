@@ -1,0 +1,18 @@
+{
+  "slug": "dfpwm-encoder",
+  "description": "DFPWM encoder.",
+  "entries": [
+    {
+      "thing": "dfpwm_encoder",
+      "kind": "encoder",
+      "symbol": "ff_dfpwm_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dfpwmenc.o"
+  ],
+  "configFlags": [
+    "DFPWM_ENCODER"
+  ],
+  "baseHelpers": []
+}

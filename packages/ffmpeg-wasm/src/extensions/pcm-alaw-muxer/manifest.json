@@ -1,0 +1,19 @@
+{
+  "slug": "pcm-alaw-muxer",
+  "description": "PCM ALAW muxer.",
+  "entries": [
+    {
+      "thing": "pcm_alaw_muxer",
+      "kind": "muxer",
+      "symbol": "ff_pcm_alaw_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcmenc.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "PCM_ALAW_MUXER"
+  ],
+  "baseHelpers": []
+}

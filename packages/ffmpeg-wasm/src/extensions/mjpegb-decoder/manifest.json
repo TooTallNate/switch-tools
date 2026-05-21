@@ -1,0 +1,30 @@
+{
+  "slug": "mjpegb-decoder",
+  "description": "MJPEGB decoder.",
+  "entries": [
+    {
+      "thing": "mjpegb_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mjpegb_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/exif.o",
+    "libavcodec/jpegtables.o",
+    "libavcodec/mjpegbdec.o",
+    "libavcodec/mjpegdec_common.o",
+    "libavcodec/mjpegdec.o",
+    "libavcodec/tiff_common.o"
+  ],
+  "configFlags": [
+    "EXIF",
+    "JPEGTABLES",
+    "MJPEGB_DECODER",
+    "MJPEG_DECODER"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "hpeldsp",
+    "idctdsp"
+  ]
+}

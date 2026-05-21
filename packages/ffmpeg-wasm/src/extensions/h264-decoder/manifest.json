@@ -1,0 +1,44 @@
+{
+  "slug": "h264-decoder",
+  "description": "H264 decoder.",
+  "entries": [
+    {
+      "thing": "h264_decoder",
+      "kind": "decoder",
+      "symbol": "ff_h264_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/atsc_a53.o",
+    "libavcodec/golomb.o",
+    "libavcodec/h264_cabac.o",
+    "libavcodec/h264_cavlc.o",
+    "libavcodec/h264_direct.o",
+    "libavcodec/h264_loopfilter.o",
+    "libavcodec/h264_mb.o",
+    "libavcodec/h264_parse.o",
+    "libavcodec/h264_picture.o",
+    "libavcodec/h264_ps.o",
+    "libavcodec/h264_refs.o",
+    "libavcodec/h264_sei.o",
+    "libavcodec/h264_slice.o",
+    "libavcodec/h2645_parse.o",
+    "libavcodec/h264data.o",
+    "libavcodec/h264dec.o",
+    "libavcodec/h274.o"
+  ],
+  "configFlags": [
+    "ATSC_A53",
+    "GOLOMB",
+    "H264PARSE",
+    "H264_DECODER"
+  ],
+  "baseHelpers": [
+    "cabac",
+    "h264chroma",
+    "h264dsp",
+    "h264pred",
+    "h264qpel",
+    "videodsp"
+  ]
+}

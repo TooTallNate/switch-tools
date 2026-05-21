@@ -1,0 +1,25 @@
+{
+  "slug": "dnxhd-encoder",
+  "description": "DNXHD encoder.",
+  "entries": [
+    {
+      "thing": "dnxhd_encoder",
+      "kind": "encoder",
+      "symbol": "ff_dnxhd_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dnxhddata.o",
+    "libavcodec/dnxhdenc.o"
+  ],
+  "configFlags": [
+    "DNXHD_ENCODER"
+  ],
+  "baseHelpers": [
+    "blockdsp",
+    "fdctdsp",
+    "idctdsp",
+    "mpegvideoenc",
+    "pixblockdsp"
+  ]
+}

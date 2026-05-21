@@ -1,0 +1,19 @@
+{
+  "slug": "ass-decoder",
+  "description": "ASS decoder.",
+  "entries": [
+    {
+      "thing": "ass_decoder",
+      "kind": "decoder",
+      "symbol": "ff_ass_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ass.o",
+    "libavcodec/assdec.o"
+  ],
+  "configFlags": [
+    "ASS_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,23 @@
+{
+  "slug": "truehd-decoder",
+  "description": "TRUEHD decoder.",
+  "entries": [
+    {
+      "thing": "truehd_decoder",
+      "kind": "decoder",
+      "symbol": "ff_truehd_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mlp_parse.o",
+    "libavcodec/mlp_parser.o",
+    "libavcodec/mlp.o",
+    "libavcodec/mlpdec.o",
+    "libavcodec/mlpdsp.o"
+  ],
+  "configFlags": [
+    "MLP_PARSER",
+    "TRUEHD_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,20 @@
+{
+  "slug": "vc2-encoder",
+  "description": "VC2 encoder.",
+  "entries": [
+    {
+      "thing": "vc2_encoder",
+      "kind": "encoder",
+      "symbol": "ff_vc2_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/diractab.o",
+    "libavcodec/vc2enc_dwt.o",
+    "libavcodec/vc2enc.o"
+  ],
+  "configFlags": [
+    "VC2_ENCODER"
+  ],
+  "baseHelpers": []
+}

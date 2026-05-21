@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-ima-apm-decoder",
+  "description": "ADPCM IMA APM decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_ima_apm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_ima_apm_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_IMA_APM_DECODER"
+  ],
+  "baseHelpers": []
+}

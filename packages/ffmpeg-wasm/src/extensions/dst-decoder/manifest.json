@@ -1,0 +1,19 @@
+{
+  "slug": "dst-decoder",
+  "description": "DST decoder.",
+  "entries": [
+    {
+      "thing": "dst_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dst_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dsd.o",
+    "libavcodec/dstdec.o"
+  ],
+  "configFlags": [
+    "DST_DECODER"
+  ],
+  "baseHelpers": []
+}

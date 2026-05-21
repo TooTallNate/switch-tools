@@ -1,0 +1,18 @@
+{
+  "slug": "paf-demuxer",
+  "description": "PAF demuxer.",
+  "entries": [
+    {
+      "thing": "paf_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_paf_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/paf.o"
+  ],
+  "configFlags": [
+    "PAF_DEMUXER"
+  ],
+  "baseHelpers": []
+}

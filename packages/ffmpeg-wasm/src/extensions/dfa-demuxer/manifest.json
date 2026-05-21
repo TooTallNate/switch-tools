@@ -1,0 +1,18 @@
+{
+  "slug": "dfa-demuxer",
+  "description": "DFA demuxer.",
+  "entries": [
+    {
+      "thing": "dfa_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dfa_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/dfa.o"
+  ],
+  "configFlags": [
+    "DFA_DEMUXER"
+  ],
+  "baseHelpers": []
+}

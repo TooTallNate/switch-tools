@@ -1,0 +1,19 @@
+{
+  "slug": "mpegvideo-demuxer",
+  "description": "MPEGVIDEO demuxer.",
+  "entries": [
+    {
+      "thing": "mpegvideo_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mpegvideo_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mpegvideodec.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "MPEGVIDEO_DEMUXER"
+  ],
+  "baseHelpers": []
+}

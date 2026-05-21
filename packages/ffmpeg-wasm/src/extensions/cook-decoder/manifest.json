@@ -1,0 +1,22 @@
+{
+  "slug": "cook-decoder",
+  "description": "COOK decoder.",
+  "entries": [
+    {
+      "thing": "cook_decoder",
+      "kind": "decoder",
+      "symbol": "ff_cook_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/cook.o"
+  ],
+  "configFlags": [
+    "COOK_DECODER"
+  ],
+  "baseHelpers": [
+    "audiodsp",
+    "mdct",
+    "sinewin"
+  ]
+}

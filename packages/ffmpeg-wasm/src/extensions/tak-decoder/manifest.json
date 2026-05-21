@@ -1,0 +1,22 @@
+{
+  "slug": "tak-decoder",
+  "description": "TAK decoder.",
+  "entries": [
+    {
+      "thing": "tak_decoder",
+      "kind": "decoder",
+      "symbol": "ff_tak_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/tak.o",
+    "libavcodec/takdec.o",
+    "libavcodec/takdsp.o"
+  ],
+  "configFlags": [
+    "TAK_DECODER"
+  ],
+  "baseHelpers": [
+    "audiodsp"
+  ]
+}

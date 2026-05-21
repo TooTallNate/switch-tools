@@ -1,0 +1,18 @@
+{
+  "slug": "mpeg2vob-muxer",
+  "description": "MPEG2VOB muxer.",
+  "entries": [
+    {
+      "thing": "mpeg2vob_muxer",
+      "kind": "muxer",
+      "symbol": "ff_mpeg2vob_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mpegenc.o"
+  ],
+  "configFlags": [
+    "MPEG2VOB_MUXER"
+  ],
+  "baseHelpers": []
+}

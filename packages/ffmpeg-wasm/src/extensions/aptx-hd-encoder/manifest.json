@@ -1,0 +1,21 @@
+{
+  "slug": "aptx-hd-encoder",
+  "description": "APTX HD encoder.",
+  "entries": [
+    {
+      "thing": "aptx_hd_encoder",
+      "kind": "encoder",
+      "symbol": "ff_aptx_hd_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/aptx.o",
+    "libavcodec/aptxenc.o",
+    "libavcodec/audio_frame_queue.o"
+  ],
+  "configFlags": [
+    "APTX_HD_ENCODER",
+    "AUDIO_FRAME_QUEUE"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,25 @@
+{
+  "slug": "metasound-decoder",
+  "description": "METASOUND decoder.",
+  "entries": [
+    {
+      "thing": "metasound_decoder",
+      "kind": "decoder",
+      "symbol": "ff_metasound_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/lsp.o",
+    "libavcodec/metasound_data.o",
+    "libavcodec/metasound.o",
+    "libavcodec/twinvq.o"
+  ],
+  "configFlags": [
+    "LSP",
+    "METASOUND_DECODER"
+  ],
+  "baseHelpers": [
+    "mdct",
+    "sinewin"
+  ]
+}

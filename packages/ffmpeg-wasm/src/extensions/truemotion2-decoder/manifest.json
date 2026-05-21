@@ -1,0 +1,20 @@
+{
+  "slug": "truemotion2-decoder",
+  "description": "TRUEMOTION2 decoder.",
+  "entries": [
+    {
+      "thing": "truemotion2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_truemotion2_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/truemotion2.o"
+  ],
+  "configFlags": [
+    "TRUEMOTION2_DECODER"
+  ],
+  "baseHelpers": [
+    "bswapdsp"
+  ]
+}

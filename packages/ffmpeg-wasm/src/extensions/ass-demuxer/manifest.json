@@ -1,0 +1,19 @@
+{
+  "slug": "ass-demuxer",
+  "description": "ASS demuxer.",
+  "entries": [
+    {
+      "thing": "ass_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_ass_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/assdec.o",
+    "libavformat/subtitles.o"
+  ],
+  "configFlags": [
+    "ASS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

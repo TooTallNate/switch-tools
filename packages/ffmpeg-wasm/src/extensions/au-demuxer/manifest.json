@@ -1,0 +1,19 @@
+{
+  "slug": "au-demuxer",
+  "description": "AU demuxer.",
+  "entries": [
+    {
+      "thing": "au_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_au_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/au.o",
+    "libavformat/pcm.o"
+  ],
+  "configFlags": [
+    "AU_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-lxf-decoder",
+  "description": "PCM LXF decoder.",
+  "entries": [
+    {
+      "thing": "pcm_lxf_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pcm_lxf_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_LXF_DECODER"
+  ],
+  "baseHelpers": []
+}

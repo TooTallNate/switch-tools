@@ -1,0 +1,19 @@
+{
+  "slug": "image2-muxer",
+  "description": "IMAGE2 muxer.",
+  "entries": [
+    {
+      "thing": "image2_muxer",
+      "kind": "muxer",
+      "symbol": "ff_image2_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/img2.o",
+    "libavformat/img2enc.o"
+  ],
+  "configFlags": [
+    "IMAGE2_MUXER"
+  ],
+  "baseHelpers": []
+}

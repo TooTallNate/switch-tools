@@ -1,0 +1,18 @@
+{
+  "slug": "qcp-demuxer",
+  "description": "QCP demuxer.",
+  "entries": [
+    {
+      "thing": "qcp_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_qcp_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/qcp.o"
+  ],
+  "configFlags": [
+    "QCP_DEMUXER"
+  ],
+  "baseHelpers": []
+}

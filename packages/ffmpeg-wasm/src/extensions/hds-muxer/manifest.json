@@ -1,0 +1,28 @@
+{
+  "slug": "hds-muxer",
+  "description": "HDS muxer.",
+  "entries": [
+    {
+      "thing": "hds_muxer",
+      "kind": "muxer",
+      "symbol": "ff_hds_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/aac_adtstoasc_bsf.o",
+    "libavcodec/adts_header.o",
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavcodec/mpeg4audio.o",
+    "libavformat/avc.o",
+    "libavformat/flvenc.o",
+    "libavformat/hdsenc.o"
+  ],
+  "configFlags": [
+    "AAC_ADTSTOASC_BSF",
+    "ADTS_HEADER",
+    "FLV_MUXER",
+    "HDS_MUXER",
+    "MPEG4AUDIO"
+  ],
+  "baseHelpers": []
+}

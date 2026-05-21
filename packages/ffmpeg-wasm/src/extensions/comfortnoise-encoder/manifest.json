@@ -1,0 +1,20 @@
+{
+  "slug": "comfortnoise-encoder",
+  "description": "COMFORTNOISE encoder.",
+  "entries": [
+    {
+      "thing": "comfortnoise_encoder",
+      "kind": "encoder",
+      "symbol": "ff_comfortnoise_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/cngenc.o",
+    "libavcodec/lpc.o"
+  ],
+  "configFlags": [
+    "COMFORTNOISE_ENCODER",
+    "LPC"
+  ],
+  "baseHelpers": []
+}

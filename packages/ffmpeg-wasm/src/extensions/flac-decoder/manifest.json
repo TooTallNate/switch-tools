@@ -1,6 +1,6 @@
 {
   "slug": "flac-decoder",
-  "description": "FLAC (Free Lossless Audio Codec) decoder.",
+  "description": "FLAC decoder.",
   "entries": [
     {
       "thing": "flac_decoder",

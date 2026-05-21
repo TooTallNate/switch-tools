@@ -1,0 +1,23 @@
+{
+  "slug": "mpeg1video-encoder",
+  "description": "MPEG1VIDEO encoder.",
+  "entries": [
+    {
+      "thing": "mpeg1video_encoder",
+      "kind": "encoder",
+      "symbol": "ff_mpeg1video_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/h263dsp.o",
+    "libavcodec/mpeg12.o",
+    "libavcodec/mpeg12enc.o"
+  ],
+  "configFlags": [
+    "H263DSP",
+    "MPEG1VIDEO_ENCODER"
+  ],
+  "baseHelpers": [
+    "mpegvideoenc"
+  ]
+}

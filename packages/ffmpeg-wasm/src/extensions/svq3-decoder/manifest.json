@@ -1,0 +1,33 @@
+{
+  "slug": "svq3-decoder",
+  "description": "SVQ3 decoder.",
+  "entries": [
+    {
+      "thing": "svq3_decoder",
+      "kind": "decoder",
+      "symbol": "ff_svq3_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/golomb.o",
+    "libavcodec/h264_parse.o",
+    "libavcodec/h264_ps.o",
+    "libavcodec/h2645_parse.o",
+    "libavcodec/h264data.o",
+    "libavcodec/mpegutils.o",
+    "libavcodec/svq3.o",
+    "libavcodec/tpeldsp.o"
+  ],
+  "configFlags": [
+    "GOLOMB",
+    "H264PARSE",
+    "SVQ3_DECODER",
+    "TPELDSP"
+  ],
+  "baseHelpers": [
+    "h264dsp",
+    "h264pred",
+    "hpeldsp",
+    "videodsp"
+  ]
+}

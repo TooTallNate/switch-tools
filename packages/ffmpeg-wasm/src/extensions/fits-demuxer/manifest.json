@@ -1,0 +1,19 @@
+{
+  "slug": "fits-demuxer",
+  "description": "FITS demuxer.",
+  "entries": [
+    {
+      "thing": "fits_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_fits_demuxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/fits.o",
+    "libavformat/fitsdec.o"
+  ],
+  "configFlags": [
+    "FITS_DEMUXER"
+  ],
+  "baseHelpers": []
+}

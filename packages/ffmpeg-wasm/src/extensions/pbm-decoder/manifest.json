@@ -1,0 +1,19 @@
+{
+  "slug": "pbm-decoder",
+  "description": "PBM decoder.",
+  "entries": [
+    {
+      "thing": "pbm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pbm_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pnm.o",
+    "libavcodec/pnmdec.o"
+  ],
+  "configFlags": [
+    "PBM_DECODER"
+  ],
+  "baseHelpers": []
+}

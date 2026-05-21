@@ -1,0 +1,22 @@
+{
+  "slug": "mts2-decoder",
+  "description": "MTS2 decoder.",
+  "entries": [
+    {
+      "thing": "mts2_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mts2_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/jpegtables.o",
+    "libavcodec/mss34dsp.o",
+    "libavcodec/mss4.o"
+  ],
+  "configFlags": [
+    "JPEGTABLES",
+    "MSS34DSP",
+    "MTS2_DECODER"
+  ],
+  "baseHelpers": []
+}

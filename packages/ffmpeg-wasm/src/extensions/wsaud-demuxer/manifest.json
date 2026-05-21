@@ -1,0 +1,18 @@
+{
+  "slug": "wsaud-demuxer",
+  "description": "WSAUD demuxer.",
+  "entries": [
+    {
+      "thing": "wsaud_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_wsaud_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/westwood_aud.o"
+  ],
+  "configFlags": [
+    "WSAUD_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,21 @@
+{
+  "slug": "mpc8-decoder",
+  "description": "MPC8 decoder.",
+  "entries": [
+    {
+      "thing": "mpc8_decoder",
+      "kind": "decoder",
+      "symbol": "ff_mpc8_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpc.o",
+    "libavcodec/mpc8.o"
+  ],
+  "configFlags": [
+    "MPC8_DECODER"
+  ],
+  "baseHelpers": [
+    "mpegaudiodsp"
+  ]
+}

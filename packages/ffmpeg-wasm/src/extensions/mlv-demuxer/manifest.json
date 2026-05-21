@@ -1,0 +1,19 @@
+{
+  "slug": "mlv-demuxer",
+  "description": "MLV demuxer.",
+  "entries": [
+    {
+      "thing": "mlv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mlv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/mlvdec.o",
+    "libavformat/riffdec.o"
+  ],
+  "configFlags": [
+    "MLV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

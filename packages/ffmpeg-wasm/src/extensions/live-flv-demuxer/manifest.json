@@ -1,0 +1,18 @@
+{
+  "slug": "live-flv-demuxer",
+  "description": "LIVE FLV demuxer.",
+  "entries": [
+    {
+      "thing": "live_flv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_live_flv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/flvdec.o"
+  ],
+  "configFlags": [
+    "LIVE_FLV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

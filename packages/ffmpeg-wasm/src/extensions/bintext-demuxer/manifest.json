@@ -1,0 +1,19 @@
+{
+  "slug": "bintext-demuxer",
+  "description": "BINTEXT demuxer.",
+  "entries": [
+    {
+      "thing": "bintext_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_bintext_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/bintext.o",
+    "libavformat/sauce.o"
+  ],
+  "configFlags": [
+    "BINTEXT_DEMUXER"
+  ],
+  "baseHelpers": []
+}

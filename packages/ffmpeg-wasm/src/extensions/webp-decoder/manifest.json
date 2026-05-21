@@ -1,0 +1,29 @@
+{
+  "slug": "webp-decoder",
+  "description": "WEBP decoder.",
+  "entries": [
+    {
+      "thing": "webp_decoder",
+      "kind": "decoder",
+      "symbol": "ff_webp_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/exif.o",
+    "libavcodec/tiff_common.o",
+    "libavcodec/vp56rac.o",
+    "libavcodec/vp8.o",
+    "libavcodec/vp8dsp.o",
+    "libavcodec/webp.o"
+  ],
+  "configFlags": [
+    "EXIF",
+    "VP8DSP",
+    "VP8_DECODER",
+    "WEBP_DECODER"
+  ],
+  "baseHelpers": [
+    "h264pred",
+    "videodsp"
+  ]
+}

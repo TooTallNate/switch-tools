@@ -1,0 +1,18 @@
+{
+  "slug": "v210-demuxer",
+  "description": "V210 demuxer.",
+  "entries": [
+    {
+      "thing": "v210_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_v210_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawvideodec.o"
+  ],
+  "configFlags": [
+    "V210_DEMUXER"
+  ],
+  "baseHelpers": []
+}

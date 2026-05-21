@@ -1,0 +1,18 @@
+{
+  "slug": "mjpeg-demuxer",
+  "description": "MJPEG demuxer.",
+  "entries": [
+    {
+      "thing": "mjpeg_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_mjpeg_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "MJPEG_DEMUXER"
+  ],
+  "baseHelpers": []
+}

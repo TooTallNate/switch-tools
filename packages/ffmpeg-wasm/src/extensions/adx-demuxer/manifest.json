@@ -1,0 +1,18 @@
+{
+  "slug": "adx-demuxer",
+  "description": "ADX demuxer.",
+  "entries": [
+    {
+      "thing": "adx_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_adx_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/adxdec.o"
+  ],
+  "configFlags": [
+    "ADX_DEMUXER"
+  ],
+  "baseHelpers": []
+}

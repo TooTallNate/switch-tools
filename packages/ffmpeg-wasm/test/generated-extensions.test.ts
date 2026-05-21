@@ -11,7 +11,7 @@
  * the extension's `.so` parsed, dynamically linked, and
  * registered cleanly.
  */
-import { readFileSync } from "node:fs"
+import { readFileSync, readdirSync, statSync } from "node:fs"
 import { resolve as pathResolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
@@ -124,4 +124,68 @@ describe("generated extensions", () => {
 
 		ff.dispose()
 	})
+
+	/**
+	 * Heavy test: load EVERY built extension into a single Ffmpeg
+	 * instance and sanity-check the resulting catalog.
+	 *
+	 * Validates:
+	 *   - Loader correctly handles hundreds of extensions in one
+	 *     `create()` call.
+	 *   - The introspection arrays' sizing limits are big enough.
+	 *   - Every loaded extension's claimed kind matches what
+	 *     ends up registered (no decoder extensions registering
+	 *     in the demuxer table, etc.).
+	 *   - There are no name collisions in the registered set
+	 *     (uniqueness of codec/demuxer/muxer names).
+	 */
+	it("loads every built extension at once", async () => {
+		const extRoot = pathResolve(pkgRoot, "src/extensions")
+		const slugs = readdirSync(extRoot).filter((n) => {
+			try {
+				const s = statSync(pathResolve(extRoot, n))
+				if (!s.isDirectory()) return false
+				statSync(pathResolve(extRoot, n, `${n}.so`))
+				return true
+			} catch {
+				return false
+			}
+		})
+		const exts = slugs.map((slug) => ({
+			name: slug,
+			wasm: readFileSync(pathResolve(extRoot, slug, `${slug}.so`)),
+		}))
+
+		const ff = await Ffmpeg.create({ wasm: baseWasm, extensions: exts })
+
+		const codecs = ff.listCodecs()
+		const demuxers = ff.listDemuxers()
+		const muxers = ff.listMuxers()
+
+		// We loaded a known number of slugs from a known catalog.
+		// Each slug registers exactly one thing (codecs / demuxers
+		// / muxers), so the totals should equal the slug counts
+		// per kind.
+		const decoderSlugs = slugs.filter((s) => s.endsWith("-decoder"))
+		const encoderSlugs = slugs.filter((s) => s.endsWith("-encoder"))
+		const demuxerSlugs = slugs.filter((s) => s.endsWith("-demuxer"))
+		const muxerSlugs = slugs.filter((s) => s.endsWith("-muxer"))
+
+		// listCodecs() returns BOTH decoders and encoders.
+		expect(codecs.length).toBe(decoderSlugs.length + encoderSlugs.length)
+		expect(demuxers.length).toBe(demuxerSlugs.length)
+		expect(muxers.length).toBe(muxerSlugs.length)
+
+		// No duplicate codec/demuxer/muxer names.
+		// (A codec named "aac" may exist in BOTH the decoder and
+		// encoder slug — both are valid, but at the AVCodec level
+		// they're separate entries.)
+		expect(new Set(codecs.map((c) => `${c.name}/${c.isDecoder ? "d" : "e"}`)).size).toBe(
+			codecs.length,
+		)
+		expect(new Set(demuxers.map((d) => d.name)).size).toBe(demuxers.length)
+		expect(new Set(muxers.map((m) => m.name)).size).toBe(muxers.length)
+
+		ff.dispose()
+	}, 30_000)
 })

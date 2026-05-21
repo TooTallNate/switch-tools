@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-vidc-decoder",
+  "description": "PCM VIDC decoder.",
+  "entries": [
+    {
+      "thing": "pcm_vidc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pcm_vidc_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_VIDC_DECODER"
+  ],
+  "baseHelpers": []
+}

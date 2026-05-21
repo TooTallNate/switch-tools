@@ -1,0 +1,21 @@
+{
+  "slug": "image2-alias-pix-demuxer",
+  "description": "IMAGE2 ALIAS PIX demuxer.",
+  "entries": [
+    {
+      "thing": "image2_alias_pix_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_image2_alias_pix_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/img2_alias_pix.o",
+    "libavformat/img2.o",
+    "libavformat/img2dec.o"
+  ],
+  "configFlags": [
+    "IMAGE2_ALIAS_PIX_DEMUXER",
+    "IMAGE2_DEMUXER"
+  ],
+  "baseHelpers": []
+}

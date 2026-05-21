@@ -1,0 +1,19 @@
+{
+  "slug": "image-qdraw-pipe-demuxer",
+  "description": "IMAGE QDRAW PIPE demuxer.",
+  "entries": [
+    {
+      "thing": "image_qdraw_pipe_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_image_qdraw_pipe_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/img2.o",
+    "libavformat/img2dec.o"
+  ],
+  "configFlags": [
+    "IMAGE_QDRAW_PIPE_DEMUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,32 @@
+{
+  "slug": "flv-decoder",
+  "description": "FLV decoder.",
+  "entries": [
+    {
+      "thing": "flv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_flv_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/flvdec.o",
+    "libavcodec/h263_parser.o",
+    "libavcodec/h263.o",
+    "libavcodec/h263data.o",
+    "libavcodec/h263dec.o",
+    "libavcodec/h263dsp.o",
+    "libavcodec/ituh263dec.o",
+    "libavcodec/mpeg4video.o",
+    "libavcodec/mpeg4videodec.o"
+  ],
+  "configFlags": [
+    "FLV_DECODER",
+    "H263DSP",
+    "H263_DECODER",
+    "H263_PARSER"
+  ],
+  "baseHelpers": [
+    "mpegvideodec",
+    "qpeldsp"
+  ]
+}

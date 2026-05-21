@@ -1,0 +1,19 @@
+{
+  "slug": "pjs-decoder",
+  "description": "PJS decoder.",
+  "entries": [
+    {
+      "thing": "pjs_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pjs_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ass.o",
+    "libavcodec/textdec.o"
+  ],
+  "configFlags": [
+    "PJS_DECODER"
+  ],
+  "baseHelpers": []
+}

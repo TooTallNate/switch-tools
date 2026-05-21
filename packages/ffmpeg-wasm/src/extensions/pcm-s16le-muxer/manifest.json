@@ -1,0 +1,19 @@
+{
+  "slug": "pcm-s16le-muxer",
+  "description": "PCM S16LE muxer.",
+  "entries": [
+    {
+      "thing": "pcm_s16le_muxer",
+      "kind": "muxer",
+      "symbol": "ff_pcm_s16le_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcmenc.o",
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "PCM_S16LE_MUXER"
+  ],
+  "baseHelpers": []
+}

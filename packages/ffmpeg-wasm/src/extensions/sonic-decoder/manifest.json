@@ -1,0 +1,22 @@
+{
+  "slug": "sonic-decoder",
+  "description": "SONIC decoder.",
+  "entries": [
+    {
+      "thing": "sonic_decoder",
+      "kind": "decoder",
+      "symbol": "ff_sonic_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/golomb.o",
+    "libavcodec/rangecoder.o",
+    "libavcodec/sonic.o"
+  ],
+  "configFlags": [
+    "GOLOMB",
+    "RANGECODER",
+    "SONIC_DECODER"
+  ],
+  "baseHelpers": []
+}

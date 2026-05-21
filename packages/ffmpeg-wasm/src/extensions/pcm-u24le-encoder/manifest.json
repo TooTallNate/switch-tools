@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-u24le-encoder",
+  "description": "PCM U24LE encoder.",
+  "entries": [
+    {
+      "thing": "pcm_u24le_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pcm_u24le_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_U24LE_ENCODER"
+  ],
+  "baseHelpers": []
+}

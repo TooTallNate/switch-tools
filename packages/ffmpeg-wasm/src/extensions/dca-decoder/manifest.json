@@ -1,0 +1,31 @@
+{
+  "slug": "dca-decoder",
+  "description": "DCA decoder.",
+  "entries": [
+    {
+      "thing": "dca_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dca_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dca_core.o",
+    "libavcodec/dca_exss.o",
+    "libavcodec/dca_lbr.o",
+    "libavcodec/dca_sample_rate_tab.o",
+    "libavcodec/dca_xll.o",
+    "libavcodec/dca.o",
+    "libavcodec/dcadata.o",
+    "libavcodec/dcadct.o",
+    "libavcodec/dcadec.o",
+    "libavcodec/dcadsp.o",
+    "libavcodec/dcahuff.o",
+    "libavcodec/synth_filter.o"
+  ],
+  "configFlags": [
+    "DCA_DECODER"
+  ],
+  "baseHelpers": [
+    "mdct"
+  ]
+}

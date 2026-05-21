@@ -1,0 +1,19 @@
+{
+  "slug": "adpcm-thp-decoder",
+  "description": "ADPCM THP decoder.",
+  "entries": [
+    {
+      "thing": "adpcm_thp_decoder",
+      "kind": "decoder",
+      "symbol": "ff_adpcm_thp_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/adpcm_data.o",
+    "libavcodec/adpcm.o"
+  ],
+  "configFlags": [
+    "ADPCM_THP_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "ttml-encoder",
+  "description": "TTML encoder.",
+  "entries": [
+    {
+      "thing": "ttml_encoder",
+      "kind": "encoder",
+      "symbol": "ff_ttml_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ass_split.o",
+    "libavcodec/ttmlenc.o"
+  ],
+  "configFlags": [
+    "TTML_ENCODER"
+  ],
+  "baseHelpers": []
+}

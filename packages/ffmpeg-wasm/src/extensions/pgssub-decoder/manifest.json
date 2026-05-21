@@ -1,0 +1,18 @@
+{
+  "slug": "pgssub-decoder",
+  "description": "PGSSUB decoder.",
+  "entries": [
+    {
+      "thing": "pgssub_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pgssub_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pgssubdec.o"
+  ],
+  "configFlags": [
+    "PGSSUB_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "ac3-muxer",
+  "description": "AC3 muxer.",
+  "entries": [
+    {
+      "thing": "ac3_muxer",
+      "kind": "muxer",
+      "symbol": "ff_ac3_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "AC3_MUXER"
+  ],
+  "baseHelpers": []
+}

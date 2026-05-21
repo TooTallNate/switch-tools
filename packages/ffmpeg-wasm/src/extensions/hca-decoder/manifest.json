@@ -1,6 +1,6 @@
 {
   "slug": "hca-decoder",
-  "description": "CRI HCA (CRI Sofdec2 audio) decoder.",
+  "description": "HCA decoder.",
   "entries": [
     {
       "thing": "hca_decoder",

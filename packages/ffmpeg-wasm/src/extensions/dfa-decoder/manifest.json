@@ -1,0 +1,18 @@
+{
+  "slug": "dfa-decoder",
+  "description": "DFA decoder.",
+  "entries": [
+    {
+      "thing": "dfa_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dfa_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dfa.o"
+  ],
+  "configFlags": [
+    "DFA_DECODER"
+  ],
+  "baseHelpers": []
+}

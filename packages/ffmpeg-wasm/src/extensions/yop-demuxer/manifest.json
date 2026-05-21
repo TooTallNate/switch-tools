@@ -1,0 +1,18 @@
+{
+  "slug": "yop-demuxer",
+  "description": "YOP demuxer.",
+  "entries": [
+    {
+      "thing": "yop_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_yop_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/yop.o"
+  ],
+  "configFlags": [
+    "YOP_DEMUXER"
+  ],
+  "baseHelpers": []
+}

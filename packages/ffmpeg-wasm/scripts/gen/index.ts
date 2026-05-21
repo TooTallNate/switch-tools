@@ -1,9 +1,9 @@
 /**
- * Generator entry point: produce per-extension directories under
- * `src/extensions/` for every entry in the catalog.
+ * Generator entry point: enumerate every native upstream codec /
+ * demuxer / muxer, generate a per-extension directory for each,
+ * and emit a package-level manifest.
  *
  * Run with:
- *
  *   bun scripts/gen/index.ts
  *   # or
  *   node --experimental-strip-types scripts/gen/index.ts
@@ -20,20 +20,22 @@
  *       (and after `make`: aac-decoder.so)
  *     flac-decoder/...
  *     wav-demuxer/...
+ *     ...
+ *   dist/extensions-manifest.json
  *
- * The generator is deterministic: same upstream FFmpeg source +
- * same catalog = byte-identical output.
+ * The generator is deterministic: same upstream FFmpeg source =
+ * byte-identical output. The current run skips any classification
+ * other than `native`; GPL / nonfree / external / hardware / etc.
+ * fall through silently.
  */
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, resolve as pathResolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import {
-	SEED_CATALOG,
-	catalogToExtensionEntries,
-} from "./codec-catalog.ts"
 import { emitFiles } from "./emit.ts"
+import { enumerateFromFiles, type EnumeratedEntry } from "./enumerate.ts"
 import { parseConfigureFile } from "./parse-configure.ts"
+import { parseExternalLibsFile } from "./parse-external-libs.ts"
 import { parseMakefileFile } from "./parse-makefile.ts"
 import { resolve } from "./resolve.ts"
 
@@ -72,16 +74,114 @@ const BASE_HELPERS = new Set([
 	"pixelutils",
 ])
 
+/**
+ * Decide whether a thing should be generated. Currently:
+ *   - Only `native` classification.
+ *   - Skip hand-curated extensions (those with their own
+ *     packages, see `HAND_CURATED` below).
+ *   - Skip a small set of known-broken-in-our-base things
+ *     (typically anything that needs an explicit upstream
+ *     parser/BSF we don't have wired up yet).
+ *
+ * Returns `null` to skip, or a reason string for diagnostics.
+ */
+function inclusionFilter(e: EnumeratedEntry): string | null {
+	if (e.classification !== "native") {
+		return `non-native (${e.classification})`
+	}
+	if (HAND_CURATED.has(e.thing)) {
+		return "hand-curated (lives in its own package)"
+	}
+	if (KNOWN_BROKEN.has(e.thing)) {
+		return "known-broken (needs threading or networking)"
+	}
+	return null
+}
+
+/**
+ * Things that already live as hand-written packages with their
+ * own patches / quirks (Bink 2 needs Paul B Mahol's out-of-tree
+ * patch; the rest are decoder helpers / shared infrastructure).
+ * Excluded from generation so we don't double-publish them.
+ */
+const HAND_CURATED = new Set([
+	"bink_decoder",
+	"binkaudio_dct_decoder",
+	"binkaudio_rdft_decoder",
+	"bink_demuxer",
+	// bink2_decoder — synthetic AVCodecID, also hand-curated
+])
+
+/**
+ * Native-classified things that don't compile in our wasi-sdk
+ * base because they assume POSIX threading or a network stack
+ * we don't provide. Most are RTP/RTSP/SAP streaming-related;
+ * one is the `fifo` muxer (which uses pthreads to flush an
+ * upstream muxer asynchronously).
+ *
+ * We could try to plumb wasi-thread in eventually, but for
+ * now the policy is simple: skip.
+ */
+const KNOWN_BROKEN = new Set([
+	"fifo_muxer",
+	"rtsp_demuxer",
+	"rtsp_muxer",
+	"sap_demuxer",
+	"sap_muxer",
+	"sdp_demuxer",
+	"rtp_muxer",
+	"rtp_mpegts_muxer",
+])
+
+/** Slug convention: lowercase + hyphens. */
+function slugify(thing: string): string {
+	return thing.replaceAll("_", "-")
+}
+
+/** Friendly one-liner for the manifest / Makefile header. */
+function describe(e: EnumeratedEntry): string {
+	const kindLabel = ({
+		decoder: "decoder",
+		encoder: "encoder",
+		demuxer: "demuxer",
+		muxer: "muxer",
+	} as const)[e.kind]
+	const stem = e.stem.replaceAll("_", " ").toUpperCase()
+	return `${stem} ${kindLabel}.`
+}
+
+function cTypeFor(kind: EnumeratedEntry["kind"]): string {
+	return kind === "decoder" || kind === "encoder"
+		? "FFCodec"
+		: kind === "demuxer"
+			? "AVInputFormat"
+			: "AVOutputFormat"
+}
+
 function main() {
 	const here = dirname(fileURLToPath(import.meta.url))
 	const pkgRoot = pathResolve(here, "..", "..")
 	const ffmpegRoot = pathResolve(pkgRoot, "build", "ffmpeg")
 
 	const configure = parseConfigureFile(`${ffmpegRoot}/configure`)
+	const externals = parseExternalLibsFile(`${ffmpegRoot}/configure`)
 	const codec = parseMakefileFile(`${ffmpegRoot}/libavcodec/Makefile`)
 	const fmt = parseMakefileFile(`${ffmpegRoot}/libavformat/Makefile`)
 
-	const opts = {
+	const enumerated = enumerateFromFiles({
+		ffmpegRoot,
+		configure,
+		makefiles: [
+			{ library: "libavcodec", data: codec },
+			{ library: "libavformat", data: fmt },
+		],
+		gplLibs: externals.gpl,
+		nonfreeLibs: externals.nonfree,
+		version3Libs: externals.version3,
+		allExternalLibs: externals.all,
+	})
+
+	const resolveOpts = {
 		configure,
 		makefiles: [
 			{ library: "libavcodec", data: codec },
@@ -93,71 +193,88 @@ function main() {
 	const extRoot = pathResolve(pkgRoot, "src", "extensions")
 	mkdirSync(extRoot, { recursive: true })
 
+	const manifestEntries: Array<{
+		slug: string
+		kind: string
+		thing: string
+		stem: string
+		symbol: string
+		classification: string
+		description: string
+	}> = []
+	const skipped: Record<string, number> = {}
+
 	let generated = 0
-	for (const cat of SEED_CATALOG) {
-		// Union the resolved objs / configFlags across every
-		// entry in the extension. Most extensions have just one
-		// entry; multi-entry ones (e.g. binkaudio RDFT+DCT) merge
-		// naturally since they share most object files.
-		const resolved = {
-			objs: [] as { library: string; obj: string }[],
-			configFlags: [] as string[],
-			resolvedFromBase: [] as string[],
+	for (const e of enumerated) {
+		const skip = inclusionFilter(e)
+		if (skip) {
+			skipped[skip] = (skipped[skip] ?? 0) + 1
+			continue
 		}
-		const seenObjs = new Set<string>()
-		const seenFlags = new Set<string>()
-		const seenBase = new Set<string>()
-		for (const e of cat.entries) {
-			const r = resolve(e.thing, opts)
-			for (const o of r.objs) {
-				const k = `${o.library}/${o.obj}`
-				if (!seenObjs.has(k)) {
-					seenObjs.add(k)
-					resolved.objs.push(o)
-				}
-			}
-			for (const f of r.configFlags) {
-				if (!seenFlags.has(f)) {
-					seenFlags.add(f)
-					resolved.configFlags.push(f)
-				}
-			}
-			for (const b of r.resolvedFromBase) {
-				if (!seenBase.has(b)) {
-					seenBase.add(b)
-					resolved.resolvedFromBase.push(b)
-				}
-			}
-			// The codec / demuxer / muxer thing itself becomes a
-			// CONFIG flag we need to force on.
-			const ownFlag = e.thing.toUpperCase()
-			if (!seenFlags.has(ownFlag)) {
-				seenFlags.add(ownFlag)
-				resolved.configFlags.push(ownFlag)
-			}
+
+		const slug = slugify(e.thing)
+		const r = resolve(e.thing, resolveOpts)
+		// The own CONFIG flag must always be in the closure even
+		// if the resolver missed it (happens when the entry's own
+		// `_select` cascade doesn't bring it back in).
+		if (!r.configFlags.includes(e.configFlag)) {
+			r.configFlags.push(e.configFlag)
 		}
 
 		const files = emitFiles({
-			slug: cat.slug,
-			description: cat.description,
-			entries: catalogToExtensionEntries(cat),
-			resolved,
-			// extensions live at src/extensions/<slug>/, so going
-			// back to the package root means 3 levels up:
-			// ../../../ → packages/ffmpeg-wasm/
+			slug,
+			description: describe(e),
+			entries: [
+				{
+					thing: e.thing,
+					kind: e.kind,
+					symbol: e.symbol,
+					cType: cTypeFor(e.kind),
+				},
+			],
+			resolved: r,
 			baseRel: "../../..",
 		})
 
-		const dir = pathResolve(extRoot, cat.slug)
+		const dir = pathResolve(extRoot, slug)
 		mkdirSync(dir, { recursive: true })
 		for (const [name, content] of Object.entries(files)) {
 			writeFileSync(pathResolve(dir, name), content)
 		}
+		manifestEntries.push({
+			slug,
+			kind: e.kind,
+			thing: e.thing,
+			stem: e.stem,
+			symbol: e.symbol,
+			classification: e.classification,
+			description: describe(e),
+		})
 		generated++
-		console.log(`generated ${cat.slug} (${resolved.objs.length} objs)`)
 	}
 
-	console.log(`\nGenerated ${generated} extension(s) in ${extRoot}`)
+	// Emit the package-wide manifest (`dist/extensions-manifest.json`).
+	const distDir = pathResolve(pkgRoot, "dist")
+	mkdirSync(distDir, { recursive: true })
+	writeFileSync(
+		pathResolve(distDir, "extensions-manifest.json"),
+		JSON.stringify(
+			manifestEntries.sort((a, b) =>
+				a.slug.localeCompare(b.slug),
+			),
+			null,
+			2,
+		) + "\n",
+	)
+
+	console.log(`Generated ${generated} extension(s) in ${extRoot}`)
+	console.log()
+	console.log("Skipped:")
+	for (const [reason, n] of Object.entries(skipped).sort(
+		(a, b) => b[1] - a[1],
+	)) {
+		console.log(`  ${n}\t${reason}`)
+	}
 }
 
 main()

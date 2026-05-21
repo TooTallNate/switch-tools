@@ -1,0 +1,20 @@
+{
+  "slug": "gsm-decoder",
+  "description": "GSM decoder.",
+  "entries": [
+    {
+      "thing": "gsm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_gsm_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/gsmdec_data.o",
+    "libavcodec/gsmdec.o",
+    "libavcodec/msgsmdec.o"
+  ],
+  "configFlags": [
+    "GSM_DECODER"
+  ],
+  "baseHelpers": []
+}

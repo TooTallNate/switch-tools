@@ -1,0 +1,18 @@
+{
+  "slug": "rawvideo-muxer",
+  "description": "RAWVIDEO muxer.",
+  "entries": [
+    {
+      "thing": "rawvideo_muxer",
+      "kind": "muxer",
+      "symbol": "ff_rawvideo_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/rawenc.o"
+  ],
+  "configFlags": [
+    "RAWVIDEO_MUXER"
+  ],
+  "baseHelpers": []
+}

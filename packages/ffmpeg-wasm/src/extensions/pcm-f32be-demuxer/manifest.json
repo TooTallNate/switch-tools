@@ -1,0 +1,19 @@
+{
+  "slug": "pcm-f32be-demuxer",
+  "description": "PCM F32BE demuxer.",
+  "entries": [
+    {
+      "thing": "pcm_f32be_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_pcm_f32be_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcm.o",
+    "libavformat/pcmdec.o"
+  ],
+  "configFlags": [
+    "PCM_F32BE_DEMUXER"
+  ],
+  "baseHelpers": []
+}

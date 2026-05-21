@@ -1,0 +1,18 @@
+{
+  "slug": "sdr2-demuxer",
+  "description": "SDR2 demuxer.",
+  "entries": [
+    {
+      "thing": "sdr2_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_sdr2_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/sdr2.o"
+  ],
+  "configFlags": [
+    "SDR2_DEMUXER"
+  ],
+  "baseHelpers": []
+}

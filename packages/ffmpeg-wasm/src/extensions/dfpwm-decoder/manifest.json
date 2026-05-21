@@ -1,0 +1,18 @@
+{
+  "slug": "dfpwm-decoder",
+  "description": "DFPWM decoder.",
+  "entries": [
+    {
+      "thing": "dfpwm_decoder",
+      "kind": "decoder",
+      "symbol": "ff_dfpwm_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/dfpwmdec.o"
+  ],
+  "configFlags": [
+    "DFPWM_DECODER"
+  ],
+  "baseHelpers": []
+}

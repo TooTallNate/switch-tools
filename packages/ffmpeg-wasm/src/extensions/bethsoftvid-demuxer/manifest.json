@@ -1,0 +1,18 @@
+{
+  "slug": "bethsoftvid-demuxer",
+  "description": "BETHSOFTVID demuxer.",
+  "entries": [
+    {
+      "thing": "bethsoftvid_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_bethsoftvid_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/bethsoftvid.o"
+  ],
+  "configFlags": [
+    "BETHSOFTVID_DEMUXER"
+  ],
+  "baseHelpers": []
+}

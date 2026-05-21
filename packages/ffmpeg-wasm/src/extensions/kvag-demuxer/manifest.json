@@ -1,0 +1,18 @@
+{
+  "slug": "kvag-demuxer",
+  "description": "KVAG demuxer.",
+  "entries": [
+    {
+      "thing": "kvag_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_kvag_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/kvag.o"
+  ],
+  "configFlags": [
+    "KVAG_DEMUXER"
+  ],
+  "baseHelpers": []
+}

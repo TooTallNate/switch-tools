@@ -1,0 +1,24 @@
+{
+  "slug": "atrac3pal-decoder",
+  "description": "ATRAC3PAL decoder.",
+  "entries": [
+    {
+      "thing": "atrac3pal_decoder",
+      "kind": "decoder",
+      "symbol": "ff_atrac3pal_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/atrac.o",
+    "libavcodec/atrac3plus.o",
+    "libavcodec/atrac3plusdec.o",
+    "libavcodec/atrac3plusdsp.o"
+  ],
+  "configFlags": [
+    "ATRAC3PAL_DECODER"
+  ],
+  "baseHelpers": [
+    "mdct",
+    "sinewin"
+  ]
+}

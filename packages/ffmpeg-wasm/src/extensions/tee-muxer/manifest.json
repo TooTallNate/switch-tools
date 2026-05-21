@@ -1,0 +1,19 @@
+{
+  "slug": "tee-muxer",
+  "description": "TEE muxer.",
+  "entries": [
+    {
+      "thing": "tee_muxer",
+      "kind": "muxer",
+      "symbol": "ff_tee_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/tee_common.o",
+    "libavformat/tee.o"
+  ],
+  "configFlags": [
+    "TEE_MUXER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,19 @@
+{
+  "slug": "pcm-u24le-demuxer",
+  "description": "PCM U24LE demuxer.",
+  "entries": [
+    {
+      "thing": "pcm_u24le_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_pcm_u24le_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/pcm.o",
+    "libavformat/pcmdec.o"
+  ],
+  "configFlags": [
+    "PCM_U24LE_DEMUXER"
+  ],
+  "baseHelpers": []
+}

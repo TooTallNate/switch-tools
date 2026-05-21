@@ -1,0 +1,19 @@
+{
+  "slug": "comfortnoise-decoder",
+  "description": "COMFORTNOISE decoder.",
+  "entries": [
+    {
+      "thing": "comfortnoise_decoder",
+      "kind": "decoder",
+      "symbol": "ff_comfortnoise_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/celp_filters.o",
+    "libavcodec/cngdec.o"
+  ],
+  "configFlags": [
+    "COMFORTNOISE_DECODER"
+  ],
+  "baseHelpers": []
+}

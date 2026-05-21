@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-s32be-decoder",
+  "description": "PCM S32BE decoder.",
+  "entries": [
+    {
+      "thing": "pcm_s32be_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pcm_s32be_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_S32BE_DECODER"
+  ],
+  "baseHelpers": []
+}

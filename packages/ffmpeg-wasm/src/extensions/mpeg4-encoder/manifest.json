@@ -1,0 +1,27 @@
+{
+  "slug": "mpeg4-encoder",
+  "description": "MPEG4 encoder.",
+  "entries": [
+    {
+      "thing": "mpeg4_encoder",
+      "kind": "encoder",
+      "symbol": "ff_mpeg4_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/h263.o",
+    "libavcodec/h263data.o",
+    "libavcodec/h263dsp.o",
+    "libavcodec/ituh263enc.o",
+    "libavcodec/mpeg4video.o",
+    "libavcodec/mpeg4videoenc.o"
+  ],
+  "configFlags": [
+    "H263DSP",
+    "H263_ENCODER",
+    "MPEG4_ENCODER"
+  ],
+  "baseHelpers": [
+    "mpegvideoenc"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-s24le-planar-decoder",
+  "description": "PCM S24LE PLANAR decoder.",
+  "entries": [
+    {
+      "thing": "pcm_s24le_planar_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pcm_s24le_planar_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_S24LE_PLANAR_DECODER"
+  ],
+  "baseHelpers": []
+}

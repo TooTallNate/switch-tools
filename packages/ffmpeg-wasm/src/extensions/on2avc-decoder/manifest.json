@@ -1,0 +1,21 @@
+{
+  "slug": "on2avc-decoder",
+  "description": "ON2AVC decoder.",
+  "entries": [
+    {
+      "thing": "on2avc_decoder",
+      "kind": "decoder",
+      "symbol": "ff_on2avc_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/on2avc.o",
+    "libavcodec/on2avcdata.o"
+  ],
+  "configFlags": [
+    "ON2AVC_DECODER"
+  ],
+  "baseHelpers": [
+    "mdct"
+  ]
+}

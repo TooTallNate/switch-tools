@@ -1,0 +1,18 @@
+{
+  "slug": "yuv4-encoder",
+  "description": "YUV4 encoder.",
+  "entries": [
+    {
+      "thing": "yuv4_encoder",
+      "kind": "encoder",
+      "symbol": "ff_yuv4_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/yuv4enc.o"
+  ],
+  "configFlags": [
+    "YUV4_ENCODER"
+  ],
+  "baseHelpers": []
+}

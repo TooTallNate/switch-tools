@@ -1,0 +1,18 @@
+{
+  "slug": "adpcm-g726-encoder",
+  "description": "ADPCM G726 encoder.",
+  "entries": [
+    {
+      "thing": "adpcm_g726_encoder",
+      "kind": "encoder",
+      "symbol": "ff_adpcm_g726_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/g726.o"
+  ],
+  "configFlags": [
+    "ADPCM_G726_ENCODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,20 @@
+{
+  "slug": "xmv-demuxer",
+  "description": "XMV demuxer.",
+  "entries": [
+    {
+      "thing": "xmv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_xmv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/riffdec.o",
+    "libavformat/xmv.o"
+  ],
+  "configFlags": [
+    "RIFFDEC",
+    "XMV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

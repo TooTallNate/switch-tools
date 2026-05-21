@@ -1,0 +1,19 @@
+{
+  "slug": "pgmyuv-decoder",
+  "description": "PGMYUV decoder.",
+  "entries": [
+    {
+      "thing": "pgmyuv_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pgmyuv_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pnm.o",
+    "libavcodec/pnmdec.o"
+  ],
+  "configFlags": [
+    "PGMYUV_DECODER"
+  ],
+  "baseHelpers": []
+}

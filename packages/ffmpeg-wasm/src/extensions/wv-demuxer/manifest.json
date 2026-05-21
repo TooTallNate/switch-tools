@@ -1,0 +1,21 @@
+{
+  "slug": "wv-demuxer",
+  "description": "WV demuxer.",
+  "entries": [
+    {
+      "thing": "wv_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_wv_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/apetag.o",
+    "libavformat/img2.o",
+    "libavformat/wv.o",
+    "libavformat/wvdec.o"
+  ],
+  "configFlags": [
+    "WV_DEMUXER"
+  ],
+  "baseHelpers": []
+}

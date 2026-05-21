@@ -1,0 +1,19 @@
+{
+  "slug": "dvbtxt-demuxer",
+  "description": "DVBTXT demuxer.",
+  "entries": [
+    {
+      "thing": "dvbtxt_demuxer",
+      "kind": "demuxer",
+      "symbol": "ff_dvbtxt_demuxer"
+    }
+  ],
+  "objs": [
+    "libavformat/dvbtxt.o",
+    "libavformat/rawdec.o"
+  ],
+  "configFlags": [
+    "DVBTXT_DEMUXER"
+  ],
+  "baseHelpers": []
+}

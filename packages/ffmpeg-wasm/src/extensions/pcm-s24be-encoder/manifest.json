@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-s24be-encoder",
+  "description": "PCM S24BE encoder.",
+  "entries": [
+    {
+      "thing": "pcm_s24be_encoder",
+      "kind": "encoder",
+      "symbol": "ff_pcm_s24be_encoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_S24BE_ENCODER"
+  ],
+  "baseHelpers": []
+}

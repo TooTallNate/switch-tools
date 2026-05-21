@@ -1,0 +1,19 @@
+{
+  "slug": "microdvd-decoder",
+  "description": "MICRODVD decoder.",
+  "entries": [
+    {
+      "thing": "microdvd_decoder",
+      "kind": "decoder",
+      "symbol": "ff_microdvd_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/ass.o",
+    "libavcodec/microdvddec.o"
+  ],
+  "configFlags": [
+    "MICRODVD_DECODER"
+  ],
+  "baseHelpers": []
+}
