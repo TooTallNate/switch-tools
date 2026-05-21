@@ -78,6 +78,7 @@ HELPERS=(
     audio_frame_queue
     iso_media
     mpeg4audio
+    wmv2dsp
 )
 
 # config.h: flip `#define CONFIG_X 0` → `1`

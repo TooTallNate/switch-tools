@@ -19,16 +19,15 @@
     "libavcodec/msmpeg4enc.o",
     "libavcodec/wmv2.o",
     "libavcodec/wmv2data.o",
-    "libavcodec/wmv2dsp.o",
     "libavcodec/wmv2enc.o"
   ],
   "configFlags": [
     "H263DSP",
     "H263_ENCODER",
-    "WMV2DSP",
     "WMV2_ENCODER"
   ],
   "baseHelpers": [
-    "mpegvideoenc"
+    "mpegvideoenc",
+    "wmv2dsp"
   ]
 }

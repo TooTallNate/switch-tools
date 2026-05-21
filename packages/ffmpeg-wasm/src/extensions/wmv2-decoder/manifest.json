@@ -22,14 +22,12 @@
     "libavcodec/msmpeg4dec.o",
     "libavcodec/wmv2.o",
     "libavcodec/wmv2data.o",
-    "libavcodec/wmv2dec.o",
-    "libavcodec/wmv2dsp.o"
+    "libavcodec/wmv2dec.o"
   ],
   "configFlags": [
     "H263DSP",
     "H263_DECODER",
     "H263_PARSER",
-    "WMV2DSP",
     "WMV2_DECODER"
   ],
   "baseHelpers": [
@@ -39,6 +37,7 @@
     "intrax8",
     "mpegvideodec",
     "qpeldsp",
-    "videodsp"
+    "videodsp",
+    "wmv2dsp"
   ]
 }

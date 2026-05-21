@@ -33,6 +33,7 @@
 #include "libavutil/channel_layout.h"
 #include "libavutil/crc.h"
 #include "libavutil/dict.h"
+#include "libavutil/dovi_meta.h"
 #include "libavutil/eval.h"
 #include "libavutil/fifo.h"
 #include "libavutil/float_dsp.h"
@@ -364,6 +365,81 @@ extern int  avpriv_mpeg4audio_get_config2(void *c, const uint8_t *buf,
                                             void *logctx);
 extern int  ff_mpeg4audio_get_config_gb(void *c, void *gb, int sync_extension,
                                           void *logctx);
+
+/* WMV2 DSP — used by intrax8. */
+extern void ff_wmv2dsp_init(void *c);
+
+/* The following are declared in libavutil/libavcodec/libavformat
+ * public headers we already include:
+ *   - av_buffer_pool_*           (buffer.h)
+ *   - av_crc_init                (crc.h)
+ *   - avcodec_descriptor_get     (codec_desc.h via avcodec.h)
+ *   - avcodec_get_type           (avcodec.h)
+ *   - av_dovi_alloc              (dovi_meta.h)
+ *   - av_frame_get_side_data     (frame.h)
+ *   - av_codec_is_encoder        (codec.h)
+ *   - av_xiphlacing              (xiphlacing.h)
+ *   - av_vbprintf                (bprint.h)
+ *   - avformat_write_header      (avformat.h)
+ *   - av_write_frame             (avformat.h)
+ *   - av_write_trailer           (avformat.h)
+ *   - avformat_alloc_output_context2 (avformat.h)
+ *   - avio_seek_time             (avio.h)
+ *   - avio_wl24                  (avio.h)
+ */
+
+/* Pix-fmt find helper (private). */
+extern int  avpriv_pix_fmt_find(int pix_fmt, int desired);
+
+/* Decode-frame props / whitelists / CPB side-data (libavcodec/libavformat internal). */
+extern int  ff_decode_frame_props(AVCodecContext *avctx, AVFrame *frame);
+extern int  ff_copy_whiteblacklists(AVFormatContext *dst,
+                                      const AVFormatContext *src);
+extern int  ff_add_cpb_side_data(AVCodecContext *avctx);
+
+/* AC-3 header parse. */
+extern int  ff_ac3_parse_header(void *hdr_info, const uint8_t *buf,
+                                  size_t size);
+
+/* Find stream index by name. */
+extern int  ff_find_stream_index(AVFormatContext *s, const char *name);
+
+/* Fetch timestamp from parser context. */
+extern void ff_fetch_timestamp(void *s, int off, int remove, int fuzzy);
+
+/* Timecode + put_string + intrax8. */
+extern char *av_timecode_make_mpeg_tc_string(char *buf, uint32_t tc);
+extern int  av_timecode_init(void *tc, void *rate, int flags, int frame_start,
+                              void *log_ctx);
+extern void ff_put_string(void *pb, const char *string, int put_zero);
+extern int  ff_intrax8_common_init(AVCodecContext *avctx, void *w,
+                                     void *idct, void *bs);
+extern void ff_intrax8_common_end(void *w);
+extern int  ff_intrax8_decode_picture(void *w, void *p, void *gb,
+                                        int *mb_x_ptr, int *mb_y_ptr,
+                                        int dquant, int quant_offset, int loop_filter,
+                                        int lowres);
+
+/* Range decoder init. */
+extern void ff_init_range_decoder(void *c, const uint8_t *buf, int buf_size);
+
+/* ID3v2 tag-length + match. */
+extern int  ff_id3v2_tag_len(const uint8_t *buf);
+extern int  ff_id3v2_match(const uint8_t *buf, const char *magic);
+
+/* VP3 DSP init. */
+extern void ff_vp3dsp_init(void *c, int flags);
+extern void ff_vp3dsp_set_bounding_values(void *bounding_values_array,
+                                            int filter_limit);
+
+/* AVUtil: alloc-fixed-dsp + set systematic palette. */
+extern void *avpriv_alloc_fixed_dsp(int bit_exact);
+extern void avpriv_set_systematic_pal2(uint32_t *pal, int pix_fmt);
+
+/* Parse string time. */
+extern int  av_parse_time(int64_t *timeval, const char *timestr, int duration);
+
+/* `av_strtok`, `av_stristr` are in libavutil/avstring.h. */
 
 /* AVCodecContext / encoder helpers. */
 extern int  ff_alloc_packet2(AVCodecContext *avctx, AVPacket *avpkt,
@@ -909,6 +985,77 @@ void * volatile ffmpeg_keepalive_table[] = {
 	 * parsers / BSFs / demuxers need it). */
 	(void *)&avpriv_mpeg4audio_get_config2,
 	(void *)&ff_mpeg4audio_get_config_gb,
+	(void *)&ff_wmv2dsp_init,
+
+	/* Buffer pool API. */
+	(void *)&av_buffer_pool_init,
+	(void *)&av_buffer_pool_uninit,
+	(void *)&av_buffer_pool_get,
+
+	/* CRC init. */
+	(void *)&av_crc_init,
+
+	/* Codec descriptor / type. */
+	(void *)&avcodec_descriptor_get,
+	(void *)&avcodec_get_type,
+	(void *)&av_codec_is_encoder,
+
+	/* DOVI / pix-fmt-find. */
+	(void *)&av_dovi_alloc,
+	(void *)&avpriv_pix_fmt_find,
+
+	/* Output muxer write API. */
+	(void *)&avformat_write_header,
+	(void *)&av_write_frame,
+	(void *)&av_write_trailer,
+	(void *)&avformat_alloc_output_context2,
+
+	/* Avio extras. */
+	(void *)&avio_seek_time,
+	(void *)&avio_wl24,
+
+	/* Frame side-data + decode props. */
+	(void *)&av_frame_get_side_data,
+	(void *)&ff_decode_frame_props,
+	(void *)&ff_copy_whiteblacklists,
+	(void *)&ff_add_cpb_side_data,
+
+	/* Xiph laced. */
+	(void *)&av_xiphlacing,
+
+	/* AC-3 header. */
+	(void *)&ff_ac3_parse_header,
+
+	/* Stream index find + fetch timestamp. */
+	(void *)&ff_find_stream_index,
+	(void *)&ff_fetch_timestamp,
+
+	/* Timecode + put_string + intrax8 + range decoder. */
+	(void *)&av_timecode_make_mpeg_tc_string,
+	(void *)&av_timecode_init,
+	(void *)&ff_put_string,
+	(void *)&ff_intrax8_common_init,
+	(void *)&ff_intrax8_common_end,
+	(void *)&ff_intrax8_decode_picture,
+	(void *)&ff_init_range_decoder,
+
+	/* ID3v2 tag-length + match. */
+	(void *)&ff_id3v2_tag_len,
+	(void *)&ff_id3v2_match,
+
+	/* VP3 DSP. */
+	(void *)&ff_vp3dsp_init,
+	(void *)&ff_vp3dsp_set_bounding_values,
+
+	/* Fixed DSP + systematic palette. */
+	(void *)&avpriv_alloc_fixed_dsp,
+	(void *)&avpriv_set_systematic_pal2,
+
+	/* Parse string time + strtok + stristr + vbprintf. */
+	(void *)&av_parse_time,
+	(void *)&av_strtok,
+	(void *)&av_stristr,
+	(void *)&av_vbprintf,
 
 	/* --- libavformat --- */
 	(void *)&avformat_alloc_context,

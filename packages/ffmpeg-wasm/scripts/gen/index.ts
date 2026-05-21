@@ -80,6 +80,7 @@ const BASE_HELPERS = new Set([
 	"audio_frame_queue",
 	"iso_media",
 	"mpeg4audio",
+	"wmv2dsp",
 ])
 
 /**

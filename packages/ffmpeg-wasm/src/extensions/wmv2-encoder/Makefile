@@ -94,14 +94,11 @@ build/libavcodec_wmv2.o: ../../../build/ffmpeg/libavcodec/wmv2.c | build check-b
 build/libavcodec_wmv2data.o: ../../../build/ffmpeg/libavcodec/wmv2data.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_wmv2dsp.o: ../../../build/ffmpeg/libavcodec/wmv2dsp.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavcodec_wmv2enc.o: ../../../build/ffmpeg/libavcodec/wmv2enc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_h263.o build/libavcodec_h263data.o build/libavcodec_h263dsp.o build/libavcodec_ituh263enc.o build/libavcodec_mpeg4video.o build/libavcodec_msmpeg4.o build/libavcodec_msmpeg4data.o build/libavcodec_msmpeg4enc.o build/libavcodec_wmv2.o build/libavcodec_wmv2data.o build/libavcodec_wmv2dsp.o build/libavcodec_wmv2enc.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_h263.o build/libavcodec_h263data.o build/libavcodec_h263dsp.o build/libavcodec_ituh263enc.o build/libavcodec_mpeg4video.o build/libavcodec_msmpeg4.o build/libavcodec_msmpeg4data.o build/libavcodec_msmpeg4enc.o build/libavcodec_wmv2.o build/libavcodec_wmv2data.o build/libavcodec_wmv2dsp.o build/libavcodec_wmv2enc.o build/init.o
+$(OUT): build/libavcodec_h263.o build/libavcodec_h263data.o build/libavcodec_h263dsp.o build/libavcodec_ituh263enc.o build/libavcodec_mpeg4video.o build/libavcodec_msmpeg4.o build/libavcodec_msmpeg4data.o build/libavcodec_msmpeg4enc.o build/libavcodec_wmv2.o build/libavcodec_wmv2data.o build/libavcodec_wmv2enc.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_h263.o build/libavcodec_h263data.o build/libavcodec_h263dsp.o build/libavcodec_ituh263enc.o build/libavcodec_mpeg4video.o build/libavcodec_msmpeg4.o build/libavcodec_msmpeg4data.o build/libavcodec_msmpeg4enc.o build/libavcodec_wmv2.o build/libavcodec_wmv2data.o build/libavcodec_wmv2enc.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:
