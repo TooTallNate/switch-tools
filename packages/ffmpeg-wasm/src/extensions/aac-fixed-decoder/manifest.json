@@ -19,15 +19,14 @@
     "libavcodec/cbrt_data_fixed.o",
     "libavcodec/kbdwin.o",
     "libavcodec/mpeg4audio_sample_rates.o",
-    "libavcodec/mpeg4audio.o",
     "libavcodec/sbrdsp_fixed.o"
   ],
   "configFlags": [
     "AAC_FIXED_DECODER",
-    "ADTS_HEADER",
-    "MPEG4AUDIO"
+    "ADTS_HEADER"
   ],
   "baseHelpers": [
-    "mdct"
+    "mdct",
+    "mpeg4audio"
   ]
 }

@@ -11,15 +11,13 @@
   "objs": [
     "libavcodec/alsdec.o",
     "libavcodec/bgmc.o",
-    "libavcodec/mlz.o",
-    "libavcodec/mpeg4audio_sample_rates.o",
-    "libavcodec/mpeg4audio.o"
+    "libavcodec/mlz.o"
   ],
   "configFlags": [
-    "ALS_DECODER",
-    "MPEG4AUDIO"
+    "ALS_DECODER"
   ],
   "baseHelpers": [
-    "bswapdsp"
+    "bswapdsp",
+    "mpeg4audio"
   ]
 }

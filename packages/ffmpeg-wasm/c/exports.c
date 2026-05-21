@@ -34,6 +34,7 @@
 #include "libavutil/crc.h"
 #include "libavutil/dict.h"
 #include "libavutil/eval.h"
+#include "libavutil/fifo.h"
 #include "libavutil/float_dsp.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/intreadwrite.h"
@@ -43,6 +44,7 @@
 #include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
+#include "libavutil/random_seed.h"
 #include "libavutil/samplefmt.h"
 #include "libavutil/time.h"
 #include "libavutil/tx.h"
@@ -223,6 +225,170 @@ extern int  ff_codec_get_tag(const void *tags, int id);
 /* The rest below are declared in libavformat/libavutil public
  * headers we already include above (avio.h, bprint.h, dict.h,
  * rational.h, frame.h, imgutils.h). We just take their address. */
+
+/* Audio frame queue — encoder-side, defined in libavcodec/audio_frame_queue.c.
+ * Header is private. */
+struct AudioFrameQueue;
+extern void ff_af_queue_init(AVCodecContext *avctx, struct AudioFrameQueue *afq);
+extern void ff_af_queue_close(struct AudioFrameQueue *afq);
+extern int  ff_af_queue_add(struct AudioFrameQueue *afq, const AVFrame *f);
+extern void ff_af_queue_remove(struct AudioFrameQueue *afq, int nb_samples,
+                                int64_t *pts, int64_t *duration);
+
+/* More MPEG-video helpers. */
+extern int  ff_mpv_common_frame_size_change(void *s);
+extern void ff_find_unused_picture(void *s);
+extern int  ff_guess_coded_bitrate(AVCodecContext *avctx);
+
+/* AVFifo (libavutil/fifo.h, included transitively via avformat.h).
+ * Just take addresses below. */
+
+/* libavformat internals. */
+extern int  avpriv_update_cur_dts(AVFormatContext *s, AVStream *ref_st,
+                                    int64_t timestamp);
+extern int  avpriv_split_xiph_headers(uint8_t *extradata, int extradata_size,
+                                       int first_header_size,
+                                       uint8_t *header_start[3],
+                                       int header_len[3]);
+extern int  avpriv_dict_set_timestamp(AVDictionary **dict, const char *key,
+                                        int64_t ts);
+extern int  ff_parse_creation_time_metadata(AVFormatContext *s,
+                                              int64_t *timestamp,
+                                              int return_seconds);
+extern int  ff_id3v2_read(AVFormatContext *s, const char *magic,
+                            void *extra_meta, unsigned int max_search_size);
+
+/* libavcodec internals — additional DSP / parsing helpers. */
+extern void ff_audiodsp_init(void *c);
+extern void ff_fdctdsp_init(void *c, AVCodecContext *avctx);
+extern void ff_me_cmp_init(void *c, AVCodecContext *avctx);
+extern void ff_h264_pred_init(void *c, int codec_id, const int bit_depth,
+                               int chroma_format_idc);
+extern void ff_build_rac_states(void *c, int factor, int max_p);
+extern int  ff_init_scantable_permutation(uint8_t *idct_permutation,
+                                            int type);
+extern int  ff_mpa_synth_init_fixed(void);
+extern int  ff_mpa_synth_init_float(void);
+extern void ff_mpa_synth_filter_fixed(void *s, int32_t *synth_buf_ptr,
+                                        int *synth_buf_offset,
+                                        const int *window, int *dither_state,
+                                        int16_t *samples, int incr,
+                                        int32_t sb_samples[32]);
+extern void ff_mpa_synth_filter_float(void *s, float *synth_buf_ptr,
+                                        int *synth_buf_offset,
+                                        const float *window, int *dither_state,
+                                        float *samples, int incr,
+                                        float sb_samples[32]);
+extern void ff_mpegaudiodec_common_init_static(void);
+extern const uint8_t *ff_mpa_l2_select_table(int bitrate, int n_freq,
+                                                int frequency, int lsf);
+
+/* libavio extras. */
+extern int  avio_get_str16le(AVIOContext *pb, int maxlen, char *buf,
+                              int buflen);
+extern int  avio_close_dyn_buf(AVIOContext *s, uint8_t **pbuffer);
+extern void avio_wb24(AVIOContext *s, unsigned int val);
+
+/* H.264 DSP / chroma / qpel. */
+extern void ff_h264chroma_init(void *c, int bit_depth);
+extern void ff_h264qpel_init(void *c, int bit_depth);
+
+/* Range encoder + RAC terminate. */
+extern void ff_init_range_encoder(void *c, uint8_t *buf, int buf_size);
+extern int  ff_rac_terminate(void *c, int version);
+
+/* Bit-copying helper. */
+extern void ff_copy_bits(void *pb, const uint8_t *src, int length);
+
+/* Float-scalar product (used by Speex / lossless audio). */
+extern float avpriv_scalarproduct_float_c(const float *v1, const float *v2,
+                                           int len);
+
+/* MP4 ES-descriptor parsing (mp4ff helpers). */
+extern int  ff_mp4_read_descr(AVFormatContext *fc, AVIOContext *pb, int *tag);
+extern int  ff_mp4_read_dec_config_descr(AVFormatContext *fc, AVStream *st,
+                                           AVIOContext *pb);
+extern int  ff_mp4_parse_es_descr(AVIOContext *pb, int *es_id);
+
+/* Packet list (libavformat internal). */
+extern int  avpriv_packet_list_put(void *list, AVPacket *pkt,
+                                     int (*copy)(AVPacket *, const AVPacket *),
+                                     int flags);
+extern int  avpriv_packet_list_get(void *list, AVPacket *pkt);
+extern void avpriv_packet_list_free(void *list);
+
+/* Linear least squares (used by VC2 encoder + some others). */
+extern void avpriv_init_lls(void *m, int indep_count);
+extern double avpriv_solve_lls(void *m, double threshold, unsigned int min_order);
+
+/* Timecode helpers. */
+extern int  av_timecode_init_from_string(void *tc, void *rate, const char *str,
+                                          void *log_ctx);
+extern char *av_timecode_make_smpte_tc_string2(char *buf, void *rate,
+                                                 uint32_t tcsmpte, int prevent_df,
+                                                 int skip_field);
+
+/* Hash API (av_hash_*). */
+extern int  av_hash_alloc(void **ctx, const char *name);
+extern void av_hash_freep(void **ctx);
+extern void av_hash_init(void *ctx);
+extern void av_hash_update(void *ctx, const uint8_t *src, size_t len);
+extern void av_hash_final_hex(void *ctx, uint8_t *dst, int size);
+extern const char *av_hash_get_name(const void *ctx);
+
+/* ID3v1 + format shift + hex helpers. */
+extern int  ff_id3v1_read(AVFormatContext *s);
+extern int  ff_format_shift_data(AVFormatContext *s, int64_t read_start,
+                                   int shift);
+extern char *ff_data_to_hex(char *buff, const uint8_t *src, int s,
+                              int lowercase);
+
+/* Bprint → codecpar extradata helper. */
+extern int  ff_bprint_to_codecpar_extradata(AVCodecParameters *par, void *bp);
+
+/* Encoder helpers. */
+extern int  ff_encode_alloc_frame(AVCodecContext *avctx, AVFrame *frame);
+extern int  ff_add_param_change(AVPacket *pkt, int flags);
+extern void ff_mpegvideoencdsp_init(void *c, AVCodecContext *avctx);
+extern void ff_mpeg_flush(AVCodecContext *avctx);
+
+/* MDCT fixed-32 variants. */
+extern int  ff_mdct_init_fixed_32(void *s, int nbits, int inverse,
+                                    double scale);
+extern void ff_mdct_end_fixed_32(void *s);
+
+/* MPEG-4 audio (AAC) config parsing. Defined in mpeg4audio.c
+ * (now compiled in via `mpeg4audio` helper). */
+extern int  avpriv_mpeg4audio_get_config2(void *c, const uint8_t *buf,
+                                            int bit_size, int sync_extension,
+                                            void *logctx);
+extern int  ff_mpeg4audio_get_config_gb(void *c, void *gb, int sync_extension,
+                                          void *logctx);
+
+/* AVCodecContext / encoder helpers. */
+extern int  ff_alloc_packet2(AVCodecContext *avctx, AVPacket *avpkt,
+                              int64_t size, int64_t min_size);
+
+/* The following are declared in the public libavutil/libavcodec
+ * headers we already include:
+ *   - av_get_bits_per_pixel       (pixdesc.h)
+ *   - av_get_random_seed          (random_seed.h)
+ *   - av_buffer_allocz            (buffer.h)
+ *   - av_reallocp                 (mem.h)
+ *   - av_dict_count               (dict.h)
+ *   - av_bprint_append_data       (bprint.h)
+ *   - av_sscanf                   (avstring.h)
+ *   - av_pix_fmt_count_planes     (pixdesc.h)
+ */
+
+/* Stereo-3d + display matrix side data. */
+extern void *av_stereo3d_create_side_data(AVFrame *frame);
+extern void *av_stereo3d_alloc(size_t *size);
+extern void av_display_rotation_set(int32_t matrix[9], double angle);
+extern void av_display_matrix_flip(int32_t matrix[9], int hflip, int vflip);
+
+/* `av_stream_add_side_data` is in avformat.h.
+ * `av_append_packet` is in avformat.h. */
 
 /* Frame-threading helpers (single-thread fallbacks present even
  * when threads are disabled). */
@@ -616,8 +782,10 @@ void * volatile ffmpeg_keepalive_table[] = {
 
 	/* Bprint + dict extras. */
 	(void *)&av_bprint_clear,
+	(void *)&av_bprint_append_data,
 	(void *)&av_dict_copy,
 	(void *)&av_dict_set_int,
+	(void *)&av_dict_count,
 	(void *)&av_get_media_type_string,
 	(void *)&av_d2q,
 	(void *)&av_mul_q,
@@ -628,6 +796,119 @@ void * volatile ffmpeg_keepalive_table[] = {
 	(void *)&av_image_copy_plane,
 	(void *)&av_get_picture_type_char,
 	(void *)&avio_write_marker,
+
+	/* Audio frame queue (encoder side). */
+	(void *)&ff_af_queue_init,
+	(void *)&ff_af_queue_close,
+	(void *)&ff_af_queue_add,
+	(void *)&ff_af_queue_remove,
+
+	/* More MPEG-video. */
+	(void *)&ff_mpv_common_frame_size_change,
+	(void *)&ff_find_unused_picture,
+	(void *)&ff_guess_coded_bitrate,
+
+	/* libavcodec internals. */
+	(void *)&ff_audiodsp_init,
+	(void *)&ff_fdctdsp_init,
+	(void *)&ff_me_cmp_init,
+	(void *)&ff_h264_pred_init,
+	(void *)&ff_build_rac_states,
+	(void *)&ff_init_scantable_permutation,
+	(void *)&ff_mpa_synth_init_fixed,
+	(void *)&ff_mpa_synth_init_float,
+	(void *)&ff_mpa_synth_filter_fixed,
+	(void *)&ff_mpa_synth_filter_float,
+	(void *)&ff_mpegaudiodec_common_init_static,
+	(void *)&ff_mpa_l2_select_table,
+
+	/* AVFifo (libavutil/fifo.h). */
+	(void *)&av_fifo_alloc2,
+	(void *)&av_fifo_freep2,
+	(void *)&av_fifo_write,
+	(void *)&av_fifo_read_to_cb,
+	(void *)&av_fifo_can_read,
+	(void *)&av_fifo_can_write,
+
+	/* libavutil — frame/packet move, append, random, buffer. */
+	(void *)&av_frame_move_ref,
+	(void *)&av_frame_copy,
+	(void *)&av_packet_move_ref,
+	(void *)&av_append_packet,
+	(void *)&av_get_random_seed,
+	(void *)&av_buffer_allocz,
+	(void *)&av_reallocp,
+	(void *)&av_get_bits_per_pixel,
+	(void *)&av_pix_fmt_count_planes,
+	(void *)&av_sscanf,
+
+	/* Stereo-3D + display matrix. */
+	(void *)&av_stereo3d_create_side_data,
+	(void *)&av_stereo3d_alloc,
+	(void *)&av_display_rotation_set,
+	(void *)&av_display_matrix_flip,
+
+	/* Stream side-data add. */
+	(void *)&av_stream_add_side_data,
+
+	/* H.264 DSP. */
+	(void *)&ff_h264chroma_init,
+	(void *)&ff_h264qpel_init,
+
+	/* Range encoder. */
+	(void *)&ff_init_range_encoder,
+	(void *)&ff_rac_terminate,
+
+	/* Bit copy + scalar product. */
+	(void *)&ff_copy_bits,
+	(void *)&avpriv_scalarproduct_float_c,
+
+	/* MP4 ES-descriptor. */
+	(void *)&ff_mp4_read_descr,
+	(void *)&ff_mp4_read_dec_config_descr,
+	(void *)&ff_mp4_parse_es_descr,
+
+	/* Packet list. */
+	(void *)&avpriv_packet_list_put,
+	(void *)&avpriv_packet_list_get,
+	(void *)&avpriv_packet_list_free,
+
+	/* LLS. */
+	(void *)&avpriv_init_lls,
+	(void *)&avpriv_solve_lls,
+
+	/* Timecode. */
+	(void *)&av_timecode_init_from_string,
+	(void *)&av_timecode_make_smpte_tc_string2,
+
+	/* Hash API. */
+	(void *)&av_hash_alloc,
+	(void *)&av_hash_freep,
+	(void *)&av_hash_init,
+	(void *)&av_hash_update,
+	(void *)&av_hash_final_hex,
+	(void *)&av_hash_get_name,
+
+	/* ID3v1 / shift / hex. */
+	(void *)&ff_id3v1_read,
+	(void *)&ff_format_shift_data,
+	(void *)&ff_data_to_hex,
+	(void *)&ff_bprint_to_codecpar_extradata,
+
+	/* Encoder helpers. */
+	(void *)&ff_encode_alloc_frame,
+	(void *)&ff_add_param_change,
+	(void *)&ff_mpegvideoencdsp_init,
+	(void *)&ff_mpeg_flush,
+
+	/* MDCT fixed-32. */
+	(void *)&ff_mdct_init_fixed_32,
+	(void *)&ff_mdct_end_fixed_32,
+
+	/* MPEG-4 audio config parsing (in-base since multiple
+	 * parsers / BSFs / demuxers need it). */
+	(void *)&avpriv_mpeg4audio_get_config2,
+	(void *)&ff_mpeg4audio_get_config_gb,
 
 	/* --- libavformat --- */
 	(void *)&avformat_alloc_context,

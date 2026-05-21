@@ -97,14 +97,11 @@ build/libavcodec_mdct15.o: ../../../build/ffmpeg/libavcodec/mdct15.c | build che
 build/libavcodec_mpeg4audio_sample_rates.o: ../../../build/ffmpeg/libavcodec/mpeg4audio_sample_rates.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_mpeg4audio.o: ../../../build/ffmpeg/libavcodec/mpeg4audio.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavcodec_sbrdsp.o: ../../../build/ffmpeg/libavcodec/sbrdsp.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_aacdec.o build/libavcodec_aacps_common.o build/libavcodec_aacps_float.o build/libavcodec_aacpsdsp_float.o build/libavcodec_aacsbr.o build/libavcodec_aactab.o build/libavcodec_adts_header.o build/libavcodec_cbrt_data.o build/libavcodec_kbdwin.o build/libavcodec_mdct15.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavcodec_sbrdsp.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_aacdec.o build/libavcodec_aacps_common.o build/libavcodec_aacps_float.o build/libavcodec_aacpsdsp_float.o build/libavcodec_aacsbr.o build/libavcodec_aactab.o build/libavcodec_adts_header.o build/libavcodec_cbrt_data.o build/libavcodec_kbdwin.o build/libavcodec_mdct15.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavcodec_sbrdsp.o build/init.o
+$(OUT): build/libavcodec_aacdec.o build/libavcodec_aacps_common.o build/libavcodec_aacps_float.o build/libavcodec_aacpsdsp_float.o build/libavcodec_aacsbr.o build/libavcodec_aactab.o build/libavcodec_adts_header.o build/libavcodec_cbrt_data.o build/libavcodec_kbdwin.o build/libavcodec_mdct15.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_sbrdsp.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_aacdec.o build/libavcodec_aacps_common.o build/libavcodec_aacps_float.o build/libavcodec_aacpsdsp_float.o build/libavcodec_aacsbr.o build/libavcodec_aactab.o build/libavcodec_adts_header.o build/libavcodec_cbrt_data.o build/libavcodec_kbdwin.o build/libavcodec_mdct15.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_sbrdsp.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

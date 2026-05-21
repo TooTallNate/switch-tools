@@ -17,7 +17,6 @@
     "libavcodec/h264_mp4toannexb_bsf.o",
     "libavcodec/hevc_mp4toannexb_bsf.o",
     "libavcodec/mpeg4audio_sample_rates.o",
-    "libavcodec/mpeg4audio.o",
     "libavformat/adtsenc.o",
     "libavformat/apetag.o",
     "libavformat/id3v2enc.o",
@@ -34,8 +33,9 @@
     "H264_MP4TOANNEXB_BSF",
     "HEVC_MP4TOANNEXB_BSF",
     "LATM_MUXER",
-    "MPEG4AUDIO",
     "MPEGTS_MUXER"
   ],
-  "baseHelpers": []
+  "baseHelpers": [
+    "mpeg4audio"
+  ]
 }

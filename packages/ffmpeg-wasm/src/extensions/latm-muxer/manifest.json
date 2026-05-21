@@ -12,15 +12,15 @@
     "libavcodec/aac_adtstoasc_bsf.o",
     "libavcodec/adts_header.o",
     "libavcodec/mpeg4audio_sample_rates.o",
-    "libavcodec/mpeg4audio.o",
     "libavformat/latmenc.o",
     "libavformat/rawenc.o"
   ],
   "configFlags": [
     "AAC_ADTSTOASC_BSF",
     "ADTS_HEADER",
-    "LATM_MUXER",
-    "MPEG4AUDIO"
+    "LATM_MUXER"
   ],
-  "baseHelpers": []
+  "baseHelpers": [
+    "mpeg4audio"
+  ]
 }

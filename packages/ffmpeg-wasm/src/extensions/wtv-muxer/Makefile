@@ -88,9 +88,6 @@ build/libavcodec_hevc_mp4toannexb_bsf.o: ../../../build/ffmpeg/libavcodec/hevc_m
 build/libavcodec_mpeg4audio_sample_rates.o: ../../../build/ffmpeg/libavcodec/mpeg4audio_sample_rates.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_mpeg4audio.o: ../../../build/ffmpeg/libavcodec/mpeg4audio.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavformat_adtsenc.o: ../../../build/ffmpeg/libavformat/adtsenc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
@@ -124,8 +121,8 @@ build/libavformat_wtv_common.o: ../../../build/ffmpeg/libavformat/wtv_common.c |
 build/libavformat_wtvenc.o: ../../../build/ffmpeg/libavformat/wtvenc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_aac_ac3_parser.o build/libavcodec_aac_adtstoasc_bsf.o build/libavcodec_ac3_channel_layout_tab.o build/libavcodec_ac3tab.o build/libavcodec_adts_header.o build/libavcodec_h264_mp4toannexb_bsf.o build/libavcodec_hevc_mp4toannexb_bsf.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavformat_adtsenc.o build/libavformat_apetag.o build/libavformat_asf.o build/libavformat_id3v2enc.o build/libavformat_img2.o build/libavformat_latmenc.o build/libavformat_mpegtsenc.o build/libavformat_rawenc.o build/libavformat_riffenc.o build/libavformat_wtv_common.o build/libavformat_wtvenc.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_aac_ac3_parser.o build/libavcodec_aac_adtstoasc_bsf.o build/libavcodec_ac3_channel_layout_tab.o build/libavcodec_ac3tab.o build/libavcodec_adts_header.o build/libavcodec_h264_mp4toannexb_bsf.o build/libavcodec_hevc_mp4toannexb_bsf.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavformat_adtsenc.o build/libavformat_apetag.o build/libavformat_asf.o build/libavformat_id3v2enc.o build/libavformat_img2.o build/libavformat_latmenc.o build/libavformat_mpegtsenc.o build/libavformat_rawenc.o build/libavformat_riffenc.o build/libavformat_wtv_common.o build/libavformat_wtvenc.o build/init.o
+$(OUT): build/libavcodec_aac_ac3_parser.o build/libavcodec_aac_adtstoasc_bsf.o build/libavcodec_ac3_channel_layout_tab.o build/libavcodec_ac3tab.o build/libavcodec_adts_header.o build/libavcodec_h264_mp4toannexb_bsf.o build/libavcodec_hevc_mp4toannexb_bsf.o build/libavcodec_mpeg4audio_sample_rates.o build/libavformat_adtsenc.o build/libavformat_apetag.o build/libavformat_asf.o build/libavformat_id3v2enc.o build/libavformat_img2.o build/libavformat_latmenc.o build/libavformat_mpegtsenc.o build/libavformat_rawenc.o build/libavformat_riffenc.o build/libavformat_wtv_common.o build/libavformat_wtvenc.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_aac_ac3_parser.o build/libavcodec_aac_adtstoasc_bsf.o build/libavcodec_ac3_channel_layout_tab.o build/libavcodec_ac3tab.o build/libavcodec_adts_header.o build/libavcodec_h264_mp4toannexb_bsf.o build/libavcodec_hevc_mp4toannexb_bsf.o build/libavcodec_mpeg4audio_sample_rates.o build/libavformat_adtsenc.o build/libavformat_apetag.o build/libavformat_asf.o build/libavformat_id3v2enc.o build/libavformat_img2.o build/libavformat_latmenc.o build/libavformat_mpegtsenc.o build/libavformat_rawenc.o build/libavformat_riffenc.o build/libavformat_wtv_common.o build/libavformat_wtvenc.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

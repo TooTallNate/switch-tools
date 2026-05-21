@@ -20,18 +20,17 @@
     "libavcodec/kbdwin.o",
     "libavcodec/mdct15.o",
     "libavcodec/mpeg4audio_sample_rates.o",
-    "libavcodec/mpeg4audio.o",
     "libavcodec/sbrdsp.o"
   ],
   "configFlags": [
     "AAC_DECODER",
     "ADTS_HEADER",
-    "MDCT15",
-    "MPEG4AUDIO"
+    "MDCT15"
   ],
   "baseHelpers": [
     "fft",
     "mdct",
+    "mpeg4audio",
     "sinewin"
   ]
 }

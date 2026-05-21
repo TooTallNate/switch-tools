@@ -9,16 +9,15 @@
     }
   ],
   "objs": [
-    "libavcodec/mpeg4audio_sample_rates.o",
-    "libavcodec/mpeg4audio.o",
     "libavformat/adtsenc.o",
     "libavformat/apetag.o",
     "libavformat/id3v2enc.o",
     "libavformat/img2.o"
   ],
   "configFlags": [
-    "ADTS_MUXER",
-    "MPEG4AUDIO"
+    "ADTS_MUXER"
   ],
-  "baseHelpers": []
+  "baseHelpers": [
+    "mpeg4audio"
+  ]
 }

@@ -73,17 +73,14 @@ build/libavcodec_adts_header.o: ../../../build/ffmpeg/libavcodec/adts_header.c |
 build/libavcodec_mpeg4audio_sample_rates.o: ../../../build/ffmpeg/libavcodec/mpeg4audio_sample_rates.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_mpeg4audio.o: ../../../build/ffmpeg/libavcodec/mpeg4audio.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavformat_avc.o: ../../../build/ffmpeg/libavformat/avc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
 build/libavformat_flvenc.o: ../../../build/ffmpeg/libavformat/flvenc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_aac_adtstoasc_bsf.o build/libavcodec_adts_header.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavformat_avc.o build/libavformat_flvenc.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_aac_adtstoasc_bsf.o build/libavcodec_adts_header.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavformat_avc.o build/libavformat_flvenc.o build/init.o
+$(OUT): build/libavcodec_aac_adtstoasc_bsf.o build/libavcodec_adts_header.o build/libavcodec_mpeg4audio_sample_rates.o build/libavformat_avc.o build/libavformat_flvenc.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_aac_adtstoasc_bsf.o build/libavcodec_adts_header.o build/libavcodec_mpeg4audio_sample_rates.o build/libavformat_avc.o build/libavformat_flvenc.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

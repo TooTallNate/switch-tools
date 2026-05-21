@@ -9,15 +9,13 @@
     }
   ],
   "objs": [
-    "libavcodec/mpeg4audio_sample_rates.o",
-    "libavcodec/mpeg4audio.o",
     "libavcodec/mpegaudiodec_fixed.o"
   ],
   "configFlags": [
-    "MP3ON4_DECODER",
-    "MPEG4AUDIO"
+    "MP3ON4_DECODER"
   ],
   "baseHelpers": [
+    "mpeg4audio",
     "mpegaudio"
   ]
 }

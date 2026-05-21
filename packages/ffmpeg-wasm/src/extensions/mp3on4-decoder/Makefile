@@ -64,17 +64,11 @@ build:
 build/init.o: init.c shim.h | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_mpeg4audio_sample_rates.o: ../../../build/ffmpeg/libavcodec/mpeg4audio_sample_rates.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-build/libavcodec_mpeg4audio.o: ../../../build/ffmpeg/libavcodec/mpeg4audio.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavcodec_mpegaudiodec_fixed.o: ../../../build/ffmpeg/libavcodec/mpegaudiodec_fixed.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavcodec_mpegaudiodec_fixed.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavcodec_mpegaudiodec_fixed.o build/init.o
+$(OUT): build/libavcodec_mpegaudiodec_fixed.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_mpegaudiodec_fixed.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

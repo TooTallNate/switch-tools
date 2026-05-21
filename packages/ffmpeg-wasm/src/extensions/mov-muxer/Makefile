@@ -73,9 +73,6 @@ build/libavcodec_adts_header.o: ../../../build/ffmpeg/libavcodec/adts_header.c |
 build/libavcodec_mpeg4audio_sample_rates.o: ../../../build/ffmpeg/libavcodec/mpeg4audio_sample_rates.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_mpeg4audio.o: ../../../build/ffmpeg/libavcodec/mpeg4audio.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavcodec_vp9_superframe_bsf.o: ../../../build/ffmpeg/libavcodec/vp9_superframe_bsf.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
@@ -121,8 +118,8 @@ build/libavformat_rtpenc_chain.o: ../../../build/ffmpeg/libavformat/rtpenc_chain
 build/libavformat_vpcc.o: ../../../build/ffmpeg/libavformat/vpcc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_aac_adtstoasc_bsf.o build/libavcodec_adts_header.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavcodec_vp9_superframe_bsf.o build/libavformat_av1.o build/libavformat_avc.o build/libavformat_dovi_isom.o build/libavformat_hevc.o build/libavformat_mov_chan.o build/libavformat_movenc_ttml.o build/libavformat_movenc.o build/libavformat_movenccenc.o build/libavformat_movenchint.o build/libavformat_rawutils.o build/libavformat_riffenc.o build/libavformat_rtp.o build/libavformat_rtpenc_chain.o build/libavformat_vpcc.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_aac_adtstoasc_bsf.o build/libavcodec_adts_header.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavcodec_vp9_superframe_bsf.o build/libavformat_av1.o build/libavformat_avc.o build/libavformat_dovi_isom.o build/libavformat_hevc.o build/libavformat_mov_chan.o build/libavformat_movenc_ttml.o build/libavformat_movenc.o build/libavformat_movenccenc.o build/libavformat_movenchint.o build/libavformat_rawutils.o build/libavformat_riffenc.o build/libavformat_rtp.o build/libavformat_rtpenc_chain.o build/libavformat_vpcc.o build/init.o
+$(OUT): build/libavcodec_aac_adtstoasc_bsf.o build/libavcodec_adts_header.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_vp9_superframe_bsf.o build/libavformat_av1.o build/libavformat_avc.o build/libavformat_dovi_isom.o build/libavformat_hevc.o build/libavformat_mov_chan.o build/libavformat_movenc_ttml.o build/libavformat_movenc.o build/libavformat_movenccenc.o build/libavformat_movenchint.o build/libavformat_rawutils.o build/libavformat_riffenc.o build/libavformat_rtp.o build/libavformat_rtpenc_chain.o build/libavformat_vpcc.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_aac_adtstoasc_bsf.o build/libavcodec_adts_header.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_vp9_superframe_bsf.o build/libavformat_av1.o build/libavformat_avc.o build/libavformat_dovi_isom.o build/libavformat_hevc.o build/libavformat_mov_chan.o build/libavformat_movenc_ttml.o build/libavformat_movenc.o build/libavformat_movenccenc.o build/libavformat_movenchint.o build/libavformat_rawutils.o build/libavformat_riffenc.o build/libavformat_rtp.o build/libavformat_rtpenc_chain.o build/libavformat_vpcc.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

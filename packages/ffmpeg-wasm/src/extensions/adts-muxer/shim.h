@@ -25,7 +25,5 @@
 
 #undef CONFIG_ADTS_MUXER
 #define CONFIG_ADTS_MUXER 1
-#undef CONFIG_MPEG4AUDIO
-#define CONFIG_MPEG4AUDIO 1
 
 #endif

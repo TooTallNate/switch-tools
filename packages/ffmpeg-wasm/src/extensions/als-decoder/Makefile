@@ -73,14 +73,8 @@ build/libavcodec_bgmc.o: ../../../build/ffmpeg/libavcodec/bgmc.c | build check-b
 build/libavcodec_mlz.o: ../../../build/ffmpeg/libavcodec/mlz.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_mpeg4audio_sample_rates.o: ../../../build/ffmpeg/libavcodec/mpeg4audio_sample_rates.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-build/libavcodec_mpeg4audio.o: ../../../build/ffmpeg/libavcodec/mpeg4audio.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-$(OUT): build/libavcodec_alsdec.o build/libavcodec_bgmc.o build/libavcodec_mlz.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_alsdec.o build/libavcodec_bgmc.o build/libavcodec_mlz.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/init.o
+$(OUT): build/libavcodec_alsdec.o build/libavcodec_bgmc.o build/libavcodec_mlz.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_alsdec.o build/libavcodec_bgmc.o build/libavcodec_mlz.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

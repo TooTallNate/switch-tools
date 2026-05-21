@@ -79,6 +79,7 @@ const BASE_HELPERS = new Set([
 	"pixelutils",
 	"audio_frame_queue",
 	"iso_media",
+	"mpeg4audio",
 ])
 
 /**

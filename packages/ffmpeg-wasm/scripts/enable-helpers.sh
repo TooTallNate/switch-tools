@@ -77,6 +77,7 @@ HELPERS=(
     pixelutils
     audio_frame_queue
     iso_media
+    mpeg4audio
 )
 
 # config.h: flip `#define CONFIG_X 0` → `1`

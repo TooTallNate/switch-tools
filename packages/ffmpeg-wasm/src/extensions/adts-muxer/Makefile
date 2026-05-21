@@ -64,12 +64,6 @@ build:
 build/init.o: init.c shim.h | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_mpeg4audio_sample_rates.o: ../../../build/ffmpeg/libavcodec/mpeg4audio_sample_rates.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-build/libavcodec_mpeg4audio.o: ../../../build/ffmpeg/libavcodec/mpeg4audio.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavformat_adtsenc.o: ../../../build/ffmpeg/libavformat/adtsenc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
@@ -82,8 +76,8 @@ build/libavformat_id3v2enc.o: ../../../build/ffmpeg/libavformat/id3v2enc.c | bui
 build/libavformat_img2.o: ../../../build/ffmpeg/libavformat/img2.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavformat_adtsenc.o build/libavformat_apetag.o build/libavformat_id3v2enc.o build/libavformat_img2.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavformat_adtsenc.o build/libavformat_apetag.o build/libavformat_id3v2enc.o build/libavformat_img2.o build/init.o
+$(OUT): build/libavformat_adtsenc.o build/libavformat_apetag.o build/libavformat_id3v2enc.o build/libavformat_img2.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavformat_adtsenc.o build/libavformat_apetag.o build/libavformat_id3v2enc.o build/libavformat_img2.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:
