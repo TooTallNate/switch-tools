@@ -1,0 +1,22 @@
+{
+  "slug": "flac-decoder",
+  "description": "FLAC (Free Lossless Audio Codec) decoder.",
+  "entries": [
+    {
+      "thing": "flac_decoder",
+      "kind": "decoder",
+      "symbol": "ff_flac_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/flac.o",
+    "libavcodec/flacdata.o",
+    "libavcodec/flacdec.o",
+    "libavcodec/flacdsp.o"
+  ],
+  "configFlags": [
+    "FLACDSP",
+    "FLAC_DECODER"
+  ],
+  "baseHelpers": []
+}

@@ -1,0 +1,24 @@
+{
+  "slug": "adts-muxer",
+  "description": "ADTS (Audio Data Transport Stream) AAC muxer.",
+  "entries": [
+    {
+      "thing": "adts_muxer",
+      "kind": "muxer",
+      "symbol": "ff_adts_muxer"
+    }
+  ],
+  "objs": [
+    "libavcodec/mpeg4audio_sample_rates.o",
+    "libavcodec/mpeg4audio.o",
+    "libavformat/adtsenc.o",
+    "libavformat/apetag.o",
+    "libavformat/id3v2enc.o",
+    "libavformat/img2.o"
+  ],
+  "configFlags": [
+    "ADTS_MUXER",
+    "MPEG4AUDIO"
+  ],
+  "baseHelpers": []
+}

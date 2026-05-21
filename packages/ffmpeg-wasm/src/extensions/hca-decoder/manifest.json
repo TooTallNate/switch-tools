@@ -1,0 +1,18 @@
+{
+  "slug": "hca-decoder",
+  "description": "CRI HCA (CRI Sofdec2 audio) decoder.",
+  "entries": [
+    {
+      "thing": "hca_decoder",
+      "kind": "decoder",
+      "symbol": "ff_hca_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/hcadec.o"
+  ],
+  "configFlags": [
+    "HCA_DECODER"
+  ],
+  "baseHelpers": []
+}

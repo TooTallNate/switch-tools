@@ -1,0 +1,6 @@
+# Generated artifacts inside each src/extensions/<slug>/ directory.
+# The Makefile / init.c / shim.h / manifest.json are checked in
+# (they're the generator's deterministic output and are easy to
+# browse); the build/ subdir and final .so are reproducible
+# artifacts that don't belong in git.
+src/extensions/*/*.so

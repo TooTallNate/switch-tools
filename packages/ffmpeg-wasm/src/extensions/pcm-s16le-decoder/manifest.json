@@ -1,0 +1,18 @@
+{
+  "slug": "pcm-s16le-decoder",
+  "description": "16-bit signed little-endian PCM audio decoder.",
+  "entries": [
+    {
+      "thing": "pcm_s16le_decoder",
+      "kind": "decoder",
+      "symbol": "ff_pcm_s16le_decoder"
+    }
+  ],
+  "objs": [
+    "libavcodec/pcm.o"
+  ],
+  "configFlags": [
+    "PCM_S16LE_DECODER"
+  ],
+  "baseHelpers": []
+}

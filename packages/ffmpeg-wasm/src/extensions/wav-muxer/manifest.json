@@ -1,0 +1,20 @@
+{
+  "slug": "wav-muxer",
+  "description": "WAV / RIFF audio container muxer.",
+  "entries": [
+    {
+      "thing": "wav_muxer",
+      "kind": "muxer",
+      "symbol": "ff_wav_muxer"
+    }
+  ],
+  "objs": [
+    "libavformat/riffenc.o",
+    "libavformat/wavenc.o"
+  ],
+  "configFlags": [
+    "RIFFENC",
+    "WAV_MUXER"
+  ],
+  "baseHelpers": []
+}
