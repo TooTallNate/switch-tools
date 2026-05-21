@@ -67,11 +67,8 @@ build/init.o: init.c shim.h | build check-base
 build/libavcodec_vp3.o: ../../../build/ffmpeg/libavcodec/vp3.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_vp3dsp.o: ../../../build/ffmpeg/libavcodec/vp3dsp.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-$(OUT): build/libavcodec_vp3.o build/libavcodec_vp3dsp.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_vp3.o build/libavcodec_vp3dsp.o build/init.o
+$(OUT): build/libavcodec_vp3.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_vp3.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

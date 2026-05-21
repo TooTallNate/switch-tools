@@ -67,14 +67,11 @@ build/init.o: init.c shim.h | build check-base
 build/libavcodec_golomb.o: ../../../build/ffmpeg/libavcodec/golomb.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_rangecoder.o: ../../../build/ffmpeg/libavcodec/rangecoder.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavcodec_sonic.o: ../../../build/ffmpeg/libavcodec/sonic.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_golomb.o build/libavcodec_rangecoder.o build/libavcodec_sonic.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_golomb.o build/libavcodec_rangecoder.o build/libavcodec_sonic.o build/init.o
+$(OUT): build/libavcodec_golomb.o build/libavcodec_sonic.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_golomb.o build/libavcodec_sonic.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

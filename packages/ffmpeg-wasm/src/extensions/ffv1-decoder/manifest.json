@@ -10,12 +10,12 @@
   ],
   "objs": [
     "libavcodec/ffv1.o",
-    "libavcodec/ffv1dec.o",
-    "libavcodec/rangecoder.o"
+    "libavcodec/ffv1dec.o"
   ],
   "configFlags": [
-    "FFV1_DECODER",
-    "RANGECODER"
+    "FFV1_DECODER"
   ],
-  "baseHelpers": []
+  "baseHelpers": [
+    "rangecoder"
+  ]
 }

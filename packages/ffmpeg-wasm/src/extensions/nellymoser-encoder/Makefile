@@ -64,17 +64,14 @@ build:
 build/init.o: init.c shim.h | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_audio_frame_queue.o: ../../../build/ffmpeg/libavcodec/audio_frame_queue.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavcodec_nellymoser.o: ../../../build/ffmpeg/libavcodec/nellymoser.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
 build/libavcodec_nellymoserenc.o: ../../../build/ffmpeg/libavcodec/nellymoserenc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_audio_frame_queue.o build/libavcodec_nellymoser.o build/libavcodec_nellymoserenc.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_audio_frame_queue.o build/libavcodec_nellymoser.o build/libavcodec_nellymoserenc.o build/init.o
+$(OUT): build/libavcodec_nellymoser.o build/libavcodec_nellymoserenc.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_nellymoser.o build/libavcodec_nellymoserenc.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

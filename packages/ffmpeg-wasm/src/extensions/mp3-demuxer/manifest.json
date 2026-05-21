@@ -10,15 +10,14 @@
   ],
   "objs": [
     "libavcodec/mpegaudio_parser.o",
-    "libavcodec/mpegaudiodecheader.o",
-    "libavcodec/mpegaudiotabs.o",
     "libavformat/mp3dec.o",
     "libavformat/replaygain.o"
   ],
   "configFlags": [
     "MP3_DEMUXER",
-    "MPEGAUDIOHEADER",
     "MPEGAUDIO_PARSER"
   ],
-  "baseHelpers": []
+  "baseHelpers": [
+    "mpegaudioheader"
+  ]
 }

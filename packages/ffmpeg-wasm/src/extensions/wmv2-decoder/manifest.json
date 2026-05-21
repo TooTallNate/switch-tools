@@ -9,7 +9,6 @@
     }
   ],
   "objs": [
-    "libavcodec/error_resilience.o",
     "libavcodec/h263_parser.o",
     "libavcodec/h263.o",
     "libavcodec/h263data.o",
@@ -27,7 +26,6 @@
     "libavcodec/wmv2dsp.o"
   ],
   "configFlags": [
-    "ERROR_RESILIENCE",
     "H263DSP",
     "H263_DECODER",
     "H263_PARSER",
@@ -36,9 +34,9 @@
   ],
   "baseHelpers": [
     "blockdsp",
+    "error_resilience",
     "idctdsp",
     "intrax8",
-    "me_cmp",
     "mpegvideodec",
     "qpeldsp",
     "videodsp"

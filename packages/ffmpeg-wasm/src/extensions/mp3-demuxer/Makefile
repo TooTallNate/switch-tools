@@ -67,20 +67,14 @@ build/init.o: init.c shim.h | build check-base
 build/libavcodec_mpegaudio_parser.o: ../../../build/ffmpeg/libavcodec/mpegaudio_parser.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_mpegaudiodecheader.o: ../../../build/ffmpeg/libavcodec/mpegaudiodecheader.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-build/libavcodec_mpegaudiotabs.o: ../../../build/ffmpeg/libavcodec/mpegaudiotabs.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavformat_mp3dec.o: ../../../build/ffmpeg/libavformat/mp3dec.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
 build/libavformat_replaygain.o: ../../../build/ffmpeg/libavformat/replaygain.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_mpegaudio_parser.o build/libavcodec_mpegaudiodecheader.o build/libavcodec_mpegaudiotabs.o build/libavformat_mp3dec.o build/libavformat_replaygain.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_mpegaudio_parser.o build/libavcodec_mpegaudiodecheader.o build/libavcodec_mpegaudiotabs.o build/libavformat_mp3dec.o build/libavformat_replaygain.o build/init.o
+$(OUT): build/libavcodec_mpegaudio_parser.o build/libavformat_mp3dec.o build/libavformat_replaygain.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_mpegaudio_parser.o build/libavformat_mp3dec.o build/libavformat_replaygain.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

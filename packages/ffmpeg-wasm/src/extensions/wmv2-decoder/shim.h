@@ -23,8 +23,6 @@
 #include "config.h"
 #include "config_components.h"
 
-#undef CONFIG_ERROR_RESILIENCE
-#define CONFIG_ERROR_RESILIENCE 1
 #undef CONFIG_H263DSP
 #define CONFIG_H263DSP 1
 #undef CONFIG_H263_DECODER

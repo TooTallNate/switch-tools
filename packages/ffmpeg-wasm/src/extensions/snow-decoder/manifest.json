@@ -9,19 +9,18 @@
     }
   ],
   "objs": [
-    "libavcodec/rangecoder.o",
     "libavcodec/snow_dwt.o",
     "libavcodec/snow.o",
     "libavcodec/snowdec.o"
   ],
   "configFlags": [
-    "RANGECODER",
     "SNOW_DECODER"
   ],
   "baseHelpers": [
     "h264qpel",
     "hpeldsp",
     "me_cmp",
+    "rangecoder",
     "videodsp"
   ]
 }

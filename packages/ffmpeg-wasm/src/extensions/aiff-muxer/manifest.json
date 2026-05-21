@@ -9,17 +9,14 @@
     }
   ],
   "objs": [
-    "libavcodec/mpeg4audio_sample_rates.o",
-    "libavcodec/mpeg4audio.o",
     "libavformat/aiff.o",
     "libavformat/aiffenc.o",
-    "libavformat/id3v2enc.o",
-    "libavformat/isom.o"
+    "libavformat/id3v2enc.o"
   ],
   "configFlags": [
-    "AIFF_MUXER",
-    "ISO_MEDIA",
-    "MPEG4AUDIO"
+    "AIFF_MUXER"
   ],
-  "baseHelpers": []
+  "baseHelpers": [
+    "iso_media"
+  ]
 }

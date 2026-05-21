@@ -9,15 +9,15 @@
     }
   ],
   "objs": [
-    "libavcodec/audio_frame_queue.o",
     "libavcodec/lpc.o",
     "libavcodec/mlp.o",
     "libavcodec/mlpenc.o"
   ],
   "configFlags": [
-    "AUDIO_FRAME_QUEUE",
     "LPC",
     "MLP_ENCODER"
   ],
-  "baseHelpers": []
+  "baseHelpers": [
+    "audio_frame_queue"
+  ]
 }

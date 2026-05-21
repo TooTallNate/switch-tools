@@ -23,8 +23,6 @@
 #include "config.h"
 #include "config_components.h"
 
-#undef CONFIG_VP3DSP
-#define CONFIG_VP3DSP 1
 #undef CONFIG_VP3_DECODER
 #define CONFIG_VP3_DECODER 1
 

@@ -10,13 +10,13 @@
   ],
   "objs": [
     "libavcodec/golomb.o",
-    "libavcodec/rangecoder.o",
     "libavcodec/sonic.o"
   ],
   "configFlags": [
     "GOLOMB",
-    "RANGECODER",
     "SONIC_LS_ENCODER"
   ],
-  "baseHelpers": []
+  "baseHelpers": [
+    "rangecoder"
+  ]
 }

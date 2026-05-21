@@ -64,12 +64,6 @@ build:
 build/init.o: init.c shim.h | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_mpegaudiodecheader.o: ../../../build/ffmpeg/libavcodec/mpegaudiodecheader.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-build/libavcodec_mpegaudiotabs.o: ../../../build/ffmpeg/libavcodec/mpegaudiotabs.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavformat_id3v2enc.o: ../../../build/ffmpeg/libavformat/id3v2enc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
@@ -79,8 +73,8 @@ build/libavformat_mp3enc.o: ../../../build/ffmpeg/libavformat/mp3enc.c | build c
 build/libavformat_rawenc.o: ../../../build/ffmpeg/libavformat/rawenc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_mpegaudiodecheader.o build/libavcodec_mpegaudiotabs.o build/libavformat_id3v2enc.o build/libavformat_mp3enc.o build/libavformat_rawenc.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_mpegaudiodecheader.o build/libavcodec_mpegaudiotabs.o build/libavformat_id3v2enc.o build/libavformat_mp3enc.o build/libavformat_rawenc.o build/init.o
+$(OUT): build/libavformat_id3v2enc.o build/libavformat_mp3enc.o build/libavformat_rawenc.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavformat_id3v2enc.o build/libavformat_mp3enc.o build/libavformat_rawenc.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

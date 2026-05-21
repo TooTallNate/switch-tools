@@ -64,16 +64,7 @@ build:
 build/init.o: init.c shim.h | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_mpeg4audio_sample_rates.o: ../../../build/ffmpeg/libavcodec/mpeg4audio_sample_rates.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-build/libavcodec_mpeg4audio.o: ../../../build/ffmpeg/libavcodec/mpeg4audio.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavformat_asf.o: ../../../build/ffmpeg/libavformat/asf.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-build/libavformat_isom.o: ../../../build/ffmpeg/libavformat/isom.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
 build/libavformat_mpegts.o: ../../../build/ffmpeg/libavformat/mpegts.c | build check-base
@@ -88,8 +79,8 @@ build/libavformat_wtv_common.o: ../../../build/ffmpeg/libavformat/wtv_common.c |
 build/libavformat_wtvdec.o: ../../../build/ffmpeg/libavformat/wtvdec.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavformat_asf.o build/libavformat_isom.o build/libavformat_mpegts.o build/libavformat_riffdec.o build/libavformat_wtv_common.o build/libavformat_wtvdec.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavformat_asf.o build/libavformat_isom.o build/libavformat_mpegts.o build/libavformat_riffdec.o build/libavformat_wtv_common.o build/libavformat_wtvdec.o build/init.o
+$(OUT): build/libavformat_asf.o build/libavformat_mpegts.o build/libavformat_riffdec.o build/libavformat_wtv_common.o build/libavformat_wtvdec.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavformat_asf.o build/libavformat_mpegts.o build/libavformat_riffdec.o build/libavformat_wtv_common.o build/libavformat_wtvdec.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

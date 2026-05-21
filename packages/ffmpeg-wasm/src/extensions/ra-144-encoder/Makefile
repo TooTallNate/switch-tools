@@ -64,9 +64,6 @@ build:
 build/init.o: init.c shim.h | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_audio_frame_queue.o: ../../../build/ffmpeg/libavcodec/audio_frame_queue.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavcodec_celp_filters.o: ../../../build/ffmpeg/libavcodec/celp_filters.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
@@ -79,8 +76,8 @@ build/libavcodec_ra144.o: ../../../build/ffmpeg/libavcodec/ra144.c | build check
 build/libavcodec_ra144enc.o: ../../../build/ffmpeg/libavcodec/ra144enc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_audio_frame_queue.o build/libavcodec_celp_filters.o build/libavcodec_lpc.o build/libavcodec_ra144.o build/libavcodec_ra144enc.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_audio_frame_queue.o build/libavcodec_celp_filters.o build/libavcodec_lpc.o build/libavcodec_ra144.o build/libavcodec_ra144enc.o build/init.o
+$(OUT): build/libavcodec_celp_filters.o build/libavcodec_lpc.o build/libavcodec_ra144.o build/libavcodec_ra144enc.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_celp_filters.o build/libavcodec_lpc.o build/libavcodec_ra144.o build/libavcodec_ra144enc.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

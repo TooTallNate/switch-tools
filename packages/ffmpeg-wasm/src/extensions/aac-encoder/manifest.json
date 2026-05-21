@@ -18,7 +18,6 @@
     "libavcodec/aacenctab.o",
     "libavcodec/aacpsy.o",
     "libavcodec/aactab.o",
-    "libavcodec/audio_frame_queue.o",
     "libavcodec/iirfilter.o",
     "libavcodec/kbdwin.o",
     "libavcodec/lpc.o",
@@ -27,11 +26,11 @@
   ],
   "configFlags": [
     "AAC_ENCODER",
-    "AUDIO_FRAME_QUEUE",
     "IIRFILTER",
     "LPC"
   ],
   "baseHelpers": [
+    "audio_frame_queue",
     "mdct",
     "sinewin"
   ]

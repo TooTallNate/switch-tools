@@ -64,9 +64,6 @@ build:
 build/init.o: init.c shim.h | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_audio_frame_queue.o: ../../../build/ffmpeg/libavcodec/audio_frame_queue.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavcodec_mdct15.o: ../../../build/ffmpeg/libavcodec/mdct15.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
@@ -91,8 +88,8 @@ build/libavcodec_opustab.o: ../../../build/ffmpeg/libavcodec/opustab.c | build c
 build/libavcodec_vorbis_data.o: ../../../build/ffmpeg/libavcodec/vorbis_data.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_audio_frame_queue.o build/libavcodec_mdct15.o build/libavcodec_opus_pvq.o build/libavcodec_opus_rc.o build/libavcodec_opus.o build/libavcodec_opusenc_psy.o build/libavcodec_opusenc.o build/libavcodec_opustab.o build/libavcodec_vorbis_data.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_audio_frame_queue.o build/libavcodec_mdct15.o build/libavcodec_opus_pvq.o build/libavcodec_opus_rc.o build/libavcodec_opus.o build/libavcodec_opusenc_psy.o build/libavcodec_opusenc.o build/libavcodec_opustab.o build/libavcodec_vorbis_data.o build/init.o
+$(OUT): build/libavcodec_mdct15.o build/libavcodec_opus_pvq.o build/libavcodec_opus_rc.o build/libavcodec_opus.o build/libavcodec_opusenc_psy.o build/libavcodec_opusenc.o build/libavcodec_opustab.o build/libavcodec_vorbis_data.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_mdct15.o build/libavcodec_opus_pvq.o build/libavcodec_opus_rc.o build/libavcodec_opus.o build/libavcodec_opusenc_psy.o build/libavcodec_opusenc.o build/libavcodec_opustab.o build/libavcodec_vorbis_data.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

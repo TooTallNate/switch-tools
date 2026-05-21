@@ -9,16 +9,15 @@
     }
   ],
   "objs": [
-    "libavcodec/audio_frame_queue.o",
     "libavcodec/vorbis_data.o",
     "libavcodec/vorbis.o",
     "libavcodec/vorbisenc.o"
   ],
   "configFlags": [
-    "AUDIO_FRAME_QUEUE",
     "VORBIS_ENCODER"
   ],
   "baseHelpers": [
+    "audio_frame_queue",
     "mdct"
   ]
 }

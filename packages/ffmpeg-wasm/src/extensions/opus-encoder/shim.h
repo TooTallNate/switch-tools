@@ -23,8 +23,6 @@
 #include "config.h"
 #include "config_components.h"
 
-#undef CONFIG_AUDIO_FRAME_QUEUE
-#define CONFIG_AUDIO_FRAME_QUEUE 1
 #undef CONFIG_MDCT15
 #define CONFIG_MDCT15 1
 #undef CONFIG_OPUS_ENCODER

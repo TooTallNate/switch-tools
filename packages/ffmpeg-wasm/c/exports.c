@@ -28,13 +28,16 @@
 #include "libavutil/avutil.h"
 #include "libavutil/avstring.h"
 #include "libavutil/base64.h"
+#include "libavutil/bprint.h"
 #include "libavutil/buffer.h"
 #include "libavutil/channel_layout.h"
 #include "libavutil/crc.h"
 #include "libavutil/dict.h"
+#include "libavutil/eval.h"
 #include "libavutil/float_dsp.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/intreadwrite.h"
+#include "libavutil/lfg.h"
 #include "libavutil/log.h"
 #include "libavutil/mathematics.h"
 #include "libavutil/mem.h"
@@ -146,6 +149,108 @@ extern void av_parser_close(struct AVCodecParserContext *s);
  * declarations live in `avio.h` which `avformat.h` pulls in;
  * no forward decls needed here for any `avio_*` symbol. */
 
+/* Encoder helpers — modern encoders use these instead of allocating
+ * packets manually. Defined in `libavcodec/encode.c`. */
+extern int  ff_get_encode_buffer(AVCodecContext *avctx, AVPacket *pkt,
+                                  int64_t size, int flags);
+extern int  ff_alloc_packet(AVCodecContext *avctx, AVPacket *pkt,
+                             int64_t size);
+
+/* libavcodec parser / DSP infrastructure — pulled in by most
+ * MPEG-family decoders. `ff_init_vlc_from_lengths` lives in the
+ * private vlc.h header; we declare it with `int` instead of
+ * the real `VLC*` first arg since we only need to take its
+ * address. */
+extern int  ff_init_vlc_from_lengths();
+extern void ff_init_scantable(uint8_t *permutation, void *st,
+                               const uint8_t *src_scantable);
+extern void ff_bswapdsp_init(void *c);
+extern void ff_idctdsp_init(void *c, AVCodecContext *avctx);
+extern void ff_videodsp_init(void *ctx, int bpc);
+extern void ff_qpeldsp_init(void *c);
+extern void ff_pixblockdsp_init(void *c, AVCodecContext *avctx);
+
+/* MPEG-video common helpers — H.263, MPEG-1/2/4, FLV, RV*, WMV1/2,
+ * MSMPEG4 family all share this core machinery. */
+struct MpegEncContext;
+extern int  ff_mpv_common_init(struct MpegEncContext *s);
+extern void ff_mpv_common_end(struct MpegEncContext *s);
+extern int  ff_mpv_decode_init(struct MpegEncContext *s, AVCodecContext *avctx);
+extern int  ff_mpv_frame_start(struct MpegEncContext *s, AVCodecContext *avctx);
+extern void ff_mpv_frame_end(struct MpegEncContext *s);
+extern int  ff_mpv_idct_init(struct MpegEncContext *s);
+extern void ff_mpeg_er_frame_start(struct MpegEncContext *s);
+extern void ff_print_debug_info(struct MpegEncContext *s, void *p);
+extern void ff_set_qscale(struct MpegEncContext *s, int q);
+extern void ff_rl_init(void *rl, uint8_t static_store[2][2 * 2 * 64]);
+extern int  ff_rl_init_vlc(void *rl, unsigned int static_size);
+extern int  ff_set_sar(AVCodecContext *avctx, void *r);
+extern int  ff_set_cmp(void *c, void *cmp, int type);
+extern int  ff_toupper4(unsigned int x);
+
+/* Frame-threading helpers (single-thread fallbacks present even
+ * when threads are disabled). */
+extern void ff_thread_finish_setup(AVCodecContext *avctx);
+extern void ff_thread_await_progress(AVFrame *f, int n, int field);
+extern void ff_thread_report_progress(AVFrame *f, int n, int field);
+extern int  ff_thread_get_ext_buffer(AVCodecContext *avctx, AVFrame *f,
+                                      int flags);
+extern int  ff_thread_get_format(AVCodecContext *avctx, const int *fmt);
+extern int  ff_thread_ref_frame(AVFrame *dst, AVFrame *src);
+extern void ff_thread_release_buffer(AVCodecContext *avctx, AVFrame *f);
+extern int  ff_thread_release_ext_buffer(AVCodecContext *avctx, void *f);
+extern int  ff_thread_can_start_frame(AVCodecContext *avctx);
+
+/* Format-IO + probing helpers. `av_demuxer_iterate`,
+ * `av_probe_input_format3` are declared in avformat.h. */
+extern void ff_format_io_close(AVFormatContext *s, AVIOContext **pb);
+extern int  avio_check(const char *url, int flags);
+extern int  avio_printf(AVIOContext *s, const char *fmt, ...);
+extern int  ff_read_packet(AVFormatContext *s, AVPacket *pkt);
+extern void ff_read_frame_flush(AVFormatContext *s);
+extern int  ff_reduce_index(AVFormatContext *s, int stream_index);
+extern int  ff_seek_frame_binary(AVFormatContext *s, int stream_index,
+                                  int64_t target_ts, int flags);
+extern int  ff_rfps_add_frame(AVFormatContext *ic, AVStream *st,
+                               int64_t ts);
+extern void ff_rfps_calculate(AVFormatContext *ic);
+extern int  ff_remove_stream(AVFormatContext *s, AVStream *st);
+extern int  ff_stream_add_bitstream_filter(AVStream *st, const char *name,
+                                            const char *args);
+extern int  ff_stream_encode_params_copy(AVStream *dst, const AVStream *src);
+extern int  ff_stream_side_data_copy(AVStream *dst, const AVStream *src);
+extern int  ff_write_chained(AVFormatContext *dst, int dst_stream,
+                              AVPacket *pkt, AVFormatContext *src, int interleave);
+extern int  ff_parse_key_value(const char *str, void *callback, void *ctx);
+
+/* libavutil — bprint, eval, LFG, side-data, frame helpers.
+ * `av_packet_pack_dictionary`, `av_hex_dump`, `av_pkt_dump_log2`
+ * are declared in their respective public headers. */
+extern void av_fast_padded_malloc(void *ptr, unsigned int *size, size_t min_size);
+extern int  av_get_frame_filename(char *buf, int buf_size, const char *path,
+                                   int number);
+extern int  av_reduce(int *dst_num, int *dst_den, int64_t num, int64_t den,
+                       int64_t max);
+extern void *av_realloc_array(void *ptr, size_t nmemb, size_t size);
+extern int  av_reallocp_array(void *ptr, size_t nmemb, size_t size);
+extern int  av_get_pix_fmt(const char *name);
+extern int  av_pix_fmt_get_chroma_sub_sample(int pix_fmt, int *h, int *v);
+extern char *av_asprintf(const char *fmt, ...);
+extern int  av_stristart(const char *str, const char *pfx, const char **ptr);
+extern const char *av_basename(const char *path);
+extern int  av_channel_layout_index_from_channel(const AVChannelLayout *cl,
+                                                  int channel);
+extern void av_downmix_info_update_side_data(AVFrame *f);
+extern int  av_side_data_update_matrix_encoding(AVFrame *f, int matrix_encoding);
+extern int  av_stream_set_side_data(AVStream *st, int type, void *data,
+                                     size_t size);
+extern int  ff_side_data_update_matrix_encoding(AVStream *st, int matrix);
+extern int  ff_side_data_set_encoder_stats(AVPacket *pkt, int quality,
+                                            int64_t *error, int error_count,
+                                            int pict_type);
+extern uint32_t av_adler32_update(uint32_t adler, const uint8_t *buf,
+                                   unsigned int len);
+
 /* Internal libavformat helpers — declarations live in private
  * headers we don't include. Forward-declare the minimum we need
  * to take their address; the actual type signatures don't matter
@@ -153,6 +258,21 @@ extern void av_parser_close(struct AVCodecParserContext *s);
 extern int  ffio_read_size(AVIOContext *s, unsigned char *buf, int size);
 extern void ffio_fill(AVIOContext *s, int b, int64_t count);
 extern void ffio_free_dyn_buf(AVIOContext **s);
+extern int  ffio_init_context(void *s, unsigned char *buf, int buf_size,
+                               int write_flag, void *opaque,
+                               int (*read_packet)(void *, uint8_t *, int),
+                               int (*write_packet)(void *, const uint8_t *, int),
+                               int64_t (*seek)(void *, int64_t, int));
+extern int  ffio_get_checksum(AVIOContext *s);
+extern void ffio_init_checksum(AVIOContext *s, uint32_t (*update_checksum)(uint32_t, const uint8_t *, unsigned int), uint32_t checksum);
+extern int  ffio_limit(AVIOContext *s, int size);
+extern int  ffio_ensure_seekback(AVIOContext *s, int64_t buf_size);
+extern int  ffio_read_indirect(AVIOContext *s, unsigned char *buf, int size,
+                                const unsigned char **data);
+extern int  ffio_read_varlen(AVIOContext *s);
+extern void ffio_reset_dyn_buf(AVIOContext *s);
+extern int  ffio_rewind_with_probe_data(AVIOContext *s, unsigned char **buf,
+                                          int buf_size);
 extern void *avpriv_new_chapter(AVFormatContext *s, int64_t id,
                                  int time_base_num, int time_base_den,
                                  int64_t start, int64_t end,
@@ -356,6 +476,83 @@ void * volatile ffmpeg_keepalive_table[] = {
 	/* FourCC pretty-printing. */
 	(void *)&av_fourcc_make_string,
 
+	/* bprint API — many encoders + muxers use this for building
+	 * variable-length strings (metadata, log lines, etc.). */
+	(void *)&av_bprint_init,
+	(void *)&av_bprint_finalize,
+	(void *)&av_bprint_chars,
+	(void *)&av_bprintf,
+	(void *)&av_asprintf,
+	(void *)&av_basename,
+	(void *)&av_stristart,
+	(void *)&av_reduce,
+	(void *)&av_realloc_array,
+	(void *)&av_reallocp_array,
+	(void *)&av_fast_padded_malloc,
+
+	/* Pixel-format introspection. */
+	(void *)&av_get_pix_fmt,
+	(void *)&av_pix_fmt_get_chroma_sub_sample,
+
+	/* Frame / packet helpers used by encoders. */
+	(void *)&av_packet_pack_dictionary,
+	(void *)&av_get_frame_filename,
+	(void *)&av_channel_layout_index_from_channel,
+	(void *)&av_downmix_info_update_side_data,
+	(void *)&av_adler32_update,
+	(void *)&av_hex_dump,
+	(void *)&av_pkt_dump_log2,
+
+	/* LFG (linear feedback random gen) — used by AC-3 / Speex /
+	 * DCA decoders for noise generation. */
+	(void *)&av_lfg_init,
+
+	/* Codec encoder helpers — modern encoders route allocations
+	 * through these. */
+	(void *)&ff_get_encode_buffer,
+	(void *)&ff_alloc_packet,
+
+	/* DSP init helpers for video codecs. */
+	(void *)&ff_init_vlc_from_lengths,
+	(void *)&ff_init_scantable,
+	(void *)&ff_bswapdsp_init,
+	(void *)&ff_idctdsp_init,
+	(void *)&ff_videodsp_init,
+	(void *)&ff_qpeldsp_init,
+	(void *)&ff_pixblockdsp_init,
+
+	/* MPEG-video common — used by every MPEG-family codec
+	 * (H.263, MPEG-1/2/4, FLV, RealVideo, WMV1/2, MSMPEG4). */
+	(void *)&ff_mpv_common_init,
+	(void *)&ff_mpv_common_end,
+	(void *)&ff_mpv_decode_init,
+	(void *)&ff_mpv_frame_start,
+	(void *)&ff_mpv_frame_end,
+	(void *)&ff_mpv_idct_init,
+	(void *)&ff_mpeg_er_frame_start,
+	(void *)&ff_print_debug_info,
+	(void *)&ff_set_qscale,
+	(void *)&ff_rl_init,
+	(void *)&ff_rl_init_vlc,
+	(void *)&ff_set_sar,
+	(void *)&ff_set_cmp,
+	(void *)&ff_toupper4,
+
+	/* Frame-threading helpers (single-threaded fallbacks). */
+	(void *)&ff_thread_finish_setup,
+	(void *)&ff_thread_await_progress,
+	(void *)&ff_thread_report_progress,
+	(void *)&ff_thread_get_ext_buffer,
+	(void *)&ff_thread_get_format,
+	(void *)&ff_thread_ref_frame,
+	(void *)&ff_thread_release_buffer,
+	(void *)&ff_thread_release_ext_buffer,
+	(void *)&ff_thread_can_start_frame,
+
+	/* Side-data helpers. */
+	(void *)&ff_side_data_update_matrix_encoding,
+	(void *)&ff_side_data_set_encoder_stats,
+
 	/* --- libavformat --- */
 	(void *)&avformat_alloc_context,
 	(void *)&avformat_free_context,
@@ -430,6 +627,36 @@ void * volatile ffmpeg_keepalive_table[] = {
 
 	/* Creation-time tag helper. */
 	(void *)&ff_standardize_creation_time,
+
+	/* Format-IO + probing helpers. */
+	(void *)&ff_format_io_close,
+	(void *)&av_demuxer_iterate,
+	(void *)&av_probe_input_format3,
+	(void *)&avio_check,
+	(void *)&avio_printf,
+	(void *)&ff_read_packet,
+	(void *)&ff_read_frame_flush,
+	(void *)&ff_reduce_index,
+	(void *)&ff_seek_frame_binary,
+	(void *)&ff_rfps_add_frame,
+	(void *)&ff_rfps_calculate,
+	(void *)&ff_remove_stream,
+	(void *)&ff_stream_add_bitstream_filter,
+	(void *)&ff_stream_encode_params_copy,
+	(void *)&ff_stream_side_data_copy,
+	(void *)&ff_write_chained,
+	(void *)&ff_parse_key_value,
+
+	/* Internal ffio_* helpers. */
+	(void *)&ffio_init_context,
+	(void *)&ffio_get_checksum,
+	(void *)&ffio_init_checksum,
+	(void *)&ffio_limit,
+	(void *)&ffio_ensure_seekback,
+	(void *)&ffio_read_indirect,
+	(void *)&ffio_read_varlen,
+	(void *)&ffio_reset_dyn_buf,
+	(void *)&ffio_rewind_with_probe_data,
 
 	(void *)0,
 };

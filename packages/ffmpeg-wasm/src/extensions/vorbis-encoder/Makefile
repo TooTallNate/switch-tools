@@ -64,9 +64,6 @@ build:
 build/init.o: init.c shim.h | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_audio_frame_queue.o: ../../../build/ffmpeg/libavcodec/audio_frame_queue.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavcodec_vorbis_data.o: ../../../build/ffmpeg/libavcodec/vorbis_data.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
@@ -76,8 +73,8 @@ build/libavcodec_vorbis.o: ../../../build/ffmpeg/libavcodec/vorbis.c | build che
 build/libavcodec_vorbisenc.o: ../../../build/ffmpeg/libavcodec/vorbisenc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_audio_frame_queue.o build/libavcodec_vorbis_data.o build/libavcodec_vorbis.o build/libavcodec_vorbisenc.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_audio_frame_queue.o build/libavcodec_vorbis_data.o build/libavcodec_vorbis.o build/libavcodec_vorbisenc.o build/init.o
+$(OUT): build/libavcodec_vorbis_data.o build/libavcodec_vorbis.o build/libavcodec_vorbisenc.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_vorbis_data.o build/libavcodec_vorbis.o build/libavcodec_vorbisenc.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

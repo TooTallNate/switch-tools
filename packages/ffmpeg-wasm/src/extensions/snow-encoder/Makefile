@@ -73,9 +73,6 @@ build/libavcodec_h263data.o: ../../../build/ffmpeg/libavcodec/h263data.c | build
 build/libavcodec_ituh263enc.o: ../../../build/ffmpeg/libavcodec/ituh263enc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_rangecoder.o: ../../../build/ffmpeg/libavcodec/rangecoder.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavcodec_snow_dwt.o: ../../../build/ffmpeg/libavcodec/snow_dwt.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
@@ -85,8 +82,8 @@ build/libavcodec_snow.o: ../../../build/ffmpeg/libavcodec/snow.c | build check-b
 build/libavcodec_snowenc.o: ../../../build/ffmpeg/libavcodec/snowenc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_h263.o build/libavcodec_h263data.o build/libavcodec_ituh263enc.o build/libavcodec_rangecoder.o build/libavcodec_snow_dwt.o build/libavcodec_snow.o build/libavcodec_snowenc.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_h263.o build/libavcodec_h263data.o build/libavcodec_ituh263enc.o build/libavcodec_rangecoder.o build/libavcodec_snow_dwt.o build/libavcodec_snow.o build/libavcodec_snowenc.o build/init.o
+$(OUT): build/libavcodec_h263.o build/libavcodec_h263data.o build/libavcodec_ituh263enc.o build/libavcodec_snow_dwt.o build/libavcodec_snow.o build/libavcodec_snowenc.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_h263.o build/libavcodec_h263data.o build/libavcodec_ituh263enc.o build/libavcodec_snow_dwt.o build/libavcodec_snow.o build/libavcodec_snowenc.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

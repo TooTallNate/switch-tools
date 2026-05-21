@@ -18,7 +18,6 @@
     "libavformat/avc.o",
     "libavformat/dovi_isom.o",
     "libavformat/hevc.o",
-    "libavformat/isom.o",
     "libavformat/mov_chan.o",
     "libavformat/movenc_ttml.o",
     "libavformat/movenc.o",
@@ -34,7 +33,6 @@
   "configFlags": [
     "AAC_ADTSTOASC_BSF",
     "ADTS_HEADER",
-    "ISO_MEDIA",
     "MOV_MUXER",
     "MPEG4AUDIO",
     "RIFFENC",
@@ -42,5 +40,7 @@
     "SMOOTHSTREAMING_MUXER",
     "VP9_SUPERFRAME_BSF"
   ],
-  "baseHelpers": []
+  "baseHelpers": [
+    "iso_media"
+  ]
 }

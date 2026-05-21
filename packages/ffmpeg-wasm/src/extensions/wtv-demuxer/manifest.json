@@ -9,21 +9,18 @@
     }
   ],
   "objs": [
-    "libavcodec/mpeg4audio_sample_rates.o",
-    "libavcodec/mpeg4audio.o",
     "libavformat/asf.o",
-    "libavformat/isom.o",
     "libavformat/mpegts.o",
     "libavformat/riffdec.o",
     "libavformat/wtv_common.o",
     "libavformat/wtvdec.o"
   ],
   "configFlags": [
-    "ISO_MEDIA",
-    "MPEG4AUDIO",
     "MPEGTS_DEMUXER",
     "RIFFDEC",
     "WTV_DEMUXER"
   ],
-  "baseHelpers": []
+  "baseHelpers": [
+    "iso_media"
+  ]
 }

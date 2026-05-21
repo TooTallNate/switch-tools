@@ -9,15 +9,14 @@
     }
   ],
   "objs": [
-    "libavcodec/audio_frame_queue.o",
     "libavcodec/nellymoser.o",
     "libavcodec/nellymoserenc.o"
   ],
   "configFlags": [
-    "AUDIO_FRAME_QUEUE",
     "NELLYMOSER_ENCODER"
   ],
   "baseHelpers": [
+    "audio_frame_queue",
     "mdct",
     "sinewin"
   ]

@@ -9,15 +9,14 @@
     }
   ],
   "objs": [
-    "libavcodec/mpegaudiodecheader.o",
-    "libavcodec/mpegaudiotabs.o",
     "libavformat/id3v2enc.o",
     "libavformat/mp3enc.o",
     "libavformat/rawenc.o"
   ],
   "configFlags": [
-    "MP3_MUXER",
-    "MPEGAUDIOHEADER"
+    "MP3_MUXER"
   ],
-  "baseHelpers": []
+  "baseHelpers": [
+    "mpegaudioheader"
+  ]
 }

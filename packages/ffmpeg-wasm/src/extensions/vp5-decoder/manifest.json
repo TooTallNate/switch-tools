@@ -9,7 +9,6 @@
     }
   ],
   "objs": [
-    "libavcodec/vp3dsp.o",
     "libavcodec/vp5.o",
     "libavcodec/vp56.o",
     "libavcodec/vp56data.o",
@@ -17,13 +16,13 @@
     "libavcodec/vp56rac.o"
   ],
   "configFlags": [
-    "VP3DSP",
     "VP56DSP",
     "VP5_DECODER"
   ],
   "baseHelpers": [
     "h264chroma",
     "hpeldsp",
-    "videodsp"
+    "videodsp",
+    "vp3dsp"
   ]
 }

@@ -23,8 +23,6 @@
 #include "config.h"
 #include "config_components.h"
 
-#undef CONFIG_AUDIO_FRAME_QUEUE
-#define CONFIG_AUDIO_FRAME_QUEUE 1
 #undef CONFIG_VORBIS_ENCODER
 #define CONFIG_VORBIS_ENCODER 1
 

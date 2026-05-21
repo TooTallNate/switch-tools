@@ -64,16 +64,7 @@ build:
 build/init.o: init.c shim.h | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_mpeg4audio_sample_rates.o: ../../../build/ffmpeg/libavcodec/mpeg4audio_sample_rates.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-build/libavcodec_mpeg4audio.o: ../../../build/ffmpeg/libavcodec/mpeg4audio.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavformat_dovi_isom.o: ../../../build/ffmpeg/libavformat/dovi_isom.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-build/libavformat_isom.o: ../../../build/ffmpeg/libavformat/isom.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
 build/libavformat_mov_chan.o: ../../../build/ffmpeg/libavformat/mov_chan.c | build check-base
@@ -94,8 +85,8 @@ build/libavformat_replaygain.o: ../../../build/ffmpeg/libavformat/replaygain.c |
 build/libavformat_riffdec.o: ../../../build/ffmpeg/libavformat/riffdec.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavformat_dovi_isom.o build/libavformat_isom.o build/libavformat_mov_chan.o build/libavformat_mov_esds.o build/libavformat_mov.o build/libavformat_qtpalette.o build/libavformat_replaygain.o build/libavformat_riffdec.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavformat_dovi_isom.o build/libavformat_isom.o build/libavformat_mov_chan.o build/libavformat_mov_esds.o build/libavformat_mov.o build/libavformat_qtpalette.o build/libavformat_replaygain.o build/libavformat_riffdec.o build/init.o
+$(OUT): build/libavformat_dovi_isom.o build/libavformat_mov_chan.o build/libavformat_mov_esds.o build/libavformat_mov.o build/libavformat_qtpalette.o build/libavformat_replaygain.o build/libavformat_riffdec.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavformat_dovi_isom.o build/libavformat_mov_chan.o build/libavformat_mov_esds.o build/libavformat_mov.o build/libavformat_qtpalette.o build/libavformat_replaygain.o build/libavformat_riffdec.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

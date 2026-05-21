@@ -91,9 +91,6 @@ build/libavcodec_aacpsy.o: ../../../build/ffmpeg/libavcodec/aacpsy.c | build che
 build/libavcodec_aactab.o: ../../../build/ffmpeg/libavcodec/aactab.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_audio_frame_queue.o: ../../../build/ffmpeg/libavcodec/audio_frame_queue.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavcodec_iirfilter.o: ../../../build/ffmpeg/libavcodec/iirfilter.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
@@ -109,8 +106,8 @@ build/libavcodec_mpeg4audio_sample_rates.o: ../../../build/ffmpeg/libavcodec/mpe
 build/libavcodec_psymodel.o: ../../../build/ffmpeg/libavcodec/psymodel.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_aaccoder.o build/libavcodec_aacenc_is.o build/libavcodec_aacenc_ltp.o build/libavcodec_aacenc_pred.o build/libavcodec_aacenc_tns.o build/libavcodec_aacenc.o build/libavcodec_aacenctab.o build/libavcodec_aacpsy.o build/libavcodec_aactab.o build/libavcodec_audio_frame_queue.o build/libavcodec_iirfilter.o build/libavcodec_kbdwin.o build/libavcodec_lpc.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_psymodel.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_aaccoder.o build/libavcodec_aacenc_is.o build/libavcodec_aacenc_ltp.o build/libavcodec_aacenc_pred.o build/libavcodec_aacenc_tns.o build/libavcodec_aacenc.o build/libavcodec_aacenctab.o build/libavcodec_aacpsy.o build/libavcodec_aactab.o build/libavcodec_audio_frame_queue.o build/libavcodec_iirfilter.o build/libavcodec_kbdwin.o build/libavcodec_lpc.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_psymodel.o build/init.o
+$(OUT): build/libavcodec_aaccoder.o build/libavcodec_aacenc_is.o build/libavcodec_aacenc_ltp.o build/libavcodec_aacenc_pred.o build/libavcodec_aacenc_tns.o build/libavcodec_aacenc.o build/libavcodec_aacenctab.o build/libavcodec_aacpsy.o build/libavcodec_aactab.o build/libavcodec_iirfilter.o build/libavcodec_kbdwin.o build/libavcodec_lpc.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_psymodel.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_aaccoder.o build/libavcodec_aacenc_is.o build/libavcodec_aacenc_ltp.o build/libavcodec_aacenc_pred.o build/libavcodec_aacenc_tns.o build/libavcodec_aacenc.o build/libavcodec_aacenctab.o build/libavcodec_aacpsy.o build/libavcodec_aactab.o build/libavcodec_iirfilter.o build/libavcodec_kbdwin.o build/libavcodec_lpc.o build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_psymodel.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

@@ -23,8 +23,6 @@
 #include "config.h"
 #include "config_components.h"
 
-#undef CONFIG_RANGECODER
-#define CONFIG_RANGECODER 1
 #undef CONFIG_SNOW_DECODER
 #define CONFIG_SNOW_DECODER 1
 

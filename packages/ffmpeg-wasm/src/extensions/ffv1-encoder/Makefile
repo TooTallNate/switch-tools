@@ -70,11 +70,8 @@ build/libavcodec_ffv1.o: ../../../build/ffmpeg/libavcodec/ffv1.c | build check-b
 build/libavcodec_ffv1enc.o: ../../../build/ffmpeg/libavcodec/ffv1enc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_rangecoder.o: ../../../build/ffmpeg/libavcodec/rangecoder.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-$(OUT): build/libavcodec_ffv1.o build/libavcodec_ffv1enc.o build/libavcodec_rangecoder.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_ffv1.o build/libavcodec_ffv1enc.o build/libavcodec_rangecoder.o build/init.o
+$(OUT): build/libavcodec_ffv1.o build/libavcodec_ffv1enc.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_ffv1.o build/libavcodec_ffv1enc.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

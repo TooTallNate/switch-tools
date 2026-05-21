@@ -10,7 +10,6 @@
   ],
   "objs": [
     "libavcodec/huffman.o",
-    "libavcodec/vp3dsp.o",
     "libavcodec/vp56.o",
     "libavcodec/vp56data.o",
     "libavcodec/vp56dsp.o",
@@ -20,13 +19,13 @@
   ],
   "configFlags": [
     "HUFFMAN",
-    "VP3DSP",
     "VP56DSP",
     "VP6_DECODER"
   ],
   "baseHelpers": [
     "h264chroma",
     "hpeldsp",
-    "videodsp"
+    "videodsp",
+    "vp3dsp"
   ]
 }

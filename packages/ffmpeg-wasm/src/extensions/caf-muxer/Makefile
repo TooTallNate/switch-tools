@@ -64,23 +64,14 @@ build:
 build/init.o: init.c shim.h | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_mpeg4audio_sample_rates.o: ../../../build/ffmpeg/libavcodec/mpeg4audio_sample_rates.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-build/libavcodec_mpeg4audio.o: ../../../build/ffmpeg/libavcodec/mpeg4audio.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavformat_caf.o: ../../../build/ffmpeg/libavformat/caf.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
 build/libavformat_cafenc.o: ../../../build/ffmpeg/libavformat/cafenc.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavformat_isom.o: ../../../build/ffmpeg/libavformat/isom.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-$(OUT): build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavformat_caf.o build/libavformat_cafenc.o build/libavformat_isom.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_mpeg4audio_sample_rates.o build/libavcodec_mpeg4audio.o build/libavformat_caf.o build/libavformat_cafenc.o build/libavformat_isom.o build/init.o
+$(OUT): build/libavformat_caf.o build/libavformat_cafenc.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavformat_caf.o build/libavformat_cafenc.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

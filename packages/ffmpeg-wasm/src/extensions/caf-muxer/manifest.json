@@ -9,16 +9,13 @@
     }
   ],
   "objs": [
-    "libavcodec/mpeg4audio_sample_rates.o",
-    "libavcodec/mpeg4audio.o",
     "libavformat/caf.o",
-    "libavformat/cafenc.o",
-    "libavformat/isom.o"
+    "libavformat/cafenc.o"
   ],
   "configFlags": [
-    "CAF_MUXER",
-    "ISO_MEDIA",
-    "MPEG4AUDIO"
+    "CAF_MUXER"
   ],
-  "baseHelpers": []
+  "baseHelpers": [
+    "iso_media"
+  ]
 }

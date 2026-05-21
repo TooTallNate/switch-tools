@@ -59,6 +59,7 @@ HELPERS=(
     audiodsp
     mpegaudiodsp
     mpegaudio
+    mpegaudioheader
     aandcttables
     wma_freqs
     cabac
@@ -69,7 +70,13 @@ HELPERS=(
     mpegvideo
     mpegvideoenc
     mpegvideodec
+    mpeg_er
+    error_resilience
+    rangecoder
+    vp3dsp
     pixelutils
+    audio_frame_queue
+    iso_media
 )
 
 # config.h: flip `#define CONFIG_X 0` → `1`

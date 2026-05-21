@@ -9,15 +9,14 @@
     }
   ],
   "objs": [
-    "libavcodec/vp3.o",
-    "libavcodec/vp3dsp.o"
+    "libavcodec/vp3.o"
   ],
   "configFlags": [
-    "VP3DSP",
     "VP3_DECODER"
   ],
   "baseHelpers": [
     "hpeldsp",
-    "videodsp"
+    "videodsp",
+    "vp3dsp"
   ]
 }

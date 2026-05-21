@@ -12,19 +12,18 @@
     "libavcodec/h263.o",
     "libavcodec/h263data.o",
     "libavcodec/ituh263enc.o",
-    "libavcodec/rangecoder.o",
     "libavcodec/snow_dwt.o",
     "libavcodec/snow.o",
     "libavcodec/snowenc.o"
   ],
   "configFlags": [
-    "RANGECODER",
     "SNOW_ENCODER"
   ],
   "baseHelpers": [
     "h264qpel",
     "hpeldsp",
     "me_cmp",
-    "mpegvideoenc"
+    "mpegvideoenc",
+    "rangecoder"
   ]
 }

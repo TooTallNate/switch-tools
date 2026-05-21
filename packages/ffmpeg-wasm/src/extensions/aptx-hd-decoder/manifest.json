@@ -10,12 +10,12 @@
   ],
   "objs": [
     "libavcodec/aptx.o",
-    "libavcodec/aptxdec.o",
-    "libavcodec/audio_frame_queue.o"
+    "libavcodec/aptxdec.o"
   ],
   "configFlags": [
-    "APTX_HD_DECODER",
-    "AUDIO_FRAME_QUEUE"
+    "APTX_HD_DECODER"
   ],
-  "baseHelpers": []
+  "baseHelpers": [
+    "audio_frame_queue"
+  ]
 }

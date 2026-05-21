@@ -23,12 +23,8 @@
 #include "config.h"
 #include "config_components.h"
 
-#undef CONFIG_ISO_MEDIA
-#define CONFIG_ISO_MEDIA 1
 #undef CONFIG_MOV_DEMUXER
 #define CONFIG_MOV_DEMUXER 1
-#undef CONFIG_MPEG4AUDIO
-#define CONFIG_MPEG4AUDIO 1
 #undef CONFIG_RIFFDEC
 #define CONFIG_RIFFDEC 1
 

@@ -64,9 +64,6 @@ build:
 build/init.o: init.c shim.h | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_vp3dsp.o: ../../../build/ffmpeg/libavcodec/vp3dsp.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavcodec_vp5.o: ../../../build/ffmpeg/libavcodec/vp5.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
@@ -82,8 +79,8 @@ build/libavcodec_vp56dsp.o: ../../../build/ffmpeg/libavcodec/vp56dsp.c | build c
 build/libavcodec_vp56rac.o: ../../../build/ffmpeg/libavcodec/vp56rac.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_vp3dsp.o build/libavcodec_vp5.o build/libavcodec_vp56.o build/libavcodec_vp56data.o build/libavcodec_vp56dsp.o build/libavcodec_vp56rac.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_vp3dsp.o build/libavcodec_vp5.o build/libavcodec_vp56.o build/libavcodec_vp56data.o build/libavcodec_vp56dsp.o build/libavcodec_vp56rac.o build/init.o
+$(OUT): build/libavcodec_vp5.o build/libavcodec_vp56.o build/libavcodec_vp56data.o build/libavcodec_vp56dsp.o build/libavcodec_vp56rac.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_vp5.o build/libavcodec_vp56.o build/libavcodec_vp56data.o build/libavcodec_vp56dsp.o build/libavcodec_vp56rac.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

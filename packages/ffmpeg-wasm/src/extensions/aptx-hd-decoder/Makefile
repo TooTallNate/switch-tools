@@ -70,11 +70,8 @@ build/libavcodec_aptx.o: ../../../build/ffmpeg/libavcodec/aptx.c | build check-b
 build/libavcodec_aptxdec.o: ../../../build/ffmpeg/libavcodec/aptxdec.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_audio_frame_queue.o: ../../../build/ffmpeg/libavcodec/audio_frame_queue.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
-$(OUT): build/libavcodec_aptx.o build/libavcodec_aptxdec.o build/libavcodec_audio_frame_queue.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_aptx.o build/libavcodec_aptxdec.o build/libavcodec_audio_frame_queue.o build/init.o
+$(OUT): build/libavcodec_aptx.o build/libavcodec_aptxdec.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_aptx.o build/libavcodec_aptxdec.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

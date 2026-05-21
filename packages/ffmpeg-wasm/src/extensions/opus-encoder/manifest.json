@@ -9,7 +9,6 @@
     }
   ],
   "objs": [
-    "libavcodec/audio_frame_queue.o",
     "libavcodec/mdct15.o",
     "libavcodec/opus_pvq.o",
     "libavcodec/opus_rc.o",
@@ -20,11 +19,11 @@
     "libavcodec/vorbis_data.o"
   ],
   "configFlags": [
-    "AUDIO_FRAME_QUEUE",
     "MDCT15",
     "OPUS_ENCODER"
   ],
   "baseHelpers": [
+    "audio_frame_queue",
     "fft"
   ]
 }

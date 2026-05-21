@@ -64,9 +64,6 @@ build:
 build/init.o: init.c shim.h | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-build/libavcodec_error_resilience.o: ../../../build/ffmpeg/libavcodec/error_resilience.c | build check-base
-	$(CC) $(BASE_CFLAGS) -c -o $@ $<
-
 build/libavcodec_h263_parser.o: ../../../build/ffmpeg/libavcodec/h263_parser.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
@@ -112,8 +109,8 @@ build/libavcodec_wmv2dec.o: ../../../build/ffmpeg/libavcodec/wmv2dec.c | build c
 build/libavcodec_wmv2dsp.o: ../../../build/ffmpeg/libavcodec/wmv2dsp.c | build check-base
 	$(CC) $(BASE_CFLAGS) -c -o $@ $<
 
-$(OUT): build/libavcodec_error_resilience.o build/libavcodec_h263_parser.o build/libavcodec_h263.o build/libavcodec_h263data.o build/libavcodec_h263dec.o build/libavcodec_h263dsp.o build/libavcodec_ituh263dec.o build/libavcodec_mpeg4video.o build/libavcodec_mpeg4videodec.o build/libavcodec_msmpeg4.o build/libavcodec_msmpeg4data.o build/libavcodec_msmpeg4dec.o build/libavcodec_wmv2.o build/libavcodec_wmv2data.o build/libavcodec_wmv2dec.o build/libavcodec_wmv2dsp.o build/init.o
-	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_error_resilience.o build/libavcodec_h263_parser.o build/libavcodec_h263.o build/libavcodec_h263data.o build/libavcodec_h263dec.o build/libavcodec_h263dsp.o build/libavcodec_ituh263dec.o build/libavcodec_mpeg4video.o build/libavcodec_mpeg4videodec.o build/libavcodec_msmpeg4.o build/libavcodec_msmpeg4data.o build/libavcodec_msmpeg4dec.o build/libavcodec_wmv2.o build/libavcodec_wmv2data.o build/libavcodec_wmv2dec.o build/libavcodec_wmv2dsp.o build/init.o
+$(OUT): build/libavcodec_h263_parser.o build/libavcodec_h263.o build/libavcodec_h263data.o build/libavcodec_h263dec.o build/libavcodec_h263dsp.o build/libavcodec_ituh263dec.o build/libavcodec_mpeg4video.o build/libavcodec_mpeg4videodec.o build/libavcodec_msmpeg4.o build/libavcodec_msmpeg4data.o build/libavcodec_msmpeg4dec.o build/libavcodec_wmv2.o build/libavcodec_wmv2data.o build/libavcodec_wmv2dec.o build/libavcodec_wmv2dsp.o build/init.o
+	$(WASM_LD) $(LDFLAGS) -o $@ build/libavcodec_h263_parser.o build/libavcodec_h263.o build/libavcodec_h263data.o build/libavcodec_h263dec.o build/libavcodec_h263dsp.o build/libavcodec_ituh263dec.o build/libavcodec_mpeg4video.o build/libavcodec_mpeg4videodec.o build/libavcodec_msmpeg4.o build/libavcodec_msmpeg4data.o build/libavcodec_msmpeg4dec.o build/libavcodec_wmv2.o build/libavcodec_wmv2data.o build/libavcodec_wmv2dec.o build/libavcodec_wmv2dsp.o build/init.o
 	@echo "Built $(OUT) ($$(wc -c < $(OUT) | tr -d ' ') bytes)"
 
 clean:

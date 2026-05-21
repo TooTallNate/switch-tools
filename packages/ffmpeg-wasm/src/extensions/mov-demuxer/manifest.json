@@ -9,10 +9,7 @@
     }
   ],
   "objs": [
-    "libavcodec/mpeg4audio_sample_rates.o",
-    "libavcodec/mpeg4audio.o",
     "libavformat/dovi_isom.o",
-    "libavformat/isom.o",
     "libavformat/mov_chan.o",
     "libavformat/mov_esds.o",
     "libavformat/mov.o",
@@ -21,10 +18,10 @@
     "libavformat/riffdec.o"
   ],
   "configFlags": [
-    "ISO_MEDIA",
     "MOV_DEMUXER",
-    "MPEG4AUDIO",
     "RIFFDEC"
   ],
-  "baseHelpers": []
+  "baseHelpers": [
+    "iso_media"
+  ]
 }
