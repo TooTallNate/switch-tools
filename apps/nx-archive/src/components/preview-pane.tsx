@@ -40,14 +40,18 @@ import { BfresViewer } from "./bfres-viewer"
 import { ObjectLabel, ObjectRootLabel } from "react-inspector"
 import { JsonInspector, UnityObjectInspector } from "./data-inspector"
 import {
-  demuxIvf,
-  isVp9Keyframe,
-  muxVp9WebmBlob,
   parseUsm,
   type UsmFile,
   type UsmStream,
   type UsmVideoStream,
 } from "@tootallnate/usm"
+import {
+  streamUsmToWebm,
+  UnsupportedUsmCodecError,
+  type UsmStreamInfo,
+  type UsmStreamProgress,
+  type UsmStreamResult,
+} from "~/lib/usm-stream"
 import {
   ClassId as UnityClassId,
   parseObject as parseUnityObject,
@@ -2225,18 +2229,33 @@ function MediaPreview({
       />
     )
   if (error) return <ErrorFiller error={error} />
-  return (
-    <div className="flex h-full items-center justify-center bg-muted/40 p-6">
-      {kind === "audio" ? (
+
+  // Audio: simple centered <audio>, nothing extra to surface.
+  if (kind === "audio") {
+    return (
+      <div className="flex h-full items-center justify-center bg-muted/40 p-6">
         <audio src={data!.url} controls className="w-full max-w-md" />
-      ) : (
-        <video
-          src={data!.url}
-          controls
-          className="max-h-full max-w-full rounded-md ring-1 ring-foreground/10"
-        />
-      )}
-    </div>
+      </div>
+    )
+  }
+
+  // Video: use the shared layout so the player section gets a
+  // section header, caption, and Save button just like the
+  // transcoded video previews (Bink / USM).
+  const ext = extOf(node.name)
+  const mime = VIDEO_MIME[ext] ?? "video/*"
+  const sectionTitle = `${ext.toUpperCase()} video`
+  return (
+    <VideoPreviewLayout
+      sectionTitle={sectionTitle}
+      // We don't know the source's intrinsic aspect ratio without
+      // parsing the container, so hold a 16:9 placeholder. The
+      // browser will letterbox the <video> inside it.
+      aspectRatio="16 / 9"
+      player={{ kind: "video", url: data!.url }}
+      caption={`${mime} · ${formatBytes(node.size ?? 0)}`}
+      download={{ url: data!.url, filename: node.name }}
+    />
   )
 }
 
@@ -8640,6 +8659,181 @@ export function formatDuration(seconds: number): string {
 }
 
 // ====================================================================
+// Shared layout for video previews
+// ====================================================================
+//
+// Every preview that renders a `<video>` shares the same shape:
+//
+//   SectionHeader (codec / format friendly name)
+//   ┌ Video player card ───────────────────────┐
+//   │   <video> (or placeholder while loading) │
+//   │   [Progress bar — only while transcoding]│
+//   │   [Caption line]            [Save button]│
+//   └──────────────────────────────────────────┘
+//   [optional metadata blocks]
+//
+// Concrete previews (MediaPreview, UsmPreview, BinkPreview, …)
+// just hand us the source URL + progress + caption + metadata
+// they want to surface. The placeholder slot keeps the player
+// area's aspect ratio from the moment the preview mounts, so
+// there's no layout shift when the URL resolves.
+
+/**
+ * A discriminated description of the `<video>` slot's state.
+ * Lets the layout render a player, a loading spinner, an error
+ * panel, or an unsupported-codec notice without each caller
+ * having to render conditional JSX.
+ */
+type VideoPreviewPlayer =
+  | {
+      kind: "video"
+      /** A `<video src>` URL (object URL, MediaSource URL, or VFS URL). */
+      url: string
+      /**
+       * Set when the URL is a MediaSource (i.e. we still need
+       * to feed it more bytes). Triggers `autoPlay` so the
+       * `<video>` starts as soon as MSE has data.
+       */
+      streaming?: boolean
+    }
+  | { kind: "loading"; label?: string }
+  | { kind: "error"; reason: string }
+  | { kind: "unsupported"; reason: string }
+
+interface VideoPreviewLayoutProps {
+  /** Friendly format name, e.g. "USM — CRI Sofdec2 video container". */
+  sectionTitle: string
+  /**
+   * Aspect ratio of the player slot, kept stable across all
+   * states so the layout doesn't shift between loading → playing.
+   * Use the source video's `width / height` when known, otherwise
+   * a placeholder like `"16 / 9"`.
+   */
+  aspectRatio: string
+  /** Discriminated player state. */
+  player: VideoPreviewPlayer
+  /**
+   * Optional progress strip beneath the player. Hidden once the
+   * remux/encode completes — by then the player has all the
+   * bytes it needs.
+   */
+  progress?: {
+    /** e.g. "Encoding frame 42 of 100 · 31.4 fps". */
+    label: string
+    /** 0–100 integer for the bar. */
+    pct: number
+  }
+  /**
+   * Optional caption line under the player (e.g. format summary
+   * "H.264 / MP4 (1920×1080 · 30.00 fps · 12.4 MB)"). Falls back
+   * to nothing — the caption row only renders when caption AND/OR
+   * download are present.
+   */
+  caption?: React.ReactNode
+  /**
+   * Optional "Save" link rendered on the right of the caption
+   * row. The browser uses `download` for the saved filename.
+   */
+  download?: {
+    url: string
+    filename: string
+    /** Defaults to "Save". */
+    label?: string
+  }
+  /**
+   * Optional metadata blocks (KvBlocks, stream tables, etc.)
+   * rendered below the player card.
+   */
+  metadata?: React.ReactNode
+}
+
+/**
+ * Shared layout for any preview that hosts a `<video>` element.
+ * Concrete previews wrap their state machine into a
+ * `VideoPreviewPlayer` and let this component render the rest.
+ *
+ * Keeps the player area mounted at a stable aspect ratio across
+ * loading, streaming, and ready states — no layout jump when
+ * the URL resolves.
+ */
+function VideoPreviewLayout({
+  sectionTitle,
+  aspectRatio,
+  player,
+  progress,
+  caption,
+  download,
+  metadata,
+}: VideoPreviewLayoutProps) {
+  const showCaptionRow = !!caption || !!download
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title={sectionTitle} />
+
+        <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+          {player.kind === "video" ? (
+            <video
+              // `key` forces the element to remount when the URL
+              // changes between files so the browser doesn't keep
+              // an old MediaSource attached.
+              key={player.url}
+              src={player.url}
+              controls
+              autoPlay={player.streaming ?? false}
+              className="w-full rounded-md bg-black"
+              style={{ aspectRatio }}
+            />
+          ) : player.kind === "error" || player.kind === "unsupported" ? (
+            <div
+              className="flex w-full items-center justify-center rounded-md border border-dashed border-destructive/40 bg-destructive/5 p-6 text-center text-sm text-destructive"
+              style={{ aspectRatio }}
+            >
+              {player.reason}
+            </div>
+          ) : (
+            <div
+              className="flex w-full flex-col items-center justify-center gap-2 rounded-md bg-black text-xs text-muted-foreground"
+              style={{ aspectRatio }}
+            >
+              <Spinner />
+              {player.label && <span>{player.label}</span>}
+            </div>
+          )}
+
+          {progress && (
+            <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+              <Progress value={progress.pct} className="w-full" />
+              <div className="flex items-center justify-between">
+                <span>{progress.label}</span>
+                <span>{progress.pct}%</span>
+              </div>
+            </div>
+          )}
+
+          {showCaptionRow && (
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span>{caption}</span>
+              {download && (
+                <a
+                  href={download.url}
+                  download={download.filename}
+                  className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+                >
+                  {download.label ?? "Save"}
+                </a>
+              )}
+            </div>
+          )}
+        </section>
+
+        {metadata}
+      </div>
+    </ScrollArea>
+  )
+}
+
+// ====================================================================
 // USM — CRI Sofdec2 video container preview
 // ====================================================================
 //
@@ -8651,208 +8845,292 @@ export function formatDuration(seconds: number): string {
 // audio streams in the metadata table but don't attempt playback
 // until we ship an HCA decoder.
 
-interface UsmView {
-  /** Full parsed USM (chunks, streams). */
-  usm: UsmFile
-  /** Selected video stream (currently always the first one). */
-  video: UsmVideoStream | null
+/**
+ * USM preview state machine. Mirrors the bink preview's
+ * streaming flow (see `BinkPreviewState`) but with one less
+ * stage — USM has no encode step, just demux → remux.
+ */
+interface UsmPreviewState {
   /**
-   * Non-null when the video stream was successfully remuxed to
-   * WebM. Object URL lifetime is managed by `UsmPreview` so
-   * the cleanup runs once per node. Still-frame metadata is
-   * displayed even when this is null (e.g. unsupported codec).
+   * - `loading`: USM file is being parsed (header walk + IVF
+   *   demux). The container metadata table renders during this
+   *   phase too if parseUsm has resolved.
+   * - `streaming`: MediaSource URL is assigned to `<video>`,
+   *   muxer running in the background, may already be playing.
+   * - `ready`: muxer finished, "Save .webm" wired.
+   * - `error`: parse / remux failure.
+   * - `unsupported`: video stream is something other than VP9
+   *   (H.264, MPEG); we have nothing to play but still show
+   *   metadata.
    */
-  webmBlob: Blob | null
-  /** Why we couldn't produce a WebM — surfaced inline. */
-  remuxError: string | null
-}
-
-async function buildUsmView(blob: Blob): Promise<UsmView> {
-  const usm = await parseUsm(blob)
-  const video = usm.streams.find(
-    (s): s is UsmVideoStream => s.type === "video",
-  ) ?? null
-  if (!video) return { usm, video: null, webmBlob: null, remuxError: null }
-  if (video.codec.codec !== "vp9") {
-    return {
-      usm,
-      video,
-      webmBlob: null,
-      remuxError: `In-browser playback only supports VP9 USMs; this stream is "${video.codec.codec}" (codec id ${video.codec.rawId}).`,
-    }
-  }
-  // Demux IVF → tag keyframes → mux WebM. The VP9 bytes pass
-  // through unchanged; only the container envelopes change.
-  try {
-    const ivf = await demuxIvf(video.data)
-    const fps = video.fps || 30
-    const frameDurationMs = 1000 / fps
-    const frames = ivf.frames.map((f, i) => ({
-      data: f.data,
-      timestampMs: Math.round(i * frameDurationMs),
-      // First frame must be a keyframe per VP9/WebM rules; also
-      // honour the bitstream's own keyframe flag thereafter.
-      isKeyframe: i === 0 || isVp9Keyframe(f.data),
-    }))
-    const webmBlob = muxVp9WebmBlob(frames, {
-      width: video.width,
-      height: video.height,
-      frameDurationMs,
-      durationMs: frames.length * frameDurationMs,
-    })
-    return { usm, video, webmBlob, remuxError: null }
-  } catch (e) {
-    return {
-      usm,
-      video,
-      webmBlob: null,
-      remuxError: e instanceof Error ? e.message : String(e),
-    }
-  }
+  kind:
+    | "loading"
+    | "streaming"
+    | "ready"
+    | "error"
+    | "unsupported"
+  /** Set as soon as parseUsm resolves; survives across all phases. */
+  usm?: UsmFile
+  /** Primary video stream (first one). */
+  video?: UsmVideoStream
+  /** MediaSource URL for the `<video>` element. */
+  mediaSourceUrl?: string
+  /** Remux progress (only set during `streaming`). */
+  progress?: UsmStreamProgress
+  /** Encode info (set once parseUsm + IVF demux complete). */
+  info?: UsmStreamInfo
+  /** Final-Blob URL once remuxing completes (for "Save .webm"). */
+  downloadUrl?: string
+  /** Bytes of the encoded WebM (set when `ready`). */
+  webmSize?: number
+  /** For `unsupported` / `error`: human-readable reason. */
+  reason?: string
+  /** For `error`. */
+  error?: Error
 }
 
 function UsmPreview({ node }: { node: Node }) {
-  const { loading, data, error } = useAsync(async () => {
-    return buildUsmView(await node.blob!())
-  }, [node.id])
-
-  // Object URL lifetime tied to the loaded view — recreated each
-  // time the user picks a different USM, revoked on unmount.
-  const [webmUrl, setWebmUrl] = useState<string | null>(null)
+  const [state, setState] = useState<UsmPreviewState>({ kind: "loading" })
+  const mediaSourceUrlRef = useRef<string | null>(null)
+  const downloadUrlRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!data?.webmBlob) {
-      setWebmUrl(null)
-      return
-    }
-    const url = URL.createObjectURL(data.webmBlob)
-    setWebmUrl(url)
     return () => {
-      URL.revokeObjectURL(url)
-      setWebmUrl(null)
+      if (mediaSourceUrlRef.current) {
+        URL.revokeObjectURL(mediaSourceUrlRef.current)
+        mediaSourceUrlRef.current = null
+      }
+      if (downloadUrlRef.current) {
+        URL.revokeObjectURL(downloadUrlRef.current)
+        downloadUrlRef.current = null
+      }
     }
-  }, [data?.webmBlob])
+  }, [])
 
-  if (loading) return <LoadingFiller label="Demuxing USM…" />
-  if (error) return <ErrorFiller error={error} />
-  const v = data!
-  return (
-    <ScrollArea className="h-full">
-      <div className="flex flex-col gap-5 p-5">
-        <SectionHeader title="USM — CRI Sofdec2 video container" />
+  useEffect(() => {
+    let cancelled = false
+    const aborter = new AbortController()
+    if (mediaSourceUrlRef.current) {
+      URL.revokeObjectURL(mediaSourceUrlRef.current)
+      mediaSourceUrlRef.current = null
+    }
+    if (downloadUrlRef.current) {
+      URL.revokeObjectURL(downloadUrlRef.current)
+      downloadUrlRef.current = null
+    }
+    setState({ kind: "loading" })
+    void (async () => {
+      let handle: ReturnType<typeof streamUsmToWebm> | null = null
+      try {
+        const blob = await node.blob!()
+        if (cancelled) return
 
-        {v.video && (
-          <UsmPlayer
-            video={v.video}
-            webmUrl={webmUrl}
-            remuxError={v.remuxError}
-            sourceName={node.name}
-          />
-        )}
+        // Parse the USM up front so we can render the metadata
+        // tables + detect unsupported codecs. Then hand the parsed
+        // result back into `streamUsmToWebm` via its `parsed`
+        // option so the streaming pipeline doesn't redo it.
+        const usm = await parseUsm(blob)
+        if (cancelled) return
+        const video = usm.streams.find(
+          (s): s is UsmVideoStream => s.type === "video",
+        )
+        if (!video) {
+          setState({
+            kind: "error",
+            usm,
+            reason: "USM contains no video stream.",
+            error: new Error("USM contains no video stream."),
+          })
+          return
+        }
+        if (video.codec.codec !== "vp9") {
+          setState({
+            kind: "unsupported",
+            usm,
+            video,
+            reason: `In-browser playback only supports VP9 USMs; this stream is "${video.codec.codec}" (codec id ${video.codec.rawId}).`,
+          })
+          return
+        }
 
-        <KvBlock title="Container">
-          <KvRow k="File size" v={formatBytes(v.usm.fileSize)} />
-          <KvRow k="Total chunks" v={v.usm.chunks.length.toLocaleString()} />
-          <KvRow
-            k="Streams"
-            v={`${v.usm.streams.length} (${v.usm.streams.filter((s) => s.type === "video").length} video, ${v.usm.streams.filter((s) => s.type === "audio").length} audio)`}
-          />
-        </KvBlock>
+        handle = streamUsmToWebm({
+          blob,
+          parsed: usm,
+          signal: aborter.signal,
+          onProgress: (progress) => {
+            if (cancelled) return
+            setState((prev) => ({ ...prev, progress }))
+          },
+        })
+        mediaSourceUrlRef.current = handle.mediaSourceUrl
 
-        {v.video && (
-          <KvBlock title="Video">
-            <KvRow
-              k="Codec"
-              v={v.video.codec.codec.toUpperCase()}
-              hint={`raw id ${v.video.codec.rawId}`}
-            />
-            <KvRow
-              k="Resolution"
-              v={`${v.video.width}×${v.video.height}`}
-              hint={
-                v.video.displayWidth !== v.video.width ||
-                v.video.displayHeight !== v.video.height
-                  ? `display ${v.video.displayWidth}×${v.video.displayHeight}`
-                  : undefined
-              }
-            />
-            <KvRow k="Frame rate" v={`${v.video.fps.toFixed(2)} fps`} />
-            <KvRow k="Frames" v={v.video.totalFrames.toLocaleString()} />
-            <KvRow
-              k="Duration"
-              v={
-                v.video.fps > 0
-                  ? formatDuration(v.video.totalFrames / v.video.fps)
-                  : "—"
-              }
-            />
-            <KvRow k="Stream size" v={formatBytes(v.video.dataSize)} />
-          </KvBlock>
-        )}
+        setState({
+          kind: "streaming",
+          usm,
+          video,
+          mediaSourceUrl: handle.mediaSourceUrl,
+        })
 
-        <UsmStreamsTable streams={v.usm.streams} />
-      </div>
-    </ScrollArea>
-  )
-}
+        handle.info.then(
+          (info) => {
+            if (cancelled) return
+            setState((prev) => ({ ...prev, info }))
+          },
+          () => {
+            // info rejection is reported via `done` below.
+          },
+        )
 
-function UsmPlayer({
-  video,
-  webmUrl,
-  remuxError,
-  sourceName,
-}: {
-  video: UsmVideoStream
-  webmUrl: string | null
-  remuxError: string | null
-  sourceName: string
-}) {
-  // `<video.bin>.usm` → `video.bin.webm`. We don't strip extension
-  // since some games name files like `movie_007.usm` and the
-  // user expects to recognise the stem.
+        const result: UsmStreamResult = await handle.done
+        if (cancelled) return
+        const downloadUrl = URL.createObjectURL(result.webm)
+        downloadUrlRef.current = downloadUrl
+        setState((prev) => ({
+          ...prev,
+          kind: "ready",
+          info: result.info,
+          downloadUrl,
+          webmSize: result.webm.size,
+        }))
+      } catch (err) {
+        if (cancelled) return
+        if (err instanceof Error && err.name === "AbortError") return
+        if (err instanceof UnsupportedUsmCodecError) {
+          setState((prev) => ({
+            ...prev,
+            kind: "unsupported",
+            reason: err.message,
+          }))
+          return
+        }
+        setState((prev) => ({
+          ...prev,
+          kind: "error",
+          reason: err instanceof Error ? err.message : String(err),
+          error: err instanceof Error ? err : new Error(String(err)),
+        }))
+      }
+    })()
+    return () => {
+      cancelled = true
+      aborter.abort()
+    }
+  }, [node.id, node.blob])
+
+  if (state.kind === "error" && !state.usm) {
+    return <ErrorFiller error={state.error!} />
+  }
+
   const downloadName = useMemo(() => {
-    const stem = sourceName.replace(/\.usm$/i, "")
+    const stem = node.name.replace(/\.usm$/i, "")
     return `${stem}.webm`
-  }, [sourceName])
+  }, [node.name])
+
+  const usm = state.usm
+  const video = state.video
+  const progress = state.progress
+  const pct = progress ? Math.round((progress.frame / progress.total) * 100) : 0
+  const isStreaming = state.kind === "streaming"
+  const isLoading = state.kind === "loading"
+
+  // Video region aspect ratio: prefer the parsed video's
+  // dimensions if known; otherwise use a sensible 16:9
+  // placeholder so the section keeps its size from the moment
+  // the user clicks until parseUsm resolves.
+  const aspectRatio = video
+    ? `${video.width} / ${video.height}`
+    : "16 / 9"
+
+  // ------------------------------------------------------------------
+  // Translate the state machine into VideoPreviewLayout props.
+  // ------------------------------------------------------------------
+
+  const player: VideoPreviewPlayer = state.mediaSourceUrl
+    ? { kind: "video", url: state.mediaSourceUrl, streaming: true }
+    : state.kind === "unsupported"
+      ? {
+          kind: "unsupported",
+          reason: state.reason ?? "Unsupported video codec.",
+        }
+      : state.kind === "error"
+        ? { kind: "error", reason: state.reason ?? "Failed to remux USM." }
+        : { kind: "loading" }
+
+  const caption = video
+    ? `Remuxed VP9 → WebM (${video.width}×${video.height} · ${video.fps.toFixed(2)} fps · ${video.fps > 0 ? formatDuration(video.totalFrames / video.fps) : "—"}${state.webmSize ? ` · ${formatBytes(state.webmSize)}` : ""})`
+    : isLoading
+      ? "Demuxing USM…"
+      : null
+
   return (
-    <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
-      {webmUrl ? (
-        <video
-          src={webmUrl}
-          controls
-          autoPlay
-          className="w-full rounded-md bg-black"
-          style={{ aspectRatio: `${video.width} / ${video.height}` }}
-        />
-      ) : remuxError ? (
-        <div className="flex items-center justify-center rounded-md border border-dashed border-destructive/40 bg-destructive/5 p-6 text-center text-sm text-destructive">
-          {remuxError}
-        </div>
-      ) : (
-        <Skeleton
-          className="w-full"
-          style={{ aspectRatio: `${video.width} / ${video.height}` }}
-        />
-      )}
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-        <span>
-          Remuxed VP9 → WebM ({video.width}×{video.height} ·{" "}
-          {video.fps.toFixed(2)} fps ·{" "}
-          {video.fps > 0
-            ? formatDuration(video.totalFrames / video.fps)
-            : "—"}
-          )
-        </span>
-        {webmUrl && (
-          <a
-            href={webmUrl}
-            download={downloadName}
-            className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
-          >
-            Save .webm
-          </a>
-        )}
-      </div>
-    </section>
+    <VideoPreviewLayout
+      sectionTitle="USM — CRI Sofdec2 video container"
+      aspectRatio={aspectRatio}
+      player={player}
+      progress={
+        isStreaming && progress
+          ? {
+              label: `Remuxing frame ${progress.frame.toLocaleString()} of ${progress.total.toLocaleString()}${progress.fps > 0 ? ` · ${progress.fps.toFixed(1)} fps` : ""}`,
+              pct,
+            }
+          : undefined
+      }
+      caption={caption}
+      download={
+        state.downloadUrl
+          ? { url: state.downloadUrl, filename: downloadName }
+          : undefined
+      }
+      metadata={
+        <>
+          {usm && (
+            <KvBlock title="Container">
+              <KvRow k="File size" v={formatBytes(usm.fileSize)} />
+              <KvRow
+                k="Total chunks"
+                v={usm.chunks.length.toLocaleString()}
+              />
+              <KvRow
+                k="Streams"
+                v={`${usm.streams.length} (${usm.streams.filter((s) => s.type === "video").length} video, ${usm.streams.filter((s) => s.type === "audio").length} audio)`}
+              />
+            </KvBlock>
+          )}
+
+          {video && (
+            <KvBlock title="Video">
+              <KvRow
+                k="Codec"
+                v={video.codec.codec.toUpperCase()}
+                hint={`raw id ${video.codec.rawId}`}
+              />
+              <KvRow
+                k="Resolution"
+                v={`${video.width}×${video.height}`}
+                hint={
+                  video.displayWidth !== video.width ||
+                  video.displayHeight !== video.height
+                    ? `display ${video.displayWidth}×${video.displayHeight}`
+                    : undefined
+                }
+              />
+              <KvRow k="Frame rate" v={`${video.fps.toFixed(2)} fps`} />
+              <KvRow k="Frames" v={video.totalFrames.toLocaleString()} />
+              <KvRow
+                k="Duration"
+                v={
+                  video.fps > 0
+                    ? formatDuration(video.totalFrames / video.fps)
+                    : "—"
+                }
+              />
+              <KvRow k="Stream size" v={formatBytes(video.dataSize)} />
+            </KvBlock>
+          )}
+
+          {usm && <UsmStreamsTable streams={usm.streams} />}
+        </>
+      }
+    />
   )
 }
 
@@ -9066,74 +9344,86 @@ function BinkPreview({
   const isLoading = state.kind === "loading"
   const isEncoding = state.kind === "streaming"
   const durationMs = info ? Math.round(info.durationUs / 1000) : undefined
+
+  // Aspect ratio: prefer the decoded coded size; otherwise hold a
+  // 16:9 placeholder so the section keeps its size from click to
+  // first frame.
+  const aspectRatio =
+    info && info.codedWidth && info.codedHeight
+      ? `${info.codedWidth} / ${info.codedHeight}`
+      : "16 / 9"
+
+  const player: VideoPreviewPlayer = state.mediaSourceUrl
+    ? { kind: "video", url: state.mediaSourceUrl, streaming: true }
+    : {
+        kind: "loading",
+        label: isLoading ? "Loading decoder…" : "Setting up encoder…",
+      }
+
+  const caption = info
+    ? `H.264${info.audioCodec ? ` + ${info.audioCodec.toUpperCase()}` : ""} / MP4 (${info.codedWidth}×${info.codedHeight} · ${info.fps.toFixed(2)} fps · ${formatDuration((durationMs ?? 0) / 1000)}${state.mp4Size ? ` · ${formatBytes(state.mp4Size)}` : ""}${info.audioCodec === null ? " · no audio" : ""})`
+    : `Source: ${label}${progress ? ` (${progress.total.toLocaleString()} frames)` : ""}`
+
   return (
-    <ScrollArea className="h-full">
-      <div className="flex flex-col gap-5 p-5">
-        <SectionHeader title={`${label} video — streamed to MP4 via MediaSource`} />
-        <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
-          {state.mediaSourceUrl ? (
-            <video
-              // Mount immediately with the MediaSource URL; playback
-              // starts as soon as MSE has enough buffered (~one
-              // fragment, typically 0.5s of frames). The encoder
-              // keeps running in the background to fill in the rest.
-              key={state.mediaSourceUrl}
-              src={state.mediaSourceUrl}
-              controls
-              autoPlay
-              className="w-full rounded-md bg-black"
-              style={{
-                aspectRatio:
-                  info && info.codedWidth && info.codedHeight
-                    ? `${info.codedWidth} / ${info.codedHeight}`
-                    : undefined,
-              }}
+    <VideoPreviewLayout
+      sectionTitle={`${label} video — streamed to MP4 via MediaSource`}
+      aspectRatio={aspectRatio}
+      player={player}
+      progress={
+        isEncoding && progress
+          ? {
+              label: `Encoding frame ${progress.frame.toLocaleString()} of ${progress.total.toLocaleString()}${progress.fps > 0 ? ` · ${progress.fps.toFixed(1)} fps` : ""}`,
+              pct,
+            }
+          : undefined
+      }
+      caption={caption}
+      download={
+        state.downloadUrl
+          ? { url: state.downloadUrl, filename: downloadName }
+          : undefined
+      }
+      metadata={
+        info && (
+          <KvBlock title="Video">
+            <KvRow
+              k="Source format"
+              v={label}
+              hint={format === "bink2" ? "KB2f..KB2n" : "BIK family"}
             />
-          ) : (
-            <div className="flex flex-col gap-3 rounded-md border border-dashed bg-muted/30 p-6 text-center text-sm">
-              <div className="flex items-center justify-center gap-2">
-                <Spinner />
-                <span>
-                  {isLoading
-                    ? "Loading decoder…"
-                    : "Setting up encoder…"}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {isEncoding && progress && (
-            <div className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-              <Progress value={pct} className="w-full" />
-              <div className="flex items-center justify-between">
-                <span>
-                  Encoding frame {progress.frame.toLocaleString()} of {progress.total.toLocaleString()}
-                  {progress.fps > 0 ? ` · ${progress.fps.toFixed(1)} fps` : ""}
-                </span>
-                <span>{pct}%</span>
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-            <span>
-              {info
-                ? `H.264${info.audioCodec ? ` + ${info.audioCodec.toUpperCase()}` : ""} / MP4 (${info.codedWidth}×${info.codedHeight} · ${info.fps.toFixed(2)} fps · ${formatDuration((durationMs ?? 0) / 1000)}${state.mp4Size ? ` · ${formatBytes(state.mp4Size)}` : ""}${info.audioCodec === null ? " · no audio" : ""})`
-                : `Source: ${label}${progress ? ` (${progress.total.toLocaleString()} frames)` : ""}`}
-            </span>
-            {state.downloadUrl && (
-              <a
-                href={state.downloadUrl}
-                download={downloadName}
-                className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
-              >
-                Save .mp4
-              </a>
-            )}
-          </div>
-        </section>
-      </div>
-    </ScrollArea>
+            <KvRow
+              k="Resolution"
+              v={`${info.width}×${info.height}`}
+              hint={
+                info.codedWidth !== info.width ||
+                info.codedHeight !== info.height
+                  ? `coded ${info.codedWidth}×${info.codedHeight}`
+                  : undefined
+              }
+            />
+            <KvRow k="Frame rate" v={`${info.fps.toFixed(2)} fps`} />
+            <KvRow k="Frames" v={info.frameCount.toLocaleString()} />
+            <KvRow
+              k="Duration"
+              v={formatDuration((durationMs ?? 0) / 1000)}
+            />
+            <KvRow
+              k="Audio"
+              v={
+                info.audioCodec
+                  ? `${info.audioCodec.toUpperCase()} (${info.audioChannels ?? "?"} ch · ${info.audioSampleRate ? `${info.audioSampleRate} Hz` : "? Hz"})`
+                  : "—"
+              }
+              hint={
+                info.audioCodec === null && info.hasAudio
+                  ? "source had audio but it was unhealthy and dropped"
+                  : undefined
+              }
+            />
+          </KvBlock>
+        )
+      }
+    />
   )
 }
 
