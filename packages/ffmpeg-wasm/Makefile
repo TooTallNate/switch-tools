@@ -477,6 +477,35 @@ LDFLAGS = \
 	-Wl,--export=time \
 	-Wl,--export=gmtime_r \
 	-Wl,--export=__assert_fail \
+	-Wl,--export=ff_er_frame_end \
+	-Wl,--export=ff_er_add_slice \
+	-Wl,--export=ff_er_frame_start \
+	-Wl,--export=ff_init_block_index \
+	-Wl,--export=ff_get_format \
+	-Wl,--export=ff_mpv_reconstruct_mb \
+	-Wl,--export=ff_mpv_export_qp_table \
+	-Wl,--export=ff_mpv_report_decode_progress \
+	-Wl,--export=ff_mpeg_draw_horiz_band \
+	-Wl,--export=ff_mpadsp_init \
+	-Wl,--export=avpriv_mpegaudio_decode_header \
+	-Wl,--export=ff_combine_frame \
+	-Wl,--export=avpriv_find_start_code \
+	-Wl,--export=ff_copy_palette \
+	-Wl,--export=ff_get_line \
+	-Wl,--export=ff_codec_get_tag \
+	-Wl,--export=av_bprint_clear \
+	-Wl,--export=av_dict_copy \
+	-Wl,--export=av_dict_set_int \
+	-Wl,--export=av_get_media_type_string \
+	-Wl,--export=av_d2q \
+	-Wl,--export=av_mul_q \
+	-Wl,--export=av_memcpy_backptr \
+	-Wl,--export=av_match_ext \
+	-Wl,--export=av_frame_new_side_data \
+	-Wl,--export=av_stream_get_side_data \
+	-Wl,--export=av_image_copy_plane \
+	-Wl,--export=av_get_picture_type_char \
+	-Wl,--export=avio_write_marker \
 	-Wl,--growable-table \
 	-Wl,--gc-sections \
 	-Wl,--strip-debug \

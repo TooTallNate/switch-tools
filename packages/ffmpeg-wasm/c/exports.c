@@ -188,6 +188,42 @@ extern int  ff_set_sar(AVCodecContext *avctx, void *r);
 extern int  ff_set_cmp(void *c, void *cmp, int type);
 extern int  ff_toupper4(unsigned int x);
 
+/* Error-resilience helpers — used by MPEG-family decoders to
+ * recover from corrupt bitstreams. */
+extern void ff_er_frame_end(void *s, int *decode_error_flags);
+extern void ff_er_add_slice(void *s, int startx, int starty, int endx,
+                             int endy, int status);
+extern int  ff_er_frame_start(void *s);
+extern int  ff_init_block_index(void *s);
+
+/* MPEG-video extras: format, slice & QP-table accessors. */
+extern int  ff_get_format(AVCodecContext *avctx, const int *fmt);
+extern void ff_mpv_reconstruct_mb(void *s, void *block);
+extern int  ff_mpv_export_qp_table(void *s, AVFrame *f, void *p, int qp_type);
+extern void ff_mpv_report_decode_progress(void *s);
+extern void ff_mpeg_draw_horiz_band(void *s, int y, int h);
+
+/* MPEG audio header parsing + DSP init. */
+extern int  ff_mpadsp_init(void *s);
+extern int  avpriv_mpegaudio_decode_header(void *header, uint32_t header_int);
+
+/* Combine-frame + start-code helpers — used by parser-style
+ * demuxers (MOV, MPEGTS, AVI). */
+extern int  ff_combine_frame(void *pc, int next, const uint8_t **buf,
+                              int *buf_size);
+extern const uint8_t *avpriv_find_start_code(const uint8_t *p,
+                                              const uint8_t *end,
+                                              uint32_t *state);
+
+/* Palette / picture / line helpers. */
+extern int  ff_copy_palette(void *dst, const AVPacket *src, void *logctx);
+extern int  ff_get_line(AVIOContext *s, char *buf, int maxlen);
+extern int  ff_codec_get_tag(const void *tags, int id);
+
+/* The rest below are declared in libavformat/libavutil public
+ * headers we already include above (avio.h, bprint.h, dict.h,
+ * rational.h, frame.h, imgutils.h). We just take their address. */
+
 /* Frame-threading helpers (single-thread fallbacks present even
  * when threads are disabled). */
 extern void ff_thread_finish_setup(AVCodecContext *avctx);
@@ -552,6 +588,46 @@ void * volatile ffmpeg_keepalive_table[] = {
 	/* Side-data helpers. */
 	(void *)&ff_side_data_update_matrix_encoding,
 	(void *)&ff_side_data_set_encoder_stats,
+
+	/* Error-resilience helpers. */
+	(void *)&ff_er_frame_end,
+	(void *)&ff_er_add_slice,
+	(void *)&ff_init_block_index,
+
+	/* MPEG-video extras. */
+	(void *)&ff_get_format,
+	(void *)&ff_mpv_reconstruct_mb,
+	(void *)&ff_mpv_export_qp_table,
+	(void *)&ff_mpv_report_decode_progress,
+	(void *)&ff_mpeg_draw_horiz_band,
+
+	/* MPEG audio header + DSP. */
+	(void *)&ff_mpadsp_init,
+	(void *)&avpriv_mpegaudio_decode_header,
+
+	/* Combine-frame + start-code. */
+	(void *)&ff_combine_frame,
+	(void *)&avpriv_find_start_code,
+
+	/* Palette / picture / line. */
+	(void *)&ff_copy_palette,
+	(void *)&ff_get_line,
+	(void *)&ff_codec_get_tag,
+
+	/* Bprint + dict extras. */
+	(void *)&av_bprint_clear,
+	(void *)&av_dict_copy,
+	(void *)&av_dict_set_int,
+	(void *)&av_get_media_type_string,
+	(void *)&av_d2q,
+	(void *)&av_mul_q,
+	(void *)&av_memcpy_backptr,
+	(void *)&av_match_ext,
+	(void *)&av_frame_new_side_data,
+	(void *)&av_stream_get_side_data,
+	(void *)&av_image_copy_plane,
+	(void *)&av_get_picture_type_char,
+	(void *)&avio_write_marker,
 
 	/* --- libavformat --- */
 	(void *)&avformat_alloc_context,

@@ -131,6 +131,7 @@ const HAND_CURATED = new Set([
  */
 const KNOWN_BROKEN = new Set([
 	"fifo_muxer",
+	"fifo_test_muxer",
 	"rtsp_demuxer",
 	"rtsp_muxer",
 	"sap_demuxer",
@@ -138,6 +139,57 @@ const KNOWN_BROKEN = new Set([
 	"sdp_demuxer",
 	"rtp_muxer",
 	"rtp_mpegts_muxer",
+	// HLS / DASH / SmoothStreaming muxers all create files /
+	// directories via `mkdir` / `stat` / `unlink` calls that
+	// our WASI sandbox doesn't currently allow.
+	"hls_demuxer",
+	"hls_muxer",
+	"hds_muxer",
+	"dash_muxer",
+	"webm_dash_manifest_muxer",
+	"smoothstreaming_muxer",
+	"segment_muxer",
+	"stream_segment_muxer",
+	"tee_muxer",
+	// image2 family iterates a directory with `glob()`/`stat()`.
+	"image2_demuxer",
+	"image2pipe_demuxer",
+	"image2_muxer",
+	"image2_alias_pix_demuxer",
+	"image2_brender_pix_demuxer",
+	// Per-image pipe demuxers use `glob`/`stat` for filename
+	// pattern expansion.
+	"image_bmp_pipe_demuxer",
+	"image_cri_pipe_demuxer",
+	"image_dds_pipe_demuxer",
+	"image_dpx_pipe_demuxer",
+	"image_exr_pipe_demuxer",
+	"image_gem_pipe_demuxer",
+	"image_gif_pipe_demuxer",
+	"image_j2k_pipe_demuxer",
+	"image_jpeg_pipe_demuxer",
+	"image_jpegls_pipe_demuxer",
+	"image_jpegxl_pipe_demuxer",
+	"image_pam_pipe_demuxer",
+	"image_pbm_pipe_demuxer",
+	"image_pcx_pipe_demuxer",
+	"image_pgm_pipe_demuxer",
+	"image_pgmyuv_pipe_demuxer",
+	"image_pgx_pipe_demuxer",
+	"image_photocd_pipe_demuxer",
+	"image_pictor_pipe_demuxer",
+	"image_png_pipe_demuxer",
+	"image_ppm_pipe_demuxer",
+	"image_psd_pipe_demuxer",
+	"image_qdraw_pipe_demuxer",
+	"image_sgi_pipe_demuxer",
+	"image_sunrast_pipe_demuxer",
+	"image_svg_pipe_demuxer",
+	"image_tiff_pipe_demuxer",
+	"image_webp_pipe_demuxer",
+	"image_xbm_pipe_demuxer",
+	"image_xpm_pipe_demuxer",
+	"image_xwd_pipe_demuxer",
 ])
 
 /** Slug convention: lowercase + hyphens. */
