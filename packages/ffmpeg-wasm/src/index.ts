@@ -120,10 +120,52 @@ export interface FfmpegAudioTrack {
 
 /** Thrown for any errors during decode operations. */
 export class FfmpegError extends Error {
-	constructor(message: string) {
+	/** Raw libavutil AVERROR code (negative) when the error came from
+	 * a wrapper return value. `undefined` when the error originated
+	 * in the TS layer (e.g. "no file open"). */
+	readonly code?: number;
+
+	constructor(message: string, code?: number) {
 		super(message);
 		this.name = 'FfmpegError';
+		this.code = code;
 	}
+}
+
+/**
+ * Convert an `AVERROR(*)` code to a human-readable name. FFmpeg
+ * builds these via `FFERRTAG('I','N','D','A')` etc. — a 4-char
+ * mnemonic packed into the low 32 bits, negated.
+ *
+ * We recognise the common ones here so the error message says
+ * `INVALIDDATA` instead of `-1094995529`. Unknown codes fall
+ * through as the raw integer.
+ */
+export function formatAvError(code: number): string {
+	const KNOWN: Record<number, string> = {
+		[-1094995529]: 'INVALIDDATA',
+		[-541478725]: 'EOF',
+		[-558323010]: 'BUG',
+		[-1599361103]: 'OPTION_NOT_FOUND',
+		[-1163346256]: 'PATCHWELCOME',
+		[-542266451]: 'STREAM_NOT_FOUND',
+		[-541934916]: 'DEMUXER_NOT_FOUND',
+		[-541279556]: 'DECODER_NOT_FOUND',
+		[-541870406]: 'FILTER_NOT_FOUND',
+		[-542069328]: 'PROTOCOL_NOT_FOUND',
+		[-1313558101]: 'UNKNOWN',
+		[-1414092869]: 'EXIT',
+		[-559175749]: 'EXTERNAL',
+		// POSIX errno wrappers — `AVERROR(EAGAIN)` = `-EAGAIN`,
+		// using the WASI/Linux errno numbers.
+		[-11]: 'EAGAIN',
+		[-1]: 'EPERM',
+		[-2]: 'ENOENT',
+		[-5]: 'EIO',
+		[-12]: 'ENOMEM',
+		[-22]: 'EINVAL',
+	};
+	return KNOWN[code] ?? `AVERROR(${code})`;
 }
 
 interface BaseExports {
@@ -228,6 +270,21 @@ export class Ffmpeg {
 			loaded.set(ext.name, await loadExtension(ext, instance.exports));
 		}
 
+		// Quiet down upstream FFmpeg by default. The library defaults
+		// to AV_LOG_INFO which means every codec's AV_LOG_ERROR is
+		// surfaced to the host console — including thousands of
+		// per-packet messages from codecs that don't understand
+		// quirky bitstreams. AV_LOG_FATAL keeps only truly
+		// catastrophic upstream messages; consumers that want
+		// diagnostics can opt in via `setLogLevel(LogLevel.Info)`
+		// or higher.
+		//
+		// We set this AFTER loading extensions so any extension
+		// ctor that calls `av_log_set_level` (none currently do,
+		// but FFmpeg codecs sometimes initialise their own
+		// logging defaults) doesn't override us.
+		exports.ffmpeg_set_log_level(LogLevel.Fatal);
+
 		return new Ffmpeg(exports, loaded);
 	}
 
@@ -299,7 +356,12 @@ export class Ffmpeg {
 		if (!this.#open) throw new FfmpegError('No file open');
 		const ret = this.#exports.ffmpeg_decode_frame();
 		if (ret === 0) return null;
-		if (ret < 0) throw new FfmpegError(`ffmpeg_decode_frame returned ${ret}`);
+		if (ret < 0) {
+			throw new FfmpegError(
+				`ffmpeg_decode_frame failed with ${formatAvError(ret)}`,
+				ret,
+			);
+		}
 
 		const buf = this.#exports.memory.buffer;
 		const width = this.#exports.ffmpeg_frame_width();

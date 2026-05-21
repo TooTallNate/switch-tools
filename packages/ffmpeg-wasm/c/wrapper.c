@@ -486,10 +486,11 @@ static int audio_fifo_append(AudioTrackState *a, AVFrame *fr)
  *
  * Audio decode errors are non-fatal: a corrupt or unsupported audio
  * packet drops the packet (and flushes the codec state) but keeps
- * the overall decode going so the video stream can finish. Bink
- * audio in particular has a few edge cases that produce "Incomplete
- * packet" warnings on otherwise-valid streams; treating them as
- * fatal would needlessly fail an otherwise-decodable file.
+ * the overall decode going so the video stream can finish. The TS
+ * layer can detect "too many audio failures in a row" via the
+ * `failure_count` accessors and decide to disable the track from
+ * its side — we intentionally don't bake codec-specific
+ * recovery heuristics into the base wrapper.
  */
 static void route_audio_packet(AVPacket *pkt)
 {
@@ -499,9 +500,6 @@ static void route_audio_packet(AVPacket *pkt)
 
 	int sr = avcodec_send_packet(a->codec_ctx, pkt);
 	if (sr < 0 && sr != AVERROR(EAGAIN)) {
-		av_log(NULL, AV_LOG_WARNING,
-		       "wrapper: audio send_packet on track %d returned %d (dropping)\n",
-		       t, sr);
 		avcodec_flush_buffers(a->codec_ctx);
 		return;
 	}
@@ -509,15 +507,10 @@ static void route_audio_packet(AVPacket *pkt)
 		int got = avcodec_receive_frame(a->codec_ctx, a->frame);
 		if (got == AVERROR(EAGAIN) || got == AVERROR_EOF) break;
 		if (got < 0) {
-			av_log(NULL, AV_LOG_WARNING,
-			       "wrapper: audio receive_frame on track %d returned %d (dropping)\n",
-			       t, got);
 			avcodec_flush_buffers(a->codec_ctx);
 			break;
 		}
 		if (audio_fifo_append(a, a->frame) < 0) {
-			av_log(NULL, AV_LOG_WARNING,
-			       "wrapper: audio_fifo_append OOM on track %d\n", t);
 			av_frame_unref(a->frame);
 			break;
 		}

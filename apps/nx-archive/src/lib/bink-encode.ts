@@ -20,28 +20,42 @@
  *   3. The same iteration drains audio samples that decoded since the
  *      last video frame, packages them as `AudioData`, and feeds them
  *      to `AudioEncoder` (AAC, falling back to Opus).
- *   4. `mp4-muxer` in `fastStart: 'fragmented'` mode emits a stream of
- *      `moof + mdat` fragments through `StreamTarget`'s `onData`
- *      callback. Each fragment is independently playable.
- *   5. Fragments are appended to a `MediaSource`'s `SourceBuffer` as
- *      they arrive; the `<video>` plays from the MediaSource. The
- *      browser's media stack handles buffering, seeking (within the
- *      already-appended range), and playback timing.
- *   6. Fragments are also accumulated into an `ArrayBuffer` so the
- *      caller can finalize a downloadable MP4 Blob via the
- *      `done` Promise.
+ *   4. Encoded chunks are converted to Mediabunny `EncodedPacket`s
+ *      and fed to `EncodedVideoPacketSource` / `EncodedAudioPacketSource`
+ *      on a Mediabunny `Output` configured with `Mp4OutputFormat`
+ *      (`fastStart: 'fragmented'`). The output streams its bytes via
+ *      `StreamTarget` to a `WritableStream` that splits each chunk
+ *      two ways: into the in-memory accumulator (for the "Save .mp4"
+ *      Blob) and into the MediaSource's `SourceBuffer` (for the
+ *      live `<video>` playback).
+ *   5. Fragments are appended as they arrive; the `<video>` plays
+ *      from the MediaSource. The browser's media stack handles
+ *      buffering, seeking (within the already-appended range), and
+ *      playback timing.
  *
  * Replaces the previous monolithic `bink1-encode.ts` (LGPL FFmpeg
  * monolith @tootallnate/bink1-wasm) and `bink2-encode.ts` (GPL-3
  * cnc-ra-libs @tootallnate/bink2-wasm). The new stack is LGPL-only so
  * the WASMs can be shipped directly — no more "user must provide
  * bink2.wasm" friction.
+ *
+ * Muxing migrated from `mp4-muxer` (deprecated) to `mediabunny`
+ * (same author, broader scope, supersedes both `mp4-muxer` and
+ * `webm-muxer`).
  */
 
-import { Muxer, StreamTarget } from 'mp4-muxer'
+import {
+	EncodedAudioPacketSource,
+	EncodedPacket,
+	EncodedVideoPacketSource,
+	Mp4OutputFormat,
+	NullTarget,
+	Output,
+} from 'mediabunny'
 
 import {
 	Ffmpeg,
+	FfmpegError,
 	type FfmpegFrame,
 	type FfmpegInfo,
 } from '@tootallnate/ffmpeg-wasm'
@@ -162,6 +176,43 @@ export class H264UnavailableError extends Error {
 }
 
 /**
+ * Thrown when ffmpeg's bink2 decoder rejects a frame it can't
+ * handle. The two known failure modes — both upstream FFmpeg
+ * limitations, not bugs in this stack — are:
+ *
+ *   - KB2n + alpha channel: Paul B Mahol's bink2 patch covers
+ *     versions 'f'..'n' but the alpha-channel path was never
+ *     adapted to KB2n's slightly different slice layout. The
+ *     decoder returns AVERROR_INVALIDDATA on the first frame.
+ *
+ *   - Corrupt / truncated files: rare in practice but possible
+ *     for files that were repacked outside the original game's
+ *     toolchain.
+ *
+ * Surfaced specifically so the preview UI can render a friendly
+ * "this codec variant isn't yet supported" message instead of
+ * the raw ffmpeg error code.
+ */
+export class BinkDecodeError extends Error {
+	readonly avError: number
+	constructor(format: 'bink1' | 'bink2', avError: number, errorName: string) {
+		const label = format === 'bink2' ? 'Bink 2' : 'Bink 1'
+		super(
+			`The ${label} decoder rejected this file (${errorName}). ` +
+				(errorName === 'INVALIDDATA'
+					? `Some ${label} variants — particularly KB2n with an ` +
+						`alpha channel — aren't supported by the upstream ` +
+						`FFmpeg patch this preview uses. Reference FFmpeg builds ` +
+						`reject the same files.`
+					: `This usually indicates the source file is truncated or ` +
+						`encoded with an unsupported codec variant.`),
+		)
+		this.name = 'BinkDecodeError'
+		this.avError = avError
+	}
+}
+
+/**
  * Audio codec candidates. AAC-LC inside MP4 is the most
  * universally-playable choice, but several browsers won't *encode*
  * AAC (Safari < 18.4, certain Firefox builds). Opus inside MP4 is
@@ -254,6 +305,16 @@ async function pickH264Config(
 			bitrate: bitsPerSecond,
 			framerate: fps,
 			avc: { format: 'avc' },
+			// 'realtime' tells the encoder to emit chunks as soon as
+			// they're ready instead of buffering frames for deeper
+			// lookahead / rate control. We trade a small amount of
+			// compression efficiency for the ability to stream
+			// fragments into MediaSource progressively. Without this,
+			// the encoder buffers ~30 frames before emitting any
+			// output, which means the muxer can't close fragments,
+			// which means MSE has nothing to play after the first
+			// fragment lands.
+			latencyMode: 'realtime',
 		}
 		// Build the MSE codecs string. Adding audio raises the bar — we
 		// need a combo MSE can decode AS A WHOLE, not just the video.
@@ -327,6 +388,38 @@ function frameToVideoFrame(
 			{ offset: ySize + cSize, stride: cw },
 		],
 	})
+}
+
+/**
+ * Convert a WebCodecs `EncodedVideoChunk` (`VideoEncoder.output`'s
+ * deliverable) into a Mediabunny `EncodedPacket`. Mediabunny
+ * timestamps are in seconds; WebCodecs uses microseconds.
+ */
+function encodedVideoChunkToPacket(chunk: EncodedVideoChunk): EncodedPacket {
+	const data = new Uint8Array(chunk.byteLength)
+	chunk.copyTo(data)
+	return new EncodedPacket(
+		data,
+		chunk.type, // 'key' | 'delta'
+		chunk.timestamp / 1_000_000,
+		(chunk.duration ?? 0) / 1_000_000,
+	)
+}
+
+/**
+ * Convert a WebCodecs `EncodedAudioChunk` (`AudioEncoder.output`'s
+ * deliverable) into a Mediabunny `EncodedPacket`. Audio chunks
+ * from compressed codecs (AAC, Opus) are always 'key' frames.
+ */
+function encodedAudioChunkToPacket(chunk: EncodedAudioChunk): EncodedPacket {
+	const data = new Uint8Array(chunk.byteLength)
+	chunk.copyTo(data)
+	return new EncodedPacket(
+		data,
+		chunk.type, // always 'key' for AAC / Opus
+		chunk.timestamp / 1_000_000,
+		(chunk.duration ?? 0) / 1_000_000,
+	)
 }
 
 /*
@@ -648,6 +741,112 @@ async function runStreamingEncode(
 			}
 		}
 
+		// Health-probe the audio track BEFORE setting up the muxer.
+		//
+		// Why: when an audio decoder produces samples for only a
+		// fraction of the source timeline (e.g. Switch KB2n
+		// binkaudio_dct, where upstream FFmpeg fails on nearly
+		// every packet), the result is a fragmented MP4 whose
+		// audio track has gaps. MediaSource refuses to advance
+		// playback past the smallest of those gaps — so the
+		// <video> stalls at e.g. 0.07s while the encoder happily
+		// produces video for the next 7 minutes. Closing the
+		// audio source mid-stream doesn't help either; the moov
+		// already advertises an audio track, so MSE still expects
+		// audio samples for the entire video duration.
+		//
+		// The fix is to commit upfront: decode a probe window of
+		// video frames, drain audio after each, and measure the
+		// audio sample yield. If it's well below what we expect
+		// for `probeWindowSeconds * sampleRate * channels`, drop
+		// the audio track entirely. The downstream muxer is then
+		// video-only, which streams to MSE cleanly.
+		//
+		// Probe frames are buffered (copied out of WASM memory)
+		// and replayed into the real encode pipeline below, so
+		// the cost is just the extra memory for ~PROBE_FRAMES
+		// frames' worth of YUV planes.
+		//
+		// ProbeFrame stores OWNED copies of the YUV planes — the
+		// underlying `FfmpegFrame` views become invalid the
+		// moment we call `ff.decodeFrame()` again.
+		interface ProbeFrame {
+			y: Uint8Array
+			u: Uint8Array
+			v: Uint8Array
+			yStride: number
+			uStride: number
+			vStride: number
+			width: number
+			height: number
+		}
+		interface ProbeAudio {
+			samples: Float32Array<ArrayBuffer>
+			sampleFrames: number
+		}
+		const probeVideoFrames: ProbeFrame[] = []
+		const probeAudioChunks: ProbeAudio[] = []
+		const PROBE_FRAMES = 30 // ~1s at 30fps; plenty to judge audio health
+		const AUDIO_HEALTH_THRESHOLD = 0.5 // ≥50% of expected samples
+		if (audioCodec) {
+			let probeAudioSampleFramesDrained = 0
+			for (let i = 0; i < PROBE_FRAMES; i++) {
+				let f
+				try {
+					f = ff.decodeFrame()
+				} catch (err) {
+					if (err instanceof FfmpegError && err.code !== undefined) {
+						throw new BinkDecodeError(
+							format,
+							err.code,
+							err.message.replace(
+								/^ffmpeg_decode_frame failed with /,
+								'',
+							),
+						)
+					}
+					throw err
+				}
+				if (!f) break
+				probeVideoFrames.push({
+					y: new Uint8Array(f.y),
+					u: new Uint8Array(f.u),
+					v: new Uint8Array(f.v),
+					yStride: f.yStride,
+					uStride: f.uStride,
+					vStride: f.vStride,
+					width: f.width,
+					height: f.height,
+				})
+				const a = ff.drainAudio(0)
+				if (a && a.sampleFrames > 0) {
+					probeAudioChunks.push({
+						samples: new Float32Array(a.samples),
+						sampleFrames: a.sampleFrames,
+					})
+					probeAudioSampleFramesDrained += a.sampleFrames
+				}
+			}
+			const probeWindowSeconds = probeVideoFrames.length / fps
+			const expected = probeWindowSeconds * audioSampleRate
+			const ratio = expected > 0 ? probeAudioSampleFramesDrained / expected : 0
+			if (ratio < AUDIO_HEALTH_THRESHOLD) {
+				console.warn(
+					`[bink] audio track yields only ${(ratio * 100).toFixed(0)}% ` +
+						`of expected samples in the first ${probeWindowSeconds.toFixed(2)}s ` +
+						`(${probeAudioSampleFramesDrained} / ${expected.toFixed(0)} sample-frames). ` +
+						`Dropping audio track; preview will be video-only.`,
+				)
+				audioCodec = null
+				audioConfig = null
+				audioMseCodec = null
+				audioChannels = 0
+				audioSampleRate = 0
+				// Discard probe audio — we won't use it.
+				probeAudioChunks.length = 0
+			}
+		}
+
 		const { config: videoEncoderConfig, mseMime } = await pickH264Config(
 			evenW,
 			evenH,
@@ -697,54 +896,263 @@ async function runStreamingEncode(
 		}
 		videoQueue = createSourceBufferQueue(sourceBuffer)
 
-		// Collect chunks for the final downloadable Blob in parallel
-		// with feeding them to MSE.
+		// We assemble each MediaSource SourceBuffer append from the
+		// muxer's box-level callbacks instead of using StreamTarget
+		// directly. Why: MSE wants ATOMIC media segments (one moof
+		// paired with its mdat) at a time, not the dozens of tiny
+		// individual writes that Mediabunny's StreamTarget would
+		// emit per fragment. Appending each tiny write separately
+		// drops fragments out of MSE's parser, leading to playback
+		// stalls.
+		//
+		// MediaSource fragmented-MP4 layout:
+		//
+		//   init segment   = ftyp + moov            ← appended once
+		//   media segment  = moof + mdat            ← appended per fragment
+		//
+		// We hold the ftyp + moov in `initSegmentParts` until both
+		// have arrived, then flush as one append. Then for each
+		// (moof, mdat) pair we coalesce + flush.
 		const blobParts: Uint8Array<ArrayBuffer>[] = []
+		let encodeError: Error | null = null
+		let pendingFtyp: Uint8Array | null = null
+		let pendingMoov: Uint8Array | null = null
+		let pendingMoof: Uint8Array | null = null
 
-		// mp4-muxer in fragmented mode emits fragments asynchronously.
-		// `chunked: true` accumulates small writes into ~16 KB blocks
-		// before invoking onData, reducing the number of MSE
-		// appendBuffer() calls (each has fixed overhead).
-		const muxer = new Muxer({
-			target: new StreamTarget({
-				onData: (data, _position) => {
-					if (signal?.aborted) return
-					// Copy the data (mp4-muxer may reuse buffers
-					// between calls).
+		const flushIfReady = (): void => {
+			if (signal?.aborted) return
+			if (pendingFtyp && pendingMoov) {
+				const total = pendingFtyp.byteLength + pendingMoov.byteLength
+				const segment = new Uint8Array(total)
+				segment.set(pendingFtyp, 0)
+				segment.set(pendingMoov, pendingFtyp.byteLength)
+				pendingFtyp = null
+				pendingMoov = null
+				blobParts.push(segment)
+				videoQueue?.push(segment)
+			}
+		}
+
+		const output = new Output({
+			// NullTarget discards the StreamTarget's monolithic
+			// writes — we capture everything via the per-box
+			// callbacks below.
+			target: new NullTarget(),
+			format: new Mp4OutputFormat({
+				fastStart: 'fragmented',
+				// Short fragments → low play-press latency. 0.5s
+				// means the first ~15 frames (at 30fps) flush, so
+				// the <video> can start playing within ~500ms of
+				// encoding starting.
+				minimumFragmentDuration: 0.5,
+				onFtyp: (data) => {
+					// Box buffers are reused — copy.
 					const copy = new Uint8Array(data.byteLength)
 					copy.set(data)
-					blobParts.push(copy)
-					videoQueue?.push(copy)
+					pendingFtyp = copy
+					flushIfReady()
 				},
-				chunked: false,
-			}),
-			video: {
-				codec: 'avc',
-				width: evenW,
-				height: evenH,
-				frameRate: Math.max(1, Math.round(fps)),
-			},
-			...(audioCodec && audioConfig
-				? {
-						audio: {
-							codec: audioCodec,
-							numberOfChannels: audioChannels,
-							sampleRate: audioSampleRate,
-						},
+				onMoov: (data) => {
+					const copy = new Uint8Array(data.byteLength)
+					copy.set(data)
+					pendingMoov = copy
+					flushIfReady()
+				},
+				onMoof: (data) => {
+					const copy = new Uint8Array(data.byteLength)
+					copy.set(data)
+					pendingMoof = copy
+				},
+				onMdat: (data) => {
+					if (signal?.aborted) return
+					if (!pendingMoof) {
+						// Shouldn't happen in fragmented mode — moof
+						// always precedes its mdat — but guard anyway.
+						return
 					}
-				: {}),
-			fastStart: 'fragmented',
-			// Short fragments → low play-press latency. 0.5s means
-			// the first ~15 frames (at 30fps) trigger a flush, so
-			// the <video> can start playing within ~500ms of
-			// encoding starting.
-			minFragmentDuration: 0.5,
+					const total = pendingMoof.byteLength + data.byteLength
+					const segment = new Uint8Array(total)
+					segment.set(pendingMoof, 0)
+					segment.set(data, pendingMoof.byteLength)
+					pendingMoof = null
+					blobParts.push(segment)
+					videoQueue?.push(segment)
+				},
+			}),
 		})
 
-		let encodeError: Error | null = null
+		const videoSource = new EncodedVideoPacketSource('avc')
+		output.addVideoTrack(videoSource, {
+			frameRate: Math.max(1, Math.round(fps)),
+		})
+
+		let audioSource: EncodedAudioPacketSource | null = null
+		if (audioCodec && audioConfig) {
+			audioSource = new EncodedAudioPacketSource(audioCodec)
+			output.addAudioTrack(audioSource)
+		}
+
+		// Mediabunny requires `start()` before any media data is
+		// added. After this, no more tracks can be added.
+		await output.start()
+		signal?.throwIfAborted()
+
+		// WebCodecs encoders deliver chunks via synchronous output
+		// callbacks. Mediabunny's `source.add(packet)` is async and
+		// returns a promise that respects internal backpressure.
+		// Fragmented-MP4 output (which is what powers MSE
+		// streaming) additionally requires INTERLEAVED packet
+		// delivery: the muxer can't close a fragment until it has
+		// seen packets from EVERY track covering that fragment's
+		// timestamp range. If we add 5 seconds of video and only 1
+		// second of audio, the muxer buffers everything past the
+		// 1-second mark waiting for more audio — no moof / mdat
+		// fragments flush, and MSE gets nothing to play until
+		// `finalize()` releases the pile at the end.
+		//
+		// To get progressive streaming we drain BOTH queues from a
+		// single interleaver that respects a timestamp watermark:
+		// video packets are only sent up to `audioWatermark`, and
+		// audio packets are sent eagerly. When audio production
+		// stalls (decoder failure, EOF, etc.) we advance a
+		// "max-lag" timeout that lets video flow through anyway —
+		// otherwise a broken audio decoder would block playback
+		// forever.
+		type VideoItem = {
+			chunk: EncodedVideoChunk
+			meta: EncodedVideoChunkMetadata | undefined
+			isFirst: boolean
+			/** Presentation timestamp in seconds (chunk.timestamp / 1e6). */
+			ts: number
+		}
+		type AudioItem = {
+			chunk: EncodedAudioChunk
+			meta: EncodedAudioChunkMetadata | undefined
+			isFirst: boolean
+			ts: number
+		}
+		const videoPending: VideoItem[] = []
+		const audioPending: AudioItem[] = []
+		let videoMetaSent = false
+		let audioMetaSent = false
+		/** Highest audio timestamp (seconds) seen on the audio queue
+		 * since open. Used as the gate for releasing video packets. */
+		let audioWatermark = 0
+		/** Wall-clock time of the last meaningful audio packet — if
+		 * this gets stale we declare audio EOF so video can flow. */
+		let lastAudioActivityMs = performance.now()
+		/** Once true, audio is considered exhausted; video flows
+		 * without waiting for the watermark. */
+		let audioEnded = !audioSource
+
+		/** How many seconds of video are allowed to outrun audio
+		 * before we treat audio as stalled and let video through
+		 * unconditionally. Tuned so a broken-audio file (Switch
+		 * KB2n) still streams; the muxer will close fragments on
+		 * video alone after this window. */
+		const AUDIO_LAG_TOLERANCE_S = 2
+		/** How long without a new audio packet before we declare
+		 * audio EOF and stop blocking video. */
+		const AUDIO_STALL_TIMEOUT_MS = 1500
+
+		const drainInterleaved = async (): Promise<void> => {
+			while (true) {
+				if (signal?.aborted) return
+				if (encodeError) return
+
+				// 1. Send any audio packets that have arrived.
+				//    `audioEnded` is set once we've notified mediabunny
+				//    via `audioSource.close()`; after that point any
+				//    leftover audioPending entries are dropped because
+				//    the source no longer accepts adds.
+				if (audioSource && !audioEnded && audioPending.length > 0) {
+					const item = audioPending.shift()!
+					const pkt = encodedAudioChunkToPacket(item.chunk)
+					try {
+						await audioSource.add(pkt, item.isFirst ? item.meta : undefined)
+					} catch (e) {
+						encodeError =
+							e instanceof Error ? e : new Error(String(e))
+						return
+					}
+					if (item.ts > audioWatermark) audioWatermark = item.ts
+					lastAudioActivityMs = performance.now()
+					continue
+				}
+
+				// 2. Send video packets up to the audio watermark
+				//    (plus a generous tolerance, so short audio
+				//    starvation doesn't block playback).
+				if (videoPending.length === 0) return // nothing more to do for now
+
+				const headTs = videoPending[0]!.ts
+				const videoAheadOfAudio = headTs - audioWatermark
+				const audioIsStalled =
+					audioSource !== null &&
+					!audioEnded &&
+					performance.now() - lastAudioActivityMs >
+						AUDIO_STALL_TIMEOUT_MS
+
+				// Defence-in-depth: even though the audio-health
+				// probe before muxer setup should have disabled
+				// known-broken audio tracks, a stall here would
+				// otherwise hang the entire pipeline. Close the
+				// audio source so mediabunny releases any
+				// per-track fragment buffer.
+				if (audioIsStalled && audioSource) {
+					audioSource.close()
+					audioEnded = true
+					audioPending.length = 0
+				}
+
+				const releaseVideo =
+					audioEnded || videoAheadOfAudio <= AUDIO_LAG_TOLERANCE_S
+
+				if (!releaseVideo) {
+					// Wait for either: an audio packet to arrive,
+					// the audio stall timeout to expire, or
+					// audioEnded to flip. We poll because there's
+					// no single event that covers all three.
+					await new Promise<void>((r) => setTimeout(r, 20))
+					continue
+				}
+
+				const item = videoPending.shift()!
+				const pkt = encodedVideoChunkToPacket(item.chunk)
+				try {
+					await videoSource.add(pkt, item.isFirst ? item.meta : undefined)
+				} catch (e) {
+					encodeError = e instanceof Error ? e : new Error(String(e))
+					return
+				}
+			}
+		}
+
+		let interleaverPromise: Promise<void> | null = null
+		const kickInterleaver = (): void => {
+			if (interleaverPromise) return
+			interleaverPromise = drainInterleaved().finally(() => {
+				interleaverPromise = null
+				if (
+					videoPending.length > 0 ||
+					(audioSource && audioPending.length > 0)
+				) {
+					kickInterleaver()
+				}
+			})
+		}
+
+		// DEBUG counters
 		const encoder = new VideoEncoder({
 			output: (chunk, meta) => {
-				muxer.addVideoChunk(chunk, meta)
+				videoPending.push({
+					chunk,
+					meta,
+					isFirst: !videoMetaSent,
+					ts: chunk.timestamp / 1_000_000,
+				})
+				videoMetaSent = true
+				kickInterleaver()
 			},
 			error: (e) => {
 				encodeError = e
@@ -753,10 +1161,17 @@ async function runStreamingEncode(
 		encoder.configure(videoEncoderConfig)
 
 		let audioEncoder: AudioEncoder | null = null
-		if (audioConfig) {
+		if (audioConfig && audioSource) {
 			audioEncoder = new AudioEncoder({
 				output: (chunk, meta) => {
-					muxer.addAudioChunk(chunk, meta)
+					audioPending.push({
+						chunk,
+						meta,
+						isFirst: !audioMetaSent,
+						ts: chunk.timestamp / 1_000_000,
+					})
+					audioMetaSent = true
+					kickInterleaver()
 				},
 				error: (e) => {
 					encodeError = e
@@ -781,12 +1196,106 @@ async function runStreamingEncode(
 		let batchStart = performance.now()
 		let audioSampleCursor = 0
 
+		// Helpers for the encode loop. Used both to flush the probe
+		// frames we buffered while deciding about audio AND for
+		// each freshly-decoded frame in the main loop below.
+		const encodeVideoFrame = (
+			vf: VideoFrame,
+			isKeyFrame: boolean,
+		): void => {
+			try {
+				encoder.encode(vf, { keyFrame: isKeyFrame })
+			} finally {
+				vf.close()
+			}
+		}
+		const encodeAudioChunk = (
+			samples: Float32Array<ArrayBuffer>,
+			sampleFrames: number,
+		): void => {
+			if (!audioEncoder) return
+			try {
+				const timestampUs = Math.round(
+					(audioSampleCursor / audioSampleRate) * 1_000_000,
+				)
+				const audioData = new AudioData({
+					format: 'f32',
+					sampleRate: audioSampleRate,
+					numberOfChannels: audioChannels,
+					numberOfFrames: sampleFrames,
+					timestamp: timestampUs,
+					data: samples,
+				})
+				try {
+					audioEncoder.encode(audioData)
+				} finally {
+					audioData.close()
+				}
+				audioSampleCursor += sampleFrames
+			} catch {
+				try {
+					audioEncoder.close()
+				} catch {
+					// already closed
+				}
+				audioEncoder = null
+			}
+		}
+
 		try {
+			// 1. Replay probe frames + audio chunks into the
+			//    encoder. These were already decoded above as part
+			//    of the audio-health probe; we just need to feed
+			//    them through the WebCodecs encoders. `frameToVideoFrame`
+			//    accepts any object with the FfmpegFrame shape;
+			//    ProbeFrame is structurally compatible.
+			for (const probe of probeVideoFrames) {
+				signal?.throwIfAborted()
+				if (encodeError) throw encodeError
+				const vf = frameToVideoFrame(
+					probe as FfmpegFrame,
+					evenW,
+					evenH,
+					frameIndex * frameDurUs,
+					frameDurUs,
+				)
+				encodeVideoFrame(vf, frameIndex % KEYFRAME_INTERVAL === 0)
+				frameIndex++
+			}
+			for (const probe of probeAudioChunks) {
+				if (!audioEncoder) break // audio was dropped by probe
+				signal?.throwIfAborted()
+				if (encodeError) throw encodeError
+				encodeAudioChunk(probe.samples, probe.sampleFrames)
+			}
+			// 2. Free probe buffers — they've been handed off to
+			//    WebCodecs which made its own copies.
+			probeVideoFrames.length = 0
+			probeAudioChunks.length = 0
+
+			// 3. Main decode loop: pull frames from ff one by one
+			//    and encode them.
 			for (;;) {
 				signal?.throwIfAborted()
 				if (encodeError) throw encodeError
 
-				const frame = ff.decodeFrame()
+				let frame
+				try {
+					frame = ff.decodeFrame()
+				} catch (err) {
+					if (err instanceof FfmpegError && err.code !== undefined) {
+						// Map known FFmpeg failure modes to a more
+						// actionable error type — particularly important
+						// for KB2n + alpha (upstream patch limitation)
+						// which surfaces as INVALIDDATA on frame 0.
+						throw new BinkDecodeError(
+							format,
+							err.code,
+							err.message.replace(/^ffmpeg_decode_frame failed with /, ''),
+						)
+					}
+					throw err
+				}
 				if (!frame) break
 
 				const videoFrame = frameToVideoFrame(
@@ -796,36 +1305,19 @@ async function runStreamingEncode(
 					frameIndex * frameDurUs,
 					frameDurUs,
 				)
-				try {
-					encoder.encode(videoFrame, {
-						keyFrame: frameIndex % KEYFRAME_INTERVAL === 0,
-					})
-				} finally {
-					videoFrame.close()
-				}
+				encodeVideoFrame(
+					videoFrame,
+					frameIndex % KEYFRAME_INTERVAL === 0,
+				)
 
 				if (audioEncoder) {
 					try {
 						const chunk = ff.drainAudio(0)
 						if (chunk && chunk.sampleFrames > 0) {
-							const timestampUs = Math.round(
-								(audioSampleCursor / audioSampleRate) * 1_000_000,
+							encodeAudioChunk(
+								new Float32Array(chunk.samples),
+								chunk.sampleFrames,
 							)
-							const copy = new Float32Array(chunk.samples)
-							const audioData = new AudioData({
-								format: 'f32',
-								sampleRate: audioSampleRate,
-								numberOfChannels: audioChannels,
-								numberOfFrames: chunk.sampleFrames,
-								timestamp: timestampUs,
-								data: copy,
-							})
-							try {
-								audioEncoder.encode(audioData)
-							} finally {
-								audioData.close()
-							}
-							audioSampleCursor += chunk.sampleFrames
 						}
 					} catch {
 						try {
@@ -837,16 +1329,24 @@ async function runStreamingEncode(
 					}
 				}
 
-				// Backpressure on the encoder queues (independent of
-				// the MSE queue, which the browser drains in its own
-				// time).
-				if (
+				// Backpressure on the encoder queues AND on the
+				// per-track muxer queues. If the muxer source can't
+				// keep up (e.g. when it's pausing emission to wait
+				// for a minimum-duration fragment to close), the
+				// encoder will happily race ahead and balloon
+				// memory. Hold the decode loop when either is too
+				// deep.
+				const pendingTooDeep =
 					encoder.encodeQueueSize > 32 ||
-					(audioEncoder?.encodeQueueSize ?? 0) > 32
-				) {
+					(audioEncoder?.encodeQueueSize ?? 0) > 32 ||
+					videoPending.length > 32 ||
+					audioPending.length > 32
+				if (pendingTooDeep) {
 					while (
 						encoder.encodeQueueSize > 16 ||
-						(audioEncoder?.encodeQueueSize ?? 0) > 16
+						(audioEncoder?.encodeQueueSize ?? 0) > 16 ||
+						videoPending.length > 16 ||
+						audioPending.length > 16
 					) {
 						await new Promise<void>((r) => setTimeout(r, 4))
 						signal?.throwIfAborted()
@@ -878,7 +1378,32 @@ async function runStreamingEncode(
 			if (encodeError) throw encodeError
 			encoder.close()
 			if (audioEncoder) audioEncoder.close()
-			muxer.finalize()
+			// Encoder.flush() guarantees all encoded chunks have
+			// been delivered to our output callback, but those
+			// callbacks only pushed onto the per-track pending
+			// queue. Drain remaining queued packets through the
+			// interleaver before finalising the muxer, so tail
+			// packets aren't dropped.
+			if (interleaverPromise) await interleaverPromise
+			while (
+				videoPending.length > 0 ||
+				(!audioEnded && audioPending.length > 0)
+			) {
+				kickInterleaver()
+				if (interleaverPromise) await interleaverPromise
+			}
+			// Tell mediabunny no more samples are coming on either
+			// track. This unblocks any per-track buffering inside
+			// the muxer and lets `finalize()` flush the tail
+			// fragment cleanly. (If audio was stalled mid-stream
+			// we already closed the audio source in the
+			// interleaver — `audioEnded` covers both cases.)
+			if (audioSource && !audioEnded) {
+				audioSource.close()
+				audioEnded = true
+			}
+			if (encodeError) throw encodeError
+			await output.finalize()
 
 			// Wait for MSE to consume the final fragment, then signal
 			// end-of-stream so the `<video>`'s duration becomes the
