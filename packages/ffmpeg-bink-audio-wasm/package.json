@@ -27,5 +27,8 @@
     "type": "git",
     "url": "https://github.com/TooTallNate/switch-tools",
     "directory": "packages/ffmpeg-bink-audio-wasm"
+  },
+  "devDependencies": {
+    "@tootallnate/ffmpeg-wasm": "workspace:*"
   }
 }
