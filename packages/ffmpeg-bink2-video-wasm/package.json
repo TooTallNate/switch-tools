@@ -28,5 +28,8 @@
     "type": "git",
     "url": "https://github.com/TooTallNate/switch-tools",
     "directory": "packages/ffmpeg-bink2-video-wasm"
+  },
+  "devDependencies": {
+    "@tootallnate/ffmpeg-wasm": "workspace:*"
   }
 }

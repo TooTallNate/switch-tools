@@ -857,13 +857,29 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
-  packages/ffmpeg-bink-audio-wasm: {}
+  packages/ffmpeg-bink-audio-wasm:
+    devDependencies:
+      '@tootallnate/ffmpeg-wasm':
+        specifier: workspace:*
+        version: link:../ffmpeg-wasm
 
-  packages/ffmpeg-bink-demuxer-wasm: {}
+  packages/ffmpeg-bink-demuxer-wasm:
+    devDependencies:
+      '@tootallnate/ffmpeg-wasm':
+        specifier: workspace:*
+        version: link:../ffmpeg-wasm
 
-  packages/ffmpeg-bink-video-wasm: {}
+  packages/ffmpeg-bink-video-wasm:
+    devDependencies:
+      '@tootallnate/ffmpeg-wasm':
+        specifier: workspace:*
+        version: link:../ffmpeg-wasm
 
-  packages/ffmpeg-bink2-video-wasm: {}
+  packages/ffmpeg-bink2-video-wasm:
+    devDependencies:
+      '@tootallnate/ffmpeg-wasm':
+        specifier: workspace:*
+        version: link:../ffmpeg-wasm
 
   packages/ffmpeg-wasm:
     devDependencies:
@@ -7009,8 +7025,8 @@ packages:
   spessasynth_core@4.3.3:
     resolution: {integrity: sha512-WhdL1/rKP3QDJHq9/W7ayLqcvEMSciTalAYJUPp1QXRzGUBJnIOC0hvCf1QpPIMw4ie9BfOY3rZ5SuRY82iv2A==}
 
-  spessasynth_core@4.3.4:
-    resolution: {integrity: sha512-VRC62JUZ3wMzcIOCAqPLI+Oa1o2wWWDHqjK2XaWdGbdCVWUS4L9Nk5ZhhNTVL8cC2cAFtqp03Rg/6xsYChlNkA==}
+  spessasynth_core@4.3.6:
+    resolution: {integrity: sha512-jZaHhFe2nMgYlrFo0dVRQg+ZxJ7uVl/bo5Woh8cbxauNXPXmaRc89HYM07EDfDkic0S5ikSFpjV+uROHaKMqCQ==}
 
   spessasynth_lib@4.3.3:
     resolution: {integrity: sha512-4fedp9m170b9U12rkZ2NPGqq0Vpkc9iWDxVOuhVuzyD3flBrPxGA9iTY0aOeYMM2pQ6S/EtH7elHnsfU8EsI9w==}
@@ -14189,11 +14205,11 @@ snapshots:
 
   spessasynth_core@4.3.3: {}
 
-  spessasynth_core@4.3.4: {}
+  spessasynth_core@4.3.6: {}
 
   spessasynth_lib@4.3.3:
     dependencies:
-      spessasynth_core: 4.3.4
+      spessasynth_core: 4.3.6
 
   split2@4.2.0: {}
 

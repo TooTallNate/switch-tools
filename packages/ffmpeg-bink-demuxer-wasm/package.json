@@ -28,5 +28,8 @@
     "type": "git",
     "url": "https://github.com/TooTallNate/switch-tools",
     "directory": "packages/ffmpeg-bink-demuxer-wasm"
+  },
+  "devDependencies": {
+    "@tootallnate/ffmpeg-wasm": "workspace:*"
   }
 }
