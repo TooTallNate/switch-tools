@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "build:wasm": "make",
-    "build": "if [ -x /tmp/wasi-sdk/bin/clang ]; then make; fi && mkdir -p dist && cp src/bink2-video.so dist/bink2-video.so"
+    "build": "if [ -x /tmp/wasi-sdk/bin/clang ] && [ -d ../ffmpeg-wasm/build/ffmpeg ]; then make; fi && mkdir -p dist && cp src/bink2-video.so dist/bink2-video.so"
   },
   "keywords": [
     "ffmpeg",
