@@ -17,7 +17,7 @@
   "scripts": {
     "build:wasm": "make",
     "build:ts": "tsc",
-    "build": "if [ -x /tmp/wasi-sdk/bin/clang ]; then make; fi && tsc && cp src/ffmpeg.wasm dist/ffmpeg.wasm",
+    "build": "if [ -x /tmp/wasi-sdk/bin/clang ] && [ -d build/ffmpeg ]; then make; fi && tsc && cp src/ffmpeg.wasm dist/ffmpeg.wasm",
     "test": "vitest run --passWithNoTests"
   },
   "keywords": [
