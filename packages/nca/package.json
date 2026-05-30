@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/nca",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "type": "module",
   "description": "Builder for Nintendo Switch NCA (Nintendo Content Archive) files.",
   "main": "dist/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/bfttf",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser for Nintendo Switch BFTTF (obfuscated TTF/OTF) font files.",
   "main": "dist/index.js",

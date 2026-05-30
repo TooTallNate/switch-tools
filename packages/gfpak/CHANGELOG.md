@@ -1,19 +1,20 @@
----
-'@tootallnate/bfres': patch
-'@tootallnate/gfpak': patch
----
+# @tootallnate/gfpak
 
-Two new parser packages for Nintendo / Game Freak's master 3D
-content containers, capping off the format-survey push:
+## 0.0.2
 
-- **`@tootallnate/bfres`** — Nintendo's "Binary Cafe Resource"
-  format (`FRES    ` magic with the trailing spaces). The master
-  container for 3D content used across every NintendoWare-based
-  game from BotW and Mario Kart 8 Deluxe through Splatoon and
-  Smash Bros. Ultimate. Walks the per-version (v5–v10) header,
-  decodes the Switch ResDict patricia-trie pattern (skipping the
-  trie traversal in favour of linear iteration, which is exactly
-  what BfresLibrary does), and surfaces:
+### Patch Changes
+
+- 34cf625: Two new parser packages for Nintendo / Game Freak's master 3D
+  content containers, capping off the format-survey push:
+
+  - **`@tootallnate/bfres`** — Nintendo's "Binary Cafe Resource"
+    format (`FRES    ` magic with the trailing spaces). The master
+    container for 3D content used across every NintendoWare-based
+    game from BotW and Mario Kart 8 Deluxe through Splatoon and
+    Smash Bros. Ultimate. Walks the per-version (v5–v10) header,
+    decodes the Switch ResDict patricia-trie pattern (skipping the
+    trie traversal in favour of linear iteration, which is exactly
+    what BfresLibrary does), and surfaces:
 
     - `models[]` with `name`, `numVertexBuffer`, `numShape`,
       `numMaterial`, and `numBone` (resolved by following the
@@ -24,17 +25,17 @@ content containers, capping off the format-survey push:
       slice, ready to feed to `@tootallnate/bntx` for actual
       texture decoding.
 
-  Scope is deliberately metadata-only — full FVTX / FSHP geometry
-  parsing requires hundreds of additional struct fields and
-  matters mainly when you have a 3D viewer to render the result,
-  which the browser pane doesn't.
+    Scope is deliberately metadata-only — full FVTX / FSHP geometry
+    parsing requires hundreds of additional struct fields and
+    matters mainly when you have a 3D viewer to render the result,
+    which the browser pane doesn't.
 
-- **`@tootallnate/gfpak`** — Game Freak's archive format
-  (`GFLXPACK` magic). Bundles game assets (BNTX textures,
-  .gfbmdl models, .gfbanm animations, shaders) under FNV-1a
-  64-bit hashed paths in every Switch Pokémon title. Walks the
-  header / folder table / hash array / file-info block, and
-  exposes per-entry:
+  - **`@tootallnate/gfpak`** — Game Freak's archive format
+    (`GFLXPACK` magic). Bundles game assets (BNTX textures,
+    .gfbmdl models, .gfbanm animations, shaders) under FNV-1a
+    64-bit hashed paths in every Switch Pokémon title. Walks the
+    header / folder table / hash array / file-info block, and
+    exposes per-entry:
 
     - The folder + path FNV hashes (the actual paths aren't
       stored — Game Freak strips them on packing).
@@ -49,8 +50,8 @@ content containers, capping off the format-survey push:
       because Oodle is proprietary and we don't ship a WASM
       decoder.
 
-Both are wired into `apps/nx-archive` as expandable container
-nodes:
+  Both are wired into `apps/nx-archive` as expandable container
+  nodes:
 
   - BFRES expands into its external files (`textures.bntx`,
     `*.bfsha` shader bank), each routed through `childNodeFor`
@@ -64,8 +65,11 @@ nodes:
     `0x{path-hash}.{ext}`.
   - GFPAK root gets the standard "Container archive" pane.
 
-Verified end-to-end: BFRES → embedded BNTX → texture decoded as
-PNG, all in one click chain. The MK8D `APCBelt.bfres` sample
-shows 1 model "APCBelt" with 1 vertex buffer, 1 shape, 1
-material, and a 256×256 BC1_SRGB texture rendered in-browser as
-the conveyor-belt pattern.
+  Verified end-to-end: BFRES → embedded BNTX → texture decoded as
+  PNG, all in one click chain. The MK8D `APCBelt.bfres` sample
+  shows 1 model "APCBelt" with 1 vertex buffer, 1 shape, 1
+  material, and a 256×256 BC1_SRGB texture rendered in-browser as
+  the conveyor-belt pattern.
+
+- Updated dependencies [8b026c7]
+  - @tootallnate/lz4@0.0.2

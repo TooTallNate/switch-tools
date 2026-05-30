@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/hacbrewpack",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "type": "module",
   "description": "TypeScript reimplementation of hacbrewpack for generating Nintendo Switch NSP files.",
   "main": "dist/index.js",
@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@tootallnate/cnmt": "0.0.1",
-    "@tootallnate/nca": "0.0.2",
+    "@tootallnate/nca": "0.1.0",
     "@tootallnate/romfs": "0.1.1"
   },
   "devDependencies": {

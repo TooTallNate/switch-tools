@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/npdm",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser for Nintendo Switch NPDM (Process Definition Metadata) files.",
   "main": "dist/index.js",

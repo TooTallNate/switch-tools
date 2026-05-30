@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/bffnt",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser and texture decoder for Nintendo's BFFNT (Cafe Font Format) bitmap fonts.",
   "main": "dist/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/gfpak",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser for Game Freak's GFLXPACK (.gfpak) Switch game-asset archive.",
   "main": "dist/index.js",

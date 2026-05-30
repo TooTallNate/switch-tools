@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/ff8-fs",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser for Final Fantasy VIII's `.fs` / `.fi` / `.fl` archive triplets.",
   "main": "dist/index.js",

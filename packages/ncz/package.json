@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/ncz",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Decompressor for NCZ (compressed NCA) files.",
   "main": "dist/index.js",

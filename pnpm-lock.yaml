@@ -127,7 +127,7 @@ importers:
         specifier: 2.8.0
         version: 2.8.0(typescript@5.9.3)
       '@tootallnate/hacbrewpack':
-        specifier: 0.0.2
+        specifier: 0.0.3
         version: link:../../packages/hacbrewpack
       '@tootallnate/nacp':
         specifier: 0.2.1
@@ -918,7 +918,7 @@ importers:
         specifier: 0.0.1
         version: link:../cnmt
       '@tootallnate/nca':
-        specifier: 0.0.2
+        specifier: 0.1.0
         version: link:../nca
       '@tootallnate/romfs':
         specifier: 0.1.1

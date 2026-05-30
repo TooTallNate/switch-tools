@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/byaml",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser for Nintendo's BYAML / BYML binary YAML format.",
   "main": "dist/index.js",

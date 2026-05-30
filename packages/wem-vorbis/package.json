@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/wem-vorbis",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Decoder for Wwise Vorbis (codec 0xFFFF) WEMs to standard Ogg-Vorbis.",
   "main": "dist/index.js",

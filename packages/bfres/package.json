@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/bfres",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser for Nintendo's BFRES (Binary Cafe Resource) 3D resource container.",
   "main": "dist/index.js",

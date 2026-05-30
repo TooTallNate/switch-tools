@@ -1,16 +1,17 @@
----
-'@tootallnate/wem-vorbis': patch
-'@tootallnate/wem': patch
----
+# @tootallnate/wem-vorbis
 
-Wwise Vorbis WEMs now play in the browser. New
-**`@tootallnate/wem-vorbis`** package — a TypeScript port of
-[hcs64's ww2ogg](https://github.com/hcs64/ww2ogg) (BSD-3-Clause)
-narrowed to the Switch-era **Wwise V62** format with external
-aoTuV-603 codebooks. ~700 lines of source, no runtime
-dependencies, fully pure-JS.
+## 0.0.2
 
-The ww2ogg pipeline ported in full for V62:
+### Patch Changes
+
+- 90e7be9: Wwise Vorbis WEMs now play in the browser. New
+  **`@tootallnate/wem-vorbis`** package — a TypeScript port of
+  [hcs64's ww2ogg](https://github.com/hcs64/ww2ogg) (BSD-3-Clause)
+  narrowed to the Switch-era **Wwise V62** format with external
+  aoTuV-603 codebooks. ~700 lines of source, no runtime
+  dependencies, fully pure-JS.
+
+  The ww2ogg pipeline ported in full for V62:
 
   1. **LSB-first bit I/O primitives** (`BitReader` / `BitWriter`)
      — Vorbis bitpacks values LSB-first within each byte;
@@ -49,36 +50,36 @@ The ww2ogg pipeline ported in full for V62:
      header + segment table + payload, CRC-32 with poly
      0x04C11DB7).
 
-The codebook library file (`packed_codebooks_aoTuV_603.bin`,
-74 KB, BSD-3-Clause along with ww2ogg) ships in the package's
-`assets/` directory; the consumer is responsible for loading it
-at runtime (we don't embed it in the source). nx-archive uses
-Vite's `?url` import to get a hashed asset URL and `fetch()`s
-it once on the first Vorbis decode, caching the parsed library
-for subsequent calls.
+  The codebook library file (`packed_codebooks_aoTuV_603.bin`,
+  74 KB, BSD-3-Clause along with ww2ogg) ships in the package's
+  `assets/` directory; the consumer is responsible for loading it
+  at runtime (we don't embed it in the source). nx-archive uses
+  Vite's `?url` import to get a hashed asset URL and `fetch()`s
+  it once on the first Vorbis decode, caching the parsed library
+  for subsequent calls.
 
-`@tootallnate/wem`'s `decodeWemToBlob` gains a new optional
-second argument `WemDecodeOptions` for passing the codebook
-library (or raw bytes); the Vorbis branch now produces Blobs
-with type `audio/ogg; codecs=vorbis`. Without codebooks supplied,
-Vorbis WEMs throw a friendly, actionable error pointing the
-caller at the codebook file.
+  `@tootallnate/wem`'s `decodeWemToBlob` gains a new optional
+  second argument `WemDecodeOptions` for passing the codebook
+  library (or raw bytes); the Vorbis branch now produces Blobs
+  with type `audio/ogg; codecs=vorbis`. Without codebooks supplied,
+  Vorbis WEMs throw a friendly, actionable error pointing the
+  caller at the codebook file.
 
-End-to-end verified against PLA samples (PLA's Default.pck has
-566 OPUSNX entries and ~5,000 Vorbis entries — the Vorbis path
-dominates the streaming pack):
+  End-to-end verified against PLA samples (PLA's Default.pck has
+  566 OPUSNX entries and ~5,000 Vorbis entries — the Vorbis path
+  dominates the streaming pack):
 
   - 9/9 Vorbis WEMs from BATTLE_SYSTEM.bnk / BGM.bnk / ME.bnk /
     Default.pck decoded with zero ffmpeg errors. Mono SFX,
     stereo BGM, stereo ME, all four sample-rate variants tested.
   - In Chrome: `audio.duration` matches `sample_count /
-    sample_rate` to ~4 ms precision, `audio.play()` advances
+sample_rate` to ~4 ms precision, `audio.play()` advances
     `currentTime` correctly, no decode errors.
   - The full chain BNK → DIDX/DATA → WEM → Vorbis-rebuild →
     Ogg-Vorbis → browser audio works in nx-archive: open
     BATTLE_SYSTEM.bnk, click any of the 159 SFX WEMs, hit play.
 
-Out of scope (deferred):
+  Out of scope (deferred):
 
   - **Wwise Vorbis V34/V44/V48/V52/V53/V56** — pre-2014 Wwise
     versions with different setup layouts, separate "vorb"
