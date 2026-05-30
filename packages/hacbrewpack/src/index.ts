@@ -140,22 +140,36 @@ const IVFC_BLOCK_SIZE = 0x4000;
  * IVFC block boundary. Avoids an extra copy compared to the naive approach
  * of `new Uint8Array(await blob.arrayBuffer())` followed by `set()`.
  */
+interface IvfcPaddedRomfs {
+	/** The RomFS data zero-padded up to the IVFC block boundary. */
+	data: Uint8Array;
+	/**
+	 * The original (unpadded) RomFS size. This is the value that must be
+	 * recorded as the IVFC level-6 `hash_data_size` — the Home Menu uses it
+	 * as the logical size of the RomFS when mounting the control NCA. If the
+	 * padded size is recorded instead, some titles' icons spin forever on the
+	 * home screen and fail to launch.
+	 */
+	originalSize: number;
+}
+
 async function blobToIvfcPadded(
 	blobOrPromise: Blob | Promise<Blob>
-): Promise<Uint8Array> {
+): Promise<IvfcPaddedRomfs> {
 	const blob = await blobOrPromise;
 	const buffer = await blob.arrayBuffer();
+	const originalSize = buffer.byteLength;
 	const paddedSize =
-		buffer.byteLength +
-		((IVFC_BLOCK_SIZE - (buffer.byteLength % IVFC_BLOCK_SIZE)) %
+		originalSize +
+		((IVFC_BLOCK_SIZE - (originalSize % IVFC_BLOCK_SIZE)) %
 			IVFC_BLOCK_SIZE);
-	if (paddedSize === buffer.byteLength) {
+	if (paddedSize === originalSize) {
 		// Already aligned — no padding needed, use the buffer directly
-		return new Uint8Array(buffer);
+		return { data: new Uint8Array(buffer), originalSize };
 	}
 	const padded = new Uint8Array(paddedSize);
 	padded.set(new Uint8Array(buffer));
-	return padded;
+	return { data: padded, originalSize };
 }
 
 /**
@@ -294,8 +308,11 @@ export async function buildNsp(
 
 	// Build RomFS data if provided
 	let romfsData: Uint8Array | undefined;
+	let romfsOriginalSize: number | undefined;
 	if (options.romfs) {
-		romfsData = await blobToIvfcPadded(encodeRomfs(options.romfs));
+		const padded = await blobToIvfcPadded(encodeRomfs(options.romfs));
+		romfsData = padded.data;
+		romfsOriginalSize = padded.originalSize;
 	}
 
 	// Build Logo PFS0 files if provided
@@ -323,6 +340,7 @@ export async function buildNsp(
 		...commonOpts,
 		exefsFiles,
 		romfsData,
+		romfsOriginalSize,
 		logoFiles,
 		sign: !noSignNcaSig2,
 	});
@@ -339,7 +357,8 @@ export async function buildNsp(
 
 	const controlNca = await createControlNca({
 		...commonOpts,
-		romfsData: controlRomfsData,
+		romfsData: controlRomfsData.data,
+		romfsOriginalSize: controlRomfsData.originalSize,
 	});
 
 	// 6. Optional Manual NCAs
@@ -348,18 +367,22 @@ export async function buildNsp(
 
 	let htmldocNca: NcaResult | undefined;
 	if (options.htmldoc) {
+		const padded = await blobToIvfcPadded(encodeRomfs(options.htmldoc));
 		htmldocNca = await createManualNca({
 			...commonOpts,
-			romfsData: await blobToIvfcPadded(encodeRomfs(options.htmldoc)),
+			romfsData: padded.data,
+			romfsOriginalSize: padded.originalSize,
 		});
 		ncaIds.push(htmldocNca.ncaId);
 	}
 
 	let legalinfoNca: NcaResult | undefined;
 	if (options.legalinfo) {
+		const padded = await blobToIvfcPadded(encodeRomfs(options.legalinfo));
 		legalinfoNca = await createManualNca({
 			...commonOpts,
-			romfsData: await blobToIvfcPadded(encodeRomfs(options.legalinfo)),
+			romfsData: padded.data,
+			romfsOriginalSize: padded.originalSize,
 		});
 		ncaIds.push(legalinfoNca.ncaId);
 	}

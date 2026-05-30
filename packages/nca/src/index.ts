@@ -256,10 +256,13 @@ async function buildPfs0Section(
  */
 async function buildRomfsSection(
 	romfsData: Uint8Array,
-	crypto: Crypto
+	crypto: Crypto,
+	originalDataSize?: number
 ): Promise<{ sectionData: Uint8Array; fsHeader: Uint8Array }> {
-	// Build IVFC hash tree
-	const ivfc = await ivfcBuild(romfsData, crypto);
+	// Build IVFC hash tree. `romfsData` is expected to be zero-padded to the
+	// IVFC block boundary; `originalDataSize` carries the true (unpadded)
+	// RomFS size so the IVFC header records the correct `hash_data_size`.
+	const ivfc = await ivfcBuild(romfsData, crypto, originalDataSize);
 
 	// Section data: level1..level5 + data (level6)
 	// The IVFC levels are stored as: level1, level2, ..., level5, then data (level6)
@@ -508,8 +511,14 @@ async function assembleNca(
 export interface CreateProgramNcaOptions {
 	/** ExeFS files (e.g., {"main": data, "main.npdm": data}) */
 	exefsFiles: Pfs0File[];
-	/** Optional RomFS binary data (pre-encoded) */
+	/** Optional RomFS binary data (pre-encoded, zero-padded to the IVFC block boundary) */
 	romfsData?: Uint8Array;
+	/**
+	 * Original (unpadded) RomFS size in bytes. Required for a correct IVFC
+	 * `hash_data_size` when `romfsData` has been padded. Defaults to
+	 * `romfsData.length` when omitted.
+	 */
+	romfsOriginalSize?: number;
 	/** Optional Logo PFS0 files */
 	logoFiles?: Pfs0File[];
 	/** NCA construction options */
@@ -538,6 +547,7 @@ export async function createProgramNca(
 	const {
 		exefsFiles,
 		romfsData,
+		romfsOriginalSize,
 		logoFiles,
 		titleId,
 		keyGeneration = 1,
@@ -570,7 +580,11 @@ export async function createProgramNca(
 
 	// Section 1: RomFS (optional)
 	if (romfsData) {
-		const romfsSection = await buildRomfsSection(romfsData, crypto);
+		const romfsSection = await buildRomfsSection(
+			romfsData,
+			crypto,
+			romfsOriginalSize
+		);
 		sections.push({
 			...romfsSection,
 			cryptType: plaintext ? CRYPT_NONE : CRYPT_CTR,
@@ -606,8 +620,14 @@ export async function createProgramNca(
 }
 
 export interface CreateControlNcaOptions {
-	/** Pre-encoded RomFS binary data for the control section */
+	/** Pre-encoded RomFS binary data for the control section (zero-padded to the IVFC block boundary) */
 	romfsData: Uint8Array;
+	/**
+	 * Original (unpadded) RomFS size in bytes. Required for a correct IVFC
+	 * `hash_data_size` when `romfsData` has been padded. Defaults to
+	 * `romfsData.length` when omitted.
+	 */
+	romfsOriginalSize?: number;
 	titleId: bigint;
 	keyGeneration?: number;
 	keyAreaKey?: Uint8Array;
@@ -628,6 +648,7 @@ export async function createControlNca(
 ): Promise<NcaResult> {
 	const {
 		romfsData,
+		romfsOriginalSize,
 		titleId,
 		keyGeneration = 1,
 		keyAreaKey = new Uint8Array(16).fill(0x04),
@@ -638,7 +659,11 @@ export async function createControlNca(
 		aesXtsEncrypt,
 	} = options;
 
-	const romfsSection = await buildRomfsSection(romfsData, crypto);
+	const romfsSection = await buildRomfsSection(
+		romfsData,
+		crypto,
+		romfsOriginalSize
+	);
 
 	return assembleNca(
 		[
@@ -728,8 +753,14 @@ export async function createMetaNca(
 }
 
 export interface CreateManualNcaOptions {
-	/** Pre-encoded RomFS binary data */
+	/** Pre-encoded RomFS binary data (zero-padded to the IVFC block boundary) */
 	romfsData: Uint8Array;
+	/**
+	 * Original (unpadded) RomFS size in bytes. Required for a correct IVFC
+	 * `hash_data_size` when `romfsData` has been padded. Defaults to
+	 * `romfsData.length` when omitted.
+	 */
+	romfsOriginalSize?: number;
 	titleId: bigint;
 	keyGeneration?: number;
 	keyAreaKey?: Uint8Array;
@@ -751,6 +782,7 @@ export async function createManualNca(
 ): Promise<NcaResult> {
 	const {
 		romfsData,
+		romfsOriginalSize,
 		titleId,
 		keyGeneration = 1,
 		keyAreaKey = new Uint8Array(16).fill(0x04),
@@ -761,7 +793,11 @@ export async function createManualNca(
 		aesXtsEncrypt,
 	} = options;
 
-	const romfsSection = await buildRomfsSection(romfsData, crypto);
+	const romfsSection = await buildRomfsSection(
+		romfsData,
+		crypto,
+		romfsOriginalSize
+	);
 
 	return assembleNca(
 		[

@@ -127,8 +127,23 @@ export interface IvfcResult {
  */
 export async function build(
 	data: Uint8Array,
-	crypto: Crypto = globalThis.crypto
+	crypto: Crypto = globalThis.crypto,
+	originalDataSize?: number
 ): Promise<IvfcResult> {
+	// The level-6 (data) `hash_data_size` recorded in the IVFC header must be
+	// the *logical* (unpadded) size of the RomFS image — this is the size the
+	// firmware uses to mount the RomFS. The `data` buffer passed in here is
+	// typically already zero-padded up to IVFC_HASH_BLOCK_SIZE so that the
+	// hash levels cover full blocks (matching hacbrewpack's `romfs.c`, which
+	// records `*out_size` *before* writing the trailing padding). Callers that
+	// pad the data must pass the original unpadded length via
+	// `originalDataSize`; otherwise we fall back to the buffer length.
+	//
+	// Getting this wrong (recording the padded size) produces a control NCA
+	// whose RomFS the Home Menu can fail to mount — manifesting as an icon
+	// that spins forever on the home screen and a title that won't launch.
+	const dataSize = originalDataSize ?? data.length;
+
 	// Build levels from bottom (6) to top (1)
 	// Level 6 = data, Level 5 = hashes of level 6, ..., Level 1 = hashes of level 2
 	const levelData: Uint8Array[] = [];
@@ -184,7 +199,8 @@ export async function build(
 	{
 		const entryOffset = 0x10 + (IVFC_NUM_LEVELS - 1) * 0x18;
 		view.setBigUint64(entryOffset + 0x00, BigInt(logicalOffset), true);
-		view.setBigUint64(entryOffset + 0x08, BigInt(data.length), true);
+		// hash_data_size = unpadded RomFS size (see note above).
+		view.setBigUint64(entryOffset + 0x08, BigInt(dataSize), true);
 		view.setUint32(entryOffset + 0x10, 0x0e, true);
 	}
 
