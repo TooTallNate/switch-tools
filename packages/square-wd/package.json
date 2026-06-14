@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/square-wd",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser for Square's '.WD' wave-bank format.",
   "main": "dist/index.js",

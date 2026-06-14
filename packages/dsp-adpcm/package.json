@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/dsp-adpcm",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Decoder for Nintendo DSP-ADPCM (GC ADPCM) 4-bit audio.",
   "main": "dist/index.js",

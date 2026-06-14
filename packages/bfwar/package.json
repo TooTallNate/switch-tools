@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/bfwar",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser for Nintendo's BFWAR (FWAR magic) wave archive.",
   "main": "dist/index.js",

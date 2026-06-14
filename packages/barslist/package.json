@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/barslist",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser for Nintendo's BARSLIST manifest file (ARSL magic).",
   "main": "dist/index.js",

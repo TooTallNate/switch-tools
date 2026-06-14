@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/bfwav",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser and audio decoder for Nintendo's BFWAV (FWAV magic) audio format.",
   "main": "dist/index.js",

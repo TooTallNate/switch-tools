@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/bars",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser for Nintendo's BARS audio resource archive.",
   "main": "dist/index.js",

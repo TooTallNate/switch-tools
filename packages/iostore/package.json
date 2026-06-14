@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/iostore",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser for Unreal Engine 4/5 IoStore (.utoc + .ucas) containers.",
   "main": "dist/index.js",

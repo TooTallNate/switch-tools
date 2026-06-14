@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/unity-asset",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser for Unity SerializedFile assets (CAB-… files inside UnityFS bundles).",
   "main": "dist/index.js",

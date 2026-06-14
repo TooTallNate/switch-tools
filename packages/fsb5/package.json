@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/fsb5",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser and decoder for FMOD Sample Banks (FSB5 format).",
   "main": "dist/index.js",

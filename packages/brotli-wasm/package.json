@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/brotli-wasm",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Streaming Brotli decoder compiled to WebAssembly.",
   "type": "module",
   "exports": {

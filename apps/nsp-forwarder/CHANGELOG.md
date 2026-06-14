@@ -1,5 +1,11 @@
 # nsp-forwarder
 
+## 0.0.7
+
+### Patch Changes
+
+- @tootallnate/hacbrewpack@0.0.3
+
 ## 0.0.6
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/wwise-pck",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser for Audiokinetic Wwise AKPK (.pck) streaming-WEM packages.",
   "main": "dist/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/zstd-wasm",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Zstandard decoder with a streaming TransformStream API.",
   "type": "module",
   "exports": {

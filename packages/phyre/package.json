@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/phyre",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser for Sony PhyreEngine's binary container format (magic 'RYHP').",
   "main": "dist/index.js",
