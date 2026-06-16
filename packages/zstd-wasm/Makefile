@@ -1,10 +1,16 @@
-# @tootallnate/zstd-wasm — build streaming zstd decoder as WASM.
+# @tootallnate/zstd-wasm — build streaming zstd (de)compressor as WASM.
 #
-# The single-file zstd decoder is compiled with wasi-sdk's clang into
-# a freestanding `wasm32-unknown-unknown` module. We do NOT use WASI:
-# the decoder doesn't need a libc beyond memcpy / memset (pulled in
-# from libclang_rt.builtins) and is otherwise pure computation. This
-# keeps the resulting WASM small and portable across browser + Node.
+# The single-file zstd library (encoder + decoder) is compiled with
+# wasi-sdk's clang into a freestanding `wasm32-unknown-unknown` module.
+# We do NOT use WASI: zstd doesn't need a libc beyond malloc / memcpy /
+# memset (pulled in from the wasi-sysroot libc objects + clang
+# builtins) and is otherwise pure computation. This keeps the resulting
+# WASM portable across browser + Node.
+#
+# NOTE: this is the FULL library build (compress + decompress). The
+# vendored `c/zstd.c` is the single-file amalgamation generated from
+# upstream zstd 1.5.7 via build/single_file_libs/combine.py (with
+# multithreading disabled and error strings stripped).
 #
 # Run `make setup` once to download wasi-sdk to /tmp/wasi-sdk.
 
@@ -14,15 +20,16 @@ CC = $(WASI_SDK)/bin/clang
 WASM_LD = $(WASI_SDK)/bin/wasm-ld
 
 # Use freestanding wasm32 (no WASI imports). We provide our own tiny
-# memcpy / memset via clang builtins. The decoder uses __builtin_*
-# functions for the rest, which compile to pure WASM ops.
+# memcpy / memset via clang builtins. zstd uses __builtin_* functions
+# for the rest, which compile to pure WASM ops.
 SYSROOT = $(WASI_SDK)/share/wasi-sysroot
 
 # We compile against wasi-sysroot for headers (string.h, stdint.h, etc.)
-# and link against the wasm32-wasip1 libc objects (memcpy, memset, etc.).
-# The decoder doesn't actually call any WASI imports — only the freestanding
-# bits of libc — so the resulting module has no `wasi_snapshot_preview1`
-# imports and runs in plain WebAssembly.Module instantiation.
+# and link against the wasm32-wasip1 libc objects (malloc, memcpy,
+# memset, etc.). zstd doesn't actually call any WASI imports — only the
+# freestanding bits of libc — so the resulting module has no
+# `wasi_snapshot_preview1` imports and runs in plain
+# WebAssembly.Module instantiation.
 CFLAGS = \
 	--target=wasm32-wasip1 \
 	--sysroot=$(SYSROOT) \
@@ -46,7 +53,7 @@ LDFLAGS = \
 	-Wl,-z,stack-size=1048576 \
 	-Wl,--initial-memory=8388608
 
-OBJS = build/zstddeclib.o build/wrapper.o
+OBJS = build/zstd.o build/wrapper.o
 # The WASM is checked in at `src/zstd.wasm` so consumers using
 # `new URL('./zstd.wasm', import.meta.url)` resolve correctly during
 # development (against `src/`). It's also copied to `dist/` during
@@ -82,7 +89,7 @@ setup:
 build:
 	@mkdir -p build
 
-build/zstddeclib.o: c/zstddeclib.c | build
+build/zstd.o: c/zstd.c | build
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 build/wrapper.o: c/wrapper.c c/zstd.h | build
