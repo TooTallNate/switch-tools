@@ -1,7 +1,7 @@
 {
   "name": "nx-archive",
   "private": true,
-  "version": "0.0.2",
+  "version": "0.0.3",
   "type": "module",
   "description": "Web-based browser for Nintendo Switch archive formats (NRO/NSP/NCA/XCI/NCZ/PFS0/HFS0/RomFS)",
   "author": "Nathan Rajlich <n@n8.io>",
