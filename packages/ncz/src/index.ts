@@ -63,6 +63,155 @@ export interface NczResult {
 }
 
 /**
+ * The fully-parsed NCZ metadata header, produced by {@link parseNczHeader}
+ * by reading only the (small) header region of an NCZ — no decompression.
+ */
+export interface ParsedNczHeader {
+	/** The reconstructed NCA size derived from the NCZ metadata. */
+	ncaSize: bigint;
+	/** Parsed NCZ section headers (AES-CTR keys/counters per section). */
+	sections: NczSection[];
+	/** Parsed NCZ block header, or `null` for stream-mode NCZ. */
+	blockHeader: NczBlockHeader | null;
+	/** Block descriptors (absolute offsets/sizes), empty for stream mode. */
+	blocks: NczBlockInfo[];
+	/**
+	 * Absolute byte offset within the NCZ where the compressed payload begins
+	 * (right after the section headers, or after the block table in block mode).
+	 */
+	compressedDataOffset: number;
+}
+
+/**
+ * Parse an NCZ's metadata header (sections + optional block table) WITHOUT
+ * decompressing the body. Reads only the small header region, so it is cheap
+ * and works on streamed/seekable `Blob`s. Use this when you need the
+ * reconstructed NCA size up-front (e.g. to build a PFS0/NSP layout and
+ * Content-Length) before streaming the decompression.
+ *
+ * Throws if `blob` is not an NCZ (missing section magic at 0x4000).
+ */
+export async function parseNczHeader(blob: Blob): Promise<ParsedNczHeader> {
+	// Section header (magic + count) at 0x4000.
+	const sectionHeaderOffset = NCZ_HEADER_SIZE;
+	const sectionHeaderBuf = await blob
+		.slice(sectionHeaderOffset, sectionHeaderOffset + SIZEOF_NCZ_HEADER)
+		.arrayBuffer();
+	const sectionHeaderView = new DataView(sectionHeaderBuf);
+	const magic = sectionHeaderView.getBigUint64(0, true);
+	if (magic !== NCZ_SECTION_MAGIC) {
+		throw new Error(
+			`Not an NCZ file (expected section magic 0x${NCZ_SECTION_MAGIC.toString(16)}, got 0x${magic.toString(16)})`,
+		);
+	}
+	const sectionCount = Number(sectionHeaderView.getBigUint64(8, true));
+
+	// Section entries.
+	const sectionsOffset = sectionHeaderOffset + SIZEOF_NCZ_HEADER;
+	const sectionsSize = sectionCount * SIZEOF_NCZ_SECTION;
+	const sectionsBuf = await blob
+		.slice(sectionsOffset, sectionsOffset + sectionsSize)
+		.arrayBuffer();
+	const sections: NczSection[] = [];
+	for (let i = 0; i < sectionCount; i++) {
+		const off = i * SIZEOF_NCZ_SECTION;
+		const view = new DataView(sectionsBuf, off, SIZEOF_NCZ_SECTION);
+		const key = new Uint8Array(
+			sectionsBuf.slice(off + 0x20, off + 0x20 + 0x10),
+		);
+		const counter = new Uint8Array(
+			sectionsBuf.slice(off + 0x20 + 0x10, off + 0x20 + 0x20),
+		);
+		sections.push({
+			offset: view.getBigUint64(0, true),
+			size: view.getBigUint64(8, true),
+			cryptoType: view.getBigUint64(16, true),
+			key,
+			counter,
+		});
+	}
+
+	// Optional block header.
+	const blockHeaderOffset = sectionsOffset + sectionsSize;
+	const blockHeaderBuf = await blob
+		.slice(blockHeaderOffset, blockHeaderOffset + SIZEOF_NCZ_BLOCK_HEADER)
+		.arrayBuffer();
+	const blockHeaderView = new DataView(blockHeaderBuf);
+	const blockMagic = blockHeaderView.getBigUint64(0, true);
+
+	let blockHeader: NczBlockHeader | null = null;
+	const blocks: NczBlockInfo[] = [];
+	let compressedDataOffset: number;
+
+	if (blockMagic === NCZ_BLOCK_MAGIC) {
+		const version = blockHeaderView.getUint8(8);
+		const type = blockHeaderView.getUint8(9);
+		// byte 10 is padding
+		const blockSizeExponent = blockHeaderView.getUint8(11);
+		const blockCount = blockHeaderView.getUint32(12, true);
+		const decompressedSize = blockHeaderView.getBigUint64(16, true);
+
+		if (version !== NCZ_BLOCK_VERSION) {
+			throw new Error(
+				`Invalid NCZ block version: ${version} (expected ${NCZ_BLOCK_VERSION})`,
+			);
+		}
+		if (type !== NCZ_BLOCK_TYPE) {
+			throw new Error(
+				`Invalid NCZ block type: ${type} (expected ${NCZ_BLOCK_TYPE})`,
+			);
+		}
+		if (blockSizeExponent < 14 || blockSizeExponent > 32) {
+			throw new Error(
+				`Invalid NCZ block size exponent: ${blockSizeExponent} (must be 14-32)`,
+			);
+		}
+
+		blockHeader = {
+			version,
+			type,
+			blockSizeExponent,
+			blockCount,
+			decompressedSize,
+		};
+
+		const blockArrayOffset = blockHeaderOffset + SIZEOF_NCZ_BLOCK_HEADER;
+		const blockArraySize = blockCount * SIZEOF_NCZ_BLOCK_ENTRY;
+		const blockArrayBuf = await blob
+			.slice(blockArrayOffset, blockArrayOffset + blockArraySize)
+			.arrayBuffer();
+		const blockArrayView = new DataView(blockArrayBuf);
+
+		compressedDataOffset = blockArrayOffset + blockArraySize;
+		let currentOffset = compressedDataOffset;
+		for (let i = 0; i < blockCount; i++) {
+			const compressedSize = blockArrayView.getUint32(i * 4, true);
+			blocks.push({ offset: currentOffset, size: compressedSize });
+			currentOffset += compressedSize;
+		}
+	} else {
+		// Stream mode — compressed data starts right after the sections; the
+		// bytes we just read as a "block header" are the zstd stream start.
+		compressedDataOffset = blockHeaderOffset;
+	}
+
+	// Reconstructed NCA size.
+	let ncaSize: bigint;
+	if (blockHeader) {
+		ncaSize = BigInt(NCZ_HEADER_SIZE) + blockHeader.decompressedSize;
+	} else {
+		let maxEnd = 0n;
+		for (const s of sections) {
+			const end = s.offset + s.size;
+			if (end > maxEnd) maxEnd = end;
+		}
+		ncaSize = maxEnd;
+	}
+
+	return { ncaSize, sections, blockHeader, blocks, compressedDataOffset };
+}
+
+/**
  * A function that decompresses a zstd-compressed `Blob` into a `Uint8Array`.
  *
  * This is used for block-mode NCZ, where each block is independently compressed.
@@ -176,125 +325,9 @@ export async function decompressNcz(
 	const ncaHeaderBlob = blob.slice(0, NCZ_HEADER_SIZE);
 	const ncaHeaderBuf = await ncaHeaderBlob.arrayBuffer();
 
-	// 2. Parse the NCZ section header
-	const sectionHeaderOffset = NCZ_HEADER_SIZE;
-	const sectionHeaderBuf = await blob
-		.slice(sectionHeaderOffset, sectionHeaderOffset + SIZEOF_NCZ_HEADER)
-		.arrayBuffer();
-	const sectionHeaderView = new DataView(sectionHeaderBuf);
-	const magic = sectionHeaderView.getBigUint64(0, true);
-	if (magic !== NCZ_SECTION_MAGIC) {
-		throw new Error(
-			`Not an NCZ file (expected section magic 0x${NCZ_SECTION_MAGIC.toString(16)}, got 0x${magic.toString(16)})`,
-		);
-	}
-	const sectionCount = Number(sectionHeaderView.getBigUint64(8, true));
-
-	// 3. Parse section entries
-	const sectionsOffset = sectionHeaderOffset + SIZEOF_NCZ_HEADER;
-	const sectionsSize = sectionCount * SIZEOF_NCZ_SECTION;
-	const sectionsBuf = await blob
-		.slice(sectionsOffset, sectionsOffset + sectionsSize)
-		.arrayBuffer();
-	const sections: NczSection[] = [];
-	for (let i = 0; i < sectionCount; i++) {
-		const off = i * SIZEOF_NCZ_SECTION;
-		const view = new DataView(sectionsBuf, off, SIZEOF_NCZ_SECTION);
-		const key = new Uint8Array(
-			sectionsBuf.slice(off + 0x20, off + 0x20 + 0x10),
-		);
-		const counter = new Uint8Array(
-			sectionsBuf.slice(off + 0x20 + 0x10, off + 0x20 + 0x20),
-		);
-		sections.push({
-			offset: view.getBigUint64(0, true),
-			size: view.getBigUint64(8, true),
-			cryptoType: view.getBigUint64(16, true),
-			key,
-			counter,
-		});
-	}
-
-	// 4. Try to parse block header
-	const blockHeaderOffset = sectionsOffset + sectionsSize;
-	const blockHeaderBuf = await blob
-		.slice(blockHeaderOffset, blockHeaderOffset + SIZEOF_NCZ_BLOCK_HEADER)
-		.arrayBuffer();
-	const blockHeaderView = new DataView(blockHeaderBuf);
-	const blockMagic = blockHeaderView.getBigUint64(0, true);
-
-	let blockHeader: NczBlockHeader | null = null;
-	let blocks: NczBlockInfo[] = [];
-	let compressedDataOffset: number;
-
-	if (blockMagic === NCZ_BLOCK_MAGIC) {
-		// Block mode
-		const version = blockHeaderView.getUint8(8);
-		const type = blockHeaderView.getUint8(9);
-		// byte 10 is padding
-		const blockSizeExponent = blockHeaderView.getUint8(11);
-		const blockCount = blockHeaderView.getUint32(12, true);
-		const decompressedSize = blockHeaderView.getBigUint64(16, true);
-
-		if (version !== NCZ_BLOCK_VERSION) {
-			throw new Error(
-				`Invalid NCZ block version: ${version} (expected ${NCZ_BLOCK_VERSION})`,
-			);
-		}
-		if (type !== NCZ_BLOCK_TYPE) {
-			throw new Error(
-				`Invalid NCZ block type: ${type} (expected ${NCZ_BLOCK_TYPE})`,
-			);
-		}
-		if (blockSizeExponent < 14 || blockSizeExponent > 32) {
-			throw new Error(
-				`Invalid NCZ block size exponent: ${blockSizeExponent} (must be 14-32)`,
-			);
-		}
-
-		blockHeader = {
-			version,
-			type,
-			blockSizeExponent,
-			blockCount,
-			decompressedSize,
-		};
-
-		// Read block size array
-		const blockArrayOffset = blockHeaderOffset + SIZEOF_NCZ_BLOCK_HEADER;
-		const blockArraySize = blockCount * SIZEOF_NCZ_BLOCK_ENTRY;
-		const blockArrayBuf = await blob
-			.slice(blockArrayOffset, blockArrayOffset + blockArraySize)
-			.arrayBuffer();
-		const blockArrayView = new DataView(blockArrayBuf);
-
-		// Compute absolute offsets for each block
-		compressedDataOffset = blockArrayOffset + blockArraySize;
-		let currentOffset = compressedDataOffset;
-		for (let i = 0; i < blockCount; i++) {
-			const compressedSize = blockArrayView.getUint32(i * 4, true);
-			blocks.push({ offset: currentOffset, size: compressedSize });
-			currentOffset += compressedSize;
-		}
-	} else {
-		// Stream mode — compressed data starts right after sections.
-		// The block header bytes we read are actually the start of the zstd stream.
-		compressedDataOffset = blockHeaderOffset;
-	}
-
-	// 5. Compute the total NCA size
-	let ncaSize: bigint;
-	if (blockHeader) {
-		ncaSize = BigInt(NCZ_HEADER_SIZE) + blockHeader.decompressedSize;
-	} else {
-		// Derive from section metadata: the NCA body ends at the furthest section end
-		let maxEnd = 0n;
-		for (const s of sections) {
-			const end = s.offset + s.size;
-			if (end > maxEnd) maxEnd = end;
-		}
-		ncaSize = maxEnd;
-	}
+	// 2-5. Parse the NCZ metadata (sections, optional block table, NCA size).
+	const { ncaSize, sections, blockHeader, blocks, compressedDataOffset } =
+		await parseNczHeader(blob);
 
 	// 6. Build the output ReadableStream
 	const subtle = cryptoProvider.subtle;
