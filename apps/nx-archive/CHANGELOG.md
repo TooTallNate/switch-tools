@@ -1,5 +1,13 @@
 # nx-archive
 
+## 0.0.5
+
+### Patch Changes
+
+- Updated dependencies [6eb0d6a]
+  - @tootallnate/pfs0@0.0.3
+  - @tootallnate/nca@0.1.0
+
 ## 0.0.4
 
 ### Patch Changes
