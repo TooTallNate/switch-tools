@@ -1,5 +1,12 @@
 # nx-archive
 
+## 0.0.4
+
+### Patch Changes
+
+- Updated dependencies [bb67c6c]
+  - @tootallnate/ncz@0.1.0
+
 ## 0.0.3
 
 ### Patch Changes
