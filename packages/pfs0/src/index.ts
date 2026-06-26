@@ -2,9 +2,9 @@
  * Reference: https://switchbrew.org/wiki/NCA#PFS0
  */
 import { decodeCString } from '@nx.js/util';
-import { Pfs0FileTable, Pfs0Header } from './types';
+import { Pfs0FileTable, Pfs0Header } from './types.js';
 
-export * from './types';
+export * from './types.js';
 
 export async function decode(data: Blob): Promise<Map<string, Blob>> {
 	const { magic, totalFiles, stringTableSize } = new Pfs0Header(
