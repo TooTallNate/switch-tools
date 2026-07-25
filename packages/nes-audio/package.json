@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/nes-audio",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Renders NES ROM music to PCM by emulating the 6502 and APU.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/nes-audio"
+  },
+  "dependencies": {
+    "@tootallnate/nes-rom": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/brr",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Decoder for SNES BRR (Bit Rate Reduction) audio samples.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/brr"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

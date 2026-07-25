@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/z64-fs",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for the Zelda 64 dmadata filesystem in N64 ROMs.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/z64-fs"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@tootallnate/yaz0": "workspace:*"
+  }
+}

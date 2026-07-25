@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/z64-audio",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Extractor for Zelda 64 Audiobank soundfont samples and Audiotable audio.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/z64-audio"
+  },
+  "dependencies": {
+    "@tootallnate/vadpcm": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/n64-soundbank",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Extractor for N64 SDK ctl/tbl sound banks used by Super Mario 64 and others.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/n64-soundbank"
+  },
+  "dependencies": {
+    "@tootallnate/vadpcm": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

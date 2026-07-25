@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/rare-1172",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Decoder for the Rare 1172 deflate container used by GoldenEye 007 and Perfect Dark.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/rare-1172"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

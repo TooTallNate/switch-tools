@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/smw",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for Super Mario World ROM graphics and palettes.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/smw"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@tootallnate/lc-lz2": "workspace:*"
+  }
+}

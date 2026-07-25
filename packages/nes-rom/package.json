@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/nes-rom",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for NES ROM images in iNES and NES 2.0 format.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/nes-rom"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
