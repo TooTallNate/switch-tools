@@ -275,6 +275,49 @@ export type PreviewKind =
 	| 'html-preview'
 	/** Unreal Engine `.uasset` / `.umap` package — header-level inspection. */
 	| 'uasset-info'
+	/** NES ROM (iNES / NES 2.0) header info + graphics explorer. */
+	| 'nes-rom-info'
+	/** Game Boy / Game Boy Color cartridge header info. */
+	| 'gb-rom-info'
+	/** Game Boy Advance ROM header info + graphics explorer. */
+	| 'gba-rom-info'
+	/** Super Nintendo internal-header info + graphics explorer. */
+	| 'snes-rom-info'
+	/** Nintendo 64 ROM header / CIC / CRC info. */
+	| 'n64-rom-info'
+	/**
+	 * Raw tile / texture graphics explorer (YY-CHR style). Routed
+	 * via `meta.tileData` for children whose bytes are known or
+	 * likely to be pixel data (NES CHR-ROM, decompressed GBA / N64
+	 * blocks).
+	 */
+	| 'tile-viewer'
+	/**
+	 * Nintendo 64 3D model — one F3D / F3DEX / F3DEX2 display list,
+	 * routed via `meta.n64Model`.
+	 */
+	| 'n64-model'
+	/**
+	 * Nintendo BTI texture (`.bti`) — a bare GX texture header plus
+	 * tiled pixel data, as used all over GameCube/Wii JSystem titles.
+	 */
+	| 'bti-image'
+	/**
+	 * Nintendo J3D model (`.bmd` / `.bdl`) — the GameCube/Wii model
+	 * format used by Wind Waker, Twilight Princess, Mario Sunshine.
+	 */
+	| 'j3d-model'
+	/**
+	 * Nintendo THP video (`.thp`) — JPEG frames plus DSP-ADPCM audio,
+	 * re-encoded to fragmented MP4 and streamed via MediaSource.
+	 */
+	| 'thp-video'
+	| 'mth-video'
+	/**
+	 * Melee HSDArchive model — a joint hierarchy's geometry, routed via
+	 * `meta.hsdModel`.
+	 */
+	| 'hsd-model'
 	| 'hex';
 
 export const TEXT_EXTS = new Set([
@@ -533,11 +576,29 @@ export function detectPreviewKind(name: string): PreviewKind {
 	// PhyreEngine: split by sub-extension. `.dds.phyre` -> textures;
 	// `.dae.phyre` -> 3D meshes. `.fx.phyre` (shaders) and
 	// `.ags.phyre` (animations) fall through to hex.
+	if (lower.endsWith('.thp')) return 'thp-video';
+	if (lower.endsWith('.mth')) return 'mth-video';
+	if (lower.endsWith('.bti')) return 'bti-image';
+	// J3D models. `.bdl` additionally carries a baked display list
+	// (MDL3) that we ignore — the geometry chunks are identical.
+	if (lower.endsWith('.bmd') || lower.endsWith('.bdl')) return 'j3d-model';
 	if (lower.endsWith('.dds.phyre')) return 'phyre-image';
 	if (lower.endsWith('.dae.phyre')) return 'phyre-mesh';
 	if (lower.endsWith('.usm')) return 'usm-video';
 	if (lower.endsWith('.bik')) return 'bink1-video';
 	if (lower.endsWith('.bk2')) return 'bink2-video';
+	// Retro console ROM images — header/metadata info previews.
+	if (lower.endsWith('.nes')) return 'nes-rom-info';
+	if (lower.endsWith('.gb') || lower.endsWith('.gbc')) return 'gb-rom-info';
+	if (lower.endsWith('.gba')) return 'gba-rom-info';
+	if (lower.endsWith('.sfc') || lower.endsWith('.smc')) return 'snes-rom-info';
+	if (
+		lower.endsWith('.z64') ||
+		lower.endsWith('.n64') ||
+		lower.endsWith('.v64')
+	) {
+		return 'n64-rom-info';
+	}
 	// Switch app icons (in Control NCA RomFS) are JPEGs with a `.dat` ext.
 	if (/^icon_.*\.dat$/.test(lower)) return 'image';
 	const ext = extOf(name);
@@ -3038,4 +3099,386 @@ export function buildHexDump(
 		lines.push(`${off}  ${hexParts.join(' ')}  ${ascii}`);
 	}
 	return lines.join('\n');
+}
+
+// ----- Retro console ROM views (NES / GB / GBA / SNES / N64) -----
+
+export type { NesRomInfo } from '@tootallnate/nes-rom';
+export type { GbRomInfo } from '@tootallnate/gb-rom';
+export type { GbaRomInfo } from '@tootallnate/gba-rom';
+export type { SnesRomInfo } from '@tootallnate/snes-rom';
+export type { N64RomInfo } from '@tootallnate/n64-rom';
+
+export async function parseNesForView(blob: Blob) {
+	const { parseNes } = await import('@tootallnate/nes-rom');
+	return parseNes(blob);
+}
+
+export async function parseGbForView(blob: Blob) {
+	const { parseGb } = await import('@tootallnate/gb-rom');
+	return parseGb(blob);
+}
+
+export async function parseGbaForView(blob: Blob) {
+	const { parseGba } = await import('@tootallnate/gba-rom');
+	return parseGba(blob);
+}
+
+/**
+ * SNES ROM view: the internal header plus, when the game is one we
+ * have a specific extractor for, its decoded asset summary and real
+ * palettes.
+ */
+export interface SnesRomView {
+	info: import('@tootallnate/snes-rom').SnesRomInfo;
+	smw?: {
+		title: string;
+		gfxCount: number;
+		totalDecompressed: number;
+		totalCompressed: number;
+		/** Palettes in the shape the tile viewer's `supplied` prop wants. */
+		palettes: {
+			label: string;
+			palettes: number[][][];
+			defaultIndex: number;
+		};
+	};
+}
+
+export async function parseSnesForView(blob: Blob): Promise<SnesRomView> {
+	const { parseSnes } = await import('@tootallnate/snes-rom');
+	const info = await parseSnes(blob);
+	if (!info) {
+		throw new Error(
+			'No SNES internal header found (checksum scoring failed at all candidate offsets) — this may not be a SNES ROM.',
+		);
+	}
+	const view: SnesRomView = { info };
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	const smwMod = await import('@tootallnate/smw');
+	if (smwMod.isSmw(bytes)) {
+		const gfx = smwMod.readAllSmwGfx(bytes);
+		view.smw = {
+			title: smwMod.readTitle(bytes),
+			gfxCount: gfx.length,
+			totalDecompressed: gfx.reduce((s, g) => s + g.bytes.length, 0),
+			totalCompressed: gfx.reduce((s, g) => s + g.compressedSize, 0),
+			palettes: {
+				label: 'SMW palettes',
+				palettes: smwMod.readSmwPalettes(bytes),
+				defaultIndex: smwMod.SMW_DEFAULT_SPRITE_PALETTE,
+			},
+		};
+	}
+	return view;
+}
+
+export async function parseN64ForView(blob: Blob) {
+	const { parseN64 } = await import('@tootallnate/n64-rom');
+	return parseN64(blob);
+}
+
+// ----- N64 3D models (F3D / F3DEX / F3DEX2 display lists) -----
+
+import type { DecodedTexture } from './uasset-material-chain';
+
+/**
+ * A single N64 model: the geometry drawn by one display list, plus
+ * any textures it referenced decoded to RGBA8.
+ *
+ * The node's blob is the *containing* buffer (a decompressed MIO0 /
+ * Yaz0 block, or a Zelda 64 dmadata file), not the model — display
+ * lists have no boundaries of their own and reference vertex and
+ * texture data by segmented address elsewhere in the same buffer.
+ * `meta.n64Model` carries the entry offset and microcode.
+ */
+export interface N64ModelView {
+	mesh: import('@tootallnate/f3dex').F3dexMesh;
+	/** Parallel to `mesh.materials`; `null` where no texture resolved. */
+	textures: (DecodedTexture | null)[];
+	offset: number;
+	microcode: import('@tootallnate/f3dex').Microcode;
+	triangleCount: number;
+	vertexCount: number;
+	texturedMaterials: number;
+	/**
+	 * Materials whose texture lives in a ROM segment the game binds
+	 * at runtime, so it isn't in this buffer. Expected for Zelda 64
+	 * object files (shared equipment / eye textures) and SM64 actors.
+	 */
+	externalTextures: number;
+}
+
+/** Entry point + microcode recorded on a model node's `meta`. */
+export interface N64ModelRef {
+	offset: number;
+	microcode: import('@tootallnate/f3dex').Microcode;
+}
+
+export async function parseN64ModelForView(
+	blob: Blob,
+	ref: N64ModelRef,
+): Promise<N64ModelView> {
+	const f3dex = await import('@tootallnate/f3dex');
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	const mesh = f3dex.interpretDisplayList(bytes, ref.offset, {
+		microcode: ref.microcode,
+	});
+
+	// Decode each material's texture. CI formats need their TLUT,
+	// which `G_LOADTLUT` left at a separate segmented address.
+	const textures: (DecodedTexture | null)[] = mesh.materials.map((mat) => {
+		if (
+			mat.textureOffset === null ||
+			mat.width === null ||
+			mat.height === null
+		) {
+			return null;
+		}
+		let tlut: Uint8Array | undefined;
+		if (mat.tlutOffset !== null) {
+			// CI4 uses 16 entries, CI8 up to 256; RGBA16 each.
+			const entries = mat.size === f3dex.ImageSize.BITS_4 ? 16 : 256;
+			const end = Math.min(bytes.length, mat.tlutOffset + entries * 2);
+			if (end > mat.tlutOffset) tlut = bytes.subarray(mat.tlutOffset, end);
+		}
+		const pixels = f3dex.decodeN64Texture(
+			bytes,
+			mat.textureOffset,
+			mat.width,
+			mat.height,
+			mat.format,
+			mat.size,
+			{ tlut },
+		);
+		if (!pixels) return null;
+		return {
+			packagePath: `${mat.formatName} ${mat.width}x${mat.height} @0x${
+				mat.textureOffset.toString(16)
+			}`,
+			width: mat.width,
+			height: mat.height,
+			pixels,
+			pixelFormat: mat.formatName,
+			normalReconstructed: false,
+			// N64 textures are stored top-down and their UVs put
+			// V=0 at the top, so no flip.
+			flipY: false,
+		};
+	});
+
+	return {
+		mesh,
+		textures,
+		offset: ref.offset,
+		microcode: ref.microcode,
+		triangleCount: mesh.indices.length / 3,
+		vertexCount: mesh.positions.length / 3,
+		texturedMaterials: textures.filter((t) => t !== null).length,
+		externalTextures: mesh.materials.filter((m) => m.externalTexture).length,
+	};
+}
+
+// ----- HSD (Melee model) -----
+
+/** Which archive and joint root inside a `.dat` a model node refers to. */
+export interface HsdModelRef {
+	archiveIndex: number;
+	rootDataOffset: number;
+}
+
+export interface HsdModelView {
+	mesh: import('@tootallnate/hsd').HsdMesh;
+	jointCount: number;
+	triangleCount: number;
+	hasNormals: boolean;
+	hasUv: boolean;
+	/**
+	 * One entry per material slot, indexed by a section's `materialIndex`.
+	 * `null` for a slot whose texture didn't decode.
+	 */
+	textures: Array<DecodedTexture | null>;
+	/** Sections that resolved a texture, for the info line. */
+	texturedSections: number;
+}
+
+/**
+ * Parse a Melee model for the viewer.
+ *
+ * Walks the joint hierarchy, then flattens the geometry hanging off it. The
+ * archive is re-parsed here rather than carried across from the tree, so the
+ * preview stays self-contained.
+ *
+ * Materials are resolved alongside the geometry, in the same walk, so a
+ * section's `materialIndex` cannot drift out of step with the texture list —
+ * two separate passes over a pointer graph would be free to disagree.
+ */
+export async function parseHsdModelForView(
+	blob: Blob,
+	ref: HsdModelRef,
+): Promise<HsdModelView> {
+	const hsd = await import('@tootallnate/hsd');
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	const file = hsd.parseHsdFile(bytes);
+	const archive = file?.archives[ref.archiveIndex];
+	if (!archive) throw new Error('HSD archive not found');
+	const joints = hsd.hsdJoints(bytes, archive, ref.rootDataOffset);
+	const mesh = hsd.hsdMesh(bytes, archive, joints);
+	if (!mesh) throw new Error('This joint hierarchy contains no drawable geometry');
+
+	const { gxFormatName } = await import('@tootallnate/bti');
+	const textures = mesh.materials.map((mat): DecodedTexture | null => {
+		const decoded = hsd.decodeHsdImage(bytes, mat);
+		if (!decoded) return null;
+		const name = gxFormatName(mat.format);
+		return {
+			packagePath: `${name} ${mat.width}\u00d7${mat.height}`,
+			width: decoded.width,
+			height: decoded.height,
+			pixels: decoded.pixels,
+			pixelFormat: name,
+			normalReconstructed: false,
+			// GX stores textures top-down and GameCube UVs put V=0 at the top,
+			// so the pixels already match what Three.js wants. Same reasoning as
+			// the J3D path above.
+			flipY: false,
+		};
+	});
+
+	return {
+		mesh,
+		jointCount: joints.length,
+		triangleCount: mesh.indices.length / 3,
+		hasNormals: mesh.normals !== undefined,
+		hasUv: mesh.uv !== undefined,
+		textures,
+		texturedSections: mesh.sections.filter((x) => x.materialIndex >= 0).length,
+	};
+}
+
+// ----- BTI (GameCube / Wii texture) -----
+
+export interface BtiView {
+	width: number;
+	height: number;
+	/** Top-down RGBA8, `width * height * 4` bytes. */
+	pixels: Uint8Array;
+	formatName: string;
+	/** 0 = opaque, 1 = alpha, 2 = "special" (the most common in retail data). */
+	alphaMode: number;
+	paletteFormat: number;
+	paletteCount: number;
+	mipmapCount: number;
+	wrapS: number;
+	wrapT: number;
+}
+
+/**
+ * Decode a standalone `.bti`.
+ *
+ * The header is self-describing and its data/palette offsets are
+ * relative to the header itself, so there's nothing to resolve here —
+ * this is just a thin wrapper that also surfaces the sampler state,
+ * which is the interesting part when you're trying to work out how a
+ * texture was meant to be applied.
+ */
+export async function parseBtiForView(blob: Blob): Promise<BtiView> {
+	const bti = await import('@tootallnate/bti');
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	const header = bti.parseBtiHeader(bytes);
+	if (!header) throw new Error('Not a valid BTI texture');
+	const decoded = bti.decodeBti(bytes);
+	if (!decoded) {
+		throw new Error(
+			`Unsupported BTI pixel format: ${header.formatName}`,
+		);
+	}
+	return {
+		width: decoded.width,
+		height: decoded.height,
+		pixels: decoded.pixels,
+		formatName: header.formatName,
+		alphaMode: header.alphaMode,
+		paletteFormat: header.paletteFormat,
+		paletteCount: header.paletteCount,
+		mipmapCount: header.mipmapCount,
+		wrapS: header.wrapS,
+		wrapT: header.wrapT,
+	};
+}
+
+// ----- J3D (GameCube / Wii model) -----
+
+export interface J3dModelView {
+	mesh: import('@tootallnate/j3d').J3dMesh;
+	/** Parallel to `materialNames`; `null` where no texture resolved. */
+	textures: (DecodedTexture | null)[];
+	materialNames: string[];
+	kind: 'bmd' | 'bdl';
+	version: string;
+	triangleCount: number;
+	vertexCount: number;
+	shapeCount: number;
+	jointCount: number;
+	textureCount: number;
+	texturedMaterials: number;
+	hasNormals: boolean;
+	hasUv: boolean;
+	hasColors: boolean;
+}
+
+/**
+ * Parse a `.bmd` / `.bdl` and flatten it for the mesh viewer.
+ *
+ * Each material resolves to at most one texture: J3D materials can
+ * bind up to eight, but the extra slots feed TEV stages we don't
+ * emulate, so previewing the first bound texture is the honest
+ * approximation. Materials whose MAT3 indirection didn't validate
+ * come back `null` and render untextured rather than wrong.
+ */
+export async function parseJ3dForView(blob: Blob): Promise<J3dModelView> {
+	const j3d = await import('@tootallnate/j3d');
+	const bytes = new Uint8Array(await blob.arrayBuffer());
+	const model = j3d.parseJ3d(bytes);
+	if (!model) throw new Error('Not a valid J3D (BMD/BDL) model');
+	const mesh = j3d.buildJ3dMesh(model);
+	if (!mesh) throw new Error('J3D model contains no drawable geometry');
+
+	const materials = model.mat3?.materials ?? [];
+	const textures: (DecodedTexture | null)[] = materials.map((mat) => {
+		if (mat.textureIndex < 0) return null;
+		const decoded = j3d.decodeJ3dTexture(model, bytes, mat.textureIndex);
+		if (!decoded) return null;
+		return {
+			packagePath: decoded.name || `texture${mat.textureIndex}`,
+			width: decoded.width,
+			height: decoded.height,
+			pixels: decoded.pixels,
+			pixelFormat:
+				model.tex1?.textures[mat.textureIndex]?.header.formatName ??
+				'GX',
+			normalReconstructed: false,
+			// GX textures are stored top-down and J3D UVs put V=0 at the
+			// top, so the pixels are already in the orientation Three.js
+			// wants without a flip.
+			flipY: false,
+		};
+	});
+
+	return {
+		mesh,
+		textures,
+		materialNames: materials.map((m, i) => m.name || `material${i}`),
+		kind: model.kind,
+		version: model.version,
+		triangleCount: mesh.indices.length / 3,
+		vertexCount: mesh.numVertices,
+		shapeCount: model.shp1?.shapes.length ?? 0,
+		jointCount: model.jnt1?.joints.length ?? 0,
+		textureCount: model.tex1?.textures.length ?? 0,
+		texturedMaterials: textures.filter((t) => t !== null).length,
+		hasNormals: mesh.normals !== undefined,
+		hasUv: mesh.uv !== undefined,
+		hasColors: mesh.colors !== undefined,
+	};
 }

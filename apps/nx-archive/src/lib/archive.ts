@@ -17,6 +17,7 @@ import { parseXci } from '@tootallnate/xci';
 import { decode as romfsDecode, type RomFsEntry } from '@tootallnate/romfs';
 import { decompressNcz, isNcz, type OnProgress } from '@tootallnate/ncz';
 import { parseSarc, type SarcEntry } from '@tootallnate/sarc';
+import { thpRestuffJpeg } from '@tootallnate/thp';
 import { parseVbf, type VbfFileEntry } from '@tootallnate/vbf';
 import { parseLgp, type LgpEntry } from '@tootallnate/lgp';
 import {
@@ -55,6 +56,58 @@ import {
 	type Fsb5ExtractResult,
 } from '@tootallnate/fmod-bank';
 import { parseFsb5 } from '@tootallnate/fsb5';
+import { parseNesHeader } from '@tootallnate/nes-rom';
+import {
+	renderNesAudio,
+	encodeWav as encodeNesWav,
+} from '@tootallnate/nes-audio';
+import {
+	scanGbaCompression,
+	decompressGba,
+	type GbaCompressedBlock,
+} from '@tootallnate/gba-rom';
+import { parseSnesRom, scanBrrSamples } from '@tootallnate/snes-rom';
+import { decodeBrr } from '@tootallnate/brr';
+import {
+	isSmw,
+	readAllSmwGfx,
+	readSmwPalettes,
+	SMW_DEFAULT_SPRITE_PALETTE,
+	type SmwGfxFile,
+} from '@tootallnate/smw';
+import {
+	detectN64ByteOrder,
+	normalizeN64,
+	scanN64Compression,
+	type N64CompressedBlockRef,
+} from '@tootallnate/n64-rom';
+import { decompressMio0Bytes } from '@tootallnate/mio0';
+import { decompressYay0Bytes } from '@tootallnate/yay0';
+import { scanDisplayLists, type DisplayListRef } from '@tootallnate/f3dex';
+import {
+	scanRare1172,
+	decompressRare1172,
+	type Rare1172File,
+} from '@tootallnate/rare-1172';
+import { decompressYaz0ToBytes } from '@tootallnate/yaz0';
+import { parseZ64Fs, extractDmaFile, type DmaEntry } from '@tootallnate/z64-fs';
+import {
+	findSoundBanks,
+	scanAllSamples as scanSoundBankSamples,
+	decodeBankSample,
+	encodeWav as encodeBankWav,
+	NOMINAL_SAMPLE_RATE,
+	type LocatedSample,
+	type SoundBankPair,
+} from '@tootallnate/n64-soundbank';
+import {
+	scanZ64Samples,
+	decodeZ64Sample,
+	encodeWav as encodeZ64Wav,
+	Z64_NOMINAL_SAMPLE_RATE,
+	type Z64Sample,
+} from '@tootallnate/z64-audio';
+import { encodeWavBlob } from '@tootallnate/dsp-adpcm';
 import { parseZip, type ZipEntry } from './zip';
 import { parseUnityFs, type UnityFsNode } from './unityfs';
 import {
@@ -89,11 +142,53 @@ import {
 import type { WalkedDirectory } from './directory';
 import { mergeSplitFiles, type MergedFile } from './split-file';
 import { zstdDecompressBytes, zstdDecompressStream } from './zstd';
+import {
+	AfcVariant,
+	decodeAfc,
+	decodeAfcStream,
+	parseAfcStreamHeader,
+} from '@tootallnate/afc';
+import { decodeHps, isHps, parseHps } from '@tootallnate/hps';
+import { decodeAst, parseAst } from '@tootallnate/ast';
+import { gxFormatIsPaletted } from '@tootallnate/bti';
+import {
+	hsdAllRoots,
+	hsdImages,
+	hsdJoints,
+	hsdMesh,
+	isHsdHeader,
+	parseHsdFile,
+	type HsdArchive,
+	type HsdImage,
+} from '@tootallnate/hsd';
+import { decodeSsmSound, parseSsm } from '@tootallnate/ssm';
+import {
+	decodeWsysPcm8,
+	findWaveGroupForAw,
+	parseAaf,
+	WsysWaveFormat,
+	wsysWaveDecodableSamples,
+	type WsysGroup,
+} from '@tootallnate/wsys';
+
+import { parseRarc, type RarcArchive, type RarcNode } from '@tootallnate/rarc';
+import { parseRvz, isRvz as isRvzMagic, type RvzImage } from '@tootallnate/rvz';
+import {
+	gcmMaxFileEnd,
+	isGcm as isGcmMagic,
+	parseGcm,
+	parseNkitInfo,
+	type GcmDisc,
+	type GcmEntry,
+} from '@tootallnate/gcm';
 
 // ----- Node types -----
 
 export type NodeKind =
 	| 'file'
+	/** A JPEG wearing another extension, e.g. Melee's `.thp` stills. */
+	| 'jpeg-still'
+	| 'mth'
 	| 'directory'
 	| 'archive-root'
 	| 'nca-section'
@@ -189,7 +284,102 @@ export type NodeKind =
 	 * them in an iframe with a stubbed `window.nx` so the user can browse
 	 * the manual interactively instead of just digging through the files.
 	 */
-	| 'htdocs';
+	| 'htdocs'
+	/**
+	 * NES ROM image (iNES / NES 2.0, magic `NES\x1A`). Children are
+	 * the PRG-ROM / CHR-ROM segments (and 512-byte trainer when
+	 * present) split out per the header sizes. CHR-ROM is raw
+	 * uncompressed 2bpp tile data — prime material for the tile
+	 * viewer preview.
+	 */
+	| 'nes-rom'
+	/**
+	 * Game Boy Advance ROM (`.gba`). The header carries no file
+	 * index, but GBA games overwhelmingly store assets as GBA BIOS
+	 * LZ77 (type 0x10) blocks, which have a scannable header —
+	 * children are the blocks found by a strict decompression scan.
+	 */
+	| 'gba-rom'
+	/**
+	 * Super Nintendo ROM (`.sfc` / `.smc`). Headerless memory image;
+	 * the internal header is located by checksum scoring. Children
+	 * are BRR audio samples found by heuristic scan, decoded to WAV.
+	 */
+	| 'snes-rom'
+	/**
+	 * Nintendo 64 ROM (`.z64` / `.n64` / `.v64`, any byte order).
+	 * Children are either the Zelda 64 dmadata filesystem (when
+	 * detected) or MIO0 / Yay0 / Yaz0 compression blocks found by
+	 * magic scan.
+	 */
+	| 'n64-rom'
+	/**
+	 * A buffer of decompressed N64 data (a MIO0 / Yay0 / Yaz0 block,
+	 * or a Zelda 64 dmadata file). Browsable for the 3D models its
+	 * display lists draw; also previewable as raw graphics via the
+	 * tile explorer, since N64 textures live in these same buffers.
+	 */
+	| 'n64-blob'
+	/**
+	 * A GameCube disc image, either raw (`.iso` / `.gcm`) or inside a
+	 * Dolphin RVZ/WIA compressed container. Browsable as its FST
+	 * filesystem; files are read straight out of the compressed image
+	 * without unpacking the whole disc.
+	 */
+	| 'gamecube-disc'
+	/**
+	 * Nintendo RARC archive (`.arc`, magic `RARC`). The standard
+	 * bundled-file container for GameCube/Wii JSystem titles — Wind
+	 * Waker, Twilight Princess, Super Mario Sunshine, Pikmin. Often
+	 * Yaz0-wrapped, in which case we arrive here via the SZS path.
+	 * Browseable as a real directory tree.
+	 */
+	| 'rarc'
+	/**
+	 * Nintendo AFC streamed audio (`.afc`). Used for GameCube music
+	 * beds — Wind Waker keeps 76 of them under `Audiores/Stream/`.
+	 * Exposed as a container holding one decoded `.wav` child, so the
+	 * original bytes stay downloadable from the parent.
+	 */
+	| 'afc'
+	/**
+	 * Nintendo THP video (`.thp`, magic `THP\0`). GameCube/Wii
+	 * cutscenes and attract loops: baseline-JPEG frames plus
+	 * DSP-ADPCM audio. A leaf: the preview re-encodes it to MP4 and
+	 * plays it, audio included.
+	 */
+	| 'thp'
+	| 'mth'
+	/**
+	 * JAudio wave bank (`.aw`). Headerless AFC waveform data whose
+	 * index lives in a sibling `.aaf`; browsable only when that
+	 * sibling can be found.
+	 */
+	| 'aw'
+	/**
+	 * HAL streamed audio (`.hps`, magic `" HALPST\0"`). The music format
+	 * used by Super Smash Bros. Melee and Kirby Air Ride: DSP-ADPCM in a
+	 * block-linked stream. Holds the decoded track as a `.wav` child.
+	 */
+	| 'hps'
+	/**
+	 * HAL sound-sample bank (`.ssm`). The sound-effect companion to `.hps`:
+	 * many short DSP-ADPCM sounds packed end to end. Expands to one `.wav`
+	 * per sound.
+	 */
+	| 'ssm'
+	/**
+	 * Nintendo AST streamed audio (`.ast`, magic `STRM`). First-party
+	 * streaming music for GameCube/Wii — Mario Kart: Double Dash!!, Super
+	 * Mario Galaxy. Holds the decoded track as a `.wav` child.
+	 */
+	| 'ast'
+	/**
+	 * HAL HSDArchive (`.dat` / `.usd`). Melee's asset container: a relocated
+	 * object graph with named roots. Browseable as a list of those roots;
+	 * the typed graph inside them is not decoded.
+	 */
+	| 'hsd';
 
 export interface NodeMeta {
 	[key: string]: unknown;
@@ -364,7 +554,11 @@ async function buildTikMap(
 	return map;
 }
 
-const FILE_EXT_FORMATS: Record<string, string> = {
+/**
+ * Extension → format label. Exported so `dispatch.test.ts` can assert it agrees
+ * with {@link CONTAINER_FORMAT_REGISTRY}.
+ */
+export const FILE_EXT_FORMATS: Record<string, string> = {
 	nro: 'NRO',
 	nsp: 'NSP',
 	nsz: 'NSZ',
@@ -390,7 +584,35 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	zip: 'ZIP',
 	sarc: 'SARC',
 	pack: 'SARC', // common first-party-game SARC alias
-	arc: 'SARC', // SARC alias used by Pokémon LA, Resident Evil 0 / 1 (rebuild), Pokken, ToS Remastered, etc.
+	// `.arc` is claimed by two unrelated formats: GameCube/Wii RARC (Wind
+	// Waker, Twilight Princess, Mario Sunshine) and, as an alias, SARC
+	// (Pokémon LA, Pokkén, RE0/1 rebuilds). `makeArcNode` sniffs the magic
+	// when the node is expanded, so neither is assumed here.
+	arc: 'ARC',
+	rarc: 'RARC',
+	afc: 'AFC', // GameCube streamed ADPCM music
+	// Labels for formats that were previously dispatchable only as a nested
+	// child. They had no entry here, so `buildRootNode` resolved them to a bare
+	// uppercased extension and never reached their handler.
+	sab: 'SEAD-AUDIO',
+	mab: 'SEAD-AUDIO',
+	sabf: 'SEAD-AUDIO',
+	mabf: 'SEAD-AUDIO',
+	fs: 'FF8-FS', // Final Fantasy VIII archive index
+	ddsz: 'DDSZ', // LZ4-wrapped DDS texture
+	assets: 'UNITY-ASSETS', // Unity standalone-build SerializedFile
+	thp: 'THP', // GameCube/Wii video: JPEG frames + DSP-ADPCM audio
+	mth: 'MTH', // Melee video: JPEG frames, no audio track
+	hps: 'HPS', // HAL streamed music (Melee, Kirby Air Ride)
+	ssm: 'SSM', // HAL sound-sample bank
+	ast: 'AST', // Nintendo streamed audio (STRM)
+	usd: 'HSD', // HAL HSDArchive
+	// Claimed only because `makeHsdNode` falls back to a plain file when the
+	// content isn't an archive; `.dat` means nothing on its own.
+	dat: 'HSD',
+	aw: 'AW', // GameCube wave-data blob, indexed by a WSYS in the .aaf
+	aaf: 'AAF', // JAudio archive: sound table + IBNK banks + WSYS wave indices
+	bms: 'BMS', // JAudio sequence bytecode
 	szs: 'SZS', // Yaz0-compressed SARC, ubiquitous across 1st-party games
 	yaz0: 'YAZ0',
 	lz4: 'LZ4',
@@ -447,6 +669,22 @@ const FILE_EXT_FORMATS: Record<string, string> = {
 	sf2: 'SF2', // SoundFont 2 — sample-based MIDI instrument bank
 	mid: 'MIDI', // Standard MIDI file
 	midi: 'MIDI',
+	nes: 'NES', // NES ROM (iNES / NES 2.0)
+	gb: 'GB', // Game Boy ROM
+	gbc: 'GBC', // Game Boy Color ROM
+	gba: 'GBA', // Game Boy Advance ROM
+	sfc: 'SNES', // Super Nintendo ROM (headerless)
+	smc: 'SNES', // Super Nintendo ROM (usually with 512-byte copier header)
+	rvz: 'RVZ', // Dolphin compressed GameCube/Wii disc image
+	wia: 'RVZ', // the older WIA form of the same container
+	gcm: 'GCM', // raw GameCube disc image
+	// `.iso` is claimed by everything from PS2 to PC installers, so it gets a
+	// neutral label and is only routed to the GameCube reader after its magic
+	// is confirmed. See `makeIsoNode`.
+	iso: 'ISO',
+	z64: 'N64', // Nintendo 64 ROM, big-endian (native)
+	n64: 'N64', // Nintendo 64 ROM, little-endian
+	v64: 'N64', // Nintendo 64 ROM, 16-bit byteswapped
 };
 
 /**
@@ -493,6 +731,11 @@ export function detectFormat(name: string): string {
  */
 type SniffedFormat =
 	| 'pfs0'
+	| 'rarc'
+	| 'thp'
+	| 'mth'
+	| 'hps'
+	| 'ast'
 	| 'hfs0'
 	| 'romfs'
 	| 'sarc'
@@ -518,7 +761,12 @@ type SniffedFormat =
 	| 'vbf'
 	| 'square-wd'
 	| 'phyre'
-	| 'lgp';
+	| 'lgp'
+	| 'nes'
+	| 'gb'
+	| 'gba'
+	| 'n64'
+	| 'rvz';
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -560,6 +808,18 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 		String.fromCharCode(...head.subarray(2, 12)) === 'SQUARESOFT'
 	) {
 		return 'lgp';
+	}
+	if (m4 === 'RARC') return 'rarc'; // GameCube/Wii JSystem archive
+	if (m4 === 'STRM') return 'ast'; // Nintendo streamed audio
+	if (m4 === 'THP\0') return 'thp'; // GameCube/Wii video
+	if (m4 === 'MTHP') return 'mth'; // Melee video
+	// HPS's magic is eight bytes and starts with a space, so it can't be
+	// matched against the 4-byte prefix the checks above use.
+	if (
+		head.length >= 8 &&
+		String.fromCharCode(...head.subarray(0, 8)) === ' HALPST\0'
+	) {
+		return 'hps';
 	}
 	if (m4 === 'Yaz0') return 'szs'; // we treat all Yaz0 as SZS-style for browsing
 	if (m4 === 'BARS') return 'bars';
@@ -651,6 +911,41 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	    head[8] === 0x0a && head[9] === 0x4d && head[10] === 0x49 && head[11] === 0x42) {
 		return 'bimage';
 	}
+	// Dolphin RVZ / WIA compressed disc image.
+	if (
+		head[0] === 0x52 && head[1] === 0x56 && head[2] === 0x5a && head[3] === 0x01
+	) {
+		return 'rvz';
+	}
+	if (
+		head[0] === 0x57 && head[1] === 0x49 && head[2] === 0x41 && head[3] === 0x01
+	) {
+		return 'rvz';
+	}
+	// NES ROM (iNES / NES 2.0): "NES\x1A".
+	if (head[0] === 0x4e && head[1] === 0x45 && head[2] === 0x53 && head[3] === 0x1a) {
+		return 'nes';
+	}
+	// N64 ROM: first word is the PI BSD DOM1 config, whose byte
+	// pattern identifies both the format and the dump byte order:
+	// 80 37 12 40 (z64 big-endian), 37 80 40 12 (v64 byteswapped),
+	// 40 12 37 80 (n64 little-endian).
+	if (
+		(head[0] === 0x80 && head[1] === 0x37 && head[2] === 0x12 && head[3] === 0x40) ||
+		(head[0] === 0x37 && head[1] === 0x80 && head[2] === 0x40 && head[3] === 0x12) ||
+		(head[0] === 0x40 && head[1] === 0x12 && head[2] === 0x37 && head[3] === 0x80)
+	) {
+		return 'n64';
+	}
+	// GBA ROM: the fixed Nintendo logo bitmap starts at offset 4;
+	// its first 8 bytes are a strong magic.
+	if (
+		head.length >= 12 &&
+		head[4] === 0x24 && head[5] === 0xff && head[6] === 0xae && head[7] === 0x51 &&
+		head[8] === 0x69 && head[9] === 0x9a && head[10] === 0xa2 && head[11] === 0x21
+	) {
+		return 'gba';
+	}
 	return null;
 }
 
@@ -678,8 +973,476 @@ async function sniffMagic(blob: Blob): Promise<SniffedFormat | null> {
 		);
 		if (dec.decode(magicAtHead) === 'HEAD') return 'xci';
 	}
+	// Game Boy / Game Boy Color: the fixed Nintendo logo bitmap at
+	// 0x104. Its first 8 bytes are a strong magic (the boot ROM
+	// refuses to run carts without it, so every real ROM has it).
+	if (blob.size >= 0x150) {
+		const logo = new Uint8Array(
+			await blob.slice(0x104, 0x10c).arrayBuffer(),
+		);
+		if (
+			logo[0] === 0xce && logo[1] === 0xed && logo[2] === 0x66 && logo[3] === 0x66 &&
+			logo[4] === 0xcc && logo[5] === 0x0d && logo[6] === 0x00 && logo[7] === 0x0b
+		) {
+			return 'gb';
+		}
+	}
 	return null;
 }
+
+/**
+ * A plain, downloadable file node.
+ *
+ * Used wherever dispatch declines to treat something as a container — an
+ * unrecognised format, or a probe that came back negative.
+ */
+function genericFileNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	format: string,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'file',
+		isContainer: false,
+		size: blob.size,
+		format,
+		blob: async () => blob,
+	};
+}
+
+// ----- Container format registry -----
+
+/**
+ * Everything a format's node builder might need.
+ *
+ * Passing one object rather than a positional list is what lets every format —
+ * including the handful that need ticket keys, sibling files, or their own
+ * resolved label — sit in the same table.
+ */
+interface ContainerBuildArgs {
+	id: string;
+	name: string;
+	blob: Blob;
+	ctx: ArchiveContext;
+	/** The resolved format label. Some builders vary on it (GB vs GBC). */
+	format: string;
+	/** Ticket keys, when the caller had them (NCA / NCZ). */
+	tikMap?: TikMap;
+	/** Files alongside this one, for formats that need a partner (AWB/ACB, AW). */
+	siblings?: SiblingMap;
+}
+
+/**
+ * One browsable container format.
+ *
+ * This table is the **single source of truth** for "what can be opened as a
+ * container, and how". Every dispatch path consults it: the top-level
+ * {@link buildRootNode}, the nested {@link childNodeFor} extension lookup, and
+ * the magic-sniff fallback.
+ *
+ * ## Why this exists
+ *
+ * These three paths used to be three hand-maintained lists — a `switch` on the
+ * format label, an `if (ext === …)` chain, and an `if (sniffed === …)` chain —
+ * with nothing tying them together. Adding a format meant remembering all three,
+ * and forgetting one produced a silent, confusing failure rather than an error:
+ * the file would open from one direction and appear as an opaque blob from
+ * another. That happened four separate times (`.arc`, `.afc`, `.aw`, and again
+ * when `.iso` and `.hps` were added), and a measurement of the old code found 13
+ * live asymmetries — three formats openable only at the top level, ten
+ * extensions openable only as a nested child.
+ *
+ * Registering a format here wires all three paths at once, and
+ * `dispatch.test.ts` fails if they ever diverge again.
+ */
+interface ContainerFormat {
+	/**
+	 * Canonical label. Must match the value used in {@link FILE_EXT_FORMATS} so
+	 * the format badge and the dispatch agree.
+	 */
+	format: string;
+	/** Extensions that select this format: lowercase, no leading dot. */
+	extensions: readonly string[];
+	/** Magic-sniff keys that select this format, if it's detectable. */
+	sniff?: readonly SniffedFormat[];
+	/** Build the node. May be async when the format needs a deeper probe. */
+	build: (args: ContainerBuildArgs) => Node | Promise<Node>;
+}
+
+const CONTAINER_FORMATS: readonly ContainerFormat[] = [
+	// --- Switch / Nintendo packaging ---
+	{ format: 'NRO', extensions: ['nro'], build: (a) => makeNroNode(a.id, a.name, a.blob, a.ctx) },
+	{
+		format: 'NSP',
+		extensions: ['nsp'],
+		build: (a) => makePfs0Node(a.id, a.name, a.blob, a.ctx, 'NSP'),
+	},
+	{
+		// An NSP whose NCAs are NCZs — same container, different contents.
+		format: 'NSZ',
+		extensions: ['nsz'],
+		build: (a) => makePfs0Node(a.id, a.name, a.blob, a.ctx, 'NSZ'),
+	},
+	{
+		format: 'PFS0',
+		extensions: ['pfs0'],
+		sniff: ['pfs0'],
+		build: (a) => makePfs0Node(a.id, a.name, a.blob, a.ctx, 'PFS0'),
+	},
+	{
+		format: 'HFS0',
+		extensions: ['hfs0'],
+		sniff: ['hfs0'],
+		build: (a) => makeHfs0Node(a.id, a.name, a.blob, a.ctx),
+	},
+	{ format: 'XCI', extensions: ['xci'], build: (a) => makeXciNode(a.id, a.name, a.blob, a.ctx) },
+	{
+		// The cartridge equivalent of NSZ.
+		format: 'XCZ',
+		extensions: ['xcz'],
+		build: (a) => makeXciNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'NCA',
+		extensions: ['nca'],
+		build: (a) => makeNcaNode(a.id, a.name, a.blob, a.ctx, a.tikMap),
+	},
+	{
+		format: 'NCZ',
+		extensions: ['ncz'],
+		build: (a) => makeNczNode(a.id, a.name, a.blob, a.ctx, a.tikMap),
+	},
+	{
+		format: 'RomFS',
+		extensions: ['romfs'],
+		sniff: ['romfs'],
+		build: (a) => makeRomfsNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'SARC',
+		extensions: ['sarc', 'pack'],
+		sniff: ['sarc'],
+		build: (a) => makeSarcNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'SZS',
+		extensions: ['szs'],
+		sniff: ['szs'],
+		build: (a) => makeSzsNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		// A bare Yaz0 stream. Same node as SZS: it decompresses, then
+		// re-dispatches on whatever magic is inside.
+		format: 'YAZ0',
+		extensions: ['yaz0'],
+		build: (a) => makeSzsNode(a.id, a.name, a.blob, a.ctx),
+	},
+
+	// --- Generic containers / compression ---
+	{
+		format: 'ZIP',
+		extensions: ['zip'],
+		sniff: ['zip'],
+		build: (a) => makeZipNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'LZ4',
+		extensions: ['lz4'],
+		sniff: ['lz4'],
+		build: (a) => makeLz4Node(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'ZSTD',
+		extensions: ['zs', 'zst'],
+		sniff: ['zstd'],
+		build: (a) => makeZstdNode(a.id, a.name, a.blob, a.ctx),
+	},
+
+	// --- GameCube / Wii ---
+	{
+		format: 'RARC',
+		extensions: ['rarc'],
+		sniff: ['rarc'],
+		build: (a) => makeRarcNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		// `.arc` is ambiguous (RARC on disc-based Nintendo, SARC as a Switch
+		// alias) and resolves itself lazily when expanded.
+		format: 'ARC',
+		extensions: ['arc'],
+		build: (a) => makeArcNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'AFC',
+		extensions: ['afc'],
+		build: (a) => makeAfcNode(a.id, a.name, a.blob),
+	},
+	{
+		format: 'MTH',
+		extensions: ['mth'],
+		sniff: ['mth'],
+		build: (a) => makeMthNode(a.id, a.name, a.blob, a.siblings),
+	},
+	{
+		format: 'THP',
+		extensions: ['thp'],
+		sniff: ['thp'],
+		build: (a) => makeThpNode(a.id, a.name, a.blob),
+	},
+	{
+		format: 'HPS',
+		extensions: ['hps'],
+		sniff: ['hps'],
+		build: (a) => makeHpsNode(a.id, a.name, a.blob),
+	},
+	{
+		// No magic, so extension-only: see `isSsm` on why sniffing it would be
+		// unwise.
+		format: 'SSM',
+		extensions: ['ssm'],
+		build: (a) => makeSsmNode(a.id, a.name, a.blob),
+	},
+	{
+		format: 'AST',
+		extensions: ['ast'],
+		sniff: ['ast'],
+		build: (a) => makeAstNode(a.id, a.name, a.blob),
+	},
+	{
+		// `.dat` is a famously generic extension and HSDArchive has no magic, so
+		// this entry is only safe because `makeHsdNode` validates before
+		// committing: anything that isn't a well-formed archive stays the plain
+		// downloadable file it was.
+		format: 'HSD',
+		extensions: ['usd', 'dat'],
+		build: (a) => makeHsdNode(a.id, a.name, a.blob),
+	},
+	{
+		// Needs its sibling `.aaf`/`.baa` index to mean anything.
+		format: 'AW',
+		extensions: ['aw'],
+		build: (a) => makeAwNode(a.id, a.name, a.blob, a.siblings),
+	},
+	{
+		format: 'RVZ',
+		extensions: ['rvz', 'wia'],
+		sniff: ['rvz'],
+		build: (a) => makeRvzNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'GCM',
+		extensions: ['gcm'],
+		build: (a) => makeGamecubeIsoNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'ISO',
+		extensions: ['iso'],
+		build: (a) => makeIsoNode(a.id, a.name, a.blob, a.ctx),
+	},
+
+	// --- Cartridge ROMs ---
+	{
+		format: 'NES',
+		extensions: ['nes'],
+		sniff: ['nes'],
+		build: (a) => makeNesRomNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'GB',
+		extensions: ['gb'],
+		build: (a) => makeGbRomFileNode(a.id, a.name, a.blob, a.format),
+	},
+	{
+		format: 'GBC',
+		extensions: ['gbc'],
+		build: (a) => makeGbRomFileNode(a.id, a.name, a.blob, a.format),
+	},
+	{
+		format: 'GBA',
+		extensions: ['gba'],
+		sniff: ['gba'],
+		build: (a) => makeGbaRomNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'SNES',
+		extensions: ['sfc', 'smc'],
+		build: (a) => makeSnesRomNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'N64',
+		extensions: ['z64', 'n64', 'v64'],
+		sniff: ['n64'],
+		build: (a) => makeN64RomNode(a.id, a.name, a.blob, a.ctx),
+	},
+
+	// --- Audio middleware ---
+	{
+		format: 'AWB',
+		extensions: ['awb'],
+		sniff: ['awb'],
+		build: (a) =>
+			makeAwbNode(a.id, a.name, a.blob, a.ctx, siblingsToAwbResolver(a.siblings)),
+	},
+	{
+		format: 'ACB',
+		extensions: ['acb'],
+		build: (a) => makeAcbNode(a.id, a.name, a.blob, a.ctx, a.siblings),
+	},
+	{
+		format: 'BARS',
+		extensions: ['bars'],
+		sniff: ['bars'],
+		build: (a) => makeBarsNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'BFSAR',
+		extensions: ['bfsar'],
+		sniff: ['bfsar'],
+		build: (a) => makeBfsarNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'BFWAR',
+		extensions: ['bfwar'],
+		sniff: ['bfwar'],
+		build: (a) => makeBfwarNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'BFRES',
+		extensions: ['bfres'],
+		sniff: ['bfres'],
+		build: (a) => makeBfresNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'AKPK',
+		extensions: ['pck'],
+		sniff: ['wwise-pck'],
+		build: (a) => makeWwisePckNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'BNK',
+		extensions: ['bnk'],
+		sniff: ['wwise-bnk'],
+		build: (a) => makeWwiseBnkNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		// `.bank` is claimed by both FMOD and Wwise, so the flavour has to be
+		// sniffed. Doing it inside `build` rather than at the call site is what
+		// keeps every dispatch path behaving the same way.
+		format: 'BANK',
+		extensions: ['bank'],
+		sniff: ['fmod-bank'],
+		build: async (a) => {
+			const sniffed = await sniffMagicCheap(a.blob);
+			if (sniffed === 'fmod-bank') {
+				return makeFmodBankNode(a.id, a.name, a.blob, a.ctx);
+			}
+			if (sniffed === 'wwise-bnk') {
+				return makeWwiseBnkNode(a.id, a.name, a.blob, a.ctx);
+			}
+			return genericFileNode(a.id, a.name, a.blob, 'BANK');
+		},
+	},
+	{
+		format: 'SEAD-AUDIO',
+		extensions: ['sab', 'mab', 'sabf', 'mabf'],
+		build: (a) => makeSeadAudioNode(a.id, a.name, a.blob, a.ctx),
+	},
+
+	// --- Square Enix ---
+	{
+		format: 'VBF',
+		extensions: ['vbf'],
+		sniff: ['vbf'],
+		build: (a) => makeVbfNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'WD',
+		extensions: ['wd'],
+		sniff: ['square-wd'],
+		build: (a) => makeSquareWdNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'LGP',
+		extensions: ['lgp'],
+		sniff: ['lgp'],
+		build: (a) => makeLgpNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'FF8-FS',
+		extensions: ['fs'],
+		build: (a) => makeFf8FsNode(a.id, a.name, a.blob, a.ctx, a.siblings),
+	},
+	{
+		format: 'DDSZ',
+		extensions: ['ddsz'],
+		build: (a) => makeDdszNode(a.id, a.name, a.blob, a.ctx),
+	},
+
+	// --- Unity / Unreal / idTech ---
+	{
+		format: 'UnityFS',
+		extensions: [],
+		sniff: ['unityfs'],
+		build: (a) => makeUnityFsNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'UNITY-ASSETS',
+		extensions: ['assets'],
+		build: (a) => makeUnitySerializedFileNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'UE-TOC',
+		extensions: ['utoc'],
+		build: (a) => makeIoStoreNode(a.id, a.name, a.blob, null, a.ctx),
+	},
+	{
+		// `.pak` covers Unreal Engine PAKs (footer magic 0x5A6F12E1) and
+		// Nintendo's unrelated `.pack` family. Footer-sniff to tell them apart;
+		// a Nintendo PACK falls through to the SARC magic check.
+		format: 'UE-PAK',
+		extensions: ['pak'],
+		build: async (a) => {
+			if (await isUpakV11(a.blob)) {
+				return makeUpakNode(a.id, a.name, a.blob, a.ctx);
+			}
+			return genericFileNode(a.id, a.name, a.blob, 'PAK');
+		},
+	},
+	{
+		format: 'GFPAK',
+		extensions: ['gfpak'],
+		sniff: ['gfpak'],
+		build: (a) => makeGfpakNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'idTech-Resources',
+		extensions: ['resources'],
+		sniff: ['idtech-resources'],
+		build: (a) => makeIdTechResourcesNode(a.id, a.name, a.blob, a.ctx),
+	},
+];
+
+/** Registry lookups, built once. */
+const FORMAT_BY_LABEL = new Map<string, ContainerFormat>();
+const FORMAT_BY_EXT = new Map<string, ContainerFormat>();
+const FORMAT_BY_SNIFF = new Map<string, ContainerFormat>();
+for (const def of CONTAINER_FORMATS) {
+	FORMAT_BY_LABEL.set(def.format, def);
+	for (const ext of def.extensions) FORMAT_BY_EXT.set(ext, def);
+	for (const key of def.sniff ?? []) FORMAT_BY_SNIFF.set(key, def);
+}
+
+/**
+ * The registry, exposed for `dispatch.test.ts`.
+ *
+ * The test asserts each entry is reachable from every dispatch path and that its
+ * label and extensions agree with {@link FILE_EXT_FORMATS} — the invariants whose
+ * absence caused the drift this table replaces.
+ */
+export const CONTAINER_FORMAT_REGISTRY = CONTAINER_FORMATS;
 
 // ----- Top-level entry: turn a user-provided Blob into a root Node -----
 
@@ -689,7 +1452,15 @@ export async function buildRootNode(
 	ctx: ArchiveContext,
 ): Promise<Node> {
 	let format = detectFormat(displayName);
-	if (!format || format === extOf(displayName).toUpperCase()) {
+	// `.arc` is self-dispatching: `makeArcNode` sniffs RARC / Yaz0 / SARC when
+	// expanded. Letting the generic sniff run here would instead see the Yaz0
+	// wrapper on a compressed RARC and route it to the SZS node, which happens
+	// to produce the right tree but labels a GameCube archive "Yaz0+SARC".
+	const selfDispatching = format === 'ARC';
+	if (
+		!selfDispatching &&
+		(!format || format === extOf(displayName).toUpperCase())
+	) {
 		const sniffed = await sniffMagic(file);
 		if (sniffed) format = FILE_EXT_FORMATS[sniffed] ?? format;
 	}
@@ -697,109 +1468,20 @@ export async function buildRootNode(
 	const id = `/${displayName}`;
 	const blob = file instanceof File ? file : (file as Blob);
 
-	switch (format) {
-		case 'NRO':
-			return makeNroNode(id, displayName, blob, ctx);
-		case 'NSP':
-		case 'NSZ': // NSZ is an NSP whose NCAs are NCZs — same container
-			return makePfs0Node(id, displayName, blob, ctx, 'NSP');
-		case 'PFS0':
-			return makePfs0Node(id, displayName, blob, ctx, 'PFS0');
-		case 'HFS0':
-			return makeHfs0Node(id, displayName, blob, ctx);
-		case 'XCI':
-		case 'XCZ':
-			return makeXciNode(id, displayName, blob, ctx);
-		case 'NCA':
-			return makeNcaNode(id, displayName, blob, ctx);
-		case 'NCZ':
-			return makeNczNode(id, displayName, blob, ctx);
-		case 'RomFS':
-			return makeRomfsNode(id, displayName, blob, ctx);
-		case 'ZIP':
-			return makeZipNode(id, displayName, blob, ctx);
-		case 'SARC':
-			return makeSarcNode(id, displayName, blob, ctx);
-		case 'VBF':
-			return makeVbfNode(id, displayName, blob, ctx);
-		case 'WD':
-			return makeSquareWdNode(id, displayName, blob, ctx);
-		case 'idTech-Resources':
-			return makeIdTechResourcesNode(id, displayName, blob, ctx);
-		case 'SZS':
-		case 'YAZ0':
-			return makeSzsNode(id, displayName, blob, ctx);
-		case 'LZ4':
-			return makeLz4Node(id, displayName, blob, ctx);
-		case 'ZSTD':
-			return makeZstdNode(id, displayName, blob, ctx);
-		case 'UnityFS':
-			return makeUnityFsNode(id, displayName, blob, ctx);
-		case 'UE-PAK': {
-			// `.pak` is also used by Nintendo's bespoke `.pack`
-			// family — footer-sniff to disambiguate before
-			// committing to UE PAK parsing.
-			if (await isUpakV11(blob)) {
-				return makeUpakNode(id, displayName, blob, ctx);
-			}
-			// Otherwise fall through to a generic file (the user
-			// can still download / hex-view it).
-			return {
-				id,
-				name: displayName,
-				kind: 'file',
-				isContainer: false,
-				size: blob.size,
-				format: 'PAK',
-				blob: async () => blob,
-			};
-		}
-		case 'AWB':
-			return makeAwbNode(id, displayName, blob, ctx);
-		case 'ACB':
-			return makeAcbNode(id, displayName, blob, ctx, undefined);
-		case 'BARS':
-			return makeBarsNode(id, displayName, blob, ctx);
-		case 'BFSAR':
-			return makeBfsarNode(id, displayName, blob, ctx);
-		case 'BFWAR':
-			return makeBfwarNode(id, displayName, blob, ctx);
-		case 'BFRES':
-			return makeBfresNode(id, displayName, blob, ctx);
-		case 'GFPAK':
-			return makeGfpakNode(id, displayName, blob, ctx);
-		case 'AKPK':
-			return makeWwisePckNode(id, displayName, blob, ctx);
-		case 'BNK':
-			return makeWwiseBnkNode(id, displayName, blob, ctx);
-		case 'BANK': {
-			// Disambiguate Wwise vs FMOD by magic.
-			const sniffed = await sniffMagicCheap(blob);
-			if (sniffed === 'fmod-bank') return makeFmodBankNode(id, displayName, blob, ctx);
-			if (sniffed === 'wwise-bnk') return makeWwiseBnkNode(id, displayName, blob, ctx);
-			// Unknown bank flavour — fall through to generic.
-			return {
-				id,
-				name: displayName,
-				kind: 'file',
-				isContainer: false,
-				size: blob.size,
-				format: 'BANK',
-				blob: async () => blob,
-			};
-		}
-		default:
-			// Unknown — present it as a single file the user can download
-			return {
-				id,
-				name: displayName,
-				kind: 'file',
-				isContainer: false,
-				size: blob.size,
-				format: format || 'BIN',
-				blob: async () => blob,
-			};
+	// Dispatch through the registry: one table, consulted identically here and
+	// in `childNodeFor`. See `CONTAINER_FORMATS` for why.
+	const def = format ? FORMAT_BY_LABEL.get(format) : undefined;
+	if (def) {
+		return def.build({
+			id,
+			name: displayName,
+			blob,
+			ctx,
+			format: format ?? def.format,
+		});
 	}
+	// Unknown — present it as a single file the user can download.
+	return genericFileNode(id, displayName, blob, format || 'BIN');
 }
 
 // ----- Top-level entry: turn a user-selected directory into a root Node -----
@@ -2511,12 +3193,1001 @@ function wdWaveSampleCount(wave: WdWave, bank: Pick<WdBank, 'codec'>): number {
 // Avoid unused-import warning until DSP path needs the constant.
 void PS_ADPCM_FRAME_SIZE;
 
+/**
+ * A Nintendo `.ast` music stream.
+ *
+ * Same container-with-one-`.wav` shape as `.afc` and `.hps`. The payload is
+ * big-endian PCM16 rather than ADPCM, so there's no codec involved — the work is
+ * de-interleaving each block's contiguous per-channel halves.
+ *
+ * A DSP-ADPCM AST would decode to nothing here; `decodeAst` refuses that codec
+ * rather than guessing, so the node simply has no child.
+ */
+function makeAstNode(id: string, name: string, blob: Blob): Node {
+	const base = name.replace(/\.ast$/i, '') || 'stream';
+	const childName = `${base}.wav`;
+	let cached: Promise<Uint8Array> | null = null;
+	const bytesOnce = () => {
+		if (!cached) cached = blob.arrayBuffer().then((b) => new Uint8Array(b));
+		return cached;
+	};
+	return {
+		id,
+		name,
+		kind: 'ast',
+		isContainer: true,
+		size: blob.size,
+		format: 'AST',
+		blob: async () => blob,
+		getChildren: async () => {
+			const bytes = await bytesOnce();
+			const file = parseAst(bytes);
+			if (!file || file.decodableSamples <= 0) return [];
+			return [
+				{
+					id: `${id}/${childName}`,
+					name: childName,
+					kind: 'file',
+					isContainer: false,
+					size: 44 + file.decodableSamples * file.channelCount * 2,
+					format: `WAV (${file.sampleRate} Hz, ${file.channelCount}ch${
+						file.looped ? ' · loop' : ''
+					})`,
+					blob: async () => {
+						const all = await bytesOnce();
+						const parsed = parseAst(all);
+						if (!parsed) return new Blob([]);
+						const decoded = decodeAst(all, parsed);
+						if (!decoded) return new Blob([]);
+						return encodeWavBlob(
+							decoded.samples,
+							decoded.sampleRate,
+							decoded.channelCount,
+						);
+					},
+				},
+			];
+		},
+	};
+}
+
+/**
+ * A HAL HSDArchive.
+ *
+ * Presents each named root as a leaf, labelled with the type its name suffix
+ * implies. A concatenated animation file — Melee's `Pl??AJ.dat`, up to 330
+ * archives in one file — is grouped one directory per sub-archive so the tree
+ * stays navigable.
+ *
+ * The roots themselves are not decoded. HSDArchive stores no type information,
+ * so interpreting a root means hardcoding a struct layout and trusting the
+ * naming convention to choose it; that belongs in a separate module built on
+ * this one. What's here is the container, which is fully recoverable.
+ */
+async function makeHsdNode(id: string, name: string, blob: Blob): Promise<Node> {
+	// HSDArchive has no magic, so the only way to know is to try. The header is
+	// strongly self-validating (five counts that must describe a layout fitting
+	// the declared size exactly), which is what makes claiming `.dat` tolerable.
+	// Checking the first header costs one small read.
+	const head = new Uint8Array(
+		await blob.slice(0, Math.min(blob.size, 0x20)).arrayBuffer(),
+	);
+	if (!isHsdHeader(head, blob.size)) {
+		// Not an archive: leave it exactly as it was before this entry existed.
+		return genericFileNode(id, name, blob, detectFormat(name) || 'BIN');
+	}
+
+	let cached: Promise<Uint8Array> | null = null;
+	const bytesOnce = () => {
+		if (!cached) cached = blob.arrayBuffer().then((b) => new Uint8Array(b));
+		return cached;
+	};
+	/**
+	 * Repackage a recovered texture as a standalone BTI.
+	 *
+	 * BTI is just a 0x20 header over the same GX pixel data, and its data and
+	 * palette offsets are relative to the header — so a texture can be handed to
+	 * the existing, already-validated BTI decoder and preview by writing a
+	 * header in front of it. That is far better than adding a second texture
+	 * preview path that would need its own decoding and its own bugs.
+	 */
+	const toBti = (bytes: Uint8Array, image: HsdImage): Blob => {
+		const paletteBytes = image.palette ? image.palette.count * 2 : 0;
+		const out = new Uint8Array(0x20 + paletteBytes + image.dataSize);
+		const view = new DataView(out.buffer);
+		out[0x00] = image.format;
+		out[0x01] = 0; // alphaMode
+		view.setUint16(0x02, image.width, false);
+		view.setUint16(0x04, image.height, false);
+		out[0x06] = 0; // wrapS: clamp
+		out[0x07] = 0; // wrapT
+		out[0x08] = image.palette ? 1 : 0;
+		out[0x09] = image.palette ? image.palette.format : 0;
+		view.setUint16(0x0a, image.palette ? image.palette.count : 0, false);
+		view.setUint32(0x0c, image.palette ? 0x20 : 0, false);
+		out[0x18] = 1; // mipmapCount: BTI requires at least one
+		view.setUint32(0x1c, 0x20 + paletteBytes, false);
+		if (image.palette) {
+			out.set(
+				bytes.subarray(
+					image.palette.offset,
+					image.palette.offset + paletteBytes,
+				),
+				0x20,
+			);
+		}
+		out.set(
+			bytes.subarray(image.dataOffset, image.dataOffset + image.dataSize),
+			0x20 + paletteBytes,
+		);
+		return new Blob([out as BlobPart]);
+	};
+
+	const imageLeaf = (
+		parentId: string,
+		bytes: Uint8Array,
+		image: HsdImage,
+	): Node => {
+		const childName = `${image.name}.bti`;
+		return {
+			id: `${parentId}/${childName}`,
+			name: childName,
+			kind: 'file',
+			isContainer: false,
+			size: 0x20 + (image.palette ? image.palette.count * 2 : 0) + image.dataSize,
+			format: `${image.width}x${image.height}${image.palette ? ' · paletted' : ''}`,
+			blob: async () => toBti(bytes, image),
+		};
+	};
+
+	/** Roots for one archive, with images upgraded to previewable textures. */
+	const archiveChildren = (
+		parentId: string,
+		bytes: Uint8Array,
+		archive: HsdArchive,
+	): Node[] => {
+		const images = hsdImages(bytes, archive);
+		// Only offer a texture when it can actually be decoded. A paletted image
+		// whose TLUT we failed to recover (about 6% of them) would otherwise
+		// become a .bti that refuses to open — worse than showing it plainly as
+		// the root it is.
+		const byName = new Map(
+			images
+				.filter((i) => !gxFormatIsPaletted(i.format) || i.palette)
+				.map((i) => [i.name, i]),
+		);
+		const unpalettedNames = new Set(
+			images
+				.filter((i) => gxFormatIsPaletted(i.format) && !i.palette)
+				.map((i) => i.name),
+		);
+		return archive.roots.map((r) => {
+			const image = byName.get(r.name);
+			if (image) return imageLeaf(parentId, bytes, image);
+			if (r.kind === 'scene graph') {
+				const joints = hsdJoints(bytes, archive, r.dataOffset);
+				// A root whose name ends in `_joint` isn't guaranteed to be one;
+				// the walk only follows relocation-marked pointers, so a
+				// non-joint yields a single node. Don't dress that up as a
+				// skeleton.
+				if (joints.length > 1) {
+					const childId = `${parentId}/${r.name}`;
+					const withGeometry = joints.filter((j) => j.displayObject).length;
+					// Only offer a 3D preview when geometry actually resolves;
+					// a skeleton with no drawable mesh shouldn't advertise one.
+					const mesh = withGeometry > 0 ? hsdMesh(bytes, archive, joints) : null;
+					return {
+						id: childId,
+						name: r.name,
+						kind: 'directory',
+						isContainer: true,
+						format: `skeleton · ${joints.length} joints${
+							withGeometry ? ` · ${withGeometry} with geometry` : ''
+						}`,
+						getChildren: async () => [
+							...(mesh
+								? [
+										{
+											id: `${childId}/model`,
+											name: 'model',
+											kind: 'file' as const,
+											isContainer: false,
+											size: 0,
+											format: `${mesh.numVertices.toLocaleString()} verts · ${(
+												mesh.indices.length / 3
+											).toLocaleString()} tris`,
+											meta: {
+												hsdModel: {
+													archiveIndex: archive.index,
+													rootDataOffset: r.dataOffset,
+												},
+											},
+											blob: async () => new Blob([bytes as BlobPart]),
+										},
+									]
+								: []),
+							...joints.map((j, i): Node => ({
+								id: `${childId}/${i}`,
+								// Indent by depth so the hierarchy reads at a glance;
+								// joints are unnamed on disc.
+								name: `${'· '.repeat(j.depth)}joint${i}`,
+								kind: 'file',
+								isContainer: false,
+								size: 0,
+								format: j.displayObject
+									? `depth ${j.depth} · geometry`
+									: `depth ${j.depth}`,
+								blob: async () => new Blob([]),
+							})),
+						],
+					};
+				}
+			}
+			const leaf = rootLeaf(parentId, r);
+			return unpalettedNames.has(r.name)
+				? { ...leaf, format: `${leaf.format} · no palette found` }
+				: leaf;
+		});
+	};
+
+	const rootLeaf = (parentId: string, root: ReturnType<typeof hsdAllRoots>[number]): Node => ({
+		id: `${parentId}/${root.name || `root${root.index}`}`,
+		name: root.name || `root${root.index}`,
+		kind: 'file',
+		isContainer: false,
+		size: 0,
+		format: root.extern
+			? `extern${root.kind ? ` · ${root.kind}` : ''}`
+			: root.kind || 'root',
+		blob: async () => new Blob([]),
+	});
+	return {
+		id,
+		name,
+		kind: 'hsd',
+		isContainer: true,
+		size: blob.size,
+		format: 'HSD',
+		blob: async () => blob,
+		getChildren: async () => {
+			const file = parseHsdFile(await bytesOnce());
+			if (!file) return [];
+			void hsdAllRoots;
+			// A single archive lists its roots directly; a chain gets one level
+			// of grouping so hundreds of animations don't flood the tree.
+			const bytes = await bytesOnce();
+			if (file.archives.length === 1) {
+				return archiveChildren(id, bytes, file.archives[0]);
+			}
+			return file.archives.map((archive): Node => {
+				const label =
+					archive.roots[0]?.name || `archive${archive.index}`;
+				const childId = `${id}/${label}`;
+				return childDirectoryNodeFor({
+					id: childId,
+					name: label,
+					getChildren: async () =>
+						archiveChildren(childId, bytes, archive),
+				});
+			});
+		},
+	};
+}
+
+// ----- HPS (HAL streamed audio) -----
+
+/**
+ * A HAL `.hps` music stream.
+ *
+ * Same shape as {@link makeAfcNode}: a container holding one decoded `.wav`, so
+ * the original bytes stay downloadable from the parent while the existing audio
+ * preview handles the child with no format-specific UI.
+ *
+ * The payload is DSP-ADPCM, so `@tootallnate/hps` only has to walk the block
+ * chain and hand frames to the shared codec. Note that a looping track expresses
+ * its loop by pointing the last block's `nextOffset` *backwards* rather than
+ * terminating, so the decoded `.wav` is one pass through the chain.
+ */
+function makeHpsNode(id: string, name: string, blob: Blob): Node {
+	const base = name.replace(/\.hps$/i, '') || 'stream';
+	const childName = `${base}.wav`;
+	let cached: Promise<Uint8Array> | null = null;
+	const bytesOnce = () => {
+		if (!cached) cached = blob.arrayBuffer().then((b) => new Uint8Array(b));
+		return cached;
+	};
+	return {
+		id,
+		name,
+		kind: 'hps',
+		isContainer: true,
+		size: blob.size,
+		format: 'HPS',
+		blob: async () => blob,
+		getChildren: async () => {
+			const bytes = await bytesOnce();
+			if (!isHps(bytes)) return [];
+			const file = parseHps(bytes);
+			if (!file) return [];
+			return [
+				{
+					id: `${id}/${childName}`,
+					name: childName,
+					kind: 'file',
+					isContainer: false,
+					size: 44 + file.sampleCount * file.channelCount * 2,
+					format: `WAV (${file.sampleRate} Hz, ${file.channelCount}ch${
+						file.looped ? ' · loop' : ''
+					})`,
+					blob: async () => {
+						const all = await bytesOnce();
+						const parsed = parseHps(all);
+						if (!parsed) return new Blob([]);
+						const decoded = decodeHps(all, parsed);
+						if (!decoded) return new Blob([]);
+						return encodeWavBlob(
+							decoded.samples,
+							decoded.sampleRate,
+							decoded.channelCount,
+						);
+					},
+				},
+			];
+		},
+	};
+}
+
+/**
+ * A HAL `.ssm` sound-sample bank.
+ *
+ * Expands to one `.wav` per sound, named by the bank-relative id the game uses.
+ * Unlike `.hps` there's no single "track" to expose, so the container holds many
+ * children rather than one.
+ *
+ * Deliberately extension-only, with no magic sniff: SSM has no magic number, and
+ * `parseSsm` recognises it purely by whether the header's own numbers account for
+ * the file. That's strong enough to validate a file we already believe is an SSM,
+ * but too weak to go hunting with.
+ */
+function makeSsmNode(id: string, name: string, blob: Blob): Node {
+	let cached: Promise<Uint8Array> | null = null;
+	const bytesOnce = () => {
+		if (!cached) cached = blob.arrayBuffer().then((b) => new Uint8Array(b));
+		return cached;
+	};
+	return {
+		id,
+		name,
+		kind: 'ssm',
+		isContainer: true,
+		size: blob.size,
+		format: 'SSM',
+		blob: async () => blob,
+		getChildren: async () => {
+			const bytes = await bytesOnce();
+			const bank = parseSsm(bytes);
+			if (!bank) return [];
+			return bank.sounds.map((sound): Node => {
+				const childName = `${sound.id}.wav`;
+				const rate = Math.max(1, Math.round(sound.sampleRate));
+				return {
+					id: `${id}/${childName}`,
+					name: childName,
+					kind: 'file',
+					isContainer: false,
+					size: 44 + sound.sampleCount * sound.channelCount * 2,
+					format: `WAV (${rate} Hz, ${sound.channelCount}ch)`,
+					blob: async () => {
+						const all = await bytesOnce();
+						const parsed = parseSsm(all);
+						const target = parsed?.sounds[sound.index];
+						if (!target) return new Blob([]);
+						const decoded = decodeSsmSound(all, target);
+						if (!decoded) return new Blob([]);
+						return encodeWavBlob(
+							decoded.samples,
+							decoded.sampleRate,
+							decoded.channelCount,
+						);
+					},
+				};
+			});
+		},
+	};
+}
+
+// ----- AW (JAudio wave bank) -----
+
+/**
+ * A JAudio `.aw` wave bank.
+ *
+ * An `.aw` is the one format here that genuinely cannot be understood on its
+ * own: it is headerless AFC waveform data with no index, no count, and no
+ * names. Everything needed to cut it into individual sounds — each wave's byte
+ * range, sample rate, base key and loop points — lives in a `WSYS` inside a
+ * sibling `.aaf`. On a Wind Waker disc that's `Audiores/JaiInit.aaf`, sitting
+ * next to the `Audiores/Banks/` directory the `.aw` files are in.
+ *
+ * So we look for that sibling. If one is in reach, the bank expands into one
+ * `.wav` per wave, named by wave id and correctly resampled. If none is, the
+ * node stays a plain leaf whose format says why — an `.aw` without its index
+ * really is opaque, and presenting it as a directory that then turns out to be
+ * empty would wrongly suggest the file itself was empty.
+ *
+ * The waveform payload is AFC, the same codec as `.afc` music streams, which is
+ * why this reuses `@tootallnate/afc` rather than introducing a second decoder.
+ */
+function makeAwNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	siblings: SiblingMap | undefined,
+): Node {
+	// Whether an index *could* exist is answerable without any I/O — it's a
+	// lookup over sibling names. We check it up front because `isContainer` has
+	// to be decided when the node is built, and an `.aw` with no index in reach
+	// should present as the opaque blob it is rather than as a directory that
+	// mysteriously turns out to be empty.
+	const hasIndexCandidate = (() => {
+		if (!siblings) return false;
+		for (const key of siblings.keys()) {
+			if (key.endsWith('.aaf') || key.endsWith('.baa')) return true;
+		}
+		return false;
+	})();
+
+	if (!hasIndexCandidate) {
+		return {
+			id,
+			name,
+			kind: 'file',
+			isContainer: false,
+			size: blob.size,
+			format: 'AW (no .aaf index alongside)',
+			blob: async () => blob,
+		};
+	}
+
+	let cached: Promise<WsysGroup | null> | null = null;
+
+	/** Locate and parse the sibling index, once. */
+	const groupOnce = () => {
+		if (!cached) {
+			cached = (async () => {
+				if (!siblings) return null;
+				// JAudio archives are `.aaf` (Wind Waker, Sunshine) or `.baa`
+				// (Twilight Princess, Pikmin). There's normally exactly one.
+				for (const [key, indexBlob] of siblings) {
+					if (!key.endsWith('.aaf') && !key.endsWith('.baa')) continue;
+					try {
+						const aaf = parseAaf(
+							new Uint8Array(await indexBlob.arrayBuffer()),
+						);
+						if (!aaf) continue;
+						const group = findWaveGroupForAw(aaf, name);
+						if (group) return group;
+					} catch {
+						// Try the next candidate index.
+					}
+				}
+				return null;
+			})();
+		}
+		return cached;
+	};
+
+	return {
+		id,
+		name,
+		kind: 'aw',
+		isContainer: true,
+		size: blob.size,
+		format: 'AW',
+		blob: async () => blob,
+		getChildren: async () => {
+			const group = await groupOnce();
+			if (!group) return [];
+			const bytes = new Uint8Array(await blob.arrayBuffer());
+			const out: Node[] = [];
+			for (const wave of group.waves) {
+				// `size` is authoritative: a minority of waves declare a
+				// `sampleCount` larger than their bytes can supply, and trusting
+				// that would read into the next wave.
+				const samples = wsysWaveDecodableSamples(wave);
+				if (samples <= 0) continue;
+				if (wave.start + wave.size > bytes.length) continue;
+				const label = wave.id >= 0 ? `${wave.id}` : `idx${wave.index}`;
+				const childName = `${label}.wav`;
+				const rate = Math.max(1, Math.round(wave.sampleRate));
+				out.push({
+					id: `${id}/${childName}`,
+					name: childName,
+					kind: 'file',
+					isContainer: false,
+					size: 44 + samples * 2,
+					format: `WAV (${rate} Hz${
+						wave.format === WsysWaveFormat.PCM8 ? ' · PCM8' : ''
+					}${wave.looped ? ' · loop' : ''})`,
+					meta: { awBaseKey: wave.baseKey },
+					blob: async () => {
+						// The format byte matters: a bank can mix AFC and raw
+						// PCM8, and decoding the latter as AFC produces heavily
+						// clipped noise rather than an obvious failure.
+						const pcm =
+							wave.format === WsysWaveFormat.PCM8
+								? decodeWsysPcm8(bytes, wave, 0)
+								: decodeAfc(
+										bytes,
+										wave.start,
+										wave.size,
+										AfcVariant.HQ_4BIT,
+										samples,
+									);
+						if (!pcm) return new Blob([]);
+						return encodeWavBlob(pcm, rate, 1);
+					},
+				});
+			}
+			return out;
+		},
+	};
+}
+
+// ----- THP (GameCube / Wii video) -----
+
+/**
+ * A THP video.
+ *
+ * Like {@link makeAfcNode} this is a container rather than a leaf, so the
+ * original bytes stay downloadable from the parent while the decoded audio
+ * track hangs off it as a playable `.wav`.
+ *
+ * Deliberately *not* exposed: the individual frames. A THP is intra-only, so
+ * every frame is a standalone JPEG and it would be technically easy to list
+ * them — but a 70-second clip is over 2000 frames, and burying the tree under
+ * that many nodes to look at one thumbnail is a bad trade. The video preview
+ * reads frames directly instead.
+ */
+/**
+ * A `.thp` file, which is not always a video.
+ *
+ * Melee ships 75 files with a `.thp` extension and not one of them is a THP
+ * container: every one begins `FF D8 FF FE` — a JPEG start-of-image followed by
+ * a comment segment — and they are single congratulation-screen stills. Sunshine
+ * and Double Dash, by contrast, use the extension for real containers.
+ *
+ * So the extension is checked against the magic before promising a video
+ * player, exactly as `icon_*.dat` is already treated as the JPEG it is rather
+ * than the `.dat` it claims to be. Offering a player for a still leaves the pane
+ * spinning on a decode that cannot succeed.
+ *
+ * Identifying them is only half of it. They are THP-dialect JPEGs, so their
+ * entropy data is not byte-stuffed and no compliant decoder will read them —
+ * `ffmpeg` rejects a retail still with `overread 8, bits 107 is invalid`, and a
+ * browser fails the same way. The dimensions parse from the header either way,
+ * which is what makes the breakage look like a rendering problem rather than a
+ * decoding one. So the bytes handed on are re-stuffed, which also means the
+ * download button yields a file that opens anywhere.
+ */
+async function makeThpNode(
+	id: string,
+	name: string,
+	blob: Blob,
+): Promise<Node> {
+	const head = new Uint8Array(
+		await blob.slice(0, Math.min(blob.size, 3)).arrayBuffer(),
+	);
+	if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) {
+		return {
+			...genericFileNode(id, name, blob, 'JPEG'),
+			// Tagged rather than renamed: the preview pane routes on `kind` when a
+			// filename can't be trusted, and the name is what's on the disc.
+			kind: 'jpeg-still',
+			// Re-stuffed lazily. Doing it here rather than in the preview keeps the
+			// fix on the download path too, and doing it lazily keeps expanding a
+			// directory of 75 stills from reading all of them.
+			blob: async () => {
+				const raw = new Uint8Array(await blob.arrayBuffer());
+				const fixed = thpRestuffJpeg(raw);
+				// If the structure can't be walked, hand back what was there rather
+				// than nothing.
+				return fixed ? new Blob([fixed as BlobPart]) : blob;
+			},
+		};
+	}
+	return {
+		id,
+		name,
+		// Deliberately a leaf, not a container. The preview pane only resolves a
+		// `PreviewKind` for non-container nodes (`isFile = !node.isContainer`), so
+		// making this expandable would replace the video player with a directory
+		// listing. The audio is muxed into the preview's MP4 anyway, which is why
+		// there's nothing worth expanding into.
+		kind: 'thp',
+		isContainer: false,
+		size: blob.size,
+		format: 'THP',
+		blob: async () => blob,
+	};
+}
+
+/**
+ * Which `.hps` stream accompanies a movie.
+ *
+ * MTH carries no audio, but the game plays music over these movies and it lives
+ * in `audio/` as an ordinary HPS stream. Nothing in either file links them, so
+ * the association comes from the game's own code rather than from the data.
+ *
+ * Each movie is started next to a music request, and the id passed is an index
+ * into a table of all 99 `.hps` filenames that `main.dol` holds at `0x3b8ddc`
+ * (4-byte aligned, alphabetical). Resolving the two together gives the mapping
+ * outright (`doldecomp/melee`):
+ *
+ *   gmopening.c:179    lbAudioAx_80023F28(0x3E)  ->  [62] opening.hps
+ *   gmhowto.c:44       lbAudioAx_80023F28(0x24)  ->  [36] howto.hps
+ *   gmomake15.c:33     lbAudioAx_80023F28(0x52)  ->  [82] swm_15min.hps
+ *   gmmovieend.c:129   lbAudioAx_80023F28(gm_803DB25C[char])
+ *
+ * That last one is a per-character lookup, which is the interesting case: the
+ * movie filenames sit in `gm_803DB1F4[0x1A]` and the music ids in a parallel
+ * `gm_803DB25C[0x1A]`, so each of the 26 roster slots could in principle have
+ * its own theme. Every entry is `8`, so all 25 distinct ending films share
+ * `ending.hps` — worth reading rather than assuming, since the array shape
+ * invites the opposite conclusion. (26 slots for 25 files because Zelda and
+ * Sheik name the same movie.)
+ *
+ * An earlier version of this table guessed the same four pairings from filename
+ * similarity. It happened to be right, which is precisely why it was worth
+ * replacing: nothing in the guess distinguished it from being wrong, and
+ * duration proximity actively misleads here — the stream nearest `MvHowto` in
+ * length is `bigblue`, an F-Zero stage theme.
+ */
+/**
+ * Frame-pacing schedules for the two movies that use one.
+ *
+ * `lbMthp_8001F410(filename, rate_table, ...)` takes the schedule as an
+ * argument, so it lives in the executable rather than in the movie. Twenty-six
+ * of the 28 films pass null and run at one frame per display tick; these two do
+ * not, and playing them at a constant rate is what makes their audio drift
+ * further behind as they go — how-to-play holds single frames for 19, 85 and 101
+ * ticks while narration runs over a still screen.
+ *
+ * Read out of `main.dol` at the addresses the call sites pass — `gm_803DBFB4`
+ * and `gm_803DD2C0` — and each one checks out against its music: the opening
+ * comes to 5,678 ticks, 94.7s at 59.94 Hz against 94.0s of `opening.hps`, and
+ * how-to-play to 4,760 ticks, 79.4s against 81.0s of `howto.hps`. Both within
+ * two percent, where a constant rate is out by a factor of two.
+ *
+ * Being executable data, these are specific to this build of the game. A
+ * different region would need its own, which is why they are named per file and
+ * simply absent for anything unrecognised — an unknown movie falls back to one
+ * frame per tick rather than borrowing a schedule that isn't its own.
+ */
+const MTH_RATE_TABLES: Array<{
+	match: RegExp;
+	table: ReadonlyArray<readonly [number, number]>;
+}> = [
+	{ match: /^MvOpen\.mth$/i, table: [[1250, 2], [394, 1], [65536, 2]] },
+	{
+		match: /^MvHowto\.mth$/i,
+		table: [
+			[1, 19], [856, 1], [1, 85], [279, 1], [1, 59], [17, 1], [1, 59],
+			[19, 1], [1, 59], [35, 1], [1, 27], [37, 1], [1, 59], [43, 1],
+			[1, 59], [39, 1], [1, 59], [499, 1], [1, 67], [892, 1], [240, 2],
+			[63, 1], [1, 77], [67, 1], [1, 67], [23, 1], [1, 71], [51, 1],
+			[1, 59], [25, 1], [1, 87], [53, 1], [1, 95], [59, 1], [1, 101],
+			[117, 1],
+		],
+	},
+];
+
+const MTH_AUDIO_PAIRS: Array<{ match: RegExp; hps: string }> = [
+	{ match: /^MvOpen\.mth$/i, hps: 'opening.hps' },
+	{ match: /^MvHowto\.mth$/i, hps: 'howto.hps' },
+	{ match: /^MvOmake15\.mth$/i, hps: 'swm_15min.hps' },
+	// All 25 character endings share the one congratulations theme.
+	{ match: /^MvEnd[A-Za-z0-9]+\.mth$/i, hps: 'ending.hps' },
+];
+
+/**
+ * A `.mth` movie: Melee's video container.
+ *
+ * A leaf for the same reason `.thp` is — the preview pane only resolves a
+ * `PreviewKind` for non-containers, so making this expandable would trade the
+ * player for a directory listing.
+ *
+ * The container declares no audio track, so the accompanying stream is looked up
+ * among the disc's siblings; see {@link MTH_AUDIO_PAIRS} for how confident that
+ * pairing is. When it isn't found the movie simply plays silent, as it did
+ * before.
+ */
+function makeMthNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	siblings?: SiblingMap,
+): Node {
+	const pair = MTH_AUDIO_PAIRS.find((p) => p.match.test(name));
+	const rate = MTH_RATE_TABLES.find((r) => r.match.test(name));
+	const audioBlob = pair && siblings ? siblings.get(pair.hps.toLowerCase()) : undefined;
+	return {
+		id,
+		name,
+		kind: 'mth',
+		isContainer: false,
+		size: blob.size,
+		format: 'MTH',
+		blob: async () => blob,
+		meta: {
+			...(audioBlob
+				? { mthAudioName: pair!.hps, mthAudioBlob: audioBlob }
+				: pair
+					? { mthAudioMissing: pair.hps }
+					: {}),
+			...(rate ? { mthRateTable: rate.table } : {}),
+		},
+	};
+}
+
+// ----- `.arc` (ambiguous: RARC or SARC) -----
+
+/**
+ * A `.arc` file, whose container type is decided when it's expanded.
+ *
+ * `.arc` is claimed by two unrelated formats: Nintendo's GameCube/Wii **RARC**
+ * (Wind Waker, Twilight Princess, Mario Sunshine) and, as an alias, the Switch
+ * era's **SARC** (Pokémon Legends: Arceus, Pokkén, RE0/1 rebuilds). They are
+ * told apart only by magic, and RARC additionally shows up Yaz0-wrapped.
+ *
+ * The decision is deferred to `getChildren` on purpose. Deciding it while
+ * building a directory listing would mean one header read per file, and a
+ * GameCube disc holds over a thousand `.arc`s in a single directory — each read
+ * inflating a 128 KiB compressed chunk. Deferring makes listing free and moves
+ * the single read to the moment the user actually opens one.
+ */
+function makeArcNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		// Reported as RARC because that's what `.arc` is on every disc-based
+		// platform this node is reachable from; the *content* dispatch below is
+		// magic-driven either way, so a SARC still opens correctly.
+		kind: 'rarc',
+		isContainer: true,
+		size: blob.size,
+		format: 'ARC',
+		blob: async () => blob,
+		getChildren: async () => {
+			const head = new Uint8Array(
+				await blob.slice(0, 4).arrayBuffer(),
+			);
+			const magic = new TextDecoder().decode(head);
+			if (magic === 'RARC') {
+				const archive = parseRarc(new Uint8Array(await blob.arrayBuffer()));
+				return archive
+					? rarcChildren(id, archive, archive.root, ctx)
+					: [];
+			}
+			if (magic === 'Yaz0') {
+				// Yaz0-wrapped, which is the majority case on a Wind Waker
+				// disc. Decompress, then re-dispatch on the inner magic.
+				const inner = await decompressYaz0(blob);
+				const innerBytes = new Uint8Array(await inner.arrayBuffer());
+				const archive = parseRarc(innerBytes);
+				if (archive) return rarcChildren(id, archive, archive.root, ctx);
+				try {
+					const parsed = await parseSarc(inner);
+					return sarcEntriesToNodes(id, parsed.entries, ctx);
+				} catch {
+					return [];
+				}
+			}
+			try {
+				const parsed = await parseSarc(blob);
+				return sarcEntriesToNodes(id, parsed.entries, ctx);
+			} catch {
+				return [];
+			}
+		},
+	};
+}
+
+// ----- AFC (GameCube streamed audio) -----
+
+/**
+ * An AFC stream.
+ *
+ * AFC has no magic number — it's a bare 0x20-byte header over ADPCM blocks —
+ * so this is reached by extension only. Never add it to the magic sniffer, or
+ * every headerless file on a disc becomes a candidate.
+ *
+ * We model it as a container with a single decoded `.wav` child rather than
+ * swapping the leaf's own bytes for the decoded audio. That keeps the original
+ * downloadable from the parent, and lets the existing audio preview handle the
+ * child with no format-specific UI — the same shape the emulated NES capture
+ * node uses.
+ *
+ * The channel count isn't stored in the header; `@tootallnate/afc` recovers it
+ * from the payload size, which is also what validates the header.
+ */
+function makeAfcNode(id: string, name: string, blob: Blob): Node {
+	const base = name.replace(/\.afc$/i, '') || 'stream';
+	const childName = `${base}.wav`;
+	let cached: Promise<Uint8Array> | null = null;
+	const bytesOnce = () => {
+		if (!cached) {
+			cached = blob.arrayBuffer().then((b) => new Uint8Array(b));
+		}
+		return cached;
+	};
+	return {
+		id,
+		name,
+		kind: 'afc',
+		isContainer: true,
+		size: blob.size,
+		format: 'AFC',
+		blob: async () => blob,
+		getChildren: async () => {
+			const bytes = await bytesOnce();
+			const header = parseAfcStreamHeader(bytes);
+			if (!header) return [];
+			return [
+				{
+					id: `${id}/${childName}`,
+					name: childName,
+					kind: 'file',
+					isContainer: false,
+					// A WAV of the decoded stream: 16-bit, header.channelCount channels.
+					size:
+						44 +
+						header.sampleCount * header.channelCount * 2,
+					format: `WAV (${header.sampleRate} Hz, ${header.channelCount}ch)`,
+					blob: async () => {
+						const decoded = decodeAfcStream(await bytesOnce());
+						if (!decoded) return new Blob([]);
+						return encodeWavBlob(
+							decoded.samples,
+							decoded.sampleRate,
+							decoded.channelCount,
+						);
+					},
+				},
+			];
+		},
+	};
+}
+
+// ----- RARC (GameCube / Wii JSystem archive) -----
+
+/**
+ * A Nintendo RARC archive.
+ *
+ * Unlike SARC (whose entries are slash-delimited paths that we have
+ * to re-tree), RARC already stores a real directory graph — nodes
+ * plus per-node entry ranges — so we can map it straight across
+ * without reconstructing anything.
+ *
+ * Two kinds of compression show up and they're independent:
+ *
+ *   1. The whole `.arc` is Yaz0-compressed. That's the common case on
+ *      the Wind Waker disc (640 of 1321), and those files arrive here
+ *      via {@link makeSzsNode}, which unwraps the Yaz0 and re-sniffs.
+ *   2. An *individual entry* inside an otherwise-plain RARC is Yaz0
+ *      (or the older Yay0) compressed, flagged per entry. We
+ *      decompress those when the containing directory is expanded so
+ *      that a compressed `.bdl` still gets recognised as a model
+ *      rather than showing up as an opaque `Yaz0` blob.
+ *
+ * (2) is eager-per-directory rather than lazy-per-file because
+ * `childNodeFor` needs real bytes in hand to sniff the inner format.
+ * That's cheap in practice: compressed entries average under two per
+ * archive across the whole disc.
+ */
+function makeRarcNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	let cached: Promise<RarcArchive | null> | null = null;
+	const parseOnce = () => {
+		if (!cached) {
+			cached = (async () => {
+				const bytes = new Uint8Array(await blob.arrayBuffer());
+				return parseRarc(bytes);
+			})();
+		}
+		return cached;
+	};
+	return {
+		id,
+		name,
+		kind: 'rarc',
+		isContainer: true,
+		size: blob.size,
+		format: 'RARC',
+		blob: async () => blob,
+		getChildren: async () => {
+			const archive = await parseOnce();
+			if (!archive) return [];
+			return rarcChildren(id, archive, archive.root, ctx);
+		},
+	};
+}
+
+/**
+ * Map one RARC directory node to `Node` children, recursing lazily
+ * into subdirectories.
+ */
+async function rarcChildren(
+	parentId: string,
+	archive: RarcArchive,
+	dir: RarcNode,
+	ctx: ArchiveContext,
+): Promise<Node[]> {
+	const entries = archive.readDir(dir);
+	// Directories first, then human-friendly name order — matching how
+	// every other container in here sorts.
+	const sorted = [...entries].sort((a, b) => {
+		if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+		return humanCompare(a.name, b.name);
+	});
+	return Promise.all(
+		sorted.map(async (entry): Promise<Node> => {
+			const childId = `${parentId}/${entry.name}`;
+			if (entry.isDir) {
+				const sub = archive.nodes[entry.nodeIndex];
+				return childDirectoryNodeFor({
+					id: childId,
+					name: entry.name,
+					getChildren: async () =>
+						sub ? rarcChildren(childId, archive, sub, ctx) : [],
+				});
+			}
+			const raw = archive.read(entry);
+			if (!raw) {
+				// Entry points outside the archive — surface it as an
+				// empty file rather than dropping it, so the tree still
+				// reflects what the archive claims to contain.
+				return {
+					id: childId,
+					name: entry.name,
+					kind: 'file',
+					isContainer: false,
+					size: 0,
+					format: detectFormat(entry.name) || 'BIN',
+					blob: async () => new Blob([]),
+				};
+			}
+			let data: Blob = new Blob([raw as BlobPart]);
+			if (entry.compression === 'yaz0') {
+				try {
+					data = await decompressYaz0(data);
+				} catch {
+					// Leave it compressed; the user can still download
+					// it and the format badge will say Yaz0.
+				}
+			}
+			return childNodeFor(childId, entry.name, data, ctx);
+		}),
+	);
+}
+
 // ----- SZS / Yaz0 -----
 
 /**
- * SZS = Yaz0-compressed SARC. We decompress lazily on first child
- * request, then expose the inner SARC's tree directly so the user
- * doesn't see a redundant `.szs → .sarc` indirection.
+ * SZS = a Yaz0-compressed archive. Usually SARC on Switch-era titles, but just
+ * as often RARC on GameCube ones — Super Mario Sunshine's `.szs` are Yaz0+RARC.
+ * We decompress lazily on first child request and dispatch on the inner magic,
+ * exposing that archive's tree directly so the user doesn't see a redundant
+ * `.szs → .sarc` indirection. The label stays neutral because which of the two
+ * it is isn't known until it's opened.
  *
  * Standalone (non-SARC) Yaz0 files also flow through here; in that
  * case `parseSarc` will throw and we fall back to a single-file
@@ -2539,13 +4210,29 @@ function makeSzsNode(
 		kind: 'sarc',
 		isContainer: true,
 		size: blob.size,
-		format: 'SZS (Yaz0+SARC)',
+		format: 'SZS (Yaz0)',
 		// Downloading an SZS gives you the *decompressed* payload — that's
 		// almost always what someone actually wants (e.g. drop into an
 		// external SARC tool).
 		blob: decompressOnce,
 		getChildren: async () => {
 			const inner = await decompressOnce();
+			// Yaz0+RARC is as common as Yaz0+SARC once you leave the
+			// Switch behind — it's how nearly every GameCube JSystem
+			// archive ships. Expose its tree directly for the same
+			// reason we do for SARC: nobody wants a redundant
+			// `.arc → .arc` indirection in the tree.
+			const innerHead = new Uint8Array(
+				await inner.slice(0, 4).arrayBuffer(),
+			);
+			if (new TextDecoder().decode(innerHead) === 'RARC') {
+				const archive = parseRarc(
+					new Uint8Array(await inner.arrayBuffer()),
+				);
+				if (archive) {
+					return rarcChildren(id, archive, archive.root, ctx);
+				}
+			}
 			try {
 				const parsed = await parseSarc(inner);
 				return sarcEntriesToNodes(id, parsed.entries, ctx);
@@ -4623,6 +6310,1096 @@ interface ChildNodeForOptions {
 	parentArchiveName?: string;
 }
 
+// ----- Retro ROM formats (NES / GB / GBA / SNES / N64) -----
+
+/**
+ * NES ROM (iNES / NES 2.0). Unlike the Switch containers, a NES ROM
+ * has no filesystem — but the header does describe a fixed physical
+ * layout, so we expose the segments as children: optional 512-byte
+ * trainer, PRG-ROM (code + data), and CHR-ROM (raw uncompressed 2bpp
+ * tile graphics, which the tile-viewer preview renders directly).
+ */
+function makeNesRomNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	void ctx;
+	return {
+		id,
+		name,
+		kind: 'nes-rom',
+		isContainer: true,
+		size: blob.size,
+		format: 'NES',
+		blob: async () => blob,
+		getChildren: async () => {
+			const head = new Uint8Array(
+				await blob.slice(0, 16).arrayBuffer(),
+			);
+			const info = parseNesHeader(head);
+			const children: Node[] = [];
+			const leaf = (
+				childName: string,
+				start: number,
+				size: number,
+				format: string,
+				meta?: NodeMeta,
+			): Node => ({
+				id: `${id}/${childName}`,
+				name: childName,
+				kind: 'file',
+				isContainer: false,
+				size,
+				format,
+				meta,
+				blob: async () => blob.slice(start, start + size),
+			});
+			if (info.trainer && info.trainerOffset !== undefined) {
+				children.push(
+					leaf('trainer.bin', info.trainerOffset, 512, 'BIN'),
+				);
+			}
+			children.push(
+				leaf('prg-rom.bin', info.prgRomOffset, info.prgRomSize, 'PRG-ROM'),
+			);
+			if (info.chrRomSize > 0 && info.chrRomOffset !== undefined) {
+				// CHR-ROM's real structure is a series of 4 KB pattern
+				// tables of 256 tiles each — the unit the PPU actually
+				// addresses. Exposing them individually is far more
+				// navigable than one flat blob, since a game's
+				// background and sprite tiles live in separate tables.
+				const tableCount = Math.floor(info.chrRomSize / NES_PATTERN_TABLE_SIZE);
+				if (tableCount > 1) {
+					children.push(
+						makeNesPatternTablesNode(
+							`${id}/pattern-tables`,
+							blob,
+							info.chrRomOffset,
+							tableCount,
+						),
+					);
+				}
+				children.push(
+					leaf(
+						'chr-rom.bin',
+						info.chrRomOffset,
+						info.chrRomSize,
+						'CHR-ROM',
+						{ tileData: 'nes-2bpp' },
+					),
+				);
+			}
+			// Music and sound effects are 6502 code driving the APU,
+			// so the only way to extract them is to run the game.
+			children.push(makeNesAudioDirNode(`${id}/audio`, blob));
+			return children;
+		},
+	};
+}
+
+// ----- GameCube discs (RVZ / WIA / raw GCM) -----
+
+/**
+ * Build the browsable tree for a GameCube disc.
+ *
+ * `read` pulls arbitrary byte ranges out of the image, so the same
+ * code serves a raw `.iso` and a compressed RVZ being reconstructed
+ * chunk by chunk. Files are sliced on demand — Wind Waker's disc is
+ * over a gigabyte and contains a 549 MB video, so nothing is
+ * materialised until it is actually opened.
+ */
+async function gamecubeChildren(
+	parentId: string,
+	disc: GcmDisc,
+	read: (offset: number, length: number) => Promise<Uint8Array>,
+	ctx: ArchiveContext,
+): Promise<Node[]> {
+	// A disc-wide index of every file, keyed by lowercased basename.
+	//
+	// Normally a SiblingMap covers one directory level, which is right for
+	// pairings like `.utoc`/`.ucas`. JAudio breaks that assumption: the `.aw`
+	// banks live in `Audiores/Banks/` while the `.aaf` index that describes them
+	// sits one level up in `Audiores/`. Rather than teach the map about parent
+	// directories, we build it across the whole disc — the entries are lazy
+	// facades, so 2000-odd of them cost nothing until something reads one.
+	const discSiblings: SiblingMap = new Map();
+	const indexEntry = (entry: GcmEntry): void => {
+		if (entry.isDirectory) {
+			for (const child of entry.children) indexEntry(child);
+			return;
+		}
+		const key = entry.name.toLowerCase();
+		if (discSiblings.has(key)) return;
+		discSiblings.set(
+			key,
+			makeLazyBlob(
+				entry.size,
+				async () =>
+					new Blob([(await read(entry.offset, entry.size)) as BlobPart]),
+			),
+		);
+	};
+	for (const entry of disc.entries) indexEntry(entry);
+
+	const toNode = async (entry: GcmEntry, idPrefix: string): Promise<Node> => {
+		const childId = `${idPrefix}/${entry.name}`;
+		if (entry.isDirectory) {
+			return childDirectoryNodeFor({
+				id: childId,
+				name: entry.name,
+				getChildren: async () =>
+					Promise.all(entry.children.map((c) => toNode(c, childId))),
+			});
+		}
+		// Route files through the generic dispatcher so the formats a
+		// GameCube disc is actually made of — RARC archives, J3D models,
+		// BTI textures, AFC streams — become traversable instead of
+		// bottoming out as opaque blobs.
+		//
+		// `skipMagicSniff` is essential here rather than optional. A disc's
+		// leaf Blobs are lazy windows into an RVZ, so the dispatcher's
+		// "cheap" 12-byte probe would decompress a whole 128 KiB Zstd chunk
+		// *per file* — and `res/Object/` alone holds ~1300 archives. We rely
+		// on extensions instead, which is sufficient because every format
+		// here is named consistently, and because the one genuinely
+		// ambiguous extension (`.arc`, which is both RARC and SARC) is
+		// resolved lazily by `makeArcNode` when the user expands it.
+		//
+		// The Blob stays a lazy facade so that merely *listing* a directory
+		// costs no reads at all; the disc is only touched when a file is
+		// opened, exactly as before this routing existed.
+		const lazy = makeLazyBlob(
+			entry.size,
+			async () =>
+				new Blob([(await read(entry.offset, entry.size)) as BlobPart]),
+		);
+		return childNodeFor(childId, entry.name, lazy, ctx, {
+			skipMagicSniff: true,
+			siblings: discSiblings,
+		});
+	};
+
+	const children = await Promise.all(
+		disc.entries.map((e) => toNode(e, parentId)),
+	);
+
+	// The boot header, disc metadata, apploader and executable sit
+	// outside the FST but are the most interesting parts of the disc,
+	// so surface them as siblings under a `sys` folder — the layout
+	// Dolphin and GCRebuilder both use.
+	const sysId = `${parentId}/sys`;
+	const sysFile = (
+		name: string,
+		offset: number,
+		size: number,
+	): Node => ({
+		id: `${sysId}/${name}`,
+		name,
+		kind: 'file',
+		isContainer: false,
+		size,
+		format: detectFormat(name) || 'BIN',
+		meta: { gcmOffset: offset },
+		blob: async () => new Blob([(await read(offset, size)) as BlobPart]),
+	});
+	children.unshift({
+		id: sysId,
+		name: 'sys',
+		kind: 'directory',
+		isContainer: true,
+		format: 'directory',
+		getChildren: async () => {
+			const out: Node[] = [
+				sysFile('boot.bin', 0, 0x440),
+				sysFile('bi2.bin', 0x440, 0x2000),
+			];
+			if (disc.apploaderSize > 0) {
+				out.push(sysFile('apploader.img', 0x2440, disc.apploaderSize));
+			}
+			if (disc.header.dolOffset > 0 && disc.dolSize > 0) {
+				out.push(
+					sysFile('main.dol', disc.header.dolOffset, disc.dolSize),
+				);
+			}
+			out.push(
+				sysFile('fst.bin', disc.header.fstOffset, disc.header.fstSize),
+			);
+			return out;
+		},
+	});
+	return children;
+}
+
+/**
+ * A Dolphin RVZ (or older WIA) compressed disc image.
+ *
+ * The container stores the disc as independently-compressed chunks,
+ * which is what makes browsing one practical: opening a file inside
+ * decompresses only the chunks it spans.
+ */
+function makeRvzNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	let imagePromise: Promise<RvzImage> | null = null;
+	const imageOnce = () => {
+		if (!imagePromise) {
+			imagePromise = parseRvz(blob, {
+				// The app already carries a zstd decoder for NCZ; RVZ
+				// uses the same codec, so reuse it rather than bundling
+				// a second one.
+				decompress: (compressed) => zstdDecompressBytes(compressed),
+			});
+		}
+		return imagePromise;
+	};
+	return {
+		id,
+		name,
+		kind: 'gamecube-disc',
+		isContainer: true,
+		size: blob.size,
+		format: 'RVZ',
+		blob: async () => blob,
+		getChildren: async () => {
+			const image = await imageOnce();
+			const read = (offset: number, length: number) =>
+				image.read(offset, length);
+			const disc = await parseGcm(read);
+			return gamecubeChildren(id, disc, read, ctx);
+		},
+	};
+}
+
+/** A raw, uncompressed GameCube disc image. */
+function makeGamecubeIsoNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+	/** Label override, so `.iso` can report NKit without duplicating this node. */
+	format = 'GCM',
+): Node {
+	const read = async (offset: number, length: number) =>
+		new Uint8Array(await blob.slice(offset, offset + length).arrayBuffer());
+	return {
+		id,
+		name,
+		kind: 'gamecube-disc',
+		isContainer: true,
+		size: blob.size,
+		format,
+		blob: async () => blob,
+		getChildren: async () => {
+			const disc = await parseGcm(read);
+			// A shrunk image (NKit) keeps the original disc header and FST, so it
+			// parses cleanly whether or not its interior is still laid out the
+			// way the FST claims. Check that before handing out byte ranges: if
+			// the filesystem describes data past the end of the file, the image
+			// was compacted and needs recovery we don't implement. Reading it
+			// anyway would silently serve whatever happens to sit at those
+			// offsets, which is far worse than an empty listing.
+			const maxEnd = gcmMaxFileEnd(disc.entries);
+			if (maxEnd > blob.size) {
+				return [];
+			}
+			return gamecubeChildren(id, disc, read, ctx);
+		},
+	};
+}
+
+/**
+ * A `.iso` disc image.
+ *
+ * The extension is shared by so many unrelated formats — PS2, Wii, PC installers,
+ * plain ISO 9660 — that it carries no information on its own. So we check for the
+ * GameCube magic (`0xC2339F3D` at 0x1C) and only then treat it as a disc.
+ *
+ * This also transparently covers **NKit** images. NKit shrinks a disc by dropping
+ * junk data, and crucially it is not a wrapper: the original header stays at
+ * offset 0 and the marker hides at 0x200, in an area a real disc leaves zeroed.
+ * When only trailing junk was removed — which is the common case, and what
+ * Sunshine's `.nkit.iso` does — every file remains at its original offset and the
+ * image reads exactly like a plain one. `makeGamecubeIsoNode` verifies that
+ * assumption before trusting it.
+ */
+function makeIsoNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	let resolved: Promise<Node | null> | null = null;
+	const resolveOnce = () => {
+		if (!resolved) {
+			resolved = (async (): Promise<Node | null> => {
+				// One read covers both the disc magic (at 0x1C) and the NKit
+				// marker (at 0x200).
+				const head = new Uint8Array(
+					await blob.slice(0, 0x220).arrayBuffer(),
+				);
+				if (!isGcmMagic(head)) return null;
+				const nkit = parseNkitInfo(head);
+				const format = nkit
+					? `GCM (NKit ${nkit.version}, shrunk from ${Math.round(nkit.originalSize / 1048576)} MB)`
+					: 'GCM';
+				return makeGamecubeIsoNode(id, name, blob, ctx, format);
+			})();
+		}
+		return resolved;
+	};
+
+	return {
+		id,
+		name,
+		kind: 'gamecube-disc',
+		isContainer: true,
+		size: blob.size,
+		format: 'ISO',
+		blob: async () => blob,
+		getChildren: async () => {
+			const inner = await resolveOnce();
+			// Not a GameCube disc: nothing we can enumerate. The file is still
+			// downloadable from this node.
+			if (!inner || !inner.getChildren) return [];
+			return inner.getChildren();
+		},
+	};
+}
+
+/** Bytes in one NES pattern table: 256 tiles of 16 bytes. */
+const NES_PATTERN_TABLE_SIZE = 4096;
+
+/**
+ * NES pattern tables.
+ *
+ * The PPU addresses CHR-ROM as 4 KB pattern tables holding 256 8x8
+ * tiles each, and a game conventionally puts background tiles in one
+ * and sprite tiles in the other. Splitting the CHR blob along those
+ * lines matches how the hardware — and the artist — saw it.
+ */
+function makeNesPatternTablesNode(
+	id: string,
+	blob: Blob,
+	chrOffset: number,
+	tableCount: number,
+): Node {
+	return {
+		id,
+		name: 'pattern-tables',
+		kind: 'directory',
+		isContainer: true,
+		format: `${tableCount} tables`,
+		getChildren: async () =>
+			Array.from({ length: tableCount }, (_, i): Node => {
+				const childName = `pattern_table_${i}.chr`;
+				const start = chrOffset + i * NES_PATTERN_TABLE_SIZE;
+				return {
+					id: `${id}/${childName}`,
+					name: childName,
+					kind: 'file',
+					isContainer: false,
+					size: NES_PATTERN_TABLE_SIZE,
+					format: '256 tiles',
+					meta: { tileData: 'nes-2bpp', nesPatternTable: i },
+					blob: async () =>
+						blob.slice(start, start + NES_PATTERN_TABLE_SIZE),
+				};
+			}),
+	};
+}
+
+/**
+ * NES audio, rendered by emulation.
+ *
+ * There is nothing to decode: NES music is a program. The child here
+ * is a WAV captured by booting the cartridge and recording its APU
+ * output, which is slow enough (a few seconds of CPU per capture)
+ * that it only happens when the node is actually opened.
+ */
+function makeNesAudioDirNode(id: string, blob: Blob): Node {
+	return {
+		id,
+		name: 'audio',
+		kind: 'directory',
+		isContainer: true,
+		format: 'emulated',
+		getChildren: async () => {
+			const captureSeconds = 30;
+			const childName = 'capture.wav';
+			return [
+				{
+					id: `${id}/${childName}`,
+					name: childName,
+					kind: 'file',
+					isContainer: false,
+					format: 'APU capture',
+					meta: { nesAudioCapture: true },
+					blob: async () => {
+						const bytes = new Uint8Array(await blob.arrayBuffer());
+						const rendered = renderNesAudio(bytes, {
+							seconds: captureSeconds,
+						});
+						return new Blob(
+							[
+								encodeNesWav(
+									rendered.samples,
+									rendered.sampleRate,
+								) as BlobPart,
+							],
+							{ type: 'audio/wav' },
+						);
+					},
+				},
+			];
+		},
+	};
+}
+
+/**
+ * Game Boy / Game Boy Color ROM. No children (the format has no
+ * discoverable internal structure) — just a leaf file with a `meta`
+ * tag so the header info preview routes even when the file was
+ * identified by magic sniff rather than extension.
+ */
+function makeGbRomFileNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	format: string,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'file',
+		isContainer: false,
+		size: blob.size,
+		format,
+		meta: { gbRom: true },
+		blob: async () => blob,
+	};
+}
+
+/**
+ * Game Boy Advance ROM. Children are GBA BIOS LZ77 (type 0x10)
+ * compression blocks found by a strict decompression scan — the
+ * closest thing the platform has to a file index. Each child's
+ * blob is the decompressed payload.
+ */
+function makeGbaRomNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	void ctx;
+	let bytesP: Promise<Uint8Array> | null = null;
+	const bytesOnce = () => {
+		if (!bytesP)
+			bytesP = blob
+				.arrayBuffer()
+				.then((ab) => new Uint8Array(ab));
+		return bytesP;
+	};
+	return {
+		id,
+		name,
+		kind: 'gba-rom',
+		isContainer: true,
+		size: blob.size,
+		format: 'GBA',
+		blob: async () => blob,
+		getChildren: async () => {
+			const bytes = await bytesOnce();
+			const blocks = scanGbaCompression(bytes);
+			return blocks.map((b: GbaCompressedBlock): Node => {
+				const childName = `${b.type}_0x${b.offset
+					.toString(16)
+					.toUpperCase()
+					.padStart(7, '0')}.bin`;
+				return {
+					id: `${id}/${childName}`,
+					name: childName,
+					kind: 'file',
+					isContainer: false,
+					size: b.decompressedSize,
+					format: b.type.toUpperCase(),
+					meta: {
+						tileData: 'gba-4bpp',
+						compressedSize: b.compressedSize,
+					},
+					blob: async () => {
+						const rom = await bytesOnce();
+						const out = decompressGba(rom, b.offset);
+						return new Blob([out as BlobPart]);
+					},
+				};
+			});
+		},
+	};
+}
+
+/**
+ * SNES sample rate for BRR-decoded WAV children. The S-DSP outputs
+ * at 32 kHz; individual samples are usually recorded lower and
+ * pitched at runtime, but 32 kHz is the least-wrong static choice.
+ */
+const SNES_BRR_SAMPLE_RATE = 32000;
+
+/**
+ * Minimum WAV duration to synthesize for looped BRR samples, in
+ * output samples (1 s at 32 kHz). SNES instrument samples are tiny
+ * looping waveforms (often < 25 ms); played once they're just a
+ * click. Repeating the sample (with decoder filter state carried
+ * across passes — see `@tootallnate/brr`'s `repeat` option) turns
+ * them into the sustained tone they represent.
+ */
+const SNES_BRR_MIN_LOOP_SAMPLES = SNES_BRR_SAMPLE_RATE;
+
+/** Cap on loop repeats so degenerate 16-block samples don't balloon. */
+const SNES_BRR_MAX_REPEAT = 128;
+
+/** Linear fade applied to the tail of a decoded BRR WAV (samples). */
+const SNES_BRR_FADE_SAMPLES = 1600; // 50 ms at 32 kHz
+
+/**
+ * Number of times to decode a BRR sample for its WAV child: looped
+ * samples repeat up to ~1 s of audio; one-shots play once.
+ */
+function brrRepeatCount(blocks: number, loop: boolean): number {
+	if (!loop) return 1;
+	const perPass = blocks * 16;
+	return Math.min(
+		SNES_BRR_MAX_REPEAT,
+		Math.max(1, Math.ceil(SNES_BRR_MIN_LOOP_SAMPLES / perPass)),
+	);
+}
+
+/**
+ * In-place linear fade-out over the last `fade` samples — kills the
+ * hard click where a loop is truncated mid-cycle.
+ */
+function fadeOutPcm(samples: Int16Array, fade: number): void {
+	const n = samples.length;
+	const span = Math.min(fade, n);
+	for (let i = 0; i < span; i++) {
+		const idx = n - span + i;
+		const gain = 1 - i / span;
+		samples[idx] = Math.round(samples[idx] * gain);
+	}
+}
+
+/**
+ * Super Nintendo ROM. Children are BRR audio samples found by
+ * heuristic scan (filter-0 first block, valid shift ranges, END
+ * flag chain), decoded to 16-bit PCM WAV for the audio preview.
+ */
+function makeSnesRomNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	void ctx;
+	let bytesP: Promise<Uint8Array> | null = null;
+	const bytesOnce = () => {
+		if (!bytesP)
+			bytesP = blob
+				.arrayBuffer()
+				.then((ab) => new Uint8Array(ab));
+		return bytesP;
+	};
+	return {
+		id,
+		name,
+		kind: 'snes-rom',
+		isContainer: true,
+		size: blob.size,
+		format: 'SNES',
+		blob: async () => blob,
+		getChildren: async () => {
+			const bytes = await bytesOnce();
+			const children: Node[] = [];
+			// Game-specific extractors run first: when we recognise
+			// the game we can decompress its real asset files
+			// instead of falling back to blind heuristics.
+			if (isSmw(bytes)) {
+				children.push(makeSmwGfxDirNode(`${id}/graphics`, bytes));
+			}
+			const samples = scanBrrSamples(bytes);
+			children.push(...samples.map((s): Node => {
+				const childName = `brr_0x${s.offset
+					.toString(16)
+					.toUpperCase()
+					.padStart(6, '0')}.wav`;
+				const repeat = brrRepeatCount(s.blocks, s.loop);
+				// 16 samples per 9-byte block, 16-bit mono PCM.
+				const wavSize = 44 + s.blocks * 16 * repeat * 2;
+				return {
+					id: `${id}/${childName}`,
+					name: childName,
+					kind: 'file',
+					isContainer: false,
+					size: wavSize,
+					format: 'BRR',
+					meta: {
+						brrLoop: s.loop,
+						brrBlocks: s.blocks,
+					},
+					blob: async () => {
+						const rom = await bytesOnce();
+						const { samples: pcm } = decodeBrr(
+							rom.subarray(s.offset, s.offset + s.byteLength),
+							{ repeat },
+						);
+						if (repeat > 1) {
+							fadeOutPcm(pcm, SNES_BRR_FADE_SAMPLES);
+						}
+						return encodeWavBlob(pcm, SNES_BRR_SAMPLE_RATE, 1);
+					},
+				};
+			}));
+			return children;
+		},
+	};
+}
+
+/**
+ * Zelda 64 audio directory.
+ *
+ * Sampled audio lives in two dmadata files: `Audiobank` holds the
+ * soundfonts (each sample header carrying a VADPCM codebook and loop
+ * descriptor) and `Audiotable` holds the raw VADPCM frames. Neither
+ * is usable alone, so this node pairs them and exposes each sample
+ * as a decoded WAV that the existing audio preview can play.
+ *
+ * Both files are extracted lazily on first expansion — `Audiotable`
+ * alone is several megabytes.
+ */
+function makeZ64AudioDirNode(
+	id: string,
+	getAudiobank: () => Promise<Uint8Array>,
+	getAudiotable: () => Promise<Uint8Array>,
+): Node {
+	let pairP: Promise<{
+		bank: Uint8Array;
+		table: Uint8Array;
+		samples: Z64Sample[];
+	}> | null = null;
+	const pairOnce = () => {
+		if (!pairP) {
+			pairP = (async () => {
+				const [bank, table] = await Promise.all([
+					getAudiobank(),
+					getAudiotable(),
+				]);
+				return { bank, table, samples: scanZ64Samples(bank, table) };
+			})();
+		}
+		return pairP;
+	};
+	return {
+		id,
+		name: 'audio',
+		kind: 'directory',
+		isContainer: true,
+		format: 'Z64-Audio',
+		getChildren: async () => {
+			const { table, samples } = await pairOnce();
+			const width = Math.max(3, String(samples.length).length);
+			return samples.map((sample, index): Node => {
+				const childName = `sample_${String(index).padStart(width, '0')}_0x${sample.dataOffset
+					.toString(16)
+					.toUpperCase()}.wav`;
+				return {
+					id: `${id}/${childName}`,
+					name: childName,
+					kind: 'file',
+					isContainer: false,
+					// 16-bit mono PCM plus the 44-byte RIFF header.
+					size: 44 + sample.sampleCount * 2,
+					format: 'VADPCM',
+					meta: {
+						vadpcmCompressedSize: sample.size,
+						vadpcmSamples: sample.sampleCount,
+						vadpcmLoops: sample.loop?.count ?? 0,
+						vadpcmPredictors: sample.book.npredictors,
+						vadpcmSourceOffset: sample.dataOffset,
+					},
+					blob: async () => {
+						const decoded = decodeZ64Sample(table, sample);
+						return new Blob(
+							[
+								encodeZ64Wav(
+									decoded.samples,
+									Z64_NOMINAL_SAMPLE_RATE,
+								) as BlobPart,
+							],
+							{ type: 'audio/wav' },
+						);
+					},
+				};
+			});
+		},
+	};
+}
+
+/**
+ * N64 SDK sound-bank audio directory.
+ *
+ * Games on the stock audio library keep sampled audio in a ctl/tbl
+ * pair embedded in the ROM. Both are self-describing containers, so
+ * they are located by structure rather than per-region offsets —
+ * which is why this works unchanged on Super Mario 64 and Mario Kart
+ * 64 despite their banks living at completely different addresses.
+ */
+function makeSoundBankDirNode(
+	id: string,
+	rom: Uint8Array,
+	pair: SoundBankPair,
+): Node {
+	let samplesCache: LocatedSample[] | null = null;
+	const samplesOnce = () => {
+		if (!samplesCache) samplesCache = scanSoundBankSamples(rom, pair);
+		return samplesCache;
+	};
+	return {
+		id,
+		name: 'audio',
+		kind: 'directory',
+		isContainer: true,
+		format: 'N64-SoundBank',
+		getChildren: async () => {
+			const samples = samplesOnce();
+			const width = Math.max(3, String(samples.length).length);
+			return samples.map((sample, index): Node => {
+				const childName = `bank${String(sample.bankIndex).padStart(
+					2,
+					'0',
+				)}_sample_${String(index).padStart(width, '0')}.wav`;
+				return {
+					id: `${id}/${childName}`,
+					name: childName,
+					kind: 'file',
+					isContainer: false,
+					size: 44 + sample.sampleCount * 2,
+					format: 'VADPCM',
+					meta: {
+						vadpcmBank: sample.bankIndex,
+						vadpcmCompressedSize: sample.size,
+						vadpcmSamples: sample.sampleCount,
+						vadpcmLoops: sample.loop?.count ?? 0,
+						vadpcmPredictors: sample.book.npredictors,
+					},
+					blob: async () => {
+						const decoded = decodeBankSample(sample.waveforms, sample);
+						return new Blob(
+							[
+								encodeBankWav(
+									decoded.samples,
+									NOMINAL_SAMPLE_RATE,
+								) as BlobPart,
+							],
+							{ type: 'audio/wav' },
+						);
+					},
+				};
+			});
+		},
+	};
+}
+
+/**
+ * Wrap a buffer of N64 data as a node that exposes the 3D models
+ * inside it.
+ *
+ * Display lists have no container of their own — they are just
+ * command streams somewhere in a segment, referencing vertices and
+ * textures elsewhere in the same buffer by segmented address. So a
+ * "model" child is the *same* buffer plus an entry offset, recorded
+ * in `meta.n64Model` for the preview to interpret.
+ *
+ * Scanning is deferred to `getChildren()` because it costs a few
+ * hundred milliseconds per hundred KB.
+ */
+function n64ModelChildren(
+	parentId: string,
+	getBytes: () => Promise<Uint8Array>,
+	cachedBytes?: Uint8Array,
+): () => Promise<Node[]> {
+	let bytesP: Promise<Uint8Array> | null = cachedBytes
+		? Promise.resolve(cachedBytes)
+		: null;
+	const bytesOnce = () => {
+		if (!bytesP) bytesP = getBytes();
+		return bytesP;
+	};
+	return async () => {
+		const bytes = await bytesOnce();
+		const refs = scanDisplayLists(bytes, {
+			// Deliberately low: plenty of real N64 props are tiny.
+			// Mario Kart 64's lamp posts, signs and billboarded
+			// quads run 8-16 triangles, and a threshold of 24 hid
+			// them entirely. False positives stay rare because the
+			// scanner also demands zero unknown opcodes, zero
+			// malformed triangles, a proper G_ENDDL, resolvable
+			// vertex pointers and a non-degenerate bounding box.
+			minTriangles: 8,
+			limit: 256,
+		});
+		if (refs.length === 0) return [];
+		const blobOnce = async () => new Blob([(await bytesOnce()) as BlobPart]);
+		return refs.map((r: DisplayListRef): Node => {
+			const childName = `model_0x${r.offset
+				.toString(16)
+				.toUpperCase()
+				.padStart(6, '0')}.n64model`;
+			return {
+				id: `${parentId}/${childName}`,
+				name: childName,
+				kind: 'file',
+				isContainer: false,
+				// Report triangle count rather than a byte size: the
+				// "file" is a view into the parent buffer, so a size
+				// would be misleading.
+				format: `${r.microcode.toUpperCase()} · ${r.triangleCount} tris`,
+				meta: {
+					n64Model: { offset: r.offset, microcode: r.microcode },
+					n64ModelTriangles: r.triangleCount,
+					n64ModelVertices: r.vertexCount,
+					n64ModelMaterials: r.materialCount,
+				},
+				blob: blobOnce,
+			};
+		});
+	};
+}
+
+/**
+ * Super Mario World graphics directory.
+ *
+ * SMW keeps its tile graphics in 50 LC_LZ2-compressed "GFX files"
+ * reachable through pointer tables in bank $00 — so unlike the
+ * generic SNES path (which can only offer heuristics), we can list
+ * and decompress the game's actual asset files. Each child carries
+ * the game's palette block in `meta` so the tile viewer renders
+ * them in true colour; decompressed graphics have no palette of
+ * their own.
+ */
+function makeSmwGfxDirNode(id: string, rom: Uint8Array): Node {
+	let filesP: SmwGfxFile[] | null = null;
+	const filesOnce = () => {
+		if (!filesP) filesP = readAllSmwGfx(rom);
+		return filesP;
+	};
+	let palettesMeta: NodeMeta[string] | null = null;
+	const palettesOnce = () => {
+		if (!palettesMeta) {
+			palettesMeta = {
+				label: 'SMW palettes',
+				palettes: readSmwPalettes(rom),
+				defaultIndex: SMW_DEFAULT_SPRITE_PALETTE,
+			};
+		}
+		return palettesMeta;
+	};
+	return {
+		id,
+		name: 'graphics',
+		kind: 'directory',
+		isContainer: true,
+		format: 'SMW-GFX',
+		getChildren: async () => {
+			const files = filesOnce();
+			const palettes = palettesOnce();
+			return files.map((g): Node => {
+				const childName = `${g.name}.bin`;
+				return {
+					id: `${id}/${childName}`,
+					name: childName,
+					kind: 'file',
+					isContainer: false,
+					size: g.bytes.length,
+					format: `${g.bpp}bpp`,
+					meta: {
+						tileData: g.bpp === 3 ? 'snes-3bpp' : 'snes-2bpp',
+						palettes,
+						smwTiles: g.tiles,
+						smwRomOffset: g.romOffset,
+						smwCompressedSize: g.compressedSize,
+					},
+					blob: async () => new Blob([g.bytes as BlobPart]),
+				};
+			});
+		},
+	};
+}
+
+/**
+ * Nintendo 64 ROM. The ROM is normalized to big-endian once
+ * (v64 / n64 dumps are byte-swapped), then:
+ *
+ *   1. If the Zelda 64 `dmadata` filesystem is present (Ocarina of
+ *      Time / Majora's Mask, any version), the children are its
+ *      file entries — a real file tree with lazy Yaz0 decompression.
+ *   2. Otherwise, children are MIO0 / Yay0 / Yaz0 compression
+ *      blocks found by magic scan (SM64 and most first-party carts
+ *      store graphics/level data this way).
+ */
+function makeN64RomNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	void ctx;
+	let normP: Promise<Uint8Array> | null = null;
+	const normalizedOnce = () => {
+		if (!normP)
+			normP = blob
+				.arrayBuffer()
+				.then((ab) => normalizeN64(new Uint8Array(ab)));
+		return normP;
+	};
+	return {
+		id,
+		name,
+		kind: 'n64-rom',
+		isContainer: true,
+		size: blob.size,
+		format: 'N64',
+		blob: async () => blob,
+		getChildren: async () => {
+			const rom = await normalizedOnce();
+			// Zelda 64 dmadata filesystem takes precedence — it's a
+			// real file table, not a heuristic.
+			const fs = parseZ64Fs(rom);
+			if (fs) {
+				const normBlob = new Blob([rom as BlobPart]);
+				const children: Node[] = [];
+				// Pair Audiobank with Audiotable when both are present
+				// so the sampled audio can be decoded.
+				const bankEntry = fs.entries.find(
+					(e: DmaEntry) => e.name === 'Audiobank',
+				);
+				const tableEntry = fs.entries.find(
+					(e: DmaEntry) => e.name === 'Audiotable',
+				);
+				if (bankEntry && tableEntry) {
+					const readEntry = (entry: DmaEntry) => async () =>
+						new Uint8Array(
+							await (await extractDmaFile(normBlob, entry)).arrayBuffer(),
+						);
+					children.push(
+						makeZ64AudioDirNode(
+							`${id}/audio`,
+							readEntry(bankEntry),
+							readEntry(tableEntry),
+						),
+					);
+				}
+				children.push(
+					...fs.entries
+					.filter((e: DmaEntry) => !e.deleted && e.size > 0)
+					.map((e: DmaEntry): Node => {
+						const childId = `${id}/${e.name}`;
+						const getBytes = async () =>
+							new Uint8Array(
+								await (await extractDmaFile(normBlob, e)).arrayBuffer(),
+							);
+						return {
+							id: childId,
+							name: e.name,
+							kind: 'n64-blob',
+							isContainer: true,
+							size: e.size,
+							format: e.compressed ? 'Yaz0' : 'BIN',
+							meta: {
+								dmaIndex: e.index,
+								dmaVromStart: e.vromStart,
+								dmaCompressed: e.compressed,
+								tileData: 'n64-rgba16',
+							},
+							blob: () => extractDmaFile(normBlob, e),
+							getChildren: n64ModelChildren(childId, getBytes),
+						};
+					}),
+				);
+				return children;
+			}
+			// Generic path: scan for compression-block magics, then
+			// for Rare's `0x1172` deflate containers (GoldenEye 007,
+			// Perfect Dark), which use neither a dmadata table nor
+			// any of the Nintendo compression formats.
+			const blocks = scanN64Compression(rom);
+			const rareFiles = await scanRare1172(rom);
+			// Stock-library games embed a ctl/tbl sound-bank pair.
+			const soundBanks = findSoundBanks(rom);
+			const rareNodes = rareFiles.map((f: Rare1172File): Node => {
+				const childName = `file_0x${f.offset
+					.toString(16)
+					.toUpperCase()
+					.padStart(7, '0')}.bin`;
+				const childId = `${id}/${childName}`;
+				const decompress = async (): Promise<Uint8Array> =>
+					decompressRare1172(await normalizedOnce(), f.offset);
+				return {
+					id: childId,
+					name: childName,
+					kind: 'n64-blob',
+					isContainer: true,
+					size: f.size,
+					format: 'Rare-1172',
+					meta: { tileData: 'n64-rgba16' },
+					blob: async () => new Blob([(await decompress()) as BlobPart]),
+					getChildren: n64ModelChildren(childId, decompress),
+				};
+			});
+			const blockNodes = blocks.map((b: N64CompressedBlockRef): Node => {
+				const childName = `${b.type.toLowerCase()}_0x${b.offset
+					.toString(16)
+					.toUpperCase()
+					.padStart(7, '0')}.bin`;
+				const childId = `${id}/${childName}`;
+				const decompress = async (): Promise<Uint8Array> => {
+					const bytes = await normalizedOnce();
+					if (b.type === 'MIO0') {
+						return decompressMio0Bytes(bytes, b.offset);
+					}
+					if (b.type === 'Yay0') {
+						return decompressYay0Bytes(bytes, b.offset);
+					}
+					return decompressYaz0ToBytes(
+						new Blob([bytes.subarray(b.offset) as BlobPart]),
+					);
+				};
+				return {
+					id: childId,
+					name: childName,
+					kind: 'n64-blob',
+					isContainer: true,
+					size: b.decompressedSize,
+					format: b.type,
+					meta: { tileData: 'n64-rgba16' },
+					blob: async () => new Blob([(await decompress()) as BlobPart]),
+					getChildren: n64ModelChildren(childId, decompress),
+				};
+			});
+			return [
+				...(soundBanks
+					? [makeSoundBankDirNode(`${id}/audio`, rom, soundBanks)]
+					: []),
+				...blockNodes,
+				...rareNodes,
+			];
+		},
+	};
+}
+
 async function childNodeFor(
 	id: string,
 	name: string,
@@ -4645,36 +7422,15 @@ async function childNodeFor(
 	}
 	const skipMagicSniff = opts?.skipMagicSniff === true;
 	const ext = extOf(name);
-	if (ext === 'nca') return makeNcaNode(id, name, blob, ctx, tikMap);
-	if (ext === 'ncz') return makeNczNode(id, name, blob, ctx, tikMap);
-	if (ext === 'nro') return makeNroNode(id, name, blob, ctx);
-	if (ext === 'nsp') return makePfs0Node(id, name, blob, ctx, 'NSP');
 	// NSZ = NSP-with-NCZ-compressed-NCAs inside. Identical outer
 	// PFS0 container; the .ncz children are routed through
 	// `makeNczNode` which handles the zstd decompression.
-	if (ext === 'nsz') return makePfs0Node(id, name, blob, ctx, 'NSZ');
 	// XCZ = XCI-with-NCZ-compressed-NCAs (the cartridge variant of NSZ).
-	if (ext === 'xcz') return makeXciNode(id, name, blob, ctx);
-	if (ext === 'pfs0') return makePfs0Node(id, name, blob, ctx, 'PFS0');
-	if (ext === 'hfs0') return makeHfs0Node(id, name, blob, ctx);
-	if (ext === 'xci') return makeXciNode(id, name, blob, ctx);
-	if (ext === 'zip') return makeZipNode(id, name, blob, ctx);
-	if (ext === 'sarc' || ext === 'pack') return makeSarcNode(id, name, blob, ctx);
-	if (ext === 'vbf') return makeVbfNode(id, name, blob, ctx);
-	if (ext === 'lgp') return makeLgpNode(id, name, blob, ctx);
-	if (ext === 'fs') return makeFf8FsNode(id, name, blob, ctx, siblings);
-	if (ext === 'ddsz') return makeDdszNode(id, name, blob, ctx);
-	if (ext === 'wd') return makeSquareWdNode(id, name, blob, ctx);
-	if (ext === 'resources') return makeIdTechResourcesNode(id, name, blob, ctx);
-	if (ext === 'szs') return makeSzsNode(id, name, blob, ctx);
-	if (ext === 'lz4') return makeLz4Node(id, name, blob, ctx);
-	if (ext === 'zs' || ext === 'zst') return makeZstdNode(id, name, blob, ctx);
 	// `.utoc` standalone (no `.ucas` sibling): we can still browse
 	// the file listing via the directory index, but inner-file
 	// reads will surface a clear error. The "right" path \u2014
 	// pairing with the sibling `.ucas` \u2014 lives in
 	// `romfsEntriesToNodes` where the parent directory is in scope.
-	if (ext === 'utoc') return makeIoStoreNode(id, name, blob, null, ctx);
 	if (ext === 'pak') {
 		// `.pak` covers two unrelated formats with the same
 		// extension: Unreal Engine PAKs (footer magic
@@ -4698,13 +7454,6 @@ async function childNodeFor(
 		if (isFfprBundle(head)) return makeFfprBundleNode(id, name, blob, ctx);
 		// Unknown wrapper — fall through to generic.
 	}
-	if (ext === 'bars') return makeBarsNode(id, name, blob, ctx);
-	if (ext === 'bfsar') return makeBfsarNode(id, name, blob, ctx);
-	if (ext === 'bfwar') return makeBfwarNode(id, name, blob, ctx);
-	if (ext === 'bfres') return makeBfresNode(id, name, blob, ctx);
-	if (ext === 'sab' || ext === 'mab' || ext === 'sabf' || ext === 'mabf') {
-		return makeSeadAudioNode(id, name, blob, ctx);
-	}
 	// Unity TextAsset wrappers around SEAD files use the
 	// `.sab.bytes` / `.mab.bytes` convention. Route those too.
 	if (ext === 'bytes') {
@@ -4713,32 +7462,31 @@ async function childNodeFor(
 			return makeSeadAudioNode(id, name, blob, ctx);
 		}
 	}
-	if (ext === 'awb') {
-		return makeAwbNode(id, name, blob, ctx, siblingsToAwbResolver(siblings));
-	}
-	if (ext === 'acb') return makeAcbNode(id, name, blob, ctx, siblings);
 	// Unity standalone-build SerializedFiles: `*.assets` (e.g.
 	// `resources.assets`, `sharedassets0.assets`, `globalgamemanagers.assets`)
 	// and the no-extension scene / global files (`level0`..`levelN`,
 	// `globalgamemanagers`, `mainData`, `customdata`). All use the
 	// Unity SerializedFile format and reference companion `.resS` /
 	// `.resource` files in the same directory.
-	if (ext === 'assets') return makeUnitySerializedFileNode(id, name, blob, ctx);
 	if (
 		/^(?:level\d+|globalgamemanagers|maindata|customdata)$/i.test(name)
 	) {
 		return makeUnitySerializedFileNode(id, name, blob, ctx);
 	}
-	if (ext === 'gfpak') return makeGfpakNode(id, name, blob, ctx);
-	if (ext === 'pck') return makeWwisePckNode(id, name, blob, ctx);
-	if (ext === 'bnk') return makeWwiseBnkNode(id, name, blob, ctx);
-	if (ext === 'bank') {
-		// `.bank` is ambiguous: Wwise uses BKHD, FMOD uses RIFF/FEV.
-		// Sniff first, then dispatch.
-		const sniffed = await sniffMagicCheap(blob);
-		if (sniffed === 'fmod-bank') return makeFmodBankNode(id, name, blob, ctx);
-		if (sniffed === 'wwise-bnk') return makeWwiseBnkNode(id, name, blob, ctx);
-		// Unknown bank — fall through to generic.
+	// Everything with a plain extension mapping goes through the registry — the
+	// same table `buildRootNode` uses, so the two can't drift apart. `.bank`'s
+	// Wwise-vs-FMOD disambiguation now lives in that table's BANK entry.
+	const byExt = FORMAT_BY_EXT.get(ext);
+	if (byExt) {
+		return byExt.build({
+			id,
+			name,
+			blob,
+			ctx,
+			format: byExt.format,
+			tikMap,
+			siblings,
+		});
 	}
 
 	// FF7 PC field scenes live exclusively inside `flevel.lgp` and
@@ -4871,30 +7619,6 @@ async function childNodeFor(
 		};
 	}
 	const sniffed = await sniffMagicCheap(blob);
-	if (sniffed === 'sarc') return makeSarcNode(id, name, blob, ctx);
-	if (sniffed === 'vbf') return makeVbfNode(id, name, blob, ctx);
-	if (sniffed === 'lgp') return makeLgpNode(id, name, blob, ctx);
-	if (sniffed === 'square-wd') return makeSquareWdNode(id, name, blob, ctx);
-	if (sniffed === 'idtech-resources') return makeIdTechResourcesNode(id, name, blob, ctx);
-	if (sniffed === 'szs') return makeSzsNode(id, name, blob, ctx);
-	if (sniffed === 'pfs0') return makePfs0Node(id, name, blob, ctx, 'PFS0');
-	if (sniffed === 'hfs0') return makeHfs0Node(id, name, blob, ctx);
-	if (sniffed === 'romfs') return makeRomfsNode(id, name, blob, ctx);
-	if (sniffed === 'zip') return makeZipNode(id, name, blob, ctx);
-	if (sniffed === 'lz4') return makeLz4Node(id, name, blob, ctx);
-	if (sniffed === 'zstd') return makeZstdNode(id, name, blob, ctx);
-	if (sniffed === 'unityfs') return makeUnityFsNode(id, name, blob, ctx);
-	if (sniffed === 'bars') return makeBarsNode(id, name, blob, ctx);
-	if (sniffed === 'bfsar') return makeBfsarNode(id, name, blob, ctx);
-	if (sniffed === 'bfwar') return makeBfwarNode(id, name, blob, ctx);
-	if (sniffed === 'bfres') return makeBfresNode(id, name, blob, ctx);
-	if (sniffed === 'awb') {
-		return makeAwbNode(id, name, blob, ctx, siblingsToAwbResolver(siblings));
-	}
-	if (sniffed === 'gfpak') return makeGfpakNode(id, name, blob, ctx);
-	if (sniffed === 'wwise-pck') return makeWwisePckNode(id, name, blob, ctx);
-	if (sniffed === 'wwise-bnk') return makeWwiseBnkNode(id, name, blob, ctx);
-	if (sniffed === 'fmod-bank') return makeFmodBankNode(id, name, blob, ctx);
 	// idTech BFG bitmap font + texture atlas: leaf files routed via
 	// `meta` tags so the preview pane can pick them out of the
 	// generic `.dat` / arbitrary-extension stream.
@@ -4923,6 +7647,20 @@ async function childNodeFor(
 		};
 	}
 
+	// Magic-detected formats resolve through the same registry.
+	const bySniff = sniffed ? FORMAT_BY_SNIFF.get(sniffed) : undefined;
+	if (bySniff) {
+		return bySniff.build({
+			id,
+			name,
+			blob,
+			ctx,
+			format: bySniff.format,
+			tikMap,
+			siblings,
+		});
+	}
+
 	// Generic file
 	return {
 		id,
@@ -4933,4 +7671,5 @@ async function childNodeFor(
 		format: detectFormat(name) || 'BIN',
 		blob: async () => blob,
 	};
+
 }

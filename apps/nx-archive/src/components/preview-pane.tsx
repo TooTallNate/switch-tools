@@ -220,6 +220,17 @@ import {
   parseNpdmForView,
   parseNroForView,
   parseNsoForView,
+  parseNesForView,
+  parseGbForView,
+  parseGbaForView,
+  parseSnesForView,
+  parseN64ForView,
+  parseBtiForView,
+  parseHsdModelForView,
+  type HsdModelRef,
+  parseJ3dForView,
+  parseN64ModelForView,
+  type N64ModelRef,
   renderBffntText,
   type AudioPreviewView,
   type BarsView,
@@ -266,6 +277,23 @@ import {
   registerBlobAsVfsResource,
   unregisterVfsResource,
 } from "~/lib/vfs"
+import {
+  TileViewerPreview,
+  TileExplorerSection,
+} from "./tile-viewer"
+import {
+  streamMthToMp4,
+  streamThpToMp4,
+  type ThpEncodeProgress,
+  type ThpStreamHandle,
+  ThpH264UnavailableError,
+  ThpMediaSourceUnavailableError,
+  ThpWebCodecsUnavailableError,
+  type ThpStreamInfo,
+} from "~/lib/thp-encode"
+import { HsdModelViewer } from "./hsd-model-viewer"
+import { J3dModelViewer } from "./j3d-model-viewer"
+import { N64ModelViewer } from "./n64-model-viewer"
 import { parseIdFont, type ParsedIdFont } from "@tootallnate/idfont"
 import {
   parseBimage,
@@ -375,6 +403,8 @@ function PreviewContent({
       // a meaningful filename pattern that detectPreviewKind would
       // recognise — they're tagged by `node.kind` upstream in
       // `archive.ts` instead.
+      // `.thp` files that are really JPEG stills; see `makeThpNode`.
+      if (node.kind === "jpeg-still") return "image"
       if (node.kind === "unity-asset") return "unity-asset"
       if (node.kind === "unity-object") return "unity-object"
       // idTech BFG font metrics + preprocessed textures are sniffed
@@ -399,6 +429,16 @@ function PreviewContent({
       // unwrapped the LZ4 layer; we just need to route the now-
       // raw DDS bytes to the DDS preview.
       if (node.meta?.ddsz) return "dds-image"
+      // GB / GBC ROMs identified by magic sniff (deep logo check)
+      // rather than extension.
+      if (node.meta?.gbRom) return "gb-rom-info"
+      // A single N64 display list located by the model scanner.
+      if (node.meta?.n64Model) return "n64-model"
+      // Melee model: the tree tags which archive + joint root to render.
+      if (node.meta?.hsdModel) return "hsd-model"
+      // Raw pixel data tagged at tree-build time (NES CHR-ROM,
+      // decompressed GBA / N64 blocks) — graphics explorer.
+      if (node.meta?.tileData) return "tile-viewer"
       return detectPreviewKind(node.name)
     },
     [isFile, node.name, node.meta, node.kind],
@@ -417,6 +457,12 @@ function PreviewContent({
   // SerializedFile-level summary as their "landing page" — show
   // it instead of the generic "expand me" empty state.
   const isUnityAsset = node.kind === "unity-asset"
+  // Retro console ROM containers: header info as the landing page.
+  const isNesRom = node.kind === "nes-rom"
+  const isGbaRom = node.kind === "gba-rom"
+  const isSnesRom = node.kind === "snes-rom"
+  const isN64Rom = node.kind === "n64-rom"
+  const isN64Blob = node.kind === "n64-blob"
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -436,6 +482,16 @@ function PreviewContent({
           <AwbPreview node={node} />
         ) : isUnityAsset ? (
           <UnityAssetPreview node={node} root={root} />
+        ) : isNesRom ? (
+          <NesRomPreview node={node} />
+        ) : isGbaRom ? (
+          <GbaRomPreview node={node} />
+        ) : isSnesRom ? (
+          <SnesRomPreview node={node} />
+        ) : isN64Rom ? (
+          <N64RomPreview node={node} />
+        ) : isN64Blob ? (
+          <N64BlobPreview node={node} />
         ) : node.isContainer ? (
           <ContainerSummary node={node} />
         ) : (
@@ -1894,6 +1950,30 @@ function FilePreview({
       return <UnityAssetPreview node={node} root={root} />
     case "unity-object":
       return <UnityObjectPreview node={node} root={root} />
+    case "nes-rom-info":
+      return <NesRomPreview node={node} />
+    case "gb-rom-info":
+      return <GbRomPreview node={node} />
+    case "gba-rom-info":
+      return <GbaRomPreview node={node} />
+    case "snes-rom-info":
+      return <SnesRomPreview node={node} />
+    case "n64-rom-info":
+      return <N64RomPreview node={node} />
+    case "tile-viewer":
+      return <TileViewerPreview node={node} />
+    case "n64-model":
+      return <N64ModelPreview node={node} />
+    case "bti-image":
+      return <BtiPreview node={node} />
+    case "j3d-model":
+      return <J3dModelPreview node={node} />
+    case "mth-video":
+      return <MthPreview node={node} />
+    case "thp-video":
+      return <ThpPreview node={node} />
+    case "hsd-model":
+      return <HsdModelPreview node={node} />
     case "hex":
     default:
       return <HexPreview node={node} />
@@ -2131,8 +2211,13 @@ function ImagePreview({ node }: { node: Node }) {
       }
       const ext = extOf(node.name)
       // Switch app icons (icon_*.dat) are JPEGs.
-      const isSwitchIconDat = /^icon_.*\.dat$/i.test(node.name)
-      const mime = isSwitchIconDat ? "image/jpeg" : IMAGE_MIME[ext] ?? "image/png"
+      // Switch app icons and Melee's `.thp` stills are both JPEGs behind a
+      // misleading extension, so neither can be typed from its name.
+      const isJpegBehindOtherExt =
+        /^icon_.*\.dat$/i.test(node.name) || node.kind === "jpeg-still"
+      const mime = isJpegBehindOtherExt
+        ? "image/jpeg"
+        : IMAGE_MIME[ext] ?? "image/png"
       return makePreviewUrl(blob, mime, node.name, (bytesRead, total) =>
         onProgress({
           bytesIn: bytesRead,
@@ -2154,14 +2239,42 @@ function ImagePreview({ node }: { node: Node }) {
   if (loading)
     return <ProgressFiller label="Preparing image preview…" progress={progress} />
   if (error) return <ErrorFiller error={error} />
+  // A JPEG behind a misleading extension. The generic download button keeps the
+  // archive's own filename, which would hand over a `.thp` that no image viewer
+  // will open on sight, so offer the repaired bytes under a name that matches
+  // what they actually are.
+  //
+  // Laid out like the video previews: the content first, then a caption row
+  // beneath it carrying the conversion note on the left and the save action on
+  // the right. `data.url` already serves the re-stuffed bytes, so this is the
+  // same `<a download>` the video player uses rather than a second read.
+  const jpegBehindOtherExt = node.kind === "jpeg-still"
+  const jpegName = `${node.name.replace(/\.[^.]+$/, "")}.jpg`
   return (
     <ScrollArea className="h-full">
-      <div className="flex min-h-full items-center justify-center bg-muted/40 p-6">
-        <img
-          src={data!.url}
-          alt={node.name}
-          className="max-h-[calc(100vh-12rem)] max-w-full rounded-md ring-1 ring-foreground/10"
-        />
+      <div className="flex min-h-full flex-col">
+        <div className="flex flex-1 items-center justify-center bg-muted/40 p-6">
+          <img
+            src={data!.url}
+            alt={node.name}
+            className="max-h-[calc(100vh-12rem)] max-w-full rounded-md ring-1 ring-foreground/10"
+          />
+        </div>
+        {jpegBehindOtherExt && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-xs text-muted-foreground">
+            <span>
+              JPEG stored as <code>{extOf(node.name) || "?"}</code>; entropy data
+              re-stuffed so standard decoders accept it.
+            </span>
+            <a
+              href={data!.url}
+              download={jpegName}
+              className="shrink-0 rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+            >
+              Save .jpeg
+            </a>
+          </div>
+        )}
       </div>
     </ScrollArea>
   )
@@ -2871,6 +2984,320 @@ function NsoSegmentTable({
         </table>
       </div>
     </section>
+  )
+}
+
+// -------- Retro console ROM previews (NES / GB / GBA / SNES / N64) --------
+
+/** Small yes/no + validity helper for checksum-style rows. */
+function validity(ok: boolean | undefined): string {
+  if (ok === undefined) return "n/a"
+  return ok ? "valid ✓" : "INVALID ✗"
+}
+
+function NesRomPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseNesForView(await node.blob!())
+  }, [node.id])
+  if (loading) return <LoadingFiller label="Parsing NES header…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader
+          title={`NES ROM — ${v.format === "nes2" ? "NES 2.0" : "iNES"}`}
+        />
+        <KvBlock title="Header">
+          <KvRow
+            k="Mapper"
+            v={`${v.mapper}${v.mapperName ? ` (${v.mapperName})` : ""}`}
+          />
+          {v.submapper !== undefined && (
+            <KvRow k="Submapper" v={String(v.submapper)} />
+          )}
+          <KvRow k="PRG-ROM" v={formatBytes(v.prgRomSize)} />
+          <KvRow
+            k="CHR-ROM"
+            v={v.chrRomSize > 0 ? formatBytes(v.chrRomSize) : "none (CHR-RAM)"}
+          />
+          <KvRow k="Mirroring" v={v.mirroring} />
+          <KvRow k="Battery-backed RAM" v={v.battery ? "yes" : "no"} />
+          <KvRow k="Trainer" v={v.trainer ? "yes (512 bytes)" : "no"} />
+          <KvRow k="Console type" v={v.consoleType} />
+          {v.timing && <KvRow k="Timing" v={v.timing.toUpperCase()} />}
+          {v.prgRamSize !== undefined && v.prgRamSize > 0 && (
+            <KvRow k="PRG-RAM" v={formatBytes(v.prgRamSize)} />
+          )}
+          {v.prgNvramSize !== undefined && v.prgNvramSize > 0 && (
+            <KvRow k="PRG-NVRAM" v={formatBytes(v.prgNvramSize)} />
+          )}
+          {v.chrRamSize !== undefined && v.chrRamSize > 0 && (
+            <KvRow k="CHR-RAM" v={formatBytes(v.chrRamSize)} />
+          )}
+        </KvBlock>
+        <p className="text-xs text-muted-foreground">
+          Expand this node in the tree to browse the PRG-ROM / CHR-ROM
+          segments — CHR-ROM is raw tile data the graphics explorer
+          renders directly.
+        </p>
+        <TileExplorerSection node={node} defaultFormat="nes-2bpp" />
+      </div>
+    </ScrollArea>
+  )
+}
+
+function GbRomPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseGbForView(await node.blob!())
+  }, [node.id])
+  if (loading) return <LoadingFiller label="Parsing GB header…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const platform =
+    v.cgb === "exclusive"
+      ? "Game Boy Color (exclusive)"
+      : v.cgb === "compatible"
+        ? "Game Boy Color (GB compatible)"
+        : "Game Boy"
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title={`${platform} cartridge`} />
+        <KvBlock title="Header">
+          <KvRow k="Title" v={v.title || "(blank)"} />
+          {v.manufacturerCode && (
+            <KvRow k="Manufacturer code" v={v.manufacturerCode} mono />
+          )}
+          <KvRow
+            k="Cartridge type"
+            v={`${v.cartridgeTypeName ?? "unknown"} (0x${v.cartridgeType
+              .toString(16)
+              .padStart(2, "0")})`}
+          />
+          <KvRow k="ROM size" v={formatBytes(v.romSize)} />
+          <KvRow
+            k="RAM size"
+            v={v.ramSize > 0 ? formatBytes(v.ramSize) : "none"}
+          />
+          <KvRow k="Super Game Boy" v={v.sgb ? "supported" : "no"} />
+          <KvRow k="Destination" v={v.destination} />
+          <KvRow
+            k="Licensee"
+            v={`${v.licensee ?? "unknown"} (${v.licenseeCode})`}
+          />
+          <KvRow k="Version" v={String(v.version)} />
+        </KvBlock>
+        <KvBlock title="Integrity">
+          <KvRow k="Nintendo logo" v={validity(v.logoValid)} />
+          <KvRow k="Header checksum" v={validity(v.headerChecksumValid)} />
+          <KvRow
+            k="Global checksum"
+            v={`0x${v.globalChecksum
+              .toString(16)
+              .padStart(4, "0")} — ${validity(v.globalChecksumValid)}`}
+            mono
+          />
+        </KvBlock>
+        <TileExplorerSection node={node} defaultFormat="gb-2bpp" />
+      </div>
+    </ScrollArea>
+  )
+}
+
+function GbaRomPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseGbaForView(await node.blob!())
+  }, [node.id])
+  if (loading) return <LoadingFiller label="Parsing GBA header…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="Game Boy Advance ROM" />
+        <KvBlock title="Header">
+          <KvRow k="Title" v={v.title || "(blank)"} />
+          <KvRow k="Game code" v={v.gameCode} mono />
+          {v.region && <KvRow k="Region" v={v.region} />}
+          <KvRow k="Maker code" v={v.makerCode} mono />
+          <KvRow k="Version" v={String(v.version)} />
+        </KvBlock>
+        <KvBlock title="Integrity">
+          <KvRow k="Nintendo logo" v={validity(v.logoValid)} />
+          <KvRow k="Fixed value (0x96)" v={validity(v.fixedValueValid)} />
+          <KvRow k="Header checksum" v={validity(v.headerChecksumValid)} />
+        </KvBlock>
+        <p className="text-xs text-muted-foreground">
+          Expand this node in the tree to scan the ROM for GBA BIOS
+          LZ77 compression blocks — the platform's de-facto asset
+          storage. Each block decompresses lazily.
+        </p>
+        <TileExplorerSection node={node} defaultFormat="gba-4bpp" />
+      </div>
+    </ScrollArea>
+  )
+}
+
+function SnesRomPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseSnesForView(await node.blob!())
+  }, [node.id])
+  if (loading) return <LoadingFiller label="Locating SNES header…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!.info
+  const smw = data!.smw
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="Super Nintendo ROM" />
+        <KvBlock title="Internal header">
+          <KvRow k="Title" v={v.title || "(blank)"} />
+          <KvRow
+            k="Mapping"
+            v={`${v.mapping.toUpperCase()}${v.fastRom ? " + FastROM" : ""}`}
+          />
+          <KvRow
+            k="Header offset"
+            v={`0x${v.headerOffset.toString(16).toUpperCase()}`}
+            mono
+            hint={
+              v.copierHeader
+                ? "after 512-byte copier header"
+                : undefined
+            }
+          />
+          <KvRow
+            k="Cartridge type"
+            v={`${v.cartridgeTypeName} (0x${v.cartridgeType
+              .toString(16)
+              .padStart(2, "0")})`}
+          />
+          {v.coprocessor && <KvRow k="Coprocessor" v={v.coprocessor} />}
+          <KvRow k="ROM size" v={formatBytes(v.romSizeKb * 1024)} />
+          <KvRow
+            k="RAM size"
+            v={v.ramSizeKb > 0 ? formatBytes(v.ramSizeKb * 1024) : "none"}
+          />
+          <KvRow k="Region" v={v.regionName} />
+          {v.makerCode && <KvRow k="Maker code" v={v.makerCode} mono />}
+          {v.gameCode && <KvRow k="Game code" v={v.gameCode} mono />}
+          <KvRow k="Version" v={`1.${v.version}`} />
+        </KvBlock>
+        <KvBlock title="Integrity">
+          <KvRow
+            k="Checksum"
+            v={`0x${v.checksum
+              .toString(16)
+              .padStart(4, "0")} — ${validity(v.checksumValid)}`}
+            mono
+          />
+          <KvRow k="Checksum complement" v={validity(v.complementValid)} />
+          <KvRow k="Copier header" v={v.copierHeader ? "present (512 bytes)" : "none"} />
+          <KvRow k="Detection score" v={String(v.score)} />
+        </KvBlock>
+        {smw ? (
+          <>
+            <KvBlock title="Super Mario World — game-specific extractor">
+              <KvRow k="Recognised as" v={smw.title} />
+              <KvRow
+                k="GFX files"
+                v={`${smw.gfxCount} LC_LZ2-compressed`}
+              />
+              <KvRow
+                k="Graphics data"
+                v={`${formatBytes(smw.totalCompressed)} → ${formatBytes(
+                  smw.totalDecompressed,
+                )} decompressed`}
+              />
+              <KvRow k="Palette slots" v={String(smw.palettes.palettes.length)} />
+            </KvBlock>
+            <p className="text-xs text-muted-foreground">
+              Expand this node in the tree for the game's real asset
+              files: <span className="font-mono">graphics/</span> holds
+              the decompressed GFX tiles (rendered with the game's own
+              palettes), alongside the BRR audio samples.
+            </p>
+            <TileExplorerSection
+              node={node}
+              defaultFormat="snes-3bpp"
+              supplied={smw.palettes}
+            />
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-muted-foreground">
+              Expand this node in the tree to scan for BRR audio samples
+              (decoded to WAV). Graphics on most SNES games are packed
+              with a game-specific compression scheme, so the raw
+              explorer below only shows uncompressed regions.
+            </p>
+            <TileExplorerSection node={node} defaultFormat="snes-4bpp" />
+          </>
+        )}
+      </div>
+    </ScrollArea>
+  )
+}
+
+function N64RomPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseN64ForView(await node.blob!())
+  }, [node.id])
+  if (loading) return <LoadingFiller label="Parsing N64 header…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="Nintendo 64 ROM" />
+        <KvBlock title="Header">
+          <KvRow k="Internal name" v={v.name || "(blank)"} />
+          <KvRow k="Game code" v={v.gameCode} mono />
+          <KvRow k="Media format" v={v.mediaFormat} />
+          <KvRow k="Region" v={`${v.regionName} (${v.region})`} />
+          <KvRow k="Version" v={String(v.version)} />
+          <KvRow
+            k="Byte order"
+            v={
+              v.byteOrder === "z64"
+                ? "z64 (big-endian, native)"
+                : v.byteOrder === "v64"
+                  ? "v64 (byteswapped)"
+                  : "n64 (little-endian)"
+            }
+          />
+          <KvRow k="libultra" v={v.libultraVersion} />
+          <KvRow
+            k="Boot address"
+            v={`0x${v.bootAddress.toString(16).toUpperCase().padStart(8, "0")}`}
+            mono
+          />
+        </KvBlock>
+        <KvBlock title="Integrity">
+          <KvRow k="CIC chip" v={v.cic ?? "unknown"} />
+          <KvRow
+            k="CRC1"
+            v={`0x${v.crc1.toString(16).toUpperCase().padStart(8, "0")}`}
+            mono
+          />
+          <KvRow
+            k="CRC2"
+            v={`0x${v.crc2.toString(16).toUpperCase().padStart(8, "0")}`}
+            mono
+          />
+          <KvRow k="CRC check" v={validity(v.crcValid)} />
+        </KvBlock>
+        <p className="text-xs text-muted-foreground">
+          Expand this node in the tree: Zelda 64 ROMs show their
+          dmadata filesystem as real files; other games are scanned
+          for MIO0 / Yay0 / Yaz0 compression blocks and for Rare's
+          <span className="font-mono"> 0x1172 </span>
+          deflate containers (GoldenEye 007, Perfect Dark).
+        </p>
+        <TileExplorerSection node={node} defaultFormat="n64-rgba16" />
+      </div>
+    </ScrollArea>
   )
 }
 
@@ -13912,6 +14339,470 @@ function PhyreMeshPreview({
       </div>
       <div className="flex-1 p-3">
         <PhyreMeshViewer node={node} root={root} view={v} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A buffer of decompressed N64 data.
+ *
+ * Expanding it in the tree lists the 3D models its display lists
+ * draw; this landing preview offers the graphics explorer, because
+ * N64 textures live in these same buffers and are worth browsing
+ * even when no display list resolves.
+ */
+function N64BlobPreview({ node }: { node: Node }) {
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="Decompressed N64 data" />
+        <p className="text-xs text-muted-foreground">
+          Expand this node in the tree to browse the 3D models its
+          display lists draw. Textures referenced by those models
+          live in this same buffer — the graphics explorer below
+          renders it as raw N64 texture data.
+        </p>
+        <TileExplorerSection node={node} defaultFormat="n64-rgba16" />
+      </div>
+    </ScrollArea>
+  )
+}
+
+/**
+ * One N64 display list, rendered through the shared MeshViewer.
+ *
+ * The node's blob is the containing buffer (a decompressed MIO0 /
+ * Yaz0 block or a Zelda 64 file), and `meta.n64Model` says where in
+ * it the display list starts and which microcode to use.
+ */
+// ====================================================================
+// THP — Nintendo GameCube / Wii video preview
+// ====================================================================
+//
+// THP frames are baseline JPEGs and its audio is DSP-ADPCM, so unlike
+// Bink there's no codec to load: the browser decodes the frames and we
+// decode the audio in plain JS. Everything after that is the same
+// re-encode-and-stream path — H.264 / AAC fragmented MP4 fed to a
+// `<video>` through MediaSource.
+
+interface ThpPreviewState {
+  kind: "loading" | "streaming" | "ready" | "error" | "unsupported"
+  info?: ThpStreamInfo
+  mediaSourceUrl?: string
+  progress?: { frame: number; total: number; fps: number }
+  downloadUrl?: string
+  mp4Size?: number
+  reason?: string
+  error?: Error
+}
+
+/**
+ * Per-container specifics for {@link JpegVideoPreview}.
+ *
+ * THP and MTH are the same idea — a container of per-frame JPEGs — and share the
+ * whole WebCodecs/MSE pipeline. Only the naming and the audio story differ, so
+ * that is all this carries.
+ */
+interface JpegVideoSpec {
+  /** Short format name, used in headings and the metadata block. */
+  label: string
+  sectionTitle: string
+  /** Extension stripped when naming the saved MP4. */
+  extension: RegExp
+  stream: (args: {
+    bytes: Uint8Array
+    /** Paired audio, when the container has none of its own. */
+    extraAudio?: Uint8Array
+    /** Frame-pacing schedule, for containers that hold frames unevenly. */
+    rateTable?: unknown
+    signal: AbortSignal
+    onProgress: (p: ThpEncodeProgress) => void
+  }) => ThpStreamHandle
+  /** Shown in the Audio row when the container declares no track at all. */
+  audioNote: string
+}
+
+const THP_VIDEO_SPEC: JpegVideoSpec = {
+  label: "THP",
+  sectionTitle: "THP — Nintendo GameCube / Wii video",
+  extension: /\.thp$/i,
+  stream: ({ bytes, signal, onProgress }) =>
+    streamThpToMp4({ thpBytes: bytes, signal, onProgress }),
+  audioNote: "—",
+}
+
+const MTH_VIDEO_SPEC: JpegVideoSpec = {
+  label: "MTH",
+  sectionTitle: "MTH — Super Smash Bros. Melee video",
+  extension: /\.mth$/i,
+  stream: ({ bytes, extraAudio, rateTable, signal, onProgress }) =>
+    streamMthToMp4({
+      mthBytes: bytes,
+      hpsBytes: extraAudio,
+      rateTable: rateTable as never,
+      signal,
+      onProgress,
+    }),
+  // Melee's MTH header has audio fields but every file on the disc leaves them
+  // zero, so the absence is a property of the format as shipped rather than a
+  // gap in the decoder.
+  audioNote: "none (MTH is video-only)",
+}
+
+function ThpPreview({ node }: { node: Node }) {
+  return <JpegVideoPreview node={node} spec={THP_VIDEO_SPEC} />
+}
+
+function MthPreview({ node }: { node: Node }) {
+  return <JpegVideoPreview node={node} spec={MTH_VIDEO_SPEC} />
+}
+
+function JpegVideoPreview({ node, spec }: { node: Node; spec: JpegVideoSpec }) {
+  const [state, setState] = useState<ThpPreviewState>({ kind: "loading" })
+  const mediaSourceUrlRef = useRef<string | null>(null)
+  const downloadUrlRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (mediaSourceUrlRef.current) URL.revokeObjectURL(mediaSourceUrlRef.current)
+      if (downloadUrlRef.current) URL.revokeObjectURL(downloadUrlRef.current)
+      mediaSourceUrlRef.current = null
+      downloadUrlRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const aborter = new AbortController()
+    if (mediaSourceUrlRef.current) {
+      URL.revokeObjectURL(mediaSourceUrlRef.current)
+      mediaSourceUrlRef.current = null
+    }
+    if (downloadUrlRef.current) {
+      URL.revokeObjectURL(downloadUrlRef.current)
+      downloadUrlRef.current = null
+    }
+    setState({ kind: "loading" })
+
+    void (async () => {
+      try {
+        const bytes = new Uint8Array(await (await node.blob!()).arrayBuffer())
+        if (cancelled) return
+        // MTH has no audio track; the paired stream is attached upstream in
+        // `makeMthNode` and is only an inference from filenames.
+        const pairedBlob = node.meta?.mthAudioBlob as Blob | undefined
+        const extraAudio = pairedBlob
+          ? new Uint8Array(await pairedBlob.arrayBuffer())
+          : undefined
+        if (cancelled) return
+        const handle = spec.stream({
+          bytes,
+          extraAudio,
+          rateTable: node.meta?.mthRateTable,
+          signal: aborter.signal,
+          onProgress: (p) => {
+            if (!cancelled) setState((prev) => ({ ...prev, progress: p }))
+          },
+        })
+        mediaSourceUrlRef.current = handle.mediaSourceUrl
+        // Assign the URL before awaiting anything: the MediaSource only
+        // transitions to "open" once a <video> attaches to it, and the
+        // pipeline waits for that before muxing.
+        setState({ kind: "streaming", mediaSourceUrl: handle.mediaSourceUrl })
+        handle.info.then(
+          (info) => {
+            if (!cancelled) setState((prev) => ({ ...prev, info }))
+          },
+          () => {
+            /* surfaced via `done` below */
+          },
+        )
+        const result = await handle.done
+        if (cancelled) return
+        const url = URL.createObjectURL(result.mp4)
+        downloadUrlRef.current = url
+        setState((prev) => ({
+          ...prev,
+          kind: "ready",
+          info: result.info,
+          downloadUrl: url,
+          mp4Size: result.mp4.size,
+          progress: undefined,
+        }))
+      } catch (err) {
+        if (cancelled) return
+        // A browser missing WebCodecs / MSE isn't a failure of the file —
+        // say so, and point at the audio track which still works.
+        if (
+          err instanceof ThpWebCodecsUnavailableError ||
+          err instanceof ThpMediaSourceUnavailableError ||
+          err instanceof ThpH264UnavailableError
+        ) {
+          setState({ kind: "unsupported", reason: err.message })
+          return
+        }
+        setState({
+          kind: "error",
+          error: err instanceof Error ? err : new Error(String(err)),
+        })
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      aborter.abort()
+    }
+  }, [node.id, spec])
+
+  const info = state.info
+  const aspectRatio = info ? `${info.width} / ${info.height}` : "4 / 3"
+
+  const player: VideoPreviewPlayer =
+    state.kind === "error"
+      ? { kind: "error", reason: state.error?.message ?? "Unknown error" }
+      : state.kind === "unsupported"
+        ? { kind: "unsupported", reason: state.reason ?? "Unsupported" }
+        : state.mediaSourceUrl
+          ? {
+              kind: "video",
+              url: state.mediaSourceUrl,
+              streaming: state.kind !== "ready",
+            }
+          : { kind: "loading", label: `Reading ${spec.label}…` }
+
+  return (
+    <VideoPreviewLayout
+      sectionTitle={spec.sectionTitle}
+      aspectRatio={aspectRatio}
+      player={player}
+      progress={
+        state.progress
+          ? {
+              label: `Encoding frame ${state.progress.frame.toLocaleString()} of ${state.progress.total.toLocaleString()} · ${state.progress.fps.toFixed(1)} fps`,
+              pct: Math.round(
+                (state.progress.frame / Math.max(1, state.progress.total)) * 100,
+              ),
+            }
+          : undefined
+      }
+      caption={
+        info
+          ? `JPEG frames → H.264${info.audioCodec ? ` / ${info.audioCodec.toUpperCase()}` : ""} MP4 (${info.width}×${info.height} · ${info.fps.toFixed(2)} fps${state.mp4Size ? ` · ${formatBytes(state.mp4Size)}` : ""})`
+          : undefined
+      }
+      download={
+        state.downloadUrl
+          ? {
+              url: state.downloadUrl,
+              filename: `${node.name.replace(spec.extension, "")}.mp4`,
+              label: "Save .mp4",
+            }
+          : undefined
+      }
+      metadata={
+        info ? (
+          <KvBlock title={spec.label}>
+            <KvRow k="Resolution" v={`${info.width}×${info.height}`} />
+            <KvRow k="Frame rate" v={`${info.fps.toFixed(2)} fps`} />
+            <KvRow k="Frames" v={info.frameCount.toLocaleString()} />
+            <KvRow
+              k="Duration"
+              v={formatDuration(info.durationUs / 1e6)}
+            />
+            <KvRow
+              k="Video codec"
+              v="Baseline JPEG (intra-only)"
+              hint="every frame is a standalone JPEG, so there is no interframe compression"
+            />
+            <KvRow
+              k="Audio"
+              v={
+                info.hasAudio
+                  ? `DSP-ADPCM → ${info.audioCodec ? info.audioCodec.toUpperCase() : "not muxed"} (${info.audioChannels ?? "?"} ch · ${info.audioSampleRate ?? "?"} Hz)`
+                  : spec.audioNote
+              }
+              hint={
+                node.meta?.mthAudioName
+                  ? `paired with audio/${node.meta.mthAudioName} by filename; MTH itself declares no audio track`
+                  : undefined
+              }
+            />
+          </KvBlock>
+        ) : undefined
+      }
+    />
+  )
+}
+
+/**
+ * A standalone `.bti` texture.
+ *
+ * Drawn to a canvas over a checkerboard so alpha is visible — most
+ * GameCube UI textures are `RGB5A3` or `IA8` and rely on it. The
+ * sampler state is surfaced alongside because wrap mode is stored in
+ * the texture on this hardware rather than in the material, so it's
+ * genuinely part of the file's meaning.
+ */
+function BtiPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseBtiForView(await node.blob!())
+  }, [node.id])
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [pngUrl, setPngUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!data) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    canvas.width = data.width
+    canvas.height = data.height
+    const ctx = canvas.getContext("2d")
+    if (!ctx) return
+    const imageData = ctx.createImageData(data.width, data.height)
+    imageData.data.set(data.pixels)
+    ctx.putImageData(imageData, 0, 0)
+    canvas.toBlob((b) => {
+      if (b) setPngUrl(URL.createObjectURL(b))
+    }, "image/png")
+    return () => {
+      setPngUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev)
+        return null
+      })
+    }
+  }, [data])
+  if (loading) return <LoadingFiller label="Decoding BTI texture…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const wrapName = (w: number) =>
+    w === 0 ? "clamp" : w === 1 ? "repeat" : w === 2 ? "mirror" : `${w}`
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="BTI — Nintendo GX texture" />
+        <section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+          <div
+            className="overflow-auto rounded-md border"
+            style={{
+              background:
+                "repeating-conic-gradient(rgb(36, 36, 36) 0% 25%, rgb(20, 20, 20) 0% 50%) 50% / 16px 16px",
+              maxHeight: "70vh",
+            }}
+          >
+            <canvas
+              ref={canvasRef}
+              className="block max-w-full"
+              style={{ imageRendering: "pixelated" }}
+            />
+          </div>
+          {pngUrl ? (
+            <a
+              href={pngUrl}
+              download={`${node.name.replace(/\.bti$/i, "")}.png`}
+              className="text-xs underline underline-offset-2 opacity-80 hover:opacity-100"
+            >
+              Save as .png
+            </a>
+          ) : null}
+        </section>
+        <KvBlock title="Texture">
+          <KvRow k="Dimensions" v={`${v.width} x ${v.height}`} />
+          <KvRow k="Format" v={v.formatName} />
+          <KvRow
+            k="Alpha"
+            v={
+              v.alphaMode === 0
+                ? "opaque"
+                : v.alphaMode === 1
+                  ? "alpha"
+                  : `special (${v.alphaMode})`
+            }
+          />
+          {v.paletteCount > 0 ? (
+            <KvRow
+              k="Palette"
+              v={`${v.paletteCount} entries, format ${v.paletteFormat}`}
+            />
+          ) : null}
+          <KvRow k="Mipmaps" v={String(v.mipmapCount)} />
+          <KvRow
+            k="Wrap"
+            v={`S: ${wrapName(v.wrapS)}, T: ${wrapName(v.wrapT)}`}
+          />
+        </KvBlock>
+      </div>
+    </ScrollArea>
+  )
+}
+
+/** A Melee HSDArchive model. */
+function HsdModelPreview({ node }: { node: Node }) {
+  const ref = node.meta?.hsdModel as HsdModelRef | undefined
+  const { loading, data, error } = useAsync(async () => {
+    if (!ref) throw new Error("Missing hsdModel metadata on this node")
+    return parseHsdModelForView(await node.blob!(), ref)
+  }, [node.id])
+  if (loading) return <LoadingFiller label="Building Melee model…" />
+  if (error) return <ErrorFiller error={error} />
+  return <HsdModelViewer node={node} view={data!} />
+}
+
+/** A `.bmd` / `.bdl` J3D model. */
+function J3dModelPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    return parseJ3dForView(await node.blob!())
+  }, [node.id])
+  if (loading) return <LoadingFiller label="Parsing J3D model…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  if (v.triangleCount === 0) {
+    return (
+      <ErrorFiller
+        error={new Error("This J3D model contains no drawable geometry.")}
+      />
+    )
+  }
+  return <J3dModelViewer node={node} view={v} />
+}
+
+function N64ModelPreview({ node }: { node: Node }) {
+  const ref = node.meta?.n64Model as N64ModelRef | undefined
+  const { loading, data, error } = useAsync(async () => {
+    if (!ref) throw new Error("Missing n64Model metadata on this node")
+    return parseN64ModelForView(await node.blob!(), ref)
+  }, [node.id])
+  if (loading) return <LoadingFiller label="Interpreting display list…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  if (v.triangleCount === 0) {
+    return (
+      <ErrorFiller
+        error={
+          new Error(
+            "This display list produced no geometry — its vertex data likely lives in a different ROM segment than the one it was found in.",
+          )
+        }
+      />
+    )
+  }
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">
+          Nintendo 64 3D Model
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          {v.microcode.toUpperCase()} display list at 0x
+          {v.offset.toString(16)} · {v.vertexCount.toLocaleString()} vertices ·{" "}
+          {v.triangleCount.toLocaleString()} triangles
+          {v.texturedMaterials > 0
+            ? ` · ${v.texturedMaterials} texture${v.texturedMaterials === 1 ? "" : "s"}`
+            : ""}
+          {" · drag to orbit, scroll to zoom"}
+        </p>
+      </div>
+      <div className="flex-1 p-3">
+        <N64ModelViewer node={node} view={v} />
       </div>
     </div>
   )

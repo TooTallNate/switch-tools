@@ -229,6 +229,12 @@ importers:
       '@tootallnate/aes-xts':
         specifier: workspace:*
         version: link:../../packages/aes-xts
+      '@tootallnate/afc':
+        specifier: workspace:*
+        version: link:../../packages/afc
+      '@tootallnate/ast':
+        specifier: workspace:*
+        version: link:../../packages/ast
       '@tootallnate/astc-wasm':
         specifier: workspace:*
         version: link:../../packages/astc-wasm
@@ -280,6 +286,12 @@ importers:
       '@tootallnate/brotli-wasm':
         specifier: workspace:*
         version: link:../../packages/brotli-wasm
+      '@tootallnate/brr':
+        specifier: workspace:*
+        version: link:../../packages/brr
+      '@tootallnate/bti':
+        specifier: workspace:*
+        version: link:../../packages/bti
       '@tootallnate/bwav':
         specifier: workspace:*
         version: link:../../packages/bwav
@@ -295,6 +307,9 @@ importers:
       '@tootallnate/dxtk-font':
         specifier: workspace:*
         version: link:../../packages/dxtk-font
+      '@tootallnate/f3dex':
+        specifier: workspace:*
+        version: link:../../packages/f3dex
       '@tootallnate/ff7-battle':
         specifier: workspace:*
         version: link:../../packages/ff7-battle
@@ -343,6 +358,15 @@ importers:
       '@tootallnate/fsb5':
         specifier: workspace:*
         version: link:../../packages/fsb5
+      '@tootallnate/gb-rom':
+        specifier: workspace:*
+        version: link:../../packages/gb-rom
+      '@tootallnate/gba-rom':
+        specifier: workspace:*
+        version: link:../../packages/gba-rom
+      '@tootallnate/gcm':
+        specifier: workspace:*
+        version: link:../../packages/gcm
       '@tootallnate/gfpak':
         specifier: workspace:*
         version: link:../../packages/gfpak
@@ -352,6 +376,12 @@ importers:
       '@tootallnate/hfs0':
         specifier: workspace:*
         version: link:../../packages/hfs0
+      '@tootallnate/hps':
+        specifier: workspace:*
+        version: link:../../packages/hps
+      '@tootallnate/hsd':
+        specifier: workspace:*
+        version: link:../../packages/hsd
       '@tootallnate/idfont':
         specifier: workspace:*
         version: link:../../packages/idfont
@@ -361,18 +391,36 @@ importers:
       '@tootallnate/iostore':
         specifier: workspace:*
         version: link:../../packages/iostore
+      '@tootallnate/j3d':
+        specifier: workspace:*
+        version: link:../../packages/j3d
+      '@tootallnate/lc-lz2':
+        specifier: workspace:*
+        version: link:../../packages/lc-lz2
       '@tootallnate/lgp':
         specifier: workspace:*
         version: link:../../packages/lgp
       '@tootallnate/lz4':
         specifier: workspace:^
         version: link:../../packages/lz4
+      '@tootallnate/mio0':
+        specifier: workspace:*
+        version: link:../../packages/mio0
       '@tootallnate/ms-adpcm':
         specifier: workspace:*
         version: link:../../packages/ms-adpcm
       '@tootallnate/msbt':
         specifier: workspace:*
         version: link:../../packages/msbt
+      '@tootallnate/mth':
+        specifier: workspace:*
+        version: link:../../packages/mth
+      '@tootallnate/n64-rom':
+        specifier: workspace:*
+        version: link:../../packages/n64-rom
+      '@tootallnate/n64-soundbank':
+        specifier: workspace:*
+        version: link:../../packages/n64-soundbank
       '@tootallnate/nacp':
         specifier: workspace:*
         version: link:../../packages/nacp
@@ -382,6 +430,12 @@ importers:
       '@tootallnate/ncz':
         specifier: workspace:*
         version: link:../../packages/ncz
+      '@tootallnate/nes-audio':
+        specifier: workspace:*
+        version: link:../../packages/nes-audio
+      '@tootallnate/nes-rom':
+        specifier: workspace:*
+        version: link:../../packages/nes-rom
       '@tootallnate/npdm':
         specifier: workspace:*
         version: link:../../packages/npdm
@@ -406,18 +460,39 @@ importers:
       '@tootallnate/ps-adpcm':
         specifier: workspace:*
         version: link:../../packages/ps-adpcm
+      '@tootallnate/rarc':
+        specifier: workspace:*
+        version: link:../../packages/rarc
+      '@tootallnate/rare-1172':
+        specifier: workspace:*
+        version: link:../../packages/rare-1172
       '@tootallnate/romfs':
         specifier: workspace:*
         version: link:../../packages/romfs
+      '@tootallnate/rvz':
+        specifier: workspace:*
+        version: link:../../packages/rvz
       '@tootallnate/sarc':
         specifier: workspace:*
         version: link:../../packages/sarc
       '@tootallnate/sead-audio':
         specifier: workspace:*
         version: link:../../packages/sead-audio
+      '@tootallnate/smw':
+        specifier: workspace:*
+        version: link:../../packages/smw
+      '@tootallnate/snes-rom':
+        specifier: workspace:*
+        version: link:../../packages/snes-rom
       '@tootallnate/square-wd':
         specifier: workspace:*
         version: link:../../packages/square-wd
+      '@tootallnate/ssm':
+        specifier: workspace:*
+        version: link:../../packages/ssm
+      '@tootallnate/thp':
+        specifier: workspace:*
+        version: link:../../packages/thp
       '@tootallnate/uasset':
         specifier: workspace:*
         version: link:../../packages/uasset
@@ -430,6 +505,9 @@ importers:
       '@tootallnate/usm':
         specifier: workspace:*
         version: link:../../packages/usm
+      '@tootallnate/vadpcm':
+        specifier: workspace:*
+        version: link:../../packages/vadpcm
       '@tootallnate/vbf':
         specifier: workspace:*
         version: link:../../packages/vbf
@@ -439,6 +517,9 @@ importers:
       '@tootallnate/wem-vorbis':
         specifier: workspace:*
         version: link:../../packages/wem-vorbis
+      '@tootallnate/wsys':
+        specifier: workspace:*
+        version: link:../../packages/wsys
       '@tootallnate/wwise-bnk':
         specifier: workspace:*
         version: link:../../packages/wwise-bnk
@@ -448,9 +529,18 @@ importers:
       '@tootallnate/xci':
         specifier: workspace:*
         version: link:../../packages/xci
+      '@tootallnate/yay0':
+        specifier: workspace:*
+        version: link:../../packages/yay0
       '@tootallnate/yaz0':
         specifier: workspace:*
         version: link:../../packages/yaz0
+      '@tootallnate/z64-audio':
+        specifier: workspace:*
+        version: link:../../packages/z64-audio
+      '@tootallnate/z64-fs':
+        specifier: workspace:*
+        version: link:../../packages/z64-fs
       '@tootallnate/zstd-wasm':
         specifier: workspace:*
         version: link:../../packages/zstd-wasm
@@ -592,6 +682,18 @@ importers:
         specifier: ^5.3.3
         version: 5.3.3
 
+  packages/afc:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/ast:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/astc-wasm:
     devDependencies:
       typescript:
@@ -714,6 +816,18 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
+  packages/brr:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/bti:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/bwav:
     devDependencies:
       typescript:
@@ -759,6 +873,12 @@ importers:
       '@tootallnate/bcn':
         specifier: workspace:*
         version: link:../bcn
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/f3dex:
     devDependencies:
       typescript:
         specifier: ^5.3.3
@@ -902,6 +1022,24 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/gb-rom:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/gba-rom:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/gcm:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/gfpak:
     dependencies:
       '@tootallnate/lz4':
@@ -940,6 +1078,26 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/hps:
+    dependencies:
+      '@tootallnate/dsp-adpcm':
+        specifier: workspace:*
+        version: link:../dsp-adpcm
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/hsd:
+    dependencies:
+      '@tootallnate/bti':
+        specifier: workspace:*
+        version: link:../bti
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/idfont:
     devDependencies:
       typescript:
@@ -967,6 +1125,22 @@ importers:
         specifier: ^5.3.3
         version: 5.3.3
 
+  packages/j3d:
+    dependencies:
+      '@tootallnate/bti':
+        specifier: workspace:*
+        version: link:../bti
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/lc-lz2:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/lgp:
     devDependencies:
       typescript:
@@ -974,6 +1148,12 @@ importers:
         version: 5.9.3
 
   packages/lz4:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/mio0:
     devDependencies:
       typescript:
         specifier: ^5.3.3
@@ -993,6 +1173,32 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
+
+  packages/mth:
+    dependencies:
+      '@tootallnate/thp':
+        specifier: workspace:*
+        version: link:../thp
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/n64-rom:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/n64-soundbank:
+    dependencies:
+      '@tootallnate/vadpcm':
+        specifier: workspace:*
+        version: link:../vadpcm
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
 
   packages/nacp:
     devDependencies:
@@ -1026,6 +1232,22 @@ importers:
         version: 5.3.3
 
   packages/ncz:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/nes-audio:
+    dependencies:
+      '@tootallnate/nes-rom':
+        specifier: workspace:*
+        version: link:../nes-rom
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/nes-rom:
     devDependencies:
       typescript:
         specifier: ^5.3.3
@@ -1097,6 +1319,18 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/rarc:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/rare-1172:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/romfs:
     devDependencies:
       '@types/node':
@@ -1105,6 +1339,12 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.3.3
+
+  packages/rvz:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
 
   packages/sarc:
     devDependencies:
@@ -1121,6 +1361,26 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
+  packages/smw:
+    dependencies:
+      '@tootallnate/lc-lz2':
+        specifier: workspace:*
+        version: link:../lc-lz2
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/snes-rom:
+    dependencies:
+      '@tootallnate/brr':
+        specifier: workspace:*
+        version: link:../brr
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/square-wd:
     dependencies:
       '@tootallnate/dsp-adpcm':
@@ -1129,6 +1389,26 @@ importers:
       '@tootallnate/ps-adpcm':
         specifier: workspace:*
         version: link:../ps-adpcm
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/ssm:
+    dependencies:
+      '@tootallnate/dsp-adpcm':
+        specifier: workspace:*
+        version: link:../dsp-adpcm
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/thp:
+    dependencies:
+      '@tootallnate/dsp-adpcm':
+        specifier: workspace:*
+        version: link:../dsp-adpcm
     devDependencies:
       typescript:
         specifier: ^5.3.3
@@ -1168,6 +1448,12 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/vadpcm:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/vbf:
     dependencies:
       fflate:
@@ -1189,6 +1475,12 @@ importers:
         version: 5.9.3
 
   packages/wem-vorbis:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/wsys:
     devDependencies:
       typescript:
         specifier: ^5.3.3
@@ -1216,7 +1508,33 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/yay0:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/yaz0:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/z64-audio:
+    dependencies:
+      '@tootallnate/vadpcm':
+        specifier: workspace:*
+        version: link:../vadpcm
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/z64-fs:
+    dependencies:
+      '@tootallnate/yaz0':
+        specifier: workspace:*
+        version: link:../yaz0
     devDependencies:
       typescript:
         specifier: ^5.3.3
@@ -7022,11 +7340,11 @@ packages:
   spdx-license-ids@3.0.13:
     resolution: {integrity: sha512-XkD+zwiqXHikFZm4AX/7JSCXA98U5Db4AFd5XUg/+9UNtnH75+Z9KxtpYiJZx36mUDVOwH83pl7yvCer6ewM3w==}
 
+  spessasynth_core@4.3.15:
+    resolution: {integrity: sha512-EPHogsIWtq0505vQlei6rjcWzRjwtCM1Q/WLmrPgpfoLWJelsW0jhd59HjGYw4CmptWQDGhJlgh/R6RsJGMCHA==}
+
   spessasynth_core@4.3.3:
     resolution: {integrity: sha512-WhdL1/rKP3QDJHq9/W7ayLqcvEMSciTalAYJUPp1QXRzGUBJnIOC0hvCf1QpPIMw4ie9BfOY3rZ5SuRY82iv2A==}
-
-  spessasynth_core@4.3.6:
-    resolution: {integrity: sha512-jZaHhFe2nMgYlrFo0dVRQg+ZxJ7uVl/bo5Woh8cbxauNXPXmaRc89HYM07EDfDkic0S5ikSFpjV+uROHaKMqCQ==}
 
   spessasynth_lib@4.3.3:
     resolution: {integrity: sha512-4fedp9m170b9U12rkZ2NPGqq0Vpkc9iWDxVOuhVuzyD3flBrPxGA9iTY0aOeYMM2pQ6S/EtH7elHnsfU8EsI9w==}
@@ -14203,13 +14521,13 @@ snapshots:
 
   spdx-license-ids@3.0.13: {}
 
-  spessasynth_core@4.3.3: {}
+  spessasynth_core@4.3.15: {}
 
-  spessasynth_core@4.3.6: {}
+  spessasynth_core@4.3.3: {}
 
   spessasynth_lib@4.3.3:
     dependencies:
-      spessasynth_core: 4.3.6
+      spessasynth_core: 4.3.15
 
   split2@4.2.0: {}
 
