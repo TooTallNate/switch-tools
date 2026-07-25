@@ -168,6 +168,7 @@ import {
 	wsysWaveAfcBlockSize,
 	findWaveGroupForAw,
 	parseAaf,
+	aafSequenceIndex,
 	WsysWaveFormat,
 	wsysWaveDecodableSamples,
 	type WsysGroup,
@@ -1175,7 +1176,7 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		// alias) and resolves itself lazily when expanded.
 		format: 'ARC',
 		extensions: ['arc'],
-		build: (a) => makeArcNode(a.id, a.name, a.blob, a.ctx),
+		build: (a) => makeArcNode(a.id, a.name, a.blob, a.ctx, a.siblings),
 	},
 	{
 		format: 'AFC',
@@ -3972,6 +3973,7 @@ function makeArcNode(
 	name: string,
 	blob: Blob,
 	ctx: ArchiveContext,
+	siblings?: SiblingMap,
 ): Node {
 	return {
 		id,
@@ -4013,10 +4015,65 @@ function makeArcNode(
 				const parsed = await parseSarc(blob);
 				return sarcEntriesToNodes(id, parsed.entries, ctx);
 			} catch {
-				return [];
+				// Not any kind of self-describing archive. On a JAudio disc
+				// that's expected for a sequence archive, which is a bare
+				// concatenation of BMS streams indexed from the `.aaf`.
+				return sequenceArchiveChildren(id, name, blob, siblings);
 			}
 		},
 	};
+}
+
+/**
+ * Split a JAudio sequence archive using the `BARC` index from a sibling `.aaf`.
+ *
+ * `sequence.arc` is named like an archive but is not one — no magic, no
+ * directory, just BMS streams butted together. Every other branch above has
+ * already failed by the time we get here, and the honest alternative is an
+ * empty container, which reads as "this file is empty" rather than "we can't
+ * see inside it".
+ *
+ * The index has to name *this* file: an AAF can carry only one `BARC`, so
+ * matching `archiveName` is what stops a disc with several sequence archives
+ * from having them all cut up by the wrong table.
+ */
+async function sequenceArchiveChildren(
+	id: string,
+	name: string,
+	blob: Blob,
+	siblings: SiblingMap | undefined,
+): Promise<Node[]> {
+	if (!siblings) return [];
+	for (const [key, indexBlob] of siblings) {
+		if (!key.endsWith('.aaf') && !key.endsWith('.baa')) continue;
+		try {
+			const bytes = new Uint8Array(await indexBlob.arrayBuffer());
+			const aaf = parseAaf(bytes);
+			if (!aaf) continue;
+			const barc = aafSequenceIndex(aaf, bytes);
+			if (!barc) continue;
+			if (barc.archiveName.toLowerCase() !== name.toLowerCase()) continue;
+			return barc.entries
+				.filter((e) => e.size > 0 && e.offset + e.size <= blob.size)
+				.map((e) => {
+					// The stored names have no extension; `.bms` is what the
+					// sequence format is universally called.
+					const childName = `${e.name || `seq${e.index}`}.bms`;
+					return {
+						id: `${id}/${childName}`,
+						name: childName,
+						kind: 'file' as const,
+						isContainer: false,
+						size: e.size,
+						format: 'BMS (JAudio sequence)',
+						blob: async () => blob.slice(e.offset, e.offset + e.size),
+					};
+				});
+		} catch {
+			// Try the next candidate index.
+		}
+	}
+	return [];
 }
 
 // ----- AFC (GameCube streamed audio) -----

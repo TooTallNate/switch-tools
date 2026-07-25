@@ -10,6 +10,11 @@ import {
 	aafWaveGroups,
 	findWaveGroupForAw,
 	parseAaf,
+	parseBarc,
+	aafSequenceIndex,
+	BARC_NAME_SIZE,
+	BARC_HEADER_SIZE,
+	BARC_ENTRY_SIZE,
 	parseWsys,
 	wsysWaveDecodableSamples,
 	wsysWaveDuration,
@@ -292,6 +297,104 @@ describe('parseAaf', () => {
 		// Should return quickly with either null or nonsense sections — the point
 		// is that it returns.
 		expect(() => parseAaf(junk)).not.toThrow();
+	});
+
+	it('reads fixed-width tags without swallowing the next tag', () => {
+		// Only tags 2 and 3 repeat. Reading a fixed tag as a repeating one
+		// consumes the *following* tag word as an offset, inventing a section
+		// at a nonsense address like 5 or 7. That forgery is quiet, because a
+		// small integer offset never carries a recognised magic, so the derived
+		// bank and wave lists still look correct.
+		const w = new Writer();
+		w.u32(4).u32(0x100).u32(0x20).u32(0); // sequence archive index
+		w.u32(5).u32(0x200).u32(0x30).u32(0); // stream list
+		w.u32(7).u32(0x300).u32(0x40).u32(0); // fx scene
+		w.u32(0); // end
+		while (w.length < 0x400) w.pad(1, 0);
+		const aaf = parseAaf(w.out())!;
+		expect(aaf).not.toBeNull();
+		expect(aaf.sections.map((s) => s.type)).toEqual([4, 5, 7]);
+		expect(aaf.sections.map((s) => s.offset)).toEqual([0x100, 0x200, 0x300]);
+		expect(aaf.sections.map((s) => s.size)).toEqual([0x20, 0x30, 0x40]);
+	});
+});
+
+describe('parseBarc', () => {
+	/** A BARC with the given (name, offset, size) entries. */
+	function buildBarc(
+		archiveName: string,
+		entries: readonly (readonly [string, number, number])[],
+	): Uint8Array {
+		const w = new Writer();
+		w.ascii('BARC').ascii('----').u32(0).u32(entries.length);
+		w.name(archiveName, 16);
+		for (const [name, offset, size] of entries) {
+			w.name(name, BARC_NAME_SIZE);
+			w.u16(0xffff).u32(0).u32(0x40cf6d).u32(offset).u32(size);
+		}
+		return w.out();
+	}
+
+	it('reads the header and every entry', () => {
+		const barc = parseBarc(
+			buildBarc('sequence.arc', [
+				['se.scom', 0, 0xe600],
+				['k_dolpic.com', 0xe600, 0x7220],
+			]),
+		)!;
+		expect(barc).not.toBeNull();
+		expect(barc.tag).toBe('----');
+		expect(barc.archiveName).toBe('sequence.arc');
+		expect(barc.entries).toHaveLength(2);
+		expect(barc.entries[1]).toMatchObject({
+			index: 1,
+			name: 'k_dolpic.com',
+			offset: 0xe600,
+			size: 0x7220,
+		});
+	});
+
+	it('sizes itself as header plus fixed-width entries', () => {
+		// 0x20 + n * 0x20 is what lets the AAF section size confirm the count.
+		const bytes = buildBarc('sequence.arc', [['a', 0, 4]]);
+		expect(bytes.length).toBe(BARC_HEADER_SIZE + BARC_ENTRY_SIZE);
+	});
+
+	it('keeps a name that fills the field without a terminator', () => {
+		// The builders truncated rather than extended, so a 14-character name
+		// has no NUL and must not be read into the next field.
+		const name = 'abcdefghijklmn';
+		const barc = parseBarc(buildBarc('sequence.arc', [[name, 0, 4]]))!;
+		expect(barc.entries[0].name).toBe(name);
+		expect(barc.entries[0].offset).toBe(0);
+	});
+
+	it('rejects a wrong magic', () => {
+		const bytes = buildBarc('sequence.arc', [['a', 0, 4]]);
+		bytes[0] = 0x42 ^ 0xff;
+		expect(parseBarc(bytes)).toBeNull();
+	});
+
+	it('rejects a count that runs past the buffer', () => {
+		// Trusting it would silently drop entries off the end.
+		const bytes = buildBarc('sequence.arc', [['a', 0, 4]]);
+		new DataView(bytes.buffer, bytes.byteOffset).setUint32(0x0c, 99, false);
+		expect(parseBarc(bytes)).toBeNull();
+	});
+
+	it('finds the index inside an AAF', () => {
+		const barcBytes = buildBarc('sequence.arc', [['se.scom', 0, 0xe600]]);
+		const w = new Writer();
+		w.u32(4).u32(0x40).u32(barcBytes.length).u32(0);
+		w.u32(0);
+		while (w.length < 0x40) w.pad(1, 0);
+		w.bytes.push(...barcBytes);
+		const bytes = w.out();
+		const aaf = parseAaf(bytes)!;
+		const found = aafSequenceIndex(aaf, bytes)!;
+		expect(found).not.toBeNull();
+		expect(found.archiveName).toBe('sequence.arc');
+		expect(found.entries).toHaveLength(1);
 	});
 });
 

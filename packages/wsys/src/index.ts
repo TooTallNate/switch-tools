@@ -122,6 +122,33 @@ const AFC_2BIT_BLOCK_SIZE = 5;
 export const WSYS_LOOPED = 0xffffffff;
 
 /**
+ * Section tags in the numeric AAF dialect.
+ *
+ * The archive is not a table of chunks but a little instruction stream: a tag,
+ * then however many words that tag implies, repeating until a zero tag ends it.
+ * Only {@link AAF_TAG_IBNK} and {@link AAF_TAG_WSYS} repeat; the rest are a
+ * single three-word record. The names come from what each reference
+ * implementation does with the payload.
+ */
+export const AAF_TAG_SOUND_TABLE = 1;
+export const AAF_TAG_IBNK = 2;
+export const AAF_TAG_WSYS = 3;
+/**
+ * The sequence-archive index — `BARC` on a Super Mario Sunshine disc.
+ *
+ * Wind Waker's loader reaches this tag and warns
+ * "Hed file is not needed. Remove this file('aaf')", discarding it, because by
+ * then the sequence archive had become a RARC that carries its own names.
+ * Sunshine predates that: its `sequence.arc` is a bare concatenation of BMS
+ * streams and this index is the only thing that can cut it apart.
+ */
+export const AAF_TAG_SEQ_ARCHIVE = 4;
+export const AAF_TAG_STREAM_LIST = 5;
+export const AAF_TAG_SOUND_SCENE = 6;
+export const AAF_TAG_FX_SCENE = 7;
+export const AAF_TAG_MAX = 8;
+
+/**
  * Values of a wave's `format` byte.
  *
  * Wind Waker uses only {@link AFC_4BIT}, which is why it is easy to assume the
@@ -455,6 +482,103 @@ export function baaWalkIsComplete(bytes: Uint8Array): boolean {
 	return false;
 }
 
+/** Magic of the sequence-archive index. */
+export const BARC_MAGIC = 'BARC';
+
+/** Header size, and the size of one entry — both 32 bytes. */
+export const BARC_HEADER_SIZE = 0x20;
+export const BARC_ENTRY_SIZE = 0x20;
+
+/** Width of an entry's name field. Names are truncated to fit, not extended. */
+export const BARC_NAME_SIZE = 14;
+
+export interface BarcEntry {
+	index: number;
+	/**
+	 * Sequence name, e.g. `k_dolpic.com`. The field is 14 bytes and the tools
+	 * that built these archives simply cut longer names off, so a name like
+	 * `t_pinnapaco_s` is genuinely what is stored — not a parsing error.
+	 */
+	name: string;
+	/** Byte offset into the sequence archive. */
+	offset: number;
+	size: number;
+}
+
+export interface Barc {
+	/** The 4 bytes after the magic; `----` on the discs seen so far. */
+	tag: string;
+	/** Which file this indexes, e.g. `sequence.arc`. */
+	archiveName: string;
+	entries: BarcEntry[];
+}
+
+/**
+ * Parse a `BARC` sequence-archive index.
+ *
+ * A sequence archive is a bare concatenation of BMS streams — no magic, no
+ * names, no table of contents — so this index is the only thing that can cut it
+ * apart. Wind Waker's loader discards this tag with the warning "Hed file is
+ * not needed", because by then sequence archives had become RARCs that carry
+ * their own directory. Sunshine still needs it: without this, its 48 music
+ * sequences are one opaque 800 KB blob.
+ *
+ * The layout is fixed-width throughout:
+ *
+ *     0x00 char magic[4]      'BARC'
+ *     0x04 char tag[4]        '----'
+ *     0x08 u32  unknown       0 on every disc seen
+ *     0x0C u32  entryCount
+ *     0x10 char archiveName[16]
+ *     0x20 entries[entryCount], each 0x20 bytes:
+ *          0x00 char name[14]
+ *          0x0E u16  unknown  0xFFFF throughout
+ *          0x10 u32  unknown  0 throughout
+ *          0x14 u32  unknown  constant within an archive
+ *          0x18 u32  offset   into the sequence archive
+ *          0x1C u32  size
+ *
+ * The three unknown fields are left unnamed rather than guessed at: they are
+ * invariant across all 48 of Sunshine's entries, so this data cannot say what
+ * they mean. What *is* certain is the offset/size pair, because those tile
+ * `sequence.arc` to exactly 800,704 of 800,704 bytes with no gap or overlap.
+ */
+export function parseBarc(bytes: Uint8Array, offset = 0): Barc | null {
+	if (offset < 0 || offset + BARC_HEADER_SIZE > bytes.length) return null;
+	if (magicAt(bytes, offset) !== BARC_MAGIC) return null;
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const count = view.getUint32(offset + 0x0c, false);
+	const end = offset + BARC_HEADER_SIZE + count * BARC_ENTRY_SIZE;
+	// A truncated index is worse than none: it would silently drop sequences.
+	if (count < 0 || end > bytes.length) return null;
+
+	const entries: BarcEntry[] = [];
+	for (let i = 0; i < count; i++) {
+		const at = offset + BARC_HEADER_SIZE + i * BARC_ENTRY_SIZE;
+		entries.push({
+			index: i,
+			name: fixedName(bytes, at, BARC_NAME_SIZE),
+			offset: view.getUint32(at + 0x18, false),
+			size: view.getUint32(at + 0x1c, false),
+		});
+	}
+	return {
+		tag: magicAt(bytes, offset + 4),
+		archiveName: fixedName(bytes, offset + 0x10, 16),
+		entries,
+	};
+}
+
+/** The `BARC` index inside an AAF, if it has one. */
+export function aafSequenceIndex(aaf: Aaf, bytes: Uint8Array): Barc | null {
+	for (const s of aaf.sections) {
+		if (s.magic !== BARC_MAGIC) continue;
+		const barc = parseBarc(bytes, s.offset);
+		if (barc) return barc;
+	}
+	return null;
+}
+
 export function parseAaf(bytes: Uint8Array): Aaf | null {
 	if (bytes.length < 12) return null;
 	// The tagged dialect announces itself; everything else is numeric.
@@ -470,10 +594,13 @@ export function parseAaf(bytes: Uint8Array): Aaf | null {
 		const type = u32(p);
 		p += 4;
 		if (type === 0) break;
-		// Tags 2..4 use the repeating (offset, size, id) shape; everything else
-		// is a single (offset, size) followed by a terminator.
-		const repeating = type >= 2 && type <= 4;
-		if (repeating) {
+		// Only the bank and wave-index tags repeat. Everything else is a single
+		// three-word record. Getting this wrong is quiet rather than loud: a
+		// fixed record read as a repeating one swallows the *next* tag as an
+		// offset, inventing a section whose "offset" is a small integer like 5
+		// or 7. Those forgeries never carry a recognised magic, so the derived
+		// `banks`/`wsys` lists still come out right and nothing appears broken.
+		if (type === AAF_TAG_IBNK || type === AAF_TAG_WSYS) {
 			for (let guard2 = 0; guard2 < 4096; guard2++) {
 				if (p + 4 > bytes.length) break;
 				const offset = u32(p);
@@ -487,14 +614,19 @@ export function parseAaf(bytes: Uint8Array): Aaf | null {
 				p += 12;
 				sections.push({ type, offset, size, id, magic: magicAt(bytes, offset) });
 			}
-		} else {
-			if (p + 8 > bytes.length) break;
+		} else if (type <= AAF_TAG_MAX) {
+			if (p + 12 > bytes.length) break;
 			const offset = u32(p);
 			const size = u32(p + 4);
-			p += 8;
+			// The third word is consumed but unused by every reference
+			// implementation of this loop.
+			p += 12;
 			sections.push({ type, offset, size, id: -1, magic: magicAt(bytes, offset) });
-			// A zero terminator follows a single record.
-			if (p + 4 <= bytes.length && u32(p) === 0) p += 4;
+		} else {
+			// Unknown tag: the reference skips words until a zero, so we do
+			// too rather than guessing at a width.
+			while (p + 4 <= bytes.length && u32(p) !== 0) p += 4;
+			p += 4;
 		}
 	}
 
