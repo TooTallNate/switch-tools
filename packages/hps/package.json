@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/hps",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Decoder for HAL's HPS streamed audio used by Super Smash Bros. Melee.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/hps"
+  },
+  "dependencies": {
+    "@tootallnate/dsp-adpcm": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
