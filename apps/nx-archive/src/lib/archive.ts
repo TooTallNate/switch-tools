@@ -164,6 +164,8 @@ import {
 import { decodeSsmSound, parseSsm } from '@tootallnate/ssm';
 import {
 	decodeWsysPcm8,
+	decodeWsysPcm16,
+	wsysWaveAfcBlockSize,
 	findWaveGroupForAw,
 	parseAaf,
 	WsysWaveFormat,
@@ -3599,6 +3601,18 @@ function makeSsmNode(id: string, name: string, blob: Blob): Node {
 // ----- AW (JAudio wave bank) -----
 
 /**
+ * How each wave format is shown in the tree. 4-bit AFC is the default and by
+ * far the most common, so it goes unlabelled — calling it out on ~90% of rows
+ * would be noise. The others are worth surfacing because they are the cases
+ * where a decode bug would otherwise be silent.
+ */
+const WSYS_FORMAT_LABEL: Record<number, string> = {
+	[WsysWaveFormat.AFC_2BIT]: 'AFC 2-bit',
+	[WsysWaveFormat.PCM8]: 'PCM8',
+	[WsysWaveFormat.PCM16]: 'PCM16',
+};
+
+/**
  * A JAudio `.aw` wave bank.
  *
  * An `.aw` is the one format here that genuinely cannot be understood on its
@@ -3606,7 +3620,10 @@ function makeSsmNode(id: string, name: string, blob: Blob): Node {
  * names. Everything needed to cut it into individual sounds — each wave's byte
  * range, sample rate, base key and loop points — lives in a `WSYS` inside a
  * sibling `.aaf`. On a Wind Waker disc that's `Audiores/JaiInit.aaf`, sitting
- * next to the `Audiores/Banks/` directory the `.aw` files are in.
+ * next to the `Audiores/Banks/` directory the `.aw` files are in. A Sunshine
+ * disc has no such file anywhere; {@link addEmbeddedJaudioIndex} lifts its
+ * index out of the boot archive beforehand, so by the time we get here it
+ * looks like any other sibling.
  *
  * So we look for that sibling. If one is in reach, the bank expands into one
  * `.wav` per wave, named by wave id and correctly resampled. If none is, the
@@ -3706,23 +3723,28 @@ function makeAwNode(
 					isContainer: false,
 					size: 44 + samples * 2,
 					format: `WAV (${rate} Hz${
-						wave.format === WsysWaveFormat.PCM8 ? ' · PCM8' : ''
+						WSYS_FORMAT_LABEL[wave.format]
+							? ` · ${WSYS_FORMAT_LABEL[wave.format]}`
+							: ''
 					}${wave.looped ? ' · loop' : ''})`,
 					meta: { awBaseKey: wave.baseKey },
 					blob: async () => {
-						// The format byte matters: a bank can mix AFC and raw
-						// PCM8, and decoding the latter as AFC produces heavily
-						// clipped noise rather than an obvious failure.
+						// The format byte matters: a bank mixes all of these,
+						// and decoding one as another produces heavily clipped
+						// noise rather than an obvious failure. The two AFC
+						// variants differ only in block size, which is the
+						// value `AfcVariant` is keyed by.
 						const pcm =
-							wave.format === WsysWaveFormat.PCM8
-								? decodeWsysPcm8(bytes, wave, 0)
-								: decodeAfc(
-										bytes,
-										wave.start,
-										wave.size,
-										AfcVariant.HQ_4BIT,
-										samples,
-									);
+							decodeWsysPcm8(bytes, wave, 0) ??
+							decodeWsysPcm16(bytes, wave, 0) ??
+							decodeAfc(
+								bytes,
+								wave.start,
+								wave.size,
+								wsysWaveAfcBlockSize(wave.format) ||
+									AfcVariant.HQ_4BIT,
+								samples,
+							);
 						if (!pcm) return new Blob([]);
 						return encodeWavBlob(pcm, rate, 1);
 					},
@@ -6402,6 +6424,95 @@ function makeNesRomNode(
 // ----- GameCube discs (RVZ / WIA / raw GCM) -----
 
 /**
+ * Largest archive worth decompressing while hunting for an embedded JAudio
+ * index, and how many to try. A boot archive is small by nature — it has to be
+ * resident before the disc streams anything else — so the one we want sorts
+ * near the front. The caps exist so that a disc which simply has no index
+ * can't turn a directory listing into a decompression of every scene archive.
+ */
+const EMBEDDED_INDEX_MAX_ARCHIVE_SIZE = 4 * 1024 * 1024;
+const EMBEDDED_INDEX_MAX_ARCHIVES = 24;
+
+/**
+ * Find a JAudio index that lives *inside* an archive and add it to the
+ * disc-wide sibling map.
+ *
+ * Normally the index is a plain file on the disc — Wind Waker's
+ * `Audiores/JaiInit.aaf` — and the sibling map finds it by name. Super Mario
+ * Sunshine doesn't work that way. `MSound.cpp` names `/AudioRes/mSound.aaf`,
+ * but no such file exists on the disc: it's a resource inside the boot archive,
+ * loaded through a mounted RARC rather than off the filesystem, which
+ * `Application.cpp` does like this:
+ *
+ *     this_01->mountFixed(arcBufNLogo, MBF_0);
+ *     this_01->becomeCurrent("/audi");
+ *     this_01->readResource(buf, uVar3, "mSound.aaf");
+ *     gpMSound = new MSound(prevHeap, nullptr, 0xF40000, buf, nullptr, ...);
+ *
+ * On the retail disc that archive is `data/nintendo.szs` (Yaz0 → RARC →
+ * `audi/mSound.aaf`). Without it the 24 `.aw` banks are unreadable: an `.aw` is
+ * headerless waveform data whose every byte range, sample rate and loop point
+ * lives in the index.
+ *
+ * Rather than hard-code that path, we search small archives for any `.aaf` or
+ * `.baa` and accept one only when it actually indexes a bank *this disc has* —
+ * `findWaveGroupForAw` matching a real `.aw` name is a structural identity, not
+ * a guess, so a stray index from some other game can't be adopted by mistake.
+ *
+ * This runs only when the disc has `.aw` banks and no plain-file index, so it
+ * costs nothing on the discs that were already working.
+ */
+async function addEmbeddedJaudioIndex(siblings: SiblingMap): Promise<void> {
+	const names = [...siblings.keys()];
+	const isIndex = (n: string) => n.endsWith('.aaf') || n.endsWith('.baa');
+	const awNames = names.filter((n) => n.endsWith('.aw'));
+	if (awNames.length === 0 || names.some(isIndex)) return;
+
+	const candidates = names
+		.filter(
+			(n) =>
+				n.endsWith('.szs') || n.endsWith('.arc') || n.endsWith('.rarc'),
+		)
+		.map((n) => ({ name: n, blob: siblings.get(n)! }))
+		.filter(
+			(c) => c.blob.size > 0 && c.blob.size <= EMBEDDED_INDEX_MAX_ARCHIVE_SIZE,
+		)
+		.sort((a, b) => a.blob.size - b.blob.size)
+		.slice(0, EMBEDDED_INDEX_MAX_ARCHIVES);
+
+	for (const candidate of candidates) {
+		try {
+			const head = new TextDecoder().decode(
+				new Uint8Array(await candidate.blob.slice(0, 4).arrayBuffer()),
+			);
+			const bytes =
+				head === 'Yaz0'
+					? await decompressYaz0ToBytes(candidate.blob)
+					: new Uint8Array(await candidate.blob.arrayBuffer());
+			const archive = parseRarc(bytes);
+			if (!archive) continue;
+			for (const entry of archive.walk()) {
+				if (!isIndex(entry.name.toLowerCase())) continue;
+				const data = archive.read(entry);
+				if (!data) continue;
+				const aaf = parseAaf(data);
+				if (!aaf) continue;
+				// The identity check: this index must describe a bank that
+				// actually exists here, otherwise it isn't ours.
+				if (!awNames.some((aw) => findWaveGroupForAw(aaf, aw))) continue;
+				siblings.set(
+					entry.name.toLowerCase(),
+					new Blob([data as BlobPart]),
+				);
+				return;
+			}
+		} catch {
+			// Not a readable archive, or not one holding an index. Next.
+		}
+	}
+}
+
+/**
  * Build the browsable tree for a GameCube disc.
  *
  * `read` pulls arbitrary byte ranges out of the image, so the same
@@ -6442,6 +6553,9 @@ async function gamecubeChildren(
 		);
 	};
 	for (const entry of disc.entries) indexEntry(entry);
+	// Sunshine keeps its JAudio index inside the boot archive rather than on
+	// the filesystem, so the name-based lookup above can't see it.
+	await addEmbeddedJaudioIndex(discSiblings);
 
 	const toNode = async (entry: GcmEntry, idPrefix: string): Promise<Node> => {
 		const childId = `${idPrefix}/${entry.name}`;

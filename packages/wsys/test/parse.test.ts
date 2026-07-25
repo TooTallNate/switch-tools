@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	WsysWaveFormat,
+	wsysWaveAfcBlockSize,
+	decodeWsysPcm16,
 	baaWalkIsComplete,
 	decodeWsysPcm8,
 	WSYS_AW_NAME_SIZE,
@@ -368,7 +370,7 @@ describe('wave formats', () => {
 	it('sizes AFC by block and PCM8 by byte', () => {
 		// The format byte is not decorative: a bank can mix the two, and reading
 		// PCM8 as AFC produced 39% clipped samples on retail data.
-		expect(wsysWaveDecodableSamples(wave(WsysWaveFormat.AFC, 36, 64))).toBe(64);
+		expect(wsysWaveDecodableSamples(wave(WsysWaveFormat.AFC_4BIT, 36, 64))).toBe(64);
 		expect(wsysWaveDecodableSamples(wave(WsysWaveFormat.PCM8, 100, 100))).toBe(100);
 		// PCM8 is one byte per sample, so the AFC block maths must not apply.
 		expect(wsysWaveDecodableSamples(wave(WsysWaveFormat.PCM8, 100, 999))).toBe(100);
@@ -383,11 +385,47 @@ describe('wave formats', () => {
 	});
 
 	it('refuses to PCM8-decode a wave of another format', () => {
-		expect(decodeWsysPcm8(new Uint8Array(64), wave(WsysWaveFormat.AFC, 36, 64), 0)).toBeNull();
+		expect(decodeWsysPcm8(new Uint8Array(64), wave(WsysWaveFormat.AFC_4BIT, 36, 64), 0)).toBeNull();
 	});
 
 	it('rejects a PCM8 wave whose range escapes the buffer', () => {
 		expect(decodeWsysPcm8(new Uint8Array(4), wave(WsysWaveFormat.PCM8, 100, 100), 0)).toBeNull();
+	});
+
+	it('maps each format to its AFC block size', () => {
+		// These two sizes are what distinguishes the AFC variants; everything
+		// else is a linear PCM format with no blocks at all.
+		expect(wsysWaveAfcBlockSize(WsysWaveFormat.AFC_4BIT)).toBe(9);
+		expect(wsysWaveAfcBlockSize(WsysWaveFormat.AFC_2BIT)).toBe(5);
+		expect(wsysWaveAfcBlockSize(WsysWaveFormat.PCM8)).toBe(0);
+		expect(wsysWaveAfcBlockSize(WsysWaveFormat.PCM16)).toBe(0);
+	});
+
+	it('sizes 2-bit AFC by its 5-byte block and PCM16 by two bytes', () => {
+		// 2-bit AFC fits the same 16 samples into 5 bytes instead of 9. Sizing
+		// it with the 4-bit block would under-report by nearly half.
+		expect(wsysWaveDecodableSamples(wave(WsysWaveFormat.AFC_2BIT, 20, 64))).toBe(64);
+		expect(wsysWaveDecodableSamples(wave(WsysWaveFormat.AFC_2BIT, 20, 999))).toBe(64);
+		expect(wsysWaveDecodableSamples(wave(WsysWaveFormat.PCM16, 200, 100))).toBe(100);
+		// A partial trailing block is not decodable, so it rounds down.
+		expect(wsysWaveDecodableSamples(wave(WsysWaveFormat.AFC_2BIT, 24, 999))).toBe(64);
+	});
+
+	it('decodes big-endian PCM16 including both extremes', () => {
+		const bytes = new Uint8Array([0x00, 0x00, 0x7f, 0xff, 0x80, 0x00, 0xff, 0xff]);
+		const out = decodeWsysPcm16(bytes, wave(WsysWaveFormat.PCM16, 8, 4), 0)!;
+		expect(out).not.toBeNull();
+		// Big-endian, and 0x8000 must sign-extend to -32768 rather than 32768.
+		expect([...out]).toEqual([0, 32767, -32768, -1]);
+	});
+
+	it('refuses to PCM16-decode a wave of another format', () => {
+		expect(decodeWsysPcm16(new Uint8Array(64), wave(WsysWaveFormat.AFC_4BIT, 36, 64), 0)).toBeNull();
+	});
+
+	it('rejects a PCM16 wave whose range escapes the buffer', () => {
+		// Two bytes per sample, so 100 samples need 200 bytes, not 100.
+		expect(decodeWsysPcm16(new Uint8Array(100), wave(WsysWaveFormat.PCM16, 200, 100), 0)).toBeNull();
 	});
 });
 

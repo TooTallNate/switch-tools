@@ -111,9 +111,12 @@ export const WSYS_AW_NAME_SIZE = 112;
 /** Size of one wave-info record. */
 export const WSYS_WAVE_INFO_SIZE = 0x20;
 
-/** AFC packs 16 samples into 9 bytes. */
+/** Every AFC block, of either variant, decodes to 16 samples. */
 const AFC_SAMPLES_PER_BLOCK = 16;
-const AFC_BLOCK_SIZE = 9;
+/** 4-bit AFC: a 1-byte block header plus 16 nibbles. */
+const AFC_4BIT_BLOCK_SIZE = 9;
+/** 2-bit AFC: a 1-byte block header plus 16 two-bit samples. */
+const AFC_2BIT_BLOCK_SIZE = 5;
 
 /** `loopFlag` value meaning "this wave loops". */
 export const WSYS_LOOPED = 0xffffffff;
@@ -121,21 +124,50 @@ export const WSYS_LOOPED = 0xffffffff;
 /**
  * Values of a wave's `format` byte.
  *
- * Wind Waker uses only {@link AFC}, which is why it is easy to assume the field
- * is vestigial. Mario Kart: Double Dash!! mixes in {@link PCM8}, and decoding
- * those 15 waves as AFC yields 39% clipped samples against 0.004% for the rest —
- * so the field must be honoured rather than ignored.
+ * Wind Waker uses only {@link AFC_4BIT}, which is why it is easy to assume the
+ * field is vestigial. Mario Kart: Double Dash!! mixes in {@link PCM8}, and
+ * decoding those 15 waves as AFC yields 39% clipped samples against 0.004% for
+ * the rest — so the field must be honoured rather than ignored.
+ *
+ * Super Mario Sunshine uses three of the four, and its 1680 waves let the
+ * meaning of each value be measured rather than assumed. Dividing every wave's
+ * byte length by its declared sample count gives, per format value:
+ *
+ *     format 0  (1500 waves)  0.5625 bytes/sample = 9/16
+ *     format 1  ( 152 waves)  0.3125 bytes/sample = 5/16
+ *     format 3  (  28 waves)  2.0000 bytes/sample exactly
+ *
+ * 9/16 and 5/16 are precisely the two AFC block layouts, and an exact 2.0
+ * settles PCM16 with no room for interpretation. That also fixes 2 as PCM8 by
+ * elimination, matching what Double Dash independently showed.
  */
 export const WsysWaveFormat = {
 	/** 4-bit AFC ADPCM: 16 samples per 9 bytes. */
-	AFC: 0,
+	AFC_4BIT: 0,
+	/** 2-bit AFC ADPCM: 16 samples per 5 bytes. */
+	AFC_2BIT: 1,
 	/** Signed 8-bit PCM: one byte per sample. */
 	PCM8: 2,
+	/** Signed 16-bit big-endian PCM: two bytes per sample. */
+	PCM16: 3,
 } as const;
+
+/**
+ * Block size in bytes for the AFC variants, or 0 when the format is not a
+ * block codec. This doubles as the value `@tootallnate/afc` uses to identify a
+ * variant, since AFC is distinguished by nothing but its block size.
+ */
+export function wsysWaveAfcBlockSize(format: number): 0 | 5 | 9 {
+	if (format === WsysWaveFormat.AFC_4BIT) return AFC_4BIT_BLOCK_SIZE;
+	if (format === WsysWaveFormat.AFC_2BIT) return AFC_2BIT_BLOCK_SIZE;
+	return 0;
+}
 
 /** Bytes one sample of a given format occupies, or 0 for block codecs. */
 function bytesPerSample(format: number): number {
-	return format === WsysWaveFormat.PCM8 ? 1 : 0;
+	if (format === WsysWaveFormat.PCM8) return 1;
+	if (format === WsysWaveFormat.PCM16) return 2;
+	return 0;
 }
 
 export interface WsysWave {
@@ -488,10 +520,14 @@ export function parseAaf(bytes: Uint8Array): Aaf | null {
  */
 export function wsysWaveDecodableSamples(wave: WsysWave): number {
 	const perSample = bytesPerSample(wave.format);
+	// An unrecognised format byte is treated as 4-bit AFC, which is what the
+	// overwhelming majority of waves are; that keeps a bad byte from zeroing
+	// out a wave that would otherwise decode.
+	const blockSize = wsysWaveAfcBlockSize(wave.format) || AFC_4BIT_BLOCK_SIZE;
 	const fromBytes =
 		perSample > 0
 			? Math.floor(wave.size / perSample)
-			: Math.floor(wave.size / AFC_BLOCK_SIZE) * AFC_SAMPLES_PER_BLOCK;
+			: Math.floor(wave.size / blockSize) * AFC_SAMPLES_PER_BLOCK;
 	if (wave.sampleCount <= 0) return Math.max(0, fromBytes);
 	return Math.max(0, Math.min(wave.sampleCount, fromBytes));
 }
@@ -518,6 +554,32 @@ export function decodeWsysPcm8(
 		// to a large positive value — turning the loudest negative samples into
 		// loud positive ones.
 		out[i] = ((bytes[start + i] << 24) >> 24) << 8;
+	}
+	return out;
+}
+
+/**
+ * Decode a signed 16-bit PCM wave.
+ *
+ * Big-endian, because the GameCube is. These are the handful of sounds a game
+ * refuses to let the ADPCM encoder near — on Sunshine all 28 of them.
+ *
+ * Returns `null` unless the wave really is {@link WsysWaveFormat.PCM16}, so a
+ * caller can branch on the result rather than having to pre-check the format.
+ */
+export function decodeWsysPcm16(
+	bytes: Uint8Array,
+	wave: WsysWave,
+	base: number,
+): Int16Array | null {
+	if (wave.format !== WsysWaveFormat.PCM16) return null;
+	const count = wsysWaveDecodableSamples(wave);
+	const start = base + wave.start;
+	if (count <= 0 || start + count * 2 > bytes.length) return null;
+	const out = new Int16Array(count);
+	for (let i = 0; i < count; i++) {
+		const at = start + i * 2;
+		out[i] = ((bytes[at] << 8) | bytes[at + 1]) << 16 >> 16;
 	}
 	return out;
 }
