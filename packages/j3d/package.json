@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/j3d",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Parser for Nintendo J3D BMD and BDL 3D models used on GameCube and Wii.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/j3d"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@tootallnate/bti": "workspace:*"
+  }
+}

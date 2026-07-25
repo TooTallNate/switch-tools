@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/rvz",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Reader for Dolphin RVZ and WIA compressed GameCube/Wii disc images.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/rvz"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
