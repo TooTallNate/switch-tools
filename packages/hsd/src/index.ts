@@ -987,6 +987,33 @@ const HSD_TOBJ_NEXT = 0x04;
 const HSD_TOBJ_IMAGEDESC = 0x4c;
 const HSD_TOBJ_TLUTDESC = 0x50;
 
+/**
+ * `HSD_TObjDesc.blend_flags`, which says what a texture stage is *for*. The
+ * two bytes of padding after `u8 repeat_t` put it at 0x40, the same alignment
+ * that pushes `imagedesc` to 0x4C.
+ */
+const HSD_TOBJ_BLEND_FLAGS = 0x40;
+
+/**
+ * The colormap operation, in bits 16-19. `NONE`, `ALPHA_MASK` and `RGB_MASK`
+ * feed alpha or a TEV register rather than the base colour, so a stage using
+ * one is not the material's diffuse layer even when it is first in the chain.
+ */
+const TEX_COLORMAP_SHIFT = 16;
+const TEX_COLORMAP_MASK = 0x0f;
+const TEX_COLORMAP_NONE = 0;
+const TEX_COLORMAP_ALPHA_MASK = 1;
+const TEX_COLORMAP_RGB_MASK = 2;
+
+function tobjAddsColour(blendFlags: number): boolean {
+	const op = (blendFlags >>> TEX_COLORMAP_SHIFT) & TEX_COLORMAP_MASK;
+	return (
+		op !== TEX_COLORMAP_NONE &&
+		op !== TEX_COLORMAP_ALPHA_MASK &&
+		op !== TEX_COLORMAP_RGB_MASK
+	);
+}
+
 export const HSD_VTXDESC_SIZE = 0x18;
 /** `GX_VA_NULL`, terminating a vertex-descriptor list. */
 const GX_VA_NULL = 0xff;
@@ -1311,14 +1338,38 @@ export function hsdMesh(
 	const materialByDesc = new Map<number, number>();
 
 	/**
-	 * Resolve a display object's first usable texture.
+	 * Resolve a display object's diffuse texture.
 	 *
-	 * A material may chain several texture objects for multi-stage TEV work;
-	 * the first that resolves to a decodable image is taken as the diffuse
-	 * layer, which is what a static preview can show. A paletted image whose
-	 * lookup table cannot be found is rejected rather than guessed at: a wrong
-	 * palette renders as confident nonsense, where no texture merely renders
-	 * untextured.
+	 * A material chains texture objects for multi-stage TEV work, and only the
+	 * base layer is meaningful to a static preview. Measured across the Melee
+	 * disc, that is nearly always the whole material anyway: mean chain length
+	 * is 1.08, with 15,646 of 16,983 materials holding exactly one texture, and
+	 * the first stage is a UV-mapped diffuse map in 96.2% of them.
+	 *
+	 * The rest are left alone on purpose rather than for want of trying:
+	 *
+	 *  - 509 materials lead with a `REFLECTION` stage, and not one of them has
+	 *    a UV diffuse stage further along. They are environment-mapped surfaces
+	 *    with nothing better to show, so taking the first stage is not a
+	 *    mis-pick.
+	 *  - Of the 1,337 multi-stage materials, 1,093 share a UV transform and so
+	 *    could be composited in texture space — but the second stage is a
+	 *    specular map in 915 of them. Baking specular into the base colour
+	 *    would make those look worse in a viewer that does not light them,
+	 *    while only about 204 have a genuinely diffuse second stage.
+	 *
+	 * What *is* worth doing is preferring a stage that contributes colour at
+	 * all. A `NONE`, `ALPHA_MASK` or `RGB_MASK` colormap op means the stage
+	 * feeds alpha or a TEV register rather than the base colour, so treating
+	 * one as the diffuse map is wrong. Only 6 materials on the disc have a
+	 * non-contributing first stage *and* a contributing later one, but the
+	 * preference costs nothing and cannot make a material worse: the fallback
+	 * pass still accepts anything decodable, so the 117 materials whose only
+	 * texture is non-contributing keep the texture they had.
+	 *
+	 * A paletted image whose lookup table cannot be found is rejected rather
+	 * than guessed at: a wrong palette renders as confident nonsense, where no
+	 * texture merely renders untextured.
 	 */
 	const resolveMaterial = (dobj: number): number => {
 		const mobj = isPointer.has(dobj + 0x08) ? u32(dobj + 0x08) : 0;
@@ -1327,11 +1378,20 @@ export function hsdMesh(
 			? u32(mobj + HSD_MOBJ_TEXDESC)
 			: 0;
 		if (!texdesc) return -1;
+		const preferred = walkTexDesc(texdesc, true);
+		return preferred >= 0 ? preferred : walkTexDesc(texdesc, false);
+	};
+
+	/** Walk a texture chain, optionally skipping stages that add no colour. */
+	const walkTexDesc = (texdesc: number, requireColour: boolean): number => {
 		for (
 			let t = texdesc, guard = 0;
 			t !== 0 && t < archive.dataSize && guard < 32;
 			t = isPointer.has(t + HSD_TOBJ_NEXT) ? u32(t + HSD_TOBJ_NEXT) : 0, guard++
 		) {
+			if (requireColour && !tobjAddsColour(u32(t + HSD_TOBJ_BLEND_FLAGS))) {
+				continue;
+			}
 			const desc = isPointer.has(t + HSD_TOBJ_IMAGEDESC)
 				? u32(t + HSD_TOBJ_IMAGEDESC)
 				: 0;

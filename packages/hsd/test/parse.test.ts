@@ -352,8 +352,10 @@ describe('hsdMesh', () => {
 		verts = 3,
 		material: 'none' | 'rgb565' | 'paletted' = 'none',
 		extraRelocations: number[] = [],
+		/** Colormap ops for a two-stage chain, in bits 16-19 of blend_flags. */
+		stages?: readonly [number, number],
 	): Uint8Array {
-		const DATA = 0x200;
+		const DATA = stages ? 0x300 : 0x200;
 		// Material chain: MObjDesc at 0x100, TObjDesc at 0x120, ImageDesc at
 		// 0x180, pixels at 0x1A0.
 		const MOBJ = 0x100;
@@ -368,12 +370,23 @@ describe('hsdMesh', () => {
 			0x70 + 0x14, // vtxdesc[0].vertex
 		];
 		relocations.push(...extraRelocations);
+		// A second stage sits after the first texture's pixels.
+		const TOBJ1 = 0x1c0;
+		const IMAGE1 = 0x230;
+		const PIXELS1 = 0x250;
 		if (material !== 'none') {
 			relocations.push(
 				0x40 + 0x08, // dobj.mobjdesc
 				MOBJ + 0x08, // mobj.texdesc
 				TOBJ + 0x4c, // tobj.imagedesc
 				IMAGE + 0x00, // imagedesc.image_ptr
+			);
+		}
+		if (stages) {
+			relocations.push(
+				TOBJ + 0x04, // tobj.next
+				TOBJ1 + 0x4c, // tobj1.imagedesc
+				IMAGE1 + 0x00, // imagedesc1.image_ptr
 			);
 		}
 		const base = buildArchive({
@@ -424,6 +437,19 @@ describe('hsdMesh', () => {
 			// RGB565 (4) needs no palette; C8 (9) does, and none is provided.
 			v.setUint32(at(IMAGE + 0x08), material === 'rgb565' ? 4 : 9, false);
 			for (let i = 0; i < 32; i++) base[at(PIXELS + i)] = 0x20 + i;
+		}
+
+		if (stages) {
+			v.setUint32(at(TOBJ + 0x40), stages[0] << 16, false);
+			v.setUint32(at(TOBJ + 0x04), TOBJ1, false);
+			v.setUint32(at(TOBJ1 + 0x40), stages[1] << 16, false);
+			v.setUint32(at(TOBJ1 + 0x4c), IMAGE1, false);
+			v.setUint32(at(IMAGE1 + 0x00), PIXELS1, false);
+			v.setUint16(at(IMAGE1 + 0x04), 4, false);
+			v.setUint16(at(IMAGE1 + 0x06), 4, false);
+			v.setUint32(at(IMAGE1 + 0x08), 4, false); // RGB565
+			// A distinct fill so the chosen stage is identifiable.
+			for (let i = 0; i < 32; i++) base[at(PIXELS1 + i)] = 0x80 + i;
 		}
 
 		// Display list: one primitive over `verts` indices.
@@ -619,6 +645,40 @@ describe('hsdMesh', () => {
 		const a = parseHsdArchive(bytes)!;
 		expect(hsdMesh(bytes, a, hsdJoints(bytes, a, 0))).toBeNull();
 	});
+
+	describe('texture stage selection', () => {
+		const NONE = 0
+		const MODULATE = 4
+		const REPLACE = 5
+		/** Offset of the pixels each stage points at, for identification. */
+		const FIRST_PIXELS = 0x1a0
+		const SECOND_PIXELS = 0x250
+
+		const chosen = (stages: readonly [number, number]) => {
+			const bytes = buildGeometry(0x90, 3, 'rgb565', [], stages)
+			const a = parseHsdArchive(bytes)!
+			const m = hsdMesh(bytes, a, hsdJoints(bytes, a, 0))!
+			return m.materials[0].dataOffset - HSD_HEADER_SIZE
+		}
+
+		it('takes the first stage when it contributes colour', () => {
+			expect(chosen([REPLACE, MODULATE])).toBe(FIRST_PIXELS)
+		})
+
+		it('skips a leading stage that contributes no colour', () => {
+			// A NONE colormap feeds alpha or a TEV register, not the base
+			// colour, so it is not the diffuse layer even when it comes first.
+			expect(chosen([NONE, MODULATE])).toBe(SECOND_PIXELS)
+		})
+
+		it('falls back to a non-contributing stage when nothing else decodes', () => {
+			// Most materials whose only texture is non-contributing still have
+            // to show something; the preference must not cost them their
+            // texture.
+			expect(chosen([NONE, NONE])).toBe(FIRST_PIXELS)
+		})
+	})
+
 });
 
 describe('hsdImages palette recovery', () => {
