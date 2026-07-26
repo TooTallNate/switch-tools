@@ -164,6 +164,9 @@ import {
 import { decodeSsmSound, parseSsm } from '@tootallnate/ssm';
 import {
 	decodeWsysPcm8,
+	parseBsft,
+	parseBstn,
+	type BstnType,
 	decodeWsysPcm16,
 	wsysWaveAfcBlockSize,
 	findWaveGroupForAw,
@@ -192,6 +195,10 @@ export type NodeKind =
 	/** A JPEG wearing another extension, e.g. Melee's `.thp` stills. */
 	| 'jpeg-still'
 	| 'mth'
+	/** JAudio stream-filename table; children are the streams it names. */
+	| 'bsft'
+	/** JAudio sound-name table; children are its name categories. */
+	| 'bstn'
 	| 'directory'
 	| 'archive-root'
 	| 'nca-section'
@@ -615,6 +622,8 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	dat: 'HSD',
 	aw: 'AW', // GameCube wave-data blob, indexed by a WSYS in the .aaf
 	aaf: 'AAF', // JAudio archive: sound table + IBNK banks + WSYS wave indices
+	bsft: 'BSFT', // JAudio stream-filename table
+	bstn: 'BSTN', // JAudio sound-name table
 	bms: 'BMS', // JAudio sequence bytecode
 	szs: 'SZS', // Yaz0-compressed SARC, ubiquitous across 1st-party games
 	yaz0: 'YAZ0',
@@ -738,6 +747,8 @@ type SniffedFormat =
 	| 'thp'
 	| 'mth'
 	| 'hps'
+	| 'bsft'
+	| 'bstn'
 	| 'ast'
 	| 'hfs0'
 	| 'romfs'
@@ -816,6 +827,8 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (m4 === 'STRM') return 'ast'; // Nintendo streamed audio
 	if (m4 === 'THP\0') return 'thp'; // GameCube/Wii video
 	if (m4 === 'MTHP') return 'mth'; // Melee video
+	if (m4 === 'bsft') return 'bsft'; // JAudio stream-filename table
+	if (m4 === 'BSTN') return 'bstn'; // JAudio sound-name table
 	// HPS's magic is eight bytes and starts with a space, so it can't be
 	// matched against the 4-byte prefix the checks above use.
 	if (
@@ -1228,6 +1241,18 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		format: 'AW',
 		extensions: ['aw'],
 		build: (a) => makeAwNode(a.id, a.name, a.blob, a.siblings),
+	},
+	{
+		format: 'BSFT',
+		extensions: ['bsft'],
+		sniff: ['bsft'],
+		build: (a) => makeBsftNode(a.id, a.name, a.blob, a.ctx, a.siblings),
+	},
+	{
+		format: 'BSTN',
+		extensions: ['bstn'],
+		sniff: ['bstn'],
+		build: (a) => makeBstnNode(a.id, a.name, a.blob),
 	},
 	{
 		format: 'RVZ',
@@ -3600,6 +3625,148 @@ function makeSsmNode(id: string, name: string, blob: Blob): Node {
 }
 
 // ----- AW (JAudio wave bank) -----
+
+// ----- BSFT / BSTN (JAudio sound tables) -----
+
+/**
+ * A JAudio `bsft`: the table of streams a game's music ids resolve to.
+ *
+ * Presented as the 50 music slots rather than as one blob, because that is what
+ * the table *is* — an ordered mapping, with several slots deliberately sharing
+ * a track. Each child plays: the paths are disc-relative, so the real `.ast`
+ * can be handed straight over and the existing AST support takes it from there.
+ *
+ * Slots are labelled from the sibling `.bstn` when one is around, which turns
+ * `COURSE_BEACH_0` into `JA_STRM_PEACH` and `JA_STRM_DAISY` — two slots, one
+ * track, which is exactly right for a course two characters share. The index
+ * prefix stays regardless so duplicate tracks remain distinguishable.
+ */
+function makeBsftNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+	siblings: SiblingMap | undefined,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'bsft',
+		isContainer: true,
+		size: blob.size,
+		format: 'BSFT',
+		blob: async () => blob,
+		getChildren: async () => {
+			const paths = parseBsft(new Uint8Array(await blob.arrayBuffer()));
+			if (!paths) return [];
+			const labels = await bstnStreamNames(siblings);
+			const out: Node[] = [];
+			for (let i = 0; i < paths.length; i++) {
+				const base = paths[i].split('/').pop() ?? paths[i];
+				const target = siblings?.get(base.toLowerCase());
+				const slot = String(i).padStart(2, '0');
+				const label = labels[i] ? `${slot} ${labels[i]}` : slot;
+				const childName = `${label} ${base}`;
+				if (!target) {
+					// A shared table can name a stream this region doesn't ship;
+					// saying so is more use than dropping the slot silently.
+					out.push({
+						id: `${id}/${childName}`,
+						name: childName,
+						kind: 'file',
+						isContainer: false,
+						size: 0,
+						format: 'BSFT slot (stream not on this disc)',
+						blob: async () => new Blob([]),
+					});
+					continue;
+				}
+				out.push(
+					await childNodeFor(`${id}/${childName}`, childName, target, ctx),
+				);
+			}
+			return out;
+		},
+	};
+}
+
+/** Stream slot names from a sibling `.bstn`, or an empty list if there isn't one. */
+async function bstnStreamNames(
+	siblings: SiblingMap | undefined,
+): Promise<string[]> {
+	if (!siblings) return [];
+	for (const [key, candidate] of siblings) {
+		if (!key.endsWith('.bstn')) continue;
+		try {
+			const types = parseBstn(new Uint8Array(await candidate.arrayBuffer()));
+			const stream = types?.find((t) => t.name === 'TYPE_STREAM');
+			if (stream) return stream.categories.flatMap((c) => c.sounds);
+		} catch {
+			// Fall through to unlabelled slots.
+		}
+	}
+	return [];
+}
+
+/**
+ * A JAudio `BSTN`: every sound name the game knows, in its own categories.
+ *
+ * Nothing else on the disc carries these. Waveforms are indexed numerically all
+ * the way down, so without this table `SE_VOICE` is 821 anonymous sounds. They
+ * can't be attached to the waves themselves — a sound id reaches audio through
+ * an instrument bank rather than naming a wave — so the table is presented as
+ * what it is, a catalogue, one text listing per category.
+ */
+function makeBstnNode(id: string, name: string, blob: Blob): Node {
+	let cached: Promise<BstnType[] | null> | null = null;
+	const parseOnce = () => {
+		if (!cached) {
+			cached = (async () =>
+				parseBstn(new Uint8Array(await blob.arrayBuffer())))();
+		}
+		return cached;
+	};
+	return {
+		id,
+		name,
+		kind: 'bstn',
+		isContainer: true,
+		size: blob.size,
+		format: 'BSTN',
+		blob: async () => blob,
+		getChildren: async () => {
+			const types = await parseOnce();
+			if (!types) return [];
+			return types.map((type) => {
+				const typeId = `${id}/${type.name}`;
+				const total = type.categories.reduce(
+					(a, c) => a + c.sounds.length,
+					0,
+				);
+				return childDirectoryNodeFor({
+					id: typeId,
+					name: type.name,
+					size: total,
+					getChildren: async () =>
+						type.categories.map((cat) => {
+							const childName = `${cat.name}.txt`;
+							const text = `${cat.sounds.join('\n')}\n`;
+							return {
+								id: `${typeId}/${childName}`,
+								name: childName,
+								kind: 'file' as const,
+								isContainer: false,
+								size: text.length,
+								format: `${cat.sounds.length} sound names`,
+								blob: async () =>
+									new Blob([text], { type: 'text/plain' }),
+							};
+						}),
+				});
+			});
+		},
+	};
+}
 
 /**
  * How each wave format is shown in the tree. 4-bit AFC is the default and by

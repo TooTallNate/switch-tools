@@ -269,6 +269,14 @@ function magicAt(bytes: Uint8Array, offset: number): string {
 }
 
 /** Read a NUL-padded fixed-width name. */
+/**
+ * A NUL-terminated string of unknown length. Capped so that a bad offset
+ * landing in binary data yields a short wrong string rather than megabytes.
+ */
+function cString(bytes: Uint8Array, offset: number, limit = 256): string {
+	return fixedName(bytes, offset, limit);
+}
+
 function fixedName(bytes: Uint8Array, offset: number, width: number): string {
 	const end = Math.min(offset + width, bytes.length);
 	let stop = end;
@@ -577,6 +585,133 @@ export function aafSequenceIndex(aaf: Aaf, bytes: Uint8Array): Barc | null {
 		if (barc) return barc;
 	}
 	return null;
+}
+
+/** Magic of the stream-filename table. */
+export const BSFT_MAGIC = 'bsft';
+
+/**
+ * Parse a `bsft` stream-filename table.
+ *
+ * A flat list of the audio streams a game can play, in the order its music ids
+ * expect. On Mario Kart: Double Dash!! that is 50 slots naming 38 distinct
+ * `.ast` files — some courses share a track — and the paths are disc-relative,
+ * so they can be resolved straight against the filesystem.
+ *
+ *     0x00 char magic[4]  'bsft'
+ *     0x04 u32  count
+ *     0x08 u32  offsets[count]   — to NUL-terminated paths
+ *
+ * `8 + count * 4` lands exactly on the first path, which is what confirms the
+ * header width. 49 of Double Dash's 50 paths name a file that is really on the
+ * disc; the exception is `ENDING_PAL50_0.x.32.c4.ast`, a 50 Hz stream that only
+ * ships on the PAL release. A shared table referencing a region's missing asset
+ * is expected, so entries are returned as written rather than filtered.
+ */
+export function parseBsft(bytes: Uint8Array, offset = 0): string[] | null {
+	if (offset + 8 > bytes.length) return null;
+	if (magicAt(bytes, offset) !== BSFT_MAGIC) return null;
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const count = view.getUint32(offset + 4, false);
+	if (count > 0x10000 || offset + 8 + count * 4 > bytes.length) return null;
+	const out: string[] = [];
+	for (let i = 0; i < count; i++) {
+		const at = offset + view.getUint32(offset + 8 + i * 4, false);
+		out.push(at < bytes.length ? cString(bytes, at) : '');
+	}
+	return out;
+}
+
+/** Magic of the sound-name table, and of the parallel data table. */
+export const BSTN_MAGIC = 'BSTN';
+export const BST_MAGIC = 'BST ';
+
+export interface BstnCategory {
+	name: string;
+	sounds: string[];
+}
+export interface BstnType {
+	name: string;
+	categories: BstnCategory[];
+}
+
+/**
+ * Parse a `BSTN` sound-name table.
+ *
+ * `BST ` and `BSTN` are a matched pair: the same three-level tree walked twice,
+ * once over sound data and once over the names for it. A node is
+ *
+ *     u32 count
+ *     u32 nameOffset      — BSTN only; BST has no name field
+ *     u32 children[count]
+ *
+ * and the root has no name either. The bottom level differs: BST's leaves point
+ * at 16-byte sound records, BSTN's at strings.
+ *
+ * The shape is self-proving. Every node ends exactly where the next begins, so
+ * Double Dash's table divides into 32 bytes of header, 5,648 of nodes and
+ * 32,400 of strings with no gap or overlap and all 1,381 names readable. The
+ * two trees agree independently: BST's first category holds 40 records against
+ * BSTN's 40 `SE_ENGINE` names, and its stream category holds 50 against the 50
+ * paths in the `bsft`.
+ *
+ * Names are worth having because nothing else on the disc carries them. The
+ * waveforms are indexed numerically all the way down, so `SE_VOICE` is 821
+ * anonymous sounds until this table says which is which.
+ */
+export function parseBstn(bytes: Uint8Array, offset = 0): BstnType[] | null {
+	if (offset + 0x20 > bytes.length) return null;
+	if (magicAt(bytes, offset) !== BSTN_MAGIC) return null;
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const u32 = (o: number) => view.getUint32(offset + o, false);
+	const rootAt = u32(0x0c);
+	if (rootAt + 4 > bytes.length) return null;
+
+	/** A node's children, with the name field present or absent. */
+	const children = (at: number, named: boolean): number[] | null => {
+		const head = 4 + (named ? 4 : 0);
+		if (at + head > bytes.length) return null;
+		const count = view.getUint32(offset + at, false);
+		if (count > 0x10000 || at + head + count * 4 > bytes.length) return null;
+		const out: number[] = [];
+		for (let i = 0; i < count; i++) {
+			out.push(view.getUint32(offset + at + head + i * 4, false));
+		}
+		return out;
+	};
+	const nameOf = (at: number): string => {
+		const nameAt = view.getUint32(offset + at + 4, false);
+		return nameAt > 0 && nameAt < bytes.length
+			? cString(bytes, offset + nameAt)
+			: '';
+	};
+
+	const typeOffsets = children(rootAt, false);
+	if (!typeOffsets) return null;
+	const types: BstnType[] = [];
+	for (const typeAt of typeOffsets) {
+		const catOffsets = children(typeAt, true);
+		if (!catOffsets) return null;
+		const categories: BstnCategory[] = [];
+		for (const catAt of catOffsets) {
+			// A category's children are string offsets, not further nodes.
+			const nameOffsets = children(catAt, true);
+			if (!nameOffsets) return null;
+			categories.push({
+				name: nameOf(catAt),
+				sounds: nameOffsets.map((o) =>
+					o > 0 && o < bytes.length ? cString(bytes, offset + o) : '',
+				),
+			});
+		}
+		types.push({ name: nameOf(typeAt), categories });
+	}
+	return types;
+}
+
+/** Every sound name in a `BSTN`, flattened in table order. */
+export function bstnSoundNames(types: readonly BstnType[]): string[] {
+	return types.flatMap((t) => t.categories.flatMap((c) => c.sounds));
 }
 
 export function parseAaf(bytes: Uint8Array): Aaf | null {

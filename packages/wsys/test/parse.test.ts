@@ -11,6 +11,9 @@ import {
 	findWaveGroupForAw,
 	parseAaf,
 	parseBarc,
+	parseBsft,
+	parseBstn,
+	bstnSoundNames,
 	aafSequenceIndex,
 	BARC_NAME_SIZE,
 	BARC_HEADER_SIZE,
@@ -574,3 +577,124 @@ describe('tagged BAA dialect', () => {
 		expect(baaWalkIsComplete(new Uint8Array(64))).toBe(false);
 	});
 });
+
+describe('parseBsft', () => {
+	/** A stream table whose paths sit after the offset array. */
+	function buildBsft(paths: readonly string[]): Uint8Array {
+		const w = new Writer()
+		w.ascii('bsft').u32(paths.length)
+		const head = 8 + paths.length * 4
+		let at = head
+		const offs: number[] = []
+		for (const p of paths) { offs.push(at); at += p.length + 1 }
+		for (const o of offs) w.u32(o)
+		for (const p of paths) w.ascii(p).u8(0)
+		return w.out()
+	}
+
+	it('reads every path', () => {
+		const paths = ['AudioRes/Stream/A.ast', 'AudioRes/Stream/B.ast']
+		expect(parseBsft(buildBsft(paths))).toEqual(paths)
+	})
+
+	it('keeps repeated slots rather than collapsing them', () => {
+		// Slots deliberately share a track; the table is an ordered mapping, so
+		// dropping duplicates would misalign every later music id.
+		const paths = ['x.ast', 'y.ast', 'y.ast', 'z.ast']
+		const out = parseBsft(buildBsft(paths))!
+		expect(out).toHaveLength(4)
+		expect(out[1]).toBe(out[2])
+	})
+
+	it('rejects a wrong magic and an impossible count', () => {
+		expect(parseBsft(new Uint8Array(64))).toBeNull()
+		const bytes = buildBsft(['a.ast'])
+		new DataView(bytes.buffer, bytes.byteOffset).setUint32(4, 0xffff, false)
+		expect(parseBsft(bytes)).toBeNull()
+	})
+})
+
+describe('parseBstn', () => {
+	/**
+	 * Build the three-level tree. Nodes are laid out back to back, then the
+	 * strings, which is how the real tables are packed.
+	 */
+	function buildBstn(
+		types: readonly (readonly [string, readonly (readonly [string, readonly string[]])[]])[],
+	): Uint8Array {
+		const strings: string[] = []
+		const strOff = new Map<string, number>()
+		const intern = (v: string) => {
+			if (!strOff.has(v)) { strOff.set(v, -1); strings.push(v) }
+			return v
+		}
+		for (const [tn, cats] of types) {
+			intern(tn)
+			for (const [cn, sounds] of cats) { intern(cn); for (const s of sounds) intern(s) }
+		}
+		// Node sizes: root 4 + n*4; type 8 + c*4; category 8 + s*4.
+		let at = 0x20
+		const rootAt = at; at += 4 + types.length * 4
+		const typeAt: number[] = []
+		for (const [, cats] of types) { typeAt.push(at); at += 8 + cats.length * 4 }
+		const catAt: number[][] = []
+		for (const [, cats] of types) {
+			const row: number[] = []
+			for (const [, sounds] of cats) { row.push(at); at += 8 + sounds.length * 4 }
+			catAt.push(row)
+		}
+		let s = at
+		for (const v of strings) { strOff.set(v, s); s += v.length + 1 }
+		const buf = new Uint8Array(s)
+		const dv = new DataView(buf.buffer)
+		buf.set([0x42, 0x53, 0x54, 0x4e], 0)
+		dv.setUint32(0x0c, rootAt, false)
+		dv.setUint32(rootAt, types.length, false)
+		types.forEach((_, i) => dv.setUint32(rootAt + 4 + i * 4, typeAt[i], false))
+		types.forEach(([tn, cats], i) => {
+			dv.setUint32(typeAt[i], cats.length, false)
+			dv.setUint32(typeAt[i] + 4, strOff.get(tn)!, false)
+			cats.forEach((_, j) => dv.setUint32(typeAt[i] + 8 + j * 4, catAt[i][j], false))
+			cats.forEach(([cn, sounds], j) => {
+				dv.setUint32(catAt[i][j], sounds.length, false)
+				dv.setUint32(catAt[i][j] + 4, strOff.get(cn)!, false)
+				sounds.forEach((v, k) => dv.setUint32(catAt[i][j] + 8 + k * 4, strOff.get(v)!, false))
+			})
+		})
+		for (const v of strings) {
+			const o = strOff.get(v)!
+			for (let i = 0; i < v.length; i++) buf[o + i] = v.charCodeAt(i)
+		}
+		return buf
+	}
+
+	const SAMPLE = [
+		['TYPE_SE', [['SE_ENGINE', ['JA_SE_A', 'JA_SE_B']], ['SE_KART', ['JA_SE_C']]]],
+		['TYPE_STREAM', [['MAIN_BGM', ['JA_STRM_X']]]],
+	] as const
+
+	it('walks types, categories and names', () => {
+		const types = parseBstn(buildBstn(SAMPLE))!
+		expect(types).not.toBeNull()
+		expect(types.map((t) => t.name)).toEqual(['TYPE_SE', 'TYPE_STREAM'])
+		expect(types[0].categories.map((c) => c.name)).toEqual(['SE_ENGINE', 'SE_KART'])
+		expect(types[0].categories[0].sounds).toEqual(['JA_SE_A', 'JA_SE_B'])
+		expect(bstnSoundNames(types)).toEqual(['JA_SE_A', 'JA_SE_B', 'JA_SE_C', 'JA_STRM_X'])
+	})
+
+	it('reads the root without a name field', () => {
+		// Type nodes carry a name and the root does not. Assuming otherwise
+		// shifts every child offset by one word and the walk lands mid-node.
+		const types = parseBstn(buildBstn(SAMPLE))!
+		expect(types).toHaveLength(2)
+		expect(types[1].categories[0].sounds).toEqual(['JA_STRM_X'])
+	})
+
+	it('rejects a wrong magic and a count that escapes the buffer', () => {
+		expect(parseBstn(new Uint8Array(0x40))).toBeNull()
+		const bytes = buildBstn(SAMPLE)
+		const dv = new DataView(bytes.buffer, bytes.byteOffset)
+		dv.setUint32(dv.getUint32(0x0c, false), 0xffff, false)
+		expect(parseBstn(bytes)).toBeNull()
+	})
+})
