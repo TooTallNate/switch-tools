@@ -8,6 +8,7 @@ import {
 	hsdAllRoots,
 	hsdJoints,
 	hsdMesh,
+	hsdImages,
 	hsdRelocations,
 	hsdRootKind,
 	isHsd,
@@ -619,3 +620,60 @@ describe('hsdMesh', () => {
 		expect(hsdMesh(bytes, a, hsdJoints(bytes, a, 0))).toBeNull();
 	});
 });
+
+describe('hsdImages palette recovery', () => {
+	/**
+	 * An archive with one paletted image whose `TlutDesc` is reachable only by
+	 * name. Nothing points at the `ImageDesc`, so the adjacent-word route — the
+	 * one that resolves 94% of palettes — has nothing to read here.
+	 */
+	function buildPaletted(opts: { descName?: string | null } = {}): Uint8Array {
+		const dataSize = 0x100
+		const data = new Uint8Array(dataSize)
+		const dv = new DataView(data.buffer)
+		// ImageDesc at 0x00 -> pixels at 0x80, 8x8, format 8 (C4).
+		dv.setUint32(0x00, 0x80, false)
+		dv.setUint16(0x04, 8, false)
+		dv.setUint16(0x06, 8, false)
+		dv.setUint32(0x08, 8, false)
+		// TlutDesc at 0x20 -> palette at 0xC0, format 0, 16 entries.
+		dv.setUint32(0x20, 0xc0, false)
+		dv.setUint32(0x24, 0, false)
+		dv.setUint16(0x2c, 16, false)
+
+		const roots: RootSpec[] = [{ name: 'Foo_C4_image', dataOffset: 0x80 }]
+		if (opts.descName !== null) {
+			roots.push({ name: opts.descName ?? 'Foo_tlut_desc', dataOffset: 0x20 })
+		}
+		const archive = buildArchive({ dataSize, relocations: [0x00], roots })
+		archive.set(data, HSD_HEADER_SIZE)
+		return archive
+	}
+
+	it('finds a palette named after the image without its format token', () => {
+		const bytes = buildPaletted()
+		const file = parseHsdFile(bytes)!
+		const images = hsdImages(bytes, file.archives[0])
+		expect(images).toHaveLength(1)
+		expect(images[0].palette).toEqual({ offset: HSD_HEADER_SIZE + 0xc0, format: 0, count: 16 })
+	})
+
+	it('leaves the image unpaletted when no such root exists', () => {
+		// Better than attaching the wrong palette: a paletted image decoded with
+		// someone else's colours renders as confident nonsense rather than
+		// visibly failing.
+		const bytes = buildPaletted({ descName: null })
+		const file = parseHsdFile(bytes)!
+		const images = hsdImages(bytes, file.archives[0])
+		expect(images[0].palette).toBeUndefined()
+	})
+
+	it('does not match a palette root that keeps the format token', () => {
+		// The convention is that the image root spells out its format and the
+		// palette root does not; looking for the token-preserving spelling is
+		// what made these look unrecoverable.
+		const bytes = buildPaletted({ descName: 'Foo_C4_tlut_desc' })
+		const file = parseHsdFile(bytes)!
+		expect(hsdImages(bytes, file.archives[0])[0].palette).toBeUndefined()
+	})
+})

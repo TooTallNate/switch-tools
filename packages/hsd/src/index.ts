@@ -454,9 +454,44 @@ const MAX_PALETTE_ENTRIES = 16384;
  * Paletted images need a `TlutDesc`, which is reached the same way: the `TObj`
  * that owns a texture stores its image and palette pointers adjacently, so the
  * palette pointer is the word after whichever site points at the `ImageDesc`.
- * That recovers 94% of paletted images; the rest are left without a palette
- * rather than guessed at, and `decodeGxTexture` will decline them.
+ * That recovers 94% of paletted images (612 of 651 on the Melee disc).
+ *
+ * The remainder are never pointed at by a `TObj` holding both, so there is no
+ * adjacent word to read. Those archives name the palette instead, and the
+ * convention is that an image root spells out its format while a palette root
+ * does not: `GrdHealFigureCa_C8_image` pairs with `GrdHealFigureCa_tlut_desc`.
+ * That recovers 32 of the last 39. The final 7 have no palette anywhere in
+ * their archive under any spelling, and are left without one rather than
+ * guessed at — `decodeGxTexture` will decline them.
  */
+/**
+ * Find an image's palette by name, for archives that keep them as roots.
+ *
+ * `HSD_TlutDesc` is `lut` at 0x00, `fmt` at 0x04 and `n_entries` at 0x0C. The
+ * `_tlut_desc` root is that struct; the bare `_tlut` root beside it is the
+ * colour data the struct points at, so the descriptor is the one to read.
+ */
+function tlutFromNamedRoot(
+	view: DataView,
+	archive: HsdArchive,
+	imageName: string,
+): HsdImage['palette'] {
+	// `<base>_<FORMAT>_image` -> `<base>`. The format token is what a palette
+	// root omits.
+	const match = /^(.*)_[A-Za-z0-9]+_image$/.exec(imageName);
+	if (!match) return undefined;
+	const desc = archive.roots.find((r) => r.name === `${match[1]}_tlut_desc`);
+	if (!desc) return undefined;
+	const at = archive.dataOffset + desc.dataOffset;
+	if (at + 0x10 > view.byteLength) return undefined;
+	const lut = view.getUint32(at, false);
+	const format = view.getUint32(at + 0x04, false);
+	const count = view.getUint16(at + 0x0c, false);
+	if (lut <= 0 || lut >= archive.dataSize) return undefined;
+	if (format > 2 || count === 0 || count > MAX_PALETTE_ENTRIES) return undefined;
+	return { offset: archive.dataOffset + lut, format, count };
+}
+
 export function hsdImages(bytes: Uint8Array, archive: HsdArchive): HsdImage[] {
 	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	const imageRoots = archive.roots.filter((r) => r.kind === 'image');
@@ -520,6 +555,14 @@ export function hsdImages(bytes: Uint8Array, archive: HsdArchive): HsdImage[] {
 				};
 				break;
 			}
+			// Some images are never pointed at by a TObj that also holds their
+			// palette, so the adjacent-word trick has nothing to read. Those
+			// archives name the palette instead: an image root spells out its
+			// format, a palette root does not, so `GrdHealFigureCa_C8_image`
+			// pairs with `GrdHealFigureCa_tlut_desc`. Dropping the format token
+			// is the whole difference, and looking for the token-preserving
+			// name finds nothing.
+			palette ??= tlutFromNamedRoot(view, archive, root.name);
 		}
 
 		out.push({
