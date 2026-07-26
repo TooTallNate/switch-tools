@@ -569,6 +569,28 @@ export const HSD_JOINT_SIZE = 0x40;
 const JOBJ_CLASSICAL_SCALE = 1 << 3;
 
 /**
+ * `JOBJ_USE_QUATERNION`, which this parser deliberately does not implement.
+ *
+ * When it is set, `HSD_JObjSetupMatrix` builds the local transform with
+ * `HSD_MtxSRTQuat` instead of `HSD_MtxSRT`, reading the joint's three rotation
+ * floats as the x/y/z of a quaternion. The w is not recoverable from the
+ * reference: `HSD_JObjLoadDesc` assigns only `rotate.x/y/z` and never touches
+ * `rotate.w`, so whatever the allocation happened to contain is what reaches
+ * `MTXQuat`.
+ *
+ * That was worth leaving alone rather than guessing at, because on this disc
+ * the flag is never set on a joint: 0 of 14,212 joints across 725 scene-graph
+ * roots. It looks common only if you walk the wrong roots as joints — it shows
+ * up on 2,702 `animation`, 1,527 `image` and 316 `tlut` nodes, where the word
+ * at +0x04 is a pointer or a width/height/format triple rather than flags. An
+ * earlier count of 126 "quaternion joints" was exactly that mistake. That the
+ * bit is set in 0 of 14,212 real joints, while high bits generally are set in
+ * 4,488 of them, is also a decent check that the joint walk is reading the
+ * struct it thinks it is.
+ */
+export const JOBJ_USE_QUATERNION = 1 << 17;
+
+/**
  * Build a joint's local matrix as `Rz * Ry * Rx * S`, translation in column 3.
  *
  * ## Why this particular order
@@ -676,15 +698,30 @@ export interface HsdJoint {
 	 */
 	worldMatrix: Float32Array;
 	/**
-	 * The inverse-bind matrix stored at +0x38, when present. Used for skinning,
-	 * and useful as a check: it should invert {@link worldMatrix}.
+	 * The matrix pointed at by +0x38, when present.
+	 *
+	 * On a skinned model this is the inverse bind pose, and `worldMatrix`
+	 * multiplied by it comes out as the identity. Measured across Melee's
+	 * fighters that holds to float32 precision: median relative error 4.4e-7
+	 * over 9,154 joints, 97.7% within 1e-2.
+	 *
+	 * It is *not* an inverse bind everywhere, which is easy to be misled by.
+	 * On static assets the field is populated but means something else — for
+	 * menu and trophy joints the same product has a median relative error of
+	 * 1.0, and it is equally far from the forward transform and the identity.
+	 * Nothing reads it there, because only a multi-bone envelope consumes it,
+	 * so this costs nothing; but pooling those joints into a correctness metric
+	 * makes a correct implementation look 84% right.
 	 */
 	inverseMatrix?: Float32Array;
 }
 
 const IDENTITY_3X4 = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
 
-/** The inverse-bind matrix a joint points at, when the table marks it. */
+/**
+ * The matrix a joint points at from +0x38, when the table marks it a pointer.
+ * See {@link HsdJoint.inverseMatrix} for what it does and does not mean.
+ */
 function readInverseMatrix(
 	view: DataView,
 	bytes: Uint8Array,
