@@ -351,3 +351,103 @@ export function decodeSsmSound(
 		samples: channelCount === 1 ? planes[0] : interleavePcm16(planes),
 	};
 }
+
+// ----- SEM (HAL sound-effect map) -----
+
+/** Number of count-prefixed arrays the file is built from. */
+export const SEM_ARRAY_COUNT = 5;
+
+/** Index of the group table and of the sound-offset table within those arrays. */
+export const SEM_GROUP_ARRAY = 2;
+export const SEM_SOUND_ARRAY = 3;
+
+export interface SemSound {
+	/** Index in the flat, cross-group sound list. */
+	index: number;
+	offset: number;
+	size: number;
+}
+
+export interface SemGroup {
+	index: number;
+	/** Where this group starts in the flat sound list. */
+	firstSound: number;
+	sounds: SemSound[];
+}
+
+/**
+ * Parse a HAL sound-effect map (`smash2.sem`).
+ *
+ * The file is not a table but five count-prefixed `u32` arrays laid end to end,
+ * each `{ u32 count, u32 values[count] }`. Melee's loader walks them in order
+ * and keeps five pointers; only two carry anything on the retail disc.
+ *
+ *     array 0  empty
+ *     array 1  empty
+ *     array 2  55 group start indices — one per `.ssm` bank
+ *     array 3  4,035 sound-entry offsets
+ *     array 4  empty
+ *
+ * Arrays 1, 3 and 4 have the file's base address added to every element as they
+ * load, which is what identifies them as offsets rather than values; 0 and 2 are
+ * left alone. That distinction is the only thing separating a group's *index*
+ * into the sound list from a sound's *offset* into the file, and the two are
+ * easy to confuse because both are small ascending integers.
+ *
+ * The layout proves itself: the five arrays consume exactly 0x3FFC bytes, which
+ * is precisely where the first sound offset points. The last group starts at
+ * 4,034 against a sound count of 4,035, so it holds one sound, and every offset
+ * lands inside the file.
+ *
+ * Entries are variable length — 28, 24, 32 and 20 bytes are the common sizes —
+ * so a sound's extent comes from the next offset rather than a stride. What is
+ * inside one is not interpreted here; the useful part is the grouping, since
+ * group *i* corresponds to the *i*th `.ssm` bank and nothing in either file
+ * says so on its own.
+ */
+export function parseSem(bytes: Uint8Array): SemGroup[] | null {
+	if (bytes.length < SEM_ARRAY_COUNT * 4) return null;
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const arrays: number[][] = [];
+	let at = 0;
+	for (let i = 0; i < SEM_ARRAY_COUNT; i++) {
+		if (at + 4 > bytes.length) return null;
+		const count = view.getUint32(at, false);
+		at += 4;
+		// A bogus count would otherwise allocate wildly before failing.
+		if (count > 0x100000 || at + count * 4 > bytes.length) return null;
+		const values: number[] = [];
+		for (let k = 0; k < count; k++) {
+			values.push(view.getUint32(at + k * 4, false));
+		}
+		at += count * 4;
+		arrays.push(values);
+	}
+
+	const starts = arrays[SEM_GROUP_ARRAY];
+	const offsets = arrays[SEM_SOUND_ARRAY];
+	if (starts.length === 0 || offsets.length === 0) return null;
+	for (const offset of offsets) {
+		if (offset < at || offset > bytes.length) return null;
+	}
+
+	const groups: SemGroup[] = [];
+	for (let g = 0; g < starts.length; g++) {
+		const first = starts[g];
+		const stop = g + 1 < starts.length ? starts[g + 1] : offsets.length;
+		if (first > stop || stop > offsets.length) return null;
+		const sounds: SemSound[] = [];
+		for (let s = first; s < stop; s++) {
+			// The final entry runs to the end of the file.
+			const end = s + 1 < offsets.length ? offsets[s + 1] : bytes.length;
+			sounds.push({ index: s, offset: offsets[s], size: Math.max(0, end - offsets[s]) });
+		}
+		groups.push({ index: g, firstSound: first, sounds });
+	}
+	return groups;
+}
+
+/** Total sounds across every group. */
+export function semSoundCount(groups: readonly SemGroup[]): number {
+	return groups.reduce((total, group) => total + group.sounds.length, 0);
+}

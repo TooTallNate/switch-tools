@@ -161,7 +161,7 @@ import {
 	type HsdArchive,
 	type HsdImage,
 } from '@tootallnate/hsd';
-import { decodeSsmSound, parseSsm } from '@tootallnate/ssm';
+import { decodeSsmSound, parseSsm, parseSem } from '@tootallnate/ssm';
 import {
 	decodeWsysPcm8,
 	parseBsft,
@@ -195,6 +195,8 @@ export type NodeKind =
 	/** A JPEG wearing another extension, e.g. Melee's `.thp` stills. */
 	| 'jpeg-still'
 	| 'mth'
+	/** HAL sound-effect map; children are its per-bank groups. */
+	| 'sem'
 	/** JAudio stream-filename table; children are the streams it names. */
 	| 'bsft'
 	/** JAudio sound-name table; children are its name categories. */
@@ -622,6 +624,7 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	dat: 'HSD',
 	aw: 'AW', // GameCube wave-data blob, indexed by a WSYS in the .aaf
 	aaf: 'AAF', // JAudio archive: sound table + IBNK banks + WSYS wave indices
+	sem: 'SEM', // HAL sound-effect map, grouping SFX by .ssm bank
 	bsft: 'BSFT', // JAudio stream-filename table
 	bstn: 'BSTN', // JAudio sound-name table
 	bms: 'BMS', // JAudio sequence bytecode
@@ -1241,6 +1244,12 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		format: 'AW',
 		extensions: ['aw'],
 		build: (a) => makeAwNode(a.id, a.name, a.blob, a.siblings),
+	},
+	{
+		// No magic of its own — five bare integer arrays — so extension only.
+		format: 'SEM',
+		extensions: ['sem'],
+		build: (a) => makeSemNode(a.id, a.name, a.blob),
 	},
 	{
 		format: 'BSFT',
@@ -3625,6 +3634,90 @@ function makeSsmNode(id: string, name: string, blob: Blob): Node {
 }
 
 // ----- AW (JAudio wave bank) -----
+
+// ----- SEM (HAL sound-effect map) -----
+
+/**
+ * The `.ssm` bank each `smash2.sem` group belongs to, in group order.
+ *
+ * The map itself has no names in it — it is five arrays of integers — and the
+ * banks on disc are just files, so nothing connects group 6 to `captain.ssm`
+ * except this ordering. It comes from `lbl_803BBCFC` in `main.dol`, the array
+ * of filenames `lbAudioAx` walks when it loads a bank, read through the DOL's
+ * section table. All 55 name a file that is really on the disc.
+ *
+ * Region- and build-specific, like {@link MTH_AUDIO_PAIRS}. A disc whose group
+ * count doesn't match simply goes unlabelled rather than mislabelled.
+ */
+const SEM_BANK_NAMES: readonly string[] = [
+	'main.ssm', 'pokemon.ssm', 'nr_title.ssm', 'nr_select.ssm', 'nr_1p.ssm',
+	'nr_vs.ssm', 'captain.ssm', 'clink.ssm', 'dk.ssm', 'drmario.ssm',
+	'falco.ssm', 'fox.ssm', 'gkoopa.ssm', 'ice.ssm', 'kirby.ssm', 'koopa.ssm',
+	'link.ssm', 'luigi.ssm', 'mario.ssm', 'mars.ssm', 'mewtwo.ssm', 'ness.ssm',
+	'peach.ssm', 'pichu.ssm', 'pikachu.ssm', 'purin.ssm', 'samus.ssm',
+	'zs.ssm', 'yoshi.ssm', 'gw.ssm', 'ganon.ssm', 'emblem.ssm', 'mhands.ssm',
+	'kirbytm.ssm', 'castle.ssm', 'corneria.ssm', 'greatbay.ssm', 'kongo.ssm',
+	'mutecity.ssm', 'onett.ssm', 'zebes.ssm', 'garden.ssm', 'klaid.ssm',
+	'greens.ssm', 'venom.ssm', 'bigblue.ssm', 'fourside.ssm', 'pupupu.ssm',
+	'pstadium.ssm', '1padv.ssm', 'ending.ssm', 'nr_name.ssm', '1pend.ssm',
+	'last.ssm', 'end.ssm',
+];
+
+/**
+ * A HAL sound-effect map (`smash2.sem`).
+ *
+ * Browsed as its groups, because the grouping is the whole point: a group is
+ * one `.ssm` bank's worth of sound effects, and that correspondence exists
+ * nowhere else. A group holds at least as many effects as its bank has samples
+ * — 528 against 246 for `main.ssm` — since several effects can play the same
+ * sample with different parameters; for the simpler banks the two are equal.
+ *
+ * The effect entries themselves are left as bytes. They are short, variable
+ * length parameter blocks, and nothing here decodes them, so presenting them as
+ * anything more structured than a byte range would be inventing detail.
+ */
+function makeSemNode(id: string, name: string, blob: Blob): Node {
+	return {
+		id,
+		name,
+		kind: 'sem',
+		isContainer: true,
+		size: blob.size,
+		format: 'SEM',
+		blob: async () => blob,
+		getChildren: async () => {
+			const bytes = new Uint8Array(await blob.arrayBuffer());
+			const groups = parseSem(bytes);
+			if (!groups) return [];
+			const named = groups.length === SEM_BANK_NAMES.length;
+			return groups.map((group) => {
+				const slot = String(group.index).padStart(2, '0');
+				const bank = named ? SEM_BANK_NAMES[group.index] : '';
+				const groupName = bank ? `${slot} ${bank}` : slot;
+				const groupId = `${id}/${groupName}`;
+				return childDirectoryNodeFor({
+					id: groupId,
+					name: groupName,
+					size: group.sounds.reduce((a, s) => a + s.size, 0),
+					getChildren: async () =>
+						group.sounds.map((sound) => {
+							const childName = `sfx${String(sound.index).padStart(4, '0')}.bin`;
+							return {
+								id: `${groupId}/${childName}`,
+								name: childName,
+								kind: 'file' as const,
+								isContainer: false,
+								size: sound.size,
+								format: 'SEM entry',
+								blob: async () =>
+									blob.slice(sound.offset, sound.offset + sound.size),
+							};
+						}),
+				});
+			});
+		},
+	};
+}
 
 // ----- BSFT / BSTN (JAudio sound tables) -----
 

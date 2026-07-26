@@ -7,6 +7,8 @@ import {
 	decodeSsmSound,
 	isSsm,
 	parseSsm,
+	parseSem,
+	semSoundCount,
 	ssmDataOffset,
 	ssmNibbleToFrameByte,
 	ssmNibbleToSample,
@@ -342,3 +344,79 @@ describe('decodeSsmSound', () => {
 		}
 	});
 });
+
+describe('parseSem', () => {
+	/**
+	 * Build a sound-effect map: five count-prefixed arrays, then the entries the
+	 * third array points at. Only the group and sound arrays carry anything, as
+	 * on the retail disc.
+	 */
+	function buildSem(
+		groupStarts: readonly number[],
+		entrySizes: readonly number[],
+	): Uint8Array {
+		const headerWords = 5 + groupStarts.length + entrySizes.length
+		const base = headerWords * 4
+		const offsets: number[] = []
+		let at = base
+		for (const size of entrySizes) { offsets.push(at); at += size }
+		const buf = new Uint8Array(at)
+		const dv = new DataView(buf.buffer)
+		let o = 0
+		const arr = (vals: readonly number[]) => {
+			dv.setUint32(o, vals.length, false); o += 4
+			for (const v of vals) { dv.setUint32(o, v, false); o += 4 }
+		}
+		arr([]); arr([]); arr(groupStarts); arr(offsets); arr([])
+		// Fill entries with their own index so slices are distinguishable.
+		entrySizes.forEach((size, i) => buf.fill(i + 1, offsets[i], offsets[i] + size))
+		return buf
+	}
+
+	it('groups the sound entries by their start index', () => {
+		const groups = parseSem(buildSem([0, 2, 3], [8, 8, 12, 8]))!
+		expect(groups).not.toBeNull()
+		expect(groups.map((g) => g.sounds.length)).toEqual([2, 1, 1])
+		expect(semSoundCount(groups)).toBe(4)
+		expect(groups[1].sounds[0].index).toBe(2)
+	})
+
+	it('sizes an entry from the next offset, not a fixed stride', () => {
+		// Entries are variable length on the real disc — 28, 24, 32 and 20 bytes
+		// all occur — so a stride would misread all but the first.
+		const groups = parseSem(buildSem([0], [28, 24, 32]))!
+		expect(groups[0].sounds.map((s) => s.size)).toEqual([28, 24, 32])
+	})
+
+	it('runs the last entry to the end of the file', () => {
+		const bytes = buildSem([0], [8, 8])
+		const groups = parseSem(bytes)!
+		const last = groups[0].sounds[1]
+		expect(last.offset + last.size).toBe(bytes.length)
+	})
+
+	it('covers every byte after the arrays', () => {
+		// The entries tile the remainder exactly; a gap would mean a missed entry.
+		const sizes = [12, 20, 8, 16]
+		const bytes = buildSem([0, 2], sizes)
+		const groups = parseSem(bytes)!
+		const covered = groups.reduce((a, g) => a + g.sounds.reduce((x, s) => x + s.size, 0), 0)
+		expect(covered).toBe(sizes.reduce((a, b) => a + b, 0))
+		expect(groups[0].sounds[0].offset).toBe(bytes.length - covered)
+	})
+
+	it('rejects an offset outside the file and a bad group range', () => {
+		const bytes = buildSem([0], [8, 8])
+		const dv = new DataView(bytes.buffer, bytes.byteOffset)
+		// Third array is at word 2; its first value sits two words later.
+		dv.setUint32(4 * 4, 0xffffff, false)
+		expect(parseSem(bytes)).toBeNull()
+		expect(parseSem(buildSem([9], [8]))).toBeNull()
+	})
+
+	it('rejects a truncated buffer rather than reading past it', () => {
+		expect(parseSem(new Uint8Array(8))).toBeNull()
+		const bytes = buildSem([0], [8])
+		expect(parseSem(bytes.slice(0, 12))).toBeNull()
+	})
+})
