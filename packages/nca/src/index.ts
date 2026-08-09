@@ -101,7 +101,7 @@ import {
  * );
  * const aesXtsEncrypt: AesXtsEncryptFn = (data, sectorSize, startSector) =>
  *   crypto.subtle.encrypt(
- *     { name: 'AES-XTS', sectorSize, startSector, nintendoTweak: true },
+ *     { name: 'AES-XTS', sectorSize, sector: startSector, isNintendo: true },
  *     cryptoKey,
  *     data
  *   );
