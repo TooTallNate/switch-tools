@@ -1198,13 +1198,19 @@ export async function extractGeometry(blob: Blob): Promise<BfresGeometry[]> {
 		const countsBase = fmdlOff + 0x68;
 		const numShape = v.getUint16(countsBase + 2, true);
 
-		// Each FSHP value is a pointer to its FSHP record. v9+ FSHPs
-		// are inline (the pointer is the FSHP itself), and earlier
-		// versions store a u64 ptr per entry — but in practice for
-		// the Switch builds we care about, FSHP records sit at
-		// `shapeValuesOffset + i * shapeStride`. The stride in v5
-		// is 0x70; in v9+ it's 0x68.
-		const fshpStride = major >= 9 ? 0x68 : 0x70;
+		// FSHP records are inline. Some v9+ files (EoW's DekuTree)
+		// use 0x60-byte records rather than 0x68; detect the second
+		// record so neither layout silently loses all later shapes.
+		let fshpStride = major >= 9 ? 0x68 : 0x70;
+		if (major >= 9 && numShape > 1) {
+			const secondShapeOffset = shapeValuesOffset + 0x60;
+			if (
+				secondShapeOffset + 4 <= data.length &&
+				v.getUint32(secondShapeOffset, true) === 0x50485346 /* FSHP */
+			) {
+				fshpStride = 0x60;
+			}
+		}
 		for (let si = 0; si < numShape; si++) {
 			const fshpOff = shapeValuesOffset + si * fshpStride;
 			if (fshpOff + 16 > data.length) break;
@@ -1316,7 +1322,7 @@ export async function extractMaterials(blob: Blob): Promise<BfresMaterial[][]> {
 		// a single material we have to guess — pick the most-common
 		// per-version stride.
 		let stride = 0;
-		const candidateStrides = major >= 9 ? [0xa0, 0xb0, 0xb8] : [0xb8, 0xc0];
+		const candidateStrides = major >= 9 ? [0xa0, 0xa8, 0xb0, 0xb8] : [0xb8, 0xc0];
 		if (numMaterial >= 2) {
 			for (const cand of candidateStrides) {
 				const off = matValuesOffset + 1 * cand;
@@ -1334,10 +1340,8 @@ export async function extractMaterials(blob: Blob): Promise<BfresMaterial[][]> {
 		}
 		if (stride === 0) {
 			// Single-material model OR no stride matched. Fall back to
-			// the per-version default. Empirically 0xb0 is right for
-			// v9+ (Mario Wonder / Echoes of Wisdom) and 0xb8 for v5–v8
-			// (MK8 Deluxe). If material 0 doesn't even start with FMAT,
-			// bail out with empty material records.
+			// the per-version default. If material 0 doesn't even start
+			// with FMAT, bail out with empty material records.
 			if (
 				matValuesOffset + 4 > data.length ||
 				data[matValuesOffset] !== 0x46 ||

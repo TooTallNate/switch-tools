@@ -100,11 +100,7 @@ describe('BFRES_MAGIC export', () => {
 });
 
 describe('extractGeometry', () => {
-	// We can't reasonably synthesize a full BFRES with valid FMDL +
-	// FSHP + FVTX records (the format has hundreds of fields with
-	// cross-references), so these are smoke tests for the error
-	// paths. Real geometry is exercised end-to-end via the Node
-	// debug script `dump-bfres-mesh.mjs` against captured game data.
+	// Synthetic multi-shape geometry is covered in stride.test.ts.
 	it('returns [] for a header-only BFRES with no FMDLs', async () => {
 		const buf = buildSmokeHeader();
 		const geoms = await extractGeometry(new Blob([buf as BlobPart]));
@@ -132,9 +128,7 @@ describe('extractGeometry', () => {
 });
 
 describe('extractMaterials', () => {
-	// Same caveat as `extractGeometry`: synthesizing a full FMAT
-	// record-by-record isn't worth it. Smoke tests for the error
-	// paths only.
+	// Synthetic multi-material bindings are covered in stride.test.ts.
 	it('returns [] for a header-only BFRES with no FMDLs', async () => {
 		const buf = buildSmokeHeader();
 		const mats = await extractMaterials(new Blob([buf as BlobPart]));

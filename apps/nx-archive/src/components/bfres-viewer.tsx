@@ -50,6 +50,9 @@ import {
   type IndexedMesh,
 } from "~/lib/mesh-export"
 
+// EoW uses `_albedo0`; other Switch titles use the shorter `_a*` names.
+const ALBEDO_SAMPLERS = ["_albedo0", "_a0", "_a1", "_a2"]
+
 /**
  * Error boundary that contains rendering exceptions to the BFRES
  * viewer pane instead of letting them blank the entire app.
@@ -535,16 +538,13 @@ async function resolveSharedTextureBanks(
   cache: BntxTextureCache | null,
 ): Promise<BntxBank[]> {
   if (!root) return []
-  // Collect missing albedo names. We only chase `_a0` (and
-  // fallback `_a1`/`_a2`) bindings — normal/specular maps are
-  // ignored because we don't render with them yet, so resolving
-  // them would just inflate the scan budget.
-  const albedoSamplers = new Set(["_a0", "_a1", "_a2"])
+  // Only chase albedo bindings; resolving unused normal/specular
+  // maps would just inflate the scan budget.
   const wanted = new Set<string>()
   for (const matsForModel of materials) {
     for (const m of matsForModel) {
       for (const b of m.bindings) {
-        if (albedoSamplers.has(b.samplerName)) wanted.add(b.textureName)
+        if (ALBEDO_SAMPLERS.includes(b.samplerName)) wanted.add(b.textureName)
       }
     }
   }
@@ -1124,12 +1124,8 @@ function pickAlbedo(
   if (!cache) return null
   const mat = materials[geom.modelIndex]?.[geom.materialIndex]
   if (!mat) return null
-  // Switch BFRES samplers use a leading-underscore naming
-  // convention: `_a0`/`_a1`/`_a2` are albedo, `_n0` normal,
-  // `_s0` specular, etc. We try each albedo slot in order.
-  const albedoSamplers = ["_a0", "_a1", "_a2"]
   let textureName: string | null = null
-  for (const want of albedoSamplers) {
+  for (const want of ALBEDO_SAMPLERS) {
     const b = mat.bindings.find((bb) => bb.samplerName === want)
     if (b) {
       textureName = b.textureName
@@ -1393,8 +1389,8 @@ function applyMaterialAnim(
       if (!(mesh.material instanceof THREE.Material)) continue
       // We only have one texture slot in our renderer — the
       // material's `.map` — and `pickAlbedo` filled it from
-      // the FIRST albedo sampler the material binds (`_a0`
-      // first, `_a1` if absent, …). Only animate THAT slot.
+      // the first matching ALBEDO_SAMPLERS entry. Only animate
+      // that slot.
       // Yoshi's pupil materials, for example, bind both
       // `_a0` (eyeball) and `_a1` (pupil overlay); the FMAA
       // animates `_a1` but we render via `_a0`. Writing the
@@ -1402,9 +1398,8 @@ function applyMaterialAnim(
       // overwrite the eyeball with a tiled-grid pupil sheet.
       // For multi-texture materials that needs a real shader
       // with `_a0` + `_a1` compositing — out of scope here.
-      const albedoSamplers = ["_a0", "_a1", "_a2"]
       let activeSampler: string | null = null
-      for (const s of albedoSamplers) {
+      for (const s of ALBEDO_SAMPLERS) {
         if (mat.bindings.find((b) => b.samplerName === s)) {
           activeSampler = s
           break
