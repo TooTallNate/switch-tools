@@ -49,6 +49,14 @@ import {
   weldByPosition,
   type IndexedMesh,
 } from "~/lib/mesh-export"
+import {
+  buildPainted3MF,
+  rgbToHex,
+  type PaintMeshInput,
+  type PaintTextureWrap,
+  type Rgb,
+} from "~/lib/mesh-export-3mf"
+import { toast } from "sonner"
 
 // EoW uses `_albedo0`; other Switch titles use the shorter `_a*` names.
 const ALBEDO_SAMPLERS = ["_albedo0", "_a0", "_a1", "_a2"]
@@ -1577,6 +1585,78 @@ function exportPosedSTL(
   triggerDownload(bytes, fileName, "model/stl")
 }
 
+function threeWrapToPaint(w: THREE.Wrapping): PaintTextureWrap {
+  if (w === THREE.ClampToEdgeWrapping) return "clamp"
+  if (w === THREE.MirroredRepeatWrapping) return "mirror"
+  return "repeat"
+}
+
+/**
+ * Multi-colour sibling of {@link exportPosedSTL}: bakes the current
+ * pose and writes an OrcaSlicer / Bambu Studio 3MF whose triangles
+ * carry `paint_color` filament assignments derived from each shape's
+ * *currently displayed* albedo (so an active FMAA flipbook frame is
+ * what gets painted). Returns the palette, index 0 = filament 1.
+ */
+function exportPosed3MF(
+  shapes: ShapeRecord[],
+  scene: THREE.Scene,
+  baseName: string,
+  suffix: string,
+  subdivisionPasses: number,
+  colorCount: number,
+): Rgb[] | null {
+  scene.updateMatrixWorld(true)
+  const inputs: PaintMeshInput[] = []
+  for (const r of shapes) {
+    if (!r.visible) continue
+    if ((r.mesh as THREE.SkinnedMesh).isSkinnedMesh) {
+      ;(r.mesh as THREE.SkinnedMesh).skeleton.update()
+    }
+    const baked = bakeShapeToWorld(r)
+    if (!baked) continue
+    const map = (r.mesh.material as THREE.MeshBasicMaterial).map as
+      | THREE.DataTexture
+      | null
+      | undefined
+    const img = map?.image as
+      | { data: ArrayLike<number>; width: number; height: number }
+      | undefined
+    inputs.push({
+      positions: baked.positions,
+      indices: baked.indices,
+      uvs: r.geom.uvs ?? null,
+      texture:
+        map && img?.data
+          ? {
+              pixels: img.data,
+              width: img.width,
+              height: img.height,
+              wrapS: threeWrapToPaint(map.wrapS),
+              wrapT: threeWrapToPaint(map.wrapT),
+            }
+          : null,
+    })
+  }
+  if (inputs.length === 0) return null
+
+  const title = `${baseName}${suffix}`
+  const result = buildPainted3MF(inputs, {
+    colorCount,
+    subdivisionPasses,
+    sourceAxis: "y-up",
+    title,
+  })
+  const stem = sanitizeStem(baseName) || "model"
+  const subSuffix = subdivisionPasses > 0 ? `_sub${subdivisionPasses}` : ""
+  triggerDownload(
+    result.bytes,
+    `${stem}${suffix}${subSuffix}_${result.palette.length}c.3mf`,
+    "model/3mf",
+  )
+  return result.palette
+}
+
 /**
  * Props for {@link BfresViewer}. `root` is the archive's root
  * `Node` and is used to discover companion BFRES siblings (BotW-
@@ -1620,6 +1700,9 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
   // 1 = ~4× tris (recommended for Switch character meshes); 2 =
   // ~16× tris (overkill for most prints, but available).
   const [stlSubdivision, setStlSubdivision] = useState<number>(1)
+  // Filament count for the multi-colour 3MF export (e.g. 4 for a
+  // 4-toolhead Snapmaker U1 / single-AMS Bambu).
+  const [paintColors, setPaintColors] = useState<number>(4)
   // Animation playback state. `currentAnim` indexes into
   // `animations.skeletal` (or -1 for "no animation, bind pose").
   const [currentAnim, setCurrentAnim] = useState<number>(-1)
@@ -2373,6 +2456,15 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
   )
   const totalFrames = scrubMax
   const anyAnimSelected = currentAnim >= 0 || currentMatAnim >= 0
+  // Encode the active animation + frame into export file names so a
+  // sequence of exports stays orderable by name. Bind pose gets a
+  // clean "_bind" suffix.
+  const exportSuffix = () =>
+    activeAnim
+      ? `_${activeAnim.name.replace(/[^A-Za-z0-9._-]+/g, "_")}_f${String(
+          Math.min(frame, totalFrames),
+        ).padStart(4, "0")}`
+      : "_bind"
 
   return (
     // Outer column lays out the canvas, control bars, and the
@@ -2485,21 +2577,11 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
           onClick={() => {
             const ctx = sceneRef.current
             if (!ctx || !shapes) return
-            // Encode the active animation + frame into the STL
-            // file name so a sequence of exports stays orderable
-            // by name. Bind pose gets a clean "_bind" suffix.
-            const safeName = (s: string) =>
-              s.replace(/[^A-Za-z0-9._-]+/g, "_")
-            const suffix = activeAnim
-              ? `_${safeName(activeAnim.name)}_f${String(
-                  Math.min(frame, totalFrames),
-                ).padStart(4, "0")}`
-              : "_bind"
             exportPosedSTL(
               shapes,
               ctx.scene,
               node.name,
-              suffix,
+              exportSuffix(),
               stlSubdivision,
             )
           }}
@@ -2508,6 +2590,76 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
           className="rounded-md border bg-card px-2 py-1 disabled:opacity-50"
         >
           Download STL
+        </button>
+        <label className="flex items-center gap-1.5">
+          <span>Colors</span>
+          <select
+            value={paintColors}
+            onChange={(e) => setPaintColors(Number(e.target.value))}
+            title="Number of filaments the texture is reduced to for the 3MF export"
+            className="rounded-md border bg-card px-1.5 py-0.5"
+          >
+            {[2, 3, 4, 5, 6, 7, 8, 12, 16].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() => {
+            const ctx = sceneRef.current
+            if (!ctx || !shapes) return
+            const suffix = exportSuffix()
+            const id = toast.loading("Painting 3MF…")
+            // Yield a frame so the toast renders before the
+            // (synchronous, potentially multi-second) bake.
+            setTimeout(() => {
+              try {
+                const palette = exportPosed3MF(
+                  shapes,
+                  ctx.scene,
+                  node.name,
+                  suffix,
+                  stlSubdivision,
+                  paintColors,
+                )
+                if (!palette) {
+                  toast.dismiss(id)
+                  return
+                }
+                toast.success(`Exported ${palette.length}-color 3MF`, {
+                  id,
+                  duration: 15000,
+                  description: (
+                    <div className="mt-1 flex flex-col gap-0.5">
+                      <span>Set these filament colors in your slicer:</span>
+                      {palette.map((c, i) => (
+                        <span key={i} className="flex items-center gap-1.5 font-mono">
+                          <span
+                            className="inline-block size-3 rounded-sm border"
+                            style={{ backgroundColor: rgbToHex(c) }}
+                          />
+                          {i + 1}: {rgbToHex(c)}
+                        </span>
+                      ))}
+                    </div>
+                  ),
+                })
+              } catch (err) {
+                toast.error("3MF export failed", {
+                  id,
+                  description: err instanceof Error ? err.message : String(err),
+                })
+              }
+            }, 16)
+          }}
+          disabled={!shapes || shapes.length === 0}
+          title="Download the current pose as a multi-color 3MF with per-triangle filament painting (OrcaSlicer / Bambu Studio)"
+          className="rounded-md border bg-card px-2 py-1 disabled:opacity-50"
+        >
+          Download 3MF
         </button>
         <label className="flex items-center gap-1.5">
           <input

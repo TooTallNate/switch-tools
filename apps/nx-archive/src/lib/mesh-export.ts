@@ -61,6 +61,20 @@ export interface IndexedMesh {
  * are dropped (they were degenerate even before welding).
  */
 export function weldByPosition(mesh: IndexedMesh): IndexedMesh {
+	return weldByPositionTracked(mesh).mesh;
+}
+
+/**
+ * {@link weldByPosition}, plus the index (into the *input*
+ * triangle list) of every triangle that survived. Triangle order
+ * and corner order are preserved, so `keptTriangles[t]` lets a
+ * caller look up per-corner attributes the weld discarded (UVs,
+ * colours) for output triangle `t`.
+ */
+export function weldByPositionTracked(mesh: IndexedMesh): {
+	mesh: IndexedMesh;
+	keptTriangles: Uint32Array;
+} {
 	const WELD_SCALE = 1e5;
 	const remap = new Uint32Array(mesh.positions.length / 3);
 	const seen = new Map<string, number>();
@@ -84,16 +98,21 @@ export function weldByPosition(mesh: IndexedMesh): IndexedMesh {
 		remap[i / 3] = idx;
 	}
 	const triOut: number[] = [];
+	const kept: number[] = [];
 	for (let i = 0; i < mesh.indices.length; i += 3) {
 		const a = remap[mesh.indices[i]!]!;
 		const b = remap[mesh.indices[i + 1]!]!;
 		const c = remap[mesh.indices[i + 2]!]!;
 		if (a === b || b === c || a === c) continue;
 		triOut.push(a, b, c);
+		kept.push(i / 3);
 	}
 	return {
-		positions: new Float32Array(out),
-		indices: new Uint32Array(triOut),
+		mesh: {
+			positions: new Float32Array(out),
+			indices: new Uint32Array(triOut),
+		},
+		keptTriangles: new Uint32Array(kept),
 	};
 }
 
