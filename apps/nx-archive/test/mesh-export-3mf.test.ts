@@ -106,9 +106,32 @@ describe('buildPainted3MF', () => {
       indices: new Uint32Array([0, 1, 2, 0, 3, 1, 0, 2, 3, 1, 3, 2]),
     }
     const xml = modelXml(buildPainted3MF([inp], { colorCount: 1, sourceAxis: 'z-up' }).bytes)
-    expect(xml).toContain('<triangle v1="0" v2="2" v3="1"/>')
+    expect(signedVolume([parseModel(xml)])).toBeGreaterThan(0)
+  })
+
+  it('omits unreferenced vertices (no NaN from subdividing orphans)', () => {
+    // Quad plus two vertices no triangle uses — like spare entries in
+    // a BFRES vertex buffer. Loop subdivision used to turn them into
+    // NaN, which gave Orca a "nan × nan" bounding box.
+    const q = quad()
+    const inp: ExportMesh = {
+      positions: new Float32Array([...q.positions, 99, 99, 99, 5, 5, 5]),
+      indices: q.indices,
+    }
+    const xml = modelXml(buildPainted3MF([inp], { colorCount: 1, sourceAxis: 'z-up', subdivisionPasses: 1 }).bytes)
+    expect(xml).not.toMatch(/NaN|Infinity/)
+    const m = parseModel(xml)
+    // Every written vertex is referenced by some triangle.
+    expect(new Set(m.indices).size).toBe(m.positions.length / 3)
+    expect(m.indices.length / 3).toBe(8)
   })
 })
+
+function parseModel(xml: string): ExportMesh {
+  const positions = [...xml.matchAll(/<vertex x="([^"]+)" y="([^"]+)" z="([^"]+)"/g)].flatMap((m) => [+m[1]!, +m[2]!, +m[3]!])
+  const indices = [...xml.matchAll(/<triangle v1="(\d+)" v2="(\d+)" v3="(\d+)"/g)].flatMap((m) => [+m[1]!, +m[2]!, +m[3]!])
+  return { positions: new Float32Array(positions), indices: new Uint32Array(indices) }
+}
 
 describe('emitBinarySTL', () => {
   it('re-orients inside-out (mirrored) meshes', () => {

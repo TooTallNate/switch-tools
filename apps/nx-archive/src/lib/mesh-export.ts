@@ -283,6 +283,13 @@ export function loopSubdivide(mesh: IndexedMesh): IndexedMesh {
 				newPositions[i * 3 + 1] = py;
 				newPositions[i * 3 + 2] = pz;
 			}
+		} else if (neighbours[i]!.size === 0) {
+			// Unreferenced vertex (source buffers often carry spares,
+			// and welding drops degenerate triangles). β = 3/(8·0)
+			// would turn it into NaN; keep it in place instead.
+			newPositions[i * 3 + 0] = px;
+			newPositions[i * 3 + 1] = py;
+			newPositions[i * 3 + 2] = pz;
 		} else {
 			const nbs = neighbours[i]!;
 			const n = nbs.size;

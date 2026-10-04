@@ -783,16 +783,27 @@ export function buildPainted3MF(
 		`  <object id="1" type="model" name="${xmlEscape(title)}">\n`,
 		'   <mesh>\n    <vertices>\n',
 	);
-	for (let v = 0; v < vertTotal; v++) {
-		parts.push(
-			`     <vertex x="${fmt(positions[v * 3]!)}" y="${fmt(positions[v * 3 + 1]!)}" z="${fmt(positions[v * 3 + 2]!)}"/>\n`,
-		);
+	// Only write vertices that a kept triangle references. Source
+	// buffers carry unused vertices, and dropped (non-finite /
+	// degenerate) triangles leave orphans behind. Slicers compute the
+	// bounding box from *every* vertex, so one stray NaN breaks the
+	// object's size and plate placement.
+	const remap = new Int32Array(vertTotal).fill(-1);
+	let written = 0;
+	for (let i = 0; i < tris.length; i++) {
+		const v = tris[i]!;
+		if (remap[v] === -1) {
+			remap[v] = written++;
+			parts.push(
+				`     <vertex x="${fmt(positions[v * 3]!)}" y="${fmt(positions[v * 3 + 1]!)}" z="${fmt(positions[v * 3 + 2]!)}"/>\n`,
+			);
+		}
 	}
 	parts.push('    </vertices>\n    <triangles>\n');
 	for (let t = 0; t < triCount; t++) {
 		const p = paint[t]!;
 		parts.push(
-			`     <triangle v1="${tris[t * 3]}" v2="${tris[t * 3 + 1]}" v3="${tris[t * 3 + 2]}"${
+			`     <triangle v1="${remap[tris[t * 3]!]}" v2="${remap[tris[t * 3 + 1]!]}" v3="${remap[tris[t * 3 + 2]!]}"${
 				p ? ` paint_color="${p}"` : ''
 			}/>\n`,
 		);
