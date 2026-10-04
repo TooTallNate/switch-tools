@@ -428,6 +428,7 @@ export function Ff7WorldMapPreview({
 					data.materialTextures.length > 0 ? data.materialTextures : undefined
 				}
 				infoText={`Section grid: ${data.stats.gridWidth}×${data.stats.gridHeight}`}
+				baseName={node.name}
 			/>
 		</div>
 	)

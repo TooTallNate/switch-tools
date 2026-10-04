@@ -3215,6 +3215,17 @@ export interface N64ModelRef {
 	microcode: import('@tootallnate/f3dex').Microcode;
 }
 
+function n64Wrap(
+	w: import('@tootallnate/f3dex').WrapMode,
+): 'repeat' | 'clamp' | 'mirror' {
+	return w === 'wrap' ? 'repeat' : w;
+}
+
+/** GX sampler wrap (`0` clamp, `1` repeat, `2` mirror). */
+function gxWrap(w: number | undefined): 'repeat' | 'clamp' | 'mirror' {
+	return w === 0 ? 'clamp' : w === 2 ? 'mirror' : 'repeat';
+}
+
 export async function parseN64ModelForView(
 	blob: Blob,
 	ref: N64ModelRef,
@@ -3264,6 +3275,8 @@ export async function parseN64ModelForView(
 			// N64 textures are stored top-down and their UVs put
 			// V=0 at the top, so no flip.
 			flipY: false,
+			wrapS: n64Wrap(mat.wrapS),
+			wrapT: n64Wrap(mat.wrapT),
 		};
 	});
 
@@ -3462,6 +3475,8 @@ export async function parseJ3dForView(blob: Blob): Promise<J3dModelView> {
 			// top, so the pixels are already in the orientation Three.js
 			// wants without a flip.
 			flipY: false,
+			wrapS: gxWrap(model.tex1?.textures[mat.textureIndex]?.header.wrapS),
+			wrapT: gxWrap(model.tex1?.textures[mat.textureIndex]?.header.wrapT),
 		};
 	});
 

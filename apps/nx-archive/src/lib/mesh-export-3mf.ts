@@ -3,23 +3,28 @@
  * filament painting (OrcaSlicer, Bambu Studio, and printers that use
  * them, e.g. Snapmaker U1).
  *
- * Slicers don't consume UV-mapped textures, so the texture has to be
- * baked into filament assignments:
+ * Slicers don't consume UV-mapped textures or vertex colours, so the
+ * colour has to be baked into filament assignments. Input is the
+ * viewer-agnostic {@link ExportMesh} that every viewer's bake step
+ * produces:
  *
- *   1. Bake/weld/subdivide geometry exactly like the STL path, but
- *      track, for every output triangle, which *source* triangle it
- *      came from and the barycentric position of its corners within
- *      it. Welding destroys UV seams, so UVs are always looked up
- *      through the source triangle rather than the welded vertices.
- *   2. Build an area-weighted colour histogram of the textured surface
- *      and reduce it to N colours (k-means in CIELAB). N = number of
+ *   1. Weld/subdivide geometry exactly like the STL path, but track,
+ *      for every output triangle, which *source* triangle it came from
+ *      and the barycentric position of its corners within it. Welding
+ *      destroys UV / colour seams, so per-corner attributes are always
+ *      looked up through the source triangle.
+ *   2. Build an area-weighted colour histogram of the surface and
+ *      reduce it to N colours (k-means in CIELAB). N = number of
  *      filaments / toolheads.
  *   3. For every triangle, build an Orca/Bambu "paint tree": the
- *      triangle is recursively split 4-ways until each leaf covers
- *      about one texel, each leaf takes the nearest palette colour,
- *      and uniform subtrees collapse back to a single leaf. This lets
- *      paint detail exceed the mesh resolution — the same mechanism
- *      the slicer's own brush uses.
+ *      triangle is recursively split 4-ways (to ~1 texel for textures,
+ *      or until a vertex-colour gradient resolves), each leaf takes the
+ *      nearest palette colour, and uniform subtrees collapse back to a
+ *      single leaf. This lets paint detail exceed the mesh resolution —
+ *      the same mechanism the slicer's own brush uses.
+ *      Leaves landing on alpha-cutout texels (which the viewers
+ *      discard) take the triangle's dominant opaque colour instead of
+ *      whatever junk RGB the transparent texels hold.
  *   4. Serialise as a 3MF whose `<triangle>` elements carry the
  *      `paint_color` attribute.
  *
@@ -55,35 +60,14 @@ import { strToU8, zipSync } from 'fflate';
 import {
 	loopSubdivide,
 	weldByPositionTracked,
+	type ExportMaterial,
+	type ExportMesh,
+	type ExportTexture,
+	type ExportTextureWrap,
 	type IndexedMesh,
 } from './mesh-export';
 
 export type Rgb = readonly [number, number, number];
-
-export type PaintTextureWrap = 'repeat' | 'clamp' | 'mirror';
-
-/** Decoded RGBA8 texture, row 0 at V = 0 (i.e. `flipY = false`). */
-export interface PaintTexture {
-	pixels: ArrayLike<number>;
-	width: number;
-	height: number;
-	wrapS: PaintTextureWrap;
-	wrapT: PaintTextureWrap;
-}
-
-/** One baked shape to export. */
-export interface PaintMeshInput {
-	/** World-space (posed) positions, packed XYZ. */
-	positions: Float32Array;
-	/** Triangle-list indices into `positions` / `uvs`. */
-	indices: Uint32Array;
-	/** Per-vertex UVs (parallel to `positions`). */
-	uvs: Float32Array | null;
-	/** Albedo. When absent (or `uvs` is absent) `baseColor` is used. */
-	texture: PaintTexture | null;
-	/** Flat colour for untextured shapes. Default mid-grey. */
-	baseColor?: Rgb;
-}
 
 export interface Paint3mfOptions {
 	/** Number of filaments to quantise to (1–16). */
@@ -106,7 +90,7 @@ export interface Paint3mfResult {
 	/** Filament colours, index 0 = filament 1. Sorted by coverage. */
 	palette: Rgb[];
 	triangleCount: number;
-	/** Total number of painted leaves written (diagnostic). */
+	/** Paint-tree leaves sampled, before uniform subtrees collapse (diagnostic). */
 	leafCount: number;
 }
 
@@ -349,24 +333,31 @@ function makeQuantizer(palette: Rgb[]): (r: number, g: number, b: number) => num
 }
 
 // ---------------------------------------------------------------------------
-// Texture sampling
+// Sampling
 // ---------------------------------------------------------------------------
 
-function wrapIndex(i: number, n: number, mode: PaintTextureWrap): number {
+function wrapIndex(i: number, n: number, mode: ExportTextureWrap): number {
 	if (mode === 'clamp') return i < 0 ? 0 : i >= n ? n - 1 : i;
 	if (mode === 'mirror') {
 		const p = 2 * n;
-		let m = ((i % p) + p) % p;
+		const m = ((i % p) + p) % p;
 		return m < n ? m : p - 1 - m;
 	}
 	return ((i % n) + n) % n;
 }
 
 /** Nearest-texel fetch; returns the RGBA byte offset into `pixels`. */
-function texelOffset(tex: PaintTexture, u: number, v: number): number {
+function texelOffset(tex: ExportTexture, u: number, v: number): number {
 	const x = wrapIndex(Math.floor(u * tex.width), tex.width, tex.wrapS);
-	const y = wrapIndex(Math.floor(v * tex.height), tex.height, tex.wrapT);
+	let y = wrapIndex(Math.floor(v * tex.height), tex.height, tex.wrapT);
+	if (tex.flipY) y = tex.height - 1 - y;
 	return (y * tex.width + x) * 4;
+}
+
+function linearToSrgbByte(c: number): number {
+	c = c <= 0 ? 0 : c >= 1 ? 1 : c;
+	const s = c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
+	return Math.round(s * 255);
 }
 
 /** Tiny deterministic PRNG (mulberry32). */
@@ -386,7 +377,7 @@ function mulberry32(seed: number): () => number {
 // ---------------------------------------------------------------------------
 
 interface TrackedShape {
-	input: PaintMeshInput;
+	input: ExportMesh;
 	mesh: IndexedMesh;
 	/** Per output triangle: source triangle index in `input.indices`. */
 	src: Uint32Array;
@@ -394,7 +385,7 @@ interface TrackedShape {
 	bary: Float32Array;
 }
 
-function trackShape(input: PaintMeshInput, passes: number): TrackedShape {
+function trackShape(input: ExportMesh, passes: number): TrackedShape {
 	const welded = weldByPositionTracked({
 		positions: input.positions,
 		indices: input.indices,
@@ -450,59 +441,112 @@ function trackShape(input: PaintMeshInput, passes: number): TrackedShape {
 }
 
 // ---------------------------------------------------------------------------
+// Per-triangle colour sources
+// ---------------------------------------------------------------------------
+
+const KIND_FLAT = 0;
+const KIND_TEXTURE = 1;
+const KIND_VCOLOR = 2;
+
+/**
+ * Colour source of one output triangle, parameterised over the
+ * triangle as `P(s, t) = A + s·(B − A) + t·(C − A)` with corners
+ * A = (0,0), B = (1,0), C = (0,1). Paint-tree subdivision happens in
+ * that (s, t) space and only maps to UV / colour at sample time.
+ */
+interface TriSource {
+	kind: number;
+	texture: ExportTexture | null;
+	/** Flat colour (sRGB bytes). */
+	flat: Rgb;
+	/** Corner attributes: UV pairs (6) or linear-or-sRGB RGB (9). */
+	attr: Float64Array;
+	/** Vertex colours need linear → sRGB encoding at sample time. */
+	linear: boolean;
+}
+
+/**
+ * Write the colour at (s, t) as sRGB bytes into `out`. Returns false
+ * for alpha-cutout texels (alpha < 0.5, matching the viewers'
+ * `alphaTest`).
+ */
+function sampleSource(src: TriSource, s: number, t: number, out: Uint8Array): boolean {
+	const a = src.attr;
+	const r = 1 - s - t;
+	if (src.kind === KIND_TEXTURE) {
+		const tex = src.texture!;
+		const u = r * a[0]! + s * a[2]! + t * a[4]!;
+		const v = r * a[1]! + s * a[3]! + t * a[5]!;
+		const px = texelOffset(tex, u, v);
+		out[0] = tex.pixels[px]!;
+		out[1] = tex.pixels[px + 1]!;
+		out[2] = tex.pixels[px + 2]!;
+		return tex.pixels[px + 3]! >= 128;
+	}
+	if (src.kind === KIND_VCOLOR) {
+		for (let c = 0; c < 3; c++) {
+			const v = r * a[c]! + s * a[3 + c]! + t * a[6 + c]!;
+			out[c] = src.linear ? linearToSrgbByte(v) : Math.round(Math.min(1, Math.max(0, v)) * 255);
+		}
+		return true;
+	}
+	out[0] = src.flat[0];
+	out[1] = src.flat[1];
+	out[2] = src.flat[2];
+	return true;
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
 /**
  * Build an OrcaSlicer / Bambu Studio compatible multi-colour 3MF.
- * All shapes are merged into a single object so the slicer keeps them
+ * All meshes are merged into a single object so the slicer keeps them
  * together (separate objects would be auto-arranged apart on the bed).
  */
 export function buildPainted3MF(
-	inputs: PaintMeshInput[],
+	inputs: ExportMesh[],
 	options: Paint3mfOptions,
 ): Paint3mfResult {
 	const colorCount = Math.max(1, Math.min(16, Math.floor(options.colorCount)));
 	const passes = options.subdivisionPasses ?? 0;
 	const flipToZUp = (options.sourceAxis ?? 'y-up') === 'y-up';
 	const maxDepth = options.maxPaintDepth ?? 5;
+	/** Depth used to resolve vertex-colour gradients inside a triangle. */
+	const vcolorDepth = Math.min(maxDepth, 3);
 
-	// --- 1. Merge shapes, keeping per-triangle source tracking. ----------
+	// --- 1. Merge meshes, keeping per-triangle source tracking. ----------
 	const shapes = inputs.map((inp) => trackShape(inp, passes));
 
 	let vertTotal = 0;
-	let triTotal = 0;
-	for (const s of shapes) {
-		vertTotal += s.mesh.positions.length / 3;
-		triTotal += s.mesh.indices.length / 3;
-	}
+	for (const s of shapes) vertTotal += s.mesh.positions.length / 3;
 	const positions = new Float32Array(vertTotal * 3);
 	const tris: number[] = [];
-	/** Per kept triangle: shape index. */
-	const triShape: number[] = [];
-	/** Per kept triangle: 3 corner UVs (u0 v0 u1 v1 u2 v2), NaN if none. */
-	const triUv: number[] = [];
+	const sources: TriSource[] = [];
 
 	let vBase = 0;
-	shapes.forEach((s, si) => {
+	for (const s of shapes) {
 		const p = s.mesh.positions;
 		for (let v = 0; v < p.length / 3; v++) {
 			const x = p[v * 3]!;
 			const y = p[v * 3 + 1]!;
 			const z = p[v * 3 + 2]!;
 			const o = (vBase + v) * 3;
-			if (flipToZUp) {
-				positions[o] = x;
-				positions[o + 1] = -z;
-				positions[o + 2] = y;
-			} else {
-				positions[o] = x;
-				positions[o + 1] = y;
-				positions[o + 2] = z;
-			}
+			positions[o] = x;
+			positions[o + 1] = flipToZUp ? -z : y;
+			positions[o + 2] = flipToZUp ? y : z;
 		}
-		const uvs = s.input.uvs;
-		const srcIdx = s.input.indices;
+		const inp = s.input;
+		const materials: ExportMaterial[] = inp.materials?.length
+			? inp.materials
+			: [{ texture: null }];
+		const triMats = inp.triangleMaterials;
+		const uvs = inp.uvs;
+		const colors = inp.colors;
+		const cStride = inp.colorStride ?? 3;
+		const linear = (inp.colorSpace ?? 'linear') === 'linear';
+		const srcIdx = inp.indices;
 		const idx = s.mesh.indices;
 		for (let t = 0; t < idx.length / 3; t++) {
 			const a = vBase + idx[t * 3]!;
@@ -516,31 +560,54 @@ export function buildPainted3MF(
 			if (!Number.isFinite(ax + ay + az + bx + by + bz + cx + cy + cz)) continue;
 			const e1x = bx - ax, e1y = by - ay, e1z = bz - az;
 			const e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
-			const nx = e1y * e2z - e1z * e2y;
-			const ny = e1z * e2x - e1x * e2z;
-			const nz = e1x * e2y - e1y * e2x;
-			if (nx === 0 && ny === 0 && nz === 0) continue;
-
-			tris.push(a, b, c);
-			triShape.push(si);
-			if (uvs && s.input.texture) {
-				const st = s.src[t]!;
-				const i0 = srcIdx[st * 3]!, i1 = srcIdx[st * 3 + 1]!, i2 = srcIdx[st * 3 + 2]!;
-				const u0 = uvs[i0 * 2]!, v0 = uvs[i0 * 2 + 1]!;
-				const u1 = uvs[i1 * 2]!, v1 = uvs[i1 * 2 + 1]!;
-				const u2 = uvs[i2 * 2]!, v2 = uvs[i2 * 2 + 1]!;
-				for (let k = 0; k < 3; k++) {
-					const o = t * 9 + k * 3;
-					const w0 = s.bary[o]!, w1 = s.bary[o + 1]!, w2 = s.bary[o + 2]!;
-					triUv.push(w0 * u0 + w1 * u1 + w2 * u2, w0 * v0 + w1 * v1 + w2 * v2);
-				}
-			} else {
-				triUv.push(NaN, NaN, NaN, NaN, NaN, NaN);
+			if (
+				e1y * e2z - e1z * e2y === 0 &&
+				e1z * e2x - e1x * e2z === 0 &&
+				e1x * e2y - e1y * e2x === 0
+			) {
+				continue;
 			}
+			tris.push(a, b, c);
+
+			const st = s.src[t]!;
+			const mat = materials[triMats?.[st] ?? 0] ?? materials[0]!;
+			const i0 = srcIdx[st * 3]!, i1 = srcIdx[st * 3 + 1]!, i2 = srcIdx[st * 3 + 2]!;
+			const bo = t * 9;
+			const src: TriSource = {
+				kind: KIND_FLAT,
+				texture: null,
+				flat: mat.baseColor ?? DEFAULT_BASE,
+				attr: new Float64Array(0),
+				linear,
+			};
+			if (mat.texture && uvs) {
+				src.kind = KIND_TEXTURE;
+				src.texture = mat.texture;
+				src.attr = new Float64Array(6);
+				for (let k = 0; k < 3; k++) {
+					const w0 = s.bary[bo + k * 3]!, w1 = s.bary[bo + k * 3 + 1]!, w2 = s.bary[bo + k * 3 + 2]!;
+					src.attr[k * 2] = w0 * uvs[i0 * 2]! + w1 * uvs[i1 * 2]! + w2 * uvs[i2 * 2]!;
+					src.attr[k * 2 + 1] =
+						w0 * uvs[i0 * 2 + 1]! + w1 * uvs[i1 * 2 + 1]! + w2 * uvs[i2 * 2 + 1]!;
+				}
+			} else if (mat.useVertexColors && colors) {
+				src.kind = KIND_VCOLOR;
+				src.attr = new Float64Array(9);
+				for (let k = 0; k < 3; k++) {
+					const w0 = s.bary[bo + k * 3]!, w1 = s.bary[bo + k * 3 + 1]!, w2 = s.bary[bo + k * 3 + 2]!;
+					for (let ch = 0; ch < 3; ch++) {
+						src.attr[k * 3 + ch] =
+							w0 * colors[i0 * cStride + ch]! +
+							w1 * colors[i1 * cStride + ch]! +
+							w2 * colors[i2 * cStride + ch]!;
+					}
+				}
+			}
+			sources.push(src);
 		}
 		vBase += p.length / 3;
-	});
-	const triCount = triShape.length;
+	}
+	const triCount = sources.length;
 
 	// --- 2. Orient so Orca won't flip (and re-map) the triangles. --------
 	let signedVol = 0;
@@ -556,12 +623,14 @@ export function buildPainted3MF(
 			const tmp = tris[t * 3 + 1]!;
 			tris[t * 3 + 1] = tris[t * 3 + 2]!;
 			tris[t * 3 + 2] = tmp;
-			const o = t * 6;
-			const tu = triUv[o + 2]!, tv = triUv[o + 3]!;
-			triUv[o + 2] = triUv[o + 4]!;
-			triUv[o + 3] = triUv[o + 5]!;
-			triUv[o + 4] = tu;
-			triUv[o + 5] = tv;
+			// Swap the B and C corner attributes to match.
+			const a = sources[t]!.attr;
+			const n = a.length / 3;
+			for (let k = 0; k < n; k++) {
+				const tv = a[n + k]!;
+				a[n + k] = a[2 * n + k]!;
+				a[2 * n + k] = tv;
+			}
 		}
 	}
 
@@ -586,22 +655,20 @@ export function buildPainted3MF(
 	const hist = new Float64Array(BIN_COUNT * 4);
 	const addHist = (r: number, g: number, b: number, w: number) => {
 		const o = binKey(r, g, b) * 4;
-		hist[o] += r * w;
-		hist[o + 1] += g * w;
-		hist[o + 2] += b * w;
-		hist[o + 3] += w;
+		hist[o] = hist[o]! + r * w;
+		hist[o + 1] = hist[o + 1]! + g * w;
+		hist[o + 2] = hist[o + 2]! + b * w;
+		hist[o + 3] = hist[o + 3]! + w;
 	};
 	const SAMPLES = 200_000;
 	const rand = mulberry32(0x3d3f);
+	const rgb = new Uint8Array(3);
 	let carry = 0;
 	for (let t = 0; t < triCount; t++) {
 		const want = totalArea > 0 ? (triArea[t]! / totalArea) * SAMPLES : 0;
-		const shape = shapes[triShape[t]!]!;
-		const tex = shape.input.texture;
-		const o = t * 6;
-		if (!tex || Number.isNaN(triUv[o]!)) {
-			const c = shape.input.baseColor ?? DEFAULT_BASE;
-			addHist(c[0], c[1], c[2], want);
+		const src = sources[t]!;
+		if (src.kind === KIND_FLAT) {
+			addHist(src.flat[0], src.flat[1], src.flat[2], want);
 			continue;
 		}
 		carry += want;
@@ -613,81 +680,94 @@ export function buildPainted3MF(
 				r1 = 1 - r1;
 				r2 = 1 - r2;
 			}
-			const r0 = 1 - r1 - r2;
-			const u = r0 * triUv[o]! + r1 * triUv[o + 2]! + r2 * triUv[o + 4]!;
-			const v = r0 * triUv[o + 1]! + r1 * triUv[o + 3]! + r2 * triUv[o + 5]!;
-			const px = texelOffset(tex, u, v);
-			// Fully/mostly transparent texels usually hold junk RGB;
-			// keep them from claiming a filament slot.
-			if (tex.pixels[px + 3]! < 128) continue;
-			addHist(tex.pixels[px]!, tex.pixels[px + 1]!, tex.pixels[px + 2]!, 1);
+			// Transparent texels usually hold junk RGB; keep them from
+			// claiming a filament slot.
+			if (!sampleSource(src, r1, r2, rgb)) continue;
+			addHist(rgb[0]!, rgb[1]!, rgb[2]!, 1);
 		}
 	}
 	const palette = reducePalette(hist, colorCount);
 	const quantize = makeQuantizer(palette);
 
 	// --- 4. Paint trees. ---------------------------------------------------
+	const TRANSPARENT = -1;
+	const counts = new Int32Array(palette.length + 2);
 	let leafCount = 0;
 	const paint: string[] = new Array(triCount);
 	for (let t = 0; t < triCount; t++) {
-		const shape = shapes[triShape[t]!]!;
-		const tex = shape.input.texture;
-		const o = t * 6;
-		if (!tex || Number.isNaN(triUv[o]!)) {
-			const c = shape.input.baseColor ?? DEFAULT_BASE;
-			const state = quantize(c[0], c[1], c[2]) + 1;
-			paint[t] = state === 1 ? '' : encodePaintLeaf(state);
-			leafCount++;
-			continue;
+		const src = sources[t]!;
+		let depth = 0;
+		if (src.kind === KIND_TEXTURE) {
+			const a = src.attr;
+			const tex = src.texture!;
+			const texelArea =
+				(Math.abs((a[2]! - a[0]!) * (a[5]! - a[1]!) - (a[4]! - a[0]!) * (a[3]! - a[1]!)) / 2) *
+				tex.width *
+				tex.height;
+			depth =
+				texelArea <= 1 ? 0 : Math.min(maxDepth, Math.ceil(Math.log(texelArea) / Math.log(4)));
+		} else if (src.kind === KIND_VCOLOR) {
+			// Only subdivide when the corners disagree.
+			const q = [0, 0, 0].map((_, k) => {
+				const s = k === 1 ? 1 : 0;
+				const tt = k === 2 ? 1 : 0;
+				sampleSource(src, s, tt, rgb);
+				return quantize(rgb[0]!, rgb[1]!, rgb[2]!);
+			});
+			depth = q[0] === q[1] && q[0] === q[2] ? 0 : vcolorDepth;
 		}
-		const u0 = triUv[o]!, v0 = triUv[o + 1]!;
-		const u1 = triUv[o + 2]!, v1 = triUv[o + 3]!;
-		const u2 = triUv[o + 4]!, v2 = triUv[o + 5]!;
-		const texelArea =
-			(Math.abs((u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0)) / 2) *
-			tex.width *
-			tex.height;
-		const depth =
-			texelArea <= 1
-				? 0
-				: Math.min(maxDepth, Math.ceil(Math.log(texelArea) / Math.log(4)));
 
-		const sample = (u: number, v: number): number => {
-			const px = texelOffset(tex, u, v);
-			return quantize(tex.pixels[px]!, tex.pixels[px + 1]!, tex.pixels[px + 2]!) + 1;
+		counts.fill(0);
+		const sample = (s: number, tt: number): number => {
+			leafCount++;
+			if (!sampleSource(src, s, tt, rgb)) return TRANSPARENT;
+			const state = quantize(rgb[0]!, rgb[1]!, rgb[2]!) + 1;
+			counts[state]!++;
+			return state;
 		};
-		// Returns a leaf state (number) or an encoded split subtree.
-		const rec = (
-			au: number, av: number,
-			bu: number, bv: number,
-			cu: number, cv: number,
+		// Build the raw tree over (s, t) space; children follow the
+		// Orca 3-side split layout documented at the top of the file.
+		const build = (
+			as: number, at: number,
+			bs: number, bt: number,
+			cs: number, ct: number,
 			d: number,
-		): number | string => {
-			if (d === 0) {
-				leafCount++;
-				return sample((au + bu + cu) / 3, (av + bv + cv) / 3);
-			}
-			const abu = (au + bu) / 2, abv = (av + bv) / 2;
-			const bcu = (bu + cu) / 2, bcv = (bv + cv) / 2;
-			const cau = (cu + au) / 2, cav = (cv + av) / 2;
-			const k0 = rec(au, av, abu, abv, cau, cav, d - 1);
-			const k1 = rec(abu, abv, bu, bv, bcu, bcv, d - 1);
-			const k2 = rec(bcu, bcv, cu, cv, cau, cav, d - 1);
-			const k3 = rec(abu, abv, bcu, bcv, cau, cav, d - 1);
-			if (typeof k0 === 'number' && k0 === k1 && k0 === k2 && k0 === k3) {
-				leafCount -= 3;
-				return k0;
-			}
+		): PaintNode => {
+			if (d === 0) return sample((as + bs + cs) / 3, (at + bt + ct) / 3);
+			const abs = (as + bs) / 2, abt = (at + bt) / 2;
+			const bcs = (bs + cs) / 2, bct = (bt + ct) / 2;
+			const cas = (cs + as) / 2, cat = (ct + at) / 2;
+			const k0 = build(as, at, abs, abt, cas, cat, d - 1);
+			const k1 = build(abs, abt, bs, bt, bcs, bct, d - 1);
+			const k2 = build(bcs, bct, cs, ct, cas, cat, d - 1);
+			const k3 = build(abs, abt, bcs, bct, cas, cat, d - 1);
+			if (typeof k0 === 'number' && k0 === k1 && k0 === k2 && k0 === k3) return k0;
+			return [k0, k1, k2, k3];
+		};
+		const tree = build(0, 0, 1, 0, 0, 1, depth);
+
+		// Cutout leaves take the triangle's dominant opaque colour
+		// (filament 1 — the model's dominant colour — if fully cut out).
+		let fill = 1;
+		for (let st = 2; st < counts.length; st++) if (counts[st]! > counts[fill]!) fill = st;
+		const finalize = (n: PaintNode): number | string => {
+			if (typeof n === 'number') return n === TRANSPARENT ? fill : n;
+			const k0 = finalize(n[0]);
+			const k1 = finalize(n[1]);
+			const k2 = finalize(n[2]);
+			const k3 = finalize(n[3]);
+			if (typeof k0 === 'number' && k0 === k1 && k0 === k2 && k0 === k3) return k0;
 			const enc = (k: number | string) => (typeof k === 'number' ? encodePaintLeaf(k) : k);
 			return enc(k0) + enc(k1) + enc(k2) + enc(k3) + '3';
 		};
-		const root = rec(u0, v0, u1, v1, u2, v2, depth);
+		const root = finalize(tree);
+		// Filament 1 is the object's default, so whole-triangle filament
+		// 1 needs no attribute.
 		paint[t] = root === 1 ? '' : typeof root === 'number' ? encodePaintLeaf(root) : root;
 	}
 
 	// --- 5. Serialise. -----------------------------------------------------
 	const title = options.title ?? 'model';
-	const hex = rgbToHex;
 	const fmt = (x: number) => String(Math.round(x * 1e5) / 1e5);
 
 	const parts: string[] = [];
@@ -697,7 +777,7 @@ export function buildPainted3MF(
 		` <metadata name="Title">${xmlEscape(title)}</metadata>\n`,
 		` <metadata name="Designer">nx-archive</metadata>\n`,
 		` <metadata name="Description">${xmlEscape(
-			`Filaments: ${palette.map((c, i) => `${i + 1}=${hex(c)}`).join(' ')}`,
+			`Filaments: ${palette.map((c, i) => `${i + 1}=${rgbToHex(c)}`).join(' ')}`,
 		)}</metadata>\n`,
 		' <resources>\n',
 		`  <object id="1" type="model" name="${xmlEscape(title)}">\n`,

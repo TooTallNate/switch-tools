@@ -1,16 +1,17 @@
 /**
- * Generic Three.js viewer for any indexed mesh — used by the UE
- * StaticMesh viewer ({@link ./static-mesh-viewer.tsx}), the BFRES
- * viewer ({@link ./bfres-viewer.tsx}) — for the shared toolbar
- * + STL export logic — and the PhyreEngine `.dae.phyre` viewer.
+ * Generic Three.js viewer for any indexed mesh. Every 3D preview
+ * except BFRES renders through it: UE StaticMesh, PhyreEngine, HSD,
+ * J3D, N64 display lists, and the FF7 / FF8 model previews. BFRES
+ * ({@link ./bfres-viewer.tsx}) still has its own viewer (it needs
+ * GPU skinning, a multi-mesh scene graph and material animation) but
+ * shares the export toolbar ({@link ./mesh-export-bar.tsx}).
  *
  * Per-format wrappers convert their parsed geometry into a
  * {@link RenderableMesh} (1+ LODs, each LOD = positions/normals/
  * indices/sections) and pass optional textures + animation
  * metadata. The viewer plumbs in the renderer lifecycle, orbit
  * controls, framing, wireframe + normals overlays, LOD picker,
- * animation playback controls, STL export with optional Loop
- * subdivision smoothing.
+ * animation playback controls, and STL / painted-3MF export.
  *
  * # Why not three.js scene-driven viewers per format?
  *
@@ -32,32 +33,28 @@
  * swaps, etc.). Formats with no animations omit the prop and
  * the toolbar hides the scrubber.
  *
- * # STL export API
+ * # Export API
  *
- * STL emit lives in {@link ~/lib/mesh-export} (welding +
- * subdivision + binary STL encoder). The viewer drives it via
- * a {@link MeshViewerExportProvider} callback that knows how to
- * bake the current pose into world-space `IndexedMesh`es. The
- * default provider (when omitted) samples positions from the
- * already-rendered three.js mesh — fine for static geometry.
- * BFRES overrides this to honour skinning + visibility toggles.
+ * Export lives in {@link ~/lib/mesh-export} (STL) and
+ * {@link ~/lib/mesh-export-3mf} (painted 3MF), driven by the shared
+ * {@link MeshExportBar}. The default bake reads the mounted scene
+ * back via {@link exportMeshesFromScene}: positions (including any
+ * pose a driver wrote into the geometry), UVs, vertex colours and
+ * the textures actually bound to each material slot. A custom
+ * {@link MeshViewerExportProvider} can replace it.
  */
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react"
 import * as THREE from "three"
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
 
-import {
-  emitBinarySTL,
-  loopSubdivide,
-  sanitizeStem,
-  triggerDownload,
-  weldByPosition,
-  type IndexedMesh,
-} from "~/lib/mesh-export"
+import type { ExportMesh } from "~/lib/mesh-export"
+import { exportMeshesFromScene } from "~/lib/three-export"
 import type { DecodedTexture } from "~/lib/uasset-material-chain"
 
 import { PauseIcon, PlayIcon } from "lucide-react"
+
+import { MeshExportBar } from "./mesh-export-bar"
 
 /**
  * One material-bounded slice of an indexed mesh. Mirrors UE's
@@ -180,27 +177,21 @@ export interface MeshViewerAnimationDriver {
 }
 
 /**
- * Per-format STL export provider. The default provider (used
- * when omitted) bakes the currently-rendered scene mesh into
- * world space via `Mesh.matrixWorld` — fine for static meshes.
- *
- * Skinned meshes (BFRES) override this to additionally bake
- * skinning + visibility filters + custom welding tolerance.
+ * Per-format export provider. The default (used when omitted) reads
+ * the mounted scene back via {@link exportMeshesFromScene}, which
+ * already captures CPU-skinned poses, UVs, vertex colours and bound
+ * textures — so most formats never need one.
  */
 export interface MeshViewerExportProvider {
   /**
    * Bake the current viewer state (animation frame, visibility,
-   * skinning) into one or more world-space indexed meshes.
-   * Return an empty array to disable export.
+   * skinning) into one or more world-space meshes. Return an empty
+   * array to disable export.
    */
-  bake(scene: THREE.Scene): IndexedMesh[]
-  /** Override the STL header free-form text. */
-  header?: string
+  bake(scene: THREE.Scene): ExportMesh[]
   /**
-   * Override the STL output's source-axis flag. By default,
-   * matches the viewer's `mesh.upAxis` to produce slicer-friendly
-   * Z-up output (UE meshes are already Z-up; we mark them as
-   * such so the STL emitter doesn't re-rotate them).
+   * Axis convention of the baked coordinates. The default bake is in
+   * Three.js world space (Y-up after the viewer's `upAxis` rotation).
    */
   sourceAxis?: "y-up" | "z-up"
 }
@@ -276,7 +267,14 @@ function buildGeometry(lod: RenderableMeshLOD): THREE.BufferGeometry {
   }
   geom.setIndex(new THREE.BufferAttribute(lod.indices, 1))
   for (const sec of lod.sections) {
-    geom.addGroup(sec.firstIndex, sec.numTriangles * 3, sec.materialIndex)
+    // Three.js silently skips groups whose material index has no
+    // material, so unassigned sections (e.g. HSD's -1) would vanish
+    // from the render while still appearing in exports.
+    geom.addGroup(
+      sec.firstIndex,
+      sec.numTriangles * 3,
+      Math.max(0, sec.materialIndex),
+    )
   }
   if (!lod.normals) {
     geom.computeVertexNormals()
@@ -284,6 +282,12 @@ function buildGeometry(lod: RenderableMeshLOD): THREE.BufferGeometry {
   geom.computeBoundingBox()
   geom.computeBoundingSphere()
   return geom
+}
+
+function threeWrap(w: DecodedTexture["wrapS"]): THREE.Wrapping {
+  if (w === "clamp") return THREE.ClampToEdgeWrapping
+  if (w === "mirror") return THREE.MirroredRepeatWrapping
+  return THREE.RepeatWrapping
 }
 
 /**
@@ -300,8 +304,8 @@ function buildDataTexture(decoded: DecodedTexture): THREE.DataTexture {
     THREE.UnsignedByteType,
   )
   tex.colorSpace = THREE.SRGBColorSpace
-  tex.wrapS = THREE.RepeatWrapping
-  tex.wrapT = THREE.RepeatWrapping
+  tex.wrapS = threeWrap(decoded.wrapS)
+  tex.wrapT = threeWrap(decoded.wrapT)
   tex.flipY = decoded.flipY ?? true
   tex.needsUpdate = true
   return tex
@@ -423,9 +427,6 @@ export function MeshViewer({
       setSelectedAnims(drivers.map(() => -1))
     }
   }, [drivers.length])
-
-  // STL export state — subdivision passes applied before emit.
-  const [stlSubdivision, setStlSubdivision] = useState(0)
 
   // Stable geometry per LOD so the canvas effect can swap without
   // rebuilding the attribute buffers every render.
@@ -712,26 +713,16 @@ export function MeshViewer({
     }
   }, [selectedAnims, drivers])
 
-  const handleExportSTL = () => {
+  const bakeForExport = (): ExportMesh[] | null => {
     const ctx = sceneRef.current
-    if (!ctx) return
-    const provider = exportProvider ?? defaultExportProvider(geometry, upAxis)
-    let baked = provider.bake(ctx.scene)
-    if (baked.length === 0) return
-    if (stlSubdivision > 0) {
-      baked = baked.map((m) => {
-        let cooked = weldByPosition(m)
-        for (let p = 0; p < stlSubdivision; p++) cooked = loopSubdivide(cooked)
-        return cooked
-      })
-    } else {
-      baked = baked.map(weldByPosition)
-    }
-    const sourceAxis =
-      provider.sourceAxis ?? (upAxis === "z-up" ? "z-up" : "y-up")
-    const stem = sanitizeStem(baseName ?? "model") || "model"
-    // Encode the active animation clip + frame into the suffix
-    // so a sequence of exports stays orderable by file name.
+    if (!ctx) return null
+    return exportProvider
+      ? exportProvider.bake(ctx.scene)
+      : exportMeshesFromScene(ctx.scene)
+  }
+  // Encode the active animation clip + frame into export file names
+  // so a sequence of exports stays orderable by name.
+  const exportSuffix = () => {
     let suffix = ""
     for (let d = 0; d < drivers.length; d++) {
       const idx = selectedAnims[d] ?? -1
@@ -741,13 +732,7 @@ export function MeshViewer({
       suffix += `_${safe}_f${String(Math.floor(frame)).padStart(4, "0")}`
     }
     if (!suffix && drivers.length > 0) suffix = "_bind"
-    if (stlSubdivision > 0) suffix += `_sub${stlSubdivision}`
-    const bytes = emitBinarySTL(baked, {
-      header:
-        provider.header ?? `nx-archive ${stem} export${suffix}`,
-      sourceAxis,
-    })
-    triggerDownload(bytes, `${stem}${suffix}.stl`, "model/stl")
+    return suffix
   }
 
   if (error) {
@@ -799,7 +784,7 @@ export function MeshViewer({
         </label>
         <label
           className="flex items-center gap-1"
-          title="Rotate 180° around X. Use this when the model is upside-down — common for game formats whose authoring tool baked in a Y-down convention."
+          title="Mirror along Y. Use this when the model is upside-down — common for game formats whose authoring tool baked in a Y-down convention. Exports keep the mirror and are re-oriented outward-facing."
         >
           <input
             type="checkbox"
@@ -889,79 +874,14 @@ export function MeshViewer({
           </span>
         </div>
       )}
-      {/* STL export bar — always visible (every mesh can be exported). */}
-      <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
-        <label className="flex items-center gap-1.5">
-          <span>Smooth</span>
-          <select
-            value={stlSubdivision}
-            onChange={(e) => setStlSubdivision(Number(e.target.value))}
-            title="Loop subdivision passes applied before STL export. Each pass quadruples the triangle count and rounds out corners."
-            className="rounded-md border bg-card px-1.5 py-0.5"
-          >
-            <option value={0}>None</option>
-            <option value={1}>1× (4× tris)</option>
-            <option value={2}>2× (16× tris)</option>
-          </select>
-        </label>
-        <button
-          type="button"
-          onClick={handleExportSTL}
-          title="Download the current pose as a binary STL (Z-up, slicer-ready)"
-          className="rounded-md border bg-card px-2 py-1"
-        >
-          Download STL
-        </button>
-      </div>
+      <MeshExportBar
+        bake={bakeForExport}
+        baseName={baseName}
+        suffix={exportSuffix}
+        sourceAxis={exportProvider?.sourceAxis ?? "y-up"}
+      />
     </div>
   )
-}
-
-/**
- * Default STL bake provider: extract positions + indices from
- * every visible `THREE.Mesh` in the scene, applying its world
- * matrix. Good enough for static (non-skinned) geometry; BFRES
- * overrides this to honour skinning + per-shape visibility.
- */
-function defaultExportProvider(
-  initialGeometry: THREE.BufferGeometry,
-  upAxis: NonNullable<RenderableMesh["upAxis"]>,
-): MeshViewerExportProvider {
-  void initialGeometry // currently we walk the scene; reserved for future bypass
-  return {
-    bake(scene) {
-      const meshes: IndexedMesh[] = []
-      const tmp = new THREE.Vector3()
-      scene.updateMatrixWorld(true)
-      scene.traverse((obj) => {
-        if (!(obj instanceof THREE.Mesh)) return
-        if (!obj.visible) return
-        const geom = obj.geometry
-        const pos = geom.getAttribute("position") as
-          | THREE.BufferAttribute
-          | undefined
-        const idx = geom.getIndex()
-        if (!pos || !idx) return
-        const vertexCount = pos.count
-        const positions = new Float32Array(vertexCount * 3)
-        for (let v = 0; v < vertexCount; v++) {
-          tmp.fromBufferAttribute(pos, v)
-          tmp.applyMatrix4(obj.matrixWorld)
-          positions[v * 3 + 0] = tmp.x
-          positions[v * 3 + 1] = tmp.y
-          positions[v * 3 + 2] = tmp.z
-        }
-        const idxArr = idx.array as ArrayLike<number>
-        const indices = new Uint32Array(idxArr.length)
-        for (let i = 0; i < idxArr.length; i++) indices[i] = idxArr[i]!
-        meshes.push({ positions, indices })
-      })
-      return meshes
-    },
-    // Scene is already in three.js world space (Y-up after our
-    // upAxis rotation), so STL emitter must rotate to Z-up.
-    sourceAxis: "y-up",
-  }
 }
 
 /**

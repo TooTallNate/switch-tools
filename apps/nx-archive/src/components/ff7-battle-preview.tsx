@@ -666,6 +666,7 @@ export function Ff7BattleSkeletonPreview({
 				materialDiffuseTextures={rig.textures}
 				animationDrivers={driver ? [driver] : undefined}
 				infoText={`${rig.pieces.length} piece${rig.pieces.length === 1 ? "" : "s"}`}
+				baseName={node.name}
 			/>
 		</div>
 	)

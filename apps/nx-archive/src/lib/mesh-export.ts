@@ -41,6 +41,58 @@ export interface IndexedMesh {
 	indices: Uint32Array;
 }
 
+export type ExportTextureWrap = 'repeat' | 'clamp' | 'mirror';
+
+/** Decoded RGBA8 texture as displayed by a viewer. */
+export interface ExportTexture {
+	pixels: ArrayLike<number>;
+	width: number;
+	height: number;
+	wrapS: ExportTextureWrap;
+	wrapT: ExportTextureWrap;
+	/**
+	 * Three.js `flipY` semantics: when true, V = 0 samples the *last*
+	 * pixel row. Default false (row 0 at V = 0).
+	 */
+	flipY?: boolean;
+}
+
+/** How one material slot of an {@link ExportMesh} is coloured. */
+export interface ExportMaterial {
+	/** Albedo texture; takes precedence over vertex colours (as in the viewers). */
+	texture: ExportTexture | null;
+	/** Use the mesh's per-vertex `colors` when there's no texture. */
+	useVertexColors?: boolean;
+	/** Flat colour (sRGB bytes) when neither applies. */
+	baseColor?: readonly [number, number, number];
+}
+
+/**
+ * Common export currency produced by every viewer's bake step.
+ * STL uses only the {@link IndexedMesh} part; the colour fields feed
+ * the painted-3MF exporter. Sections stay in one mesh (selected per
+ * triangle via `triangleMaterials`) so welding doesn't open cracks
+ * at material boundaries.
+ */
+export interface ExportMesh extends IndexedMesh {
+	/** Per-vertex UVs, parallel to `positions`. */
+	uvs?: Float32Array | null;
+	/** Per-vertex colours, `colorStride` floats each in 0–1. */
+	colors?: Float32Array | null;
+	/** 3 (RGB, default) or 4 (RGBA). */
+	colorStride?: 3 | 4;
+	/**
+	 * Colour space of `colors`. Three.js treats vertex colours as
+	 * linear and encodes to sRGB on output, so `'linear'` (default)
+	 * reproduces what the viewer shows.
+	 */
+	colorSpace?: 'linear' | 'srgb';
+	/** Material slots. Default: one untextured slot. */
+	materials?: ExportMaterial[];
+	/** Per-triangle index into `materials`. Default: all 0. */
+	triangleMaterials?: ArrayLike<number> | null;
+}
+
 /**
  * Weld vertices that share the same world-space position.
  *
@@ -336,6 +388,8 @@ export function emitBinarySTL(
 		header: string;
 		/** Source axis convention. Default `'y-up'`. */
 		sourceAxis?: 'y-up' | 'z-up';
+		/** Re-orient inside-out (negative-volume) input. Default true. */
+		orient?: boolean;
 	},
 ): Uint8Array {
 	const sourceAxis = options.sourceAxis ?? 'y-up';
@@ -351,6 +405,13 @@ export function emitBinarySTL(
 		view.setUint32(80, 0, true);
 		return new Uint8Array(empty);
 	}
+
+	// Mirrored sources (a viewer "Flip Y" toggle, or formats that
+	// negate one axis) arrive with inside-out winding. Slicers take
+	// winding as the inside/outside test, so re-orient to positive
+	// signed volume. The Y-up → Z-up rotation preserves the sign, so
+	// the raw coordinates are fine for this test.
+	const flipWinding = (options.orient ?? true) && signedVolume(meshes) < 0;
 
 	const bufSize = 84 + 50 * totalTris;
 	const buf = new ArrayBuffer(bufSize);
@@ -368,8 +429,8 @@ export function emitBinarySTL(
 		const indices = m.indices;
 		for (let i = 0; i < indices.length; i += 3) {
 			const ia = indices[i]! * 3;
-			const ib = indices[i + 1]! * 3;
-			const ic = indices[i + 2]! * 3;
+			const ib = indices[i + (flipWinding ? 2 : 1)]! * 3;
+			const ic = indices[i + (flipWinding ? 1 : 2)]! * 3;
 			if (flipToZUp) {
 				// (x, y, z) ← (x, −z, y)
 				ax[0] = positions[ia]!;
@@ -455,6 +516,29 @@ export function emitBinarySTL(
 		return new Uint8Array(buf, 0, 84 + 50 * written);
 	}
 	return new Uint8Array(buf);
+}
+
+/**
+ * Signed volume (×6) of a set of triangle meshes. Positive when the
+ * winding is counter-clockwise viewed from outside. Only the sign is
+ * meaningful for open or multi-shell meshes.
+ */
+export function signedVolume(meshes: IndexedMesh[]): number {
+	let vol = 0;
+	for (const { positions: p, indices: idx } of meshes) {
+		for (let i = 0; i < idx.length; i += 3) {
+			const a = idx[i]! * 3, b = idx[i + 1]! * 3, c = idx[i + 2]! * 3;
+			const ax = p[a]!, ay = p[a + 1]!, az = p[a + 2]!;
+			const bx = p[b]!, by = p[b + 1]!, bz = p[b + 2]!;
+			const cx = p[c]!, cy = p[c + 1]!, cz = p[c + 2]!;
+			const v =
+				ax * (by * cz - bz * cy) -
+				ay * (bx * cz - bz * cx) +
+				az * (bx * cy - by * cx);
+			if (Number.isFinite(v)) vol += v;
+		}
+	}
+	return vol;
 }
 
 function writeHeader(buf: ArrayBuffer, header: string): void {

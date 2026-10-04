@@ -27,6 +27,8 @@ interface Props {
    * default, unsupported pixel format, etc.).
    */
   materialDiffuseTextures?: Array<DecodedTexture | null>
+  /** File name stem for exports (e.g. the asset's object name). */
+  baseName?: string
 }
 
 /**
@@ -50,7 +52,7 @@ function adaptLOD(lod: StaticMeshLOD, lodIndex: number): RenderableMeshLOD {
   }
 }
 
-export function StaticMeshViewer({ mesh, materialDiffuseTextures }: Props) {
+export function StaticMeshViewer({ mesh, materialDiffuseTextures, baseName }: Props) {
   const renderable: RenderableMesh = useMemo(
     () => ({
       lods: mesh.lods.map(adaptLOD),
@@ -77,6 +79,7 @@ export function StaticMeshViewer({ mesh, materialDiffuseTextures }: Props) {
       mesh={renderable}
       materialDiffuseTextures={materialDiffuseTextures}
       infoText={info}
+      baseName={baseName}
     />
   )
 }

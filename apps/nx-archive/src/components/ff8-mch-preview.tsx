@@ -644,6 +644,7 @@ export function Ff8MchPreview({ node }: { node: Node }) {
 				materialDiffuseTextures={rig.textures}
 				animationDrivers={driver ? [driver] : undefined}
 				infoText={`${rig.pieces.length} skin pieces · ${rig.hasTextures ? `${v.tims.filter((t) => t).length} TIMs` : "untextured"}`}
+				baseName={node.name}
 			/>
 		</div>
 	)

@@ -515,6 +515,7 @@ export function Ff8BattleDatPreview({ node }: { node: Node }) {
 				materialDiffuseTextures={rig.textures}
 				animationDrivers={driver ? [driver] : undefined}
 				infoText={`${rig.pieces.length} skin pieces`}
+				baseName={node.name}
 			/>
 		</div>
 	)

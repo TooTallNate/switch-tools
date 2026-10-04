@@ -68,6 +68,9 @@ export interface DecodedTexture {
 	 * for backwards compatibility with existing decoders.
 	 */
 	flipY?: boolean;
+	/** Sampler wrap modes. Default `'repeat'`. */
+	wrapS?: 'repeat' | 'clamp' | 'mirror';
+	wrapT?: 'repeat' | 'clamp' | 'mirror';
 }
 
 /**

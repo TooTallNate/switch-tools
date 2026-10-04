@@ -6082,6 +6082,10 @@ function UassetStaticMeshSection({
         <StaticMeshViewer
           mesh={mesh}
           materialDiffuseTextures={textures ?? undefined}
+          baseName={
+            parsed.names[parsed.exports[meshState.exportIdx]?.objectName.nameIndex ?? -1]
+              ?.value
+          }
         />
       </div>
     </section>

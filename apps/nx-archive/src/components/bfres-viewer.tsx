@@ -41,22 +41,10 @@ import {
 
 import type { Node } from "~/lib/archive"
 import { getAstcBlockDecoder } from "~/lib/astc"
-import {
-  emitBinarySTL,
-  loopSubdivide,
-  sanitizeStem,
-  triggerDownload,
-  weldByPosition,
-  type IndexedMesh,
-} from "~/lib/mesh-export"
-import {
-  buildPainted3MF,
-  rgbToHex,
-  type PaintMeshInput,
-  type PaintTextureWrap,
-  type Rgb,
-} from "~/lib/mesh-export-3mf"
-import { toast } from "sonner"
+import type { ExportMesh, IndexedMesh } from "~/lib/mesh-export"
+import { exportMeshFromThree } from "~/lib/three-export"
+
+import { MeshExportBar } from "./mesh-export-bar"
 
 // EoW uses `_albedo0`; other Switch titles use the shorter `_a*` names.
 const ALBEDO_SAMPLERS = ["_albedo0", "_a0", "_a1", "_a2"]
@@ -1499,115 +1487,25 @@ function bakeShapeToWorld(record: ShapeRecord): IndexedMesh | null {
   return { positions, indices }
 }
 
-// `weldByPosition` and `loopSubdivide` are imported from
-// `~/lib/mesh-export` — shared with the static-mesh / phyre
-// viewers and used by `exportPosedSTL` below.
-
-
 /**
- * Bake all currently-visible meshes — including any skeletal-
- * animation deformation applied for the active frame — into a
- * binary STL file and trigger a browser download.
+ * Bake every visible shape at the current pose into the shared
+ * {@link ExportMesh} currency consumed by {@link MeshExportBar}.
  *
- * Pipeline:
- *
- *   1. For each visible shape, sample posed world-space
- *      positions ({@link bakeShapeToWorld}).
- *   2. Weld duplicate-position vertices ({@link weldByPosition})
- *      so seams don't masquerade as boundary edges in the next
- *      step.
- *   3. Optionally apply N passes of Loop subdivision
- *      ({@link loopSubdivide}); each pass quadruples the triangle
- *      count and smooths corners.
- *   4. Convert from BFRES Y-up to slicer Z-up by rotating −90°
- *      about the X axis.
- *   5. Compute flat per-triangle normals (cross product of two
- *      edges) and emit a binary STL: 80-byte free-form header,
- *      uint32 triangle count, then 50 bytes per triangle.
- *
- * Triangles whose vertices contain non-finite components after
- * baking (rare, but defensive — a malformed skin weight could
- * produce this) are dropped rather than written with garbage
- * values that might crash the slicer.
+ * Positions come from {@link bakeShapeToWorld} (GPU-skinned shapes
+ * need `applyBoneTransform`; the generic scene read-back would give
+ * bind-pose positions). UVs and textures are read from what's on
+ * screen, so an active FMAA flipbook frame is what gets painted.
  */
-function exportPosedSTL(
+function bakeVisibleShapes(
   shapes: ShapeRecord[],
   scene: THREE.Scene,
-  baseName: string,
-  suffix: string,
-  subdivisionPasses: number,
-): void {
+): ExportMesh[] {
   // Make sure every mesh's `matrixWorld` and every Skeleton's
-  // `boneMatrices` reflect the current pose. The render loop
-  // does this once per frame, but the user could in principle
-  // hit "Download" before the first render — call explicitly to
-  // be safe.
+  // `boneMatrices` reflect the current pose. The render loop does
+  // this once per frame, but the user could in principle hit
+  // "Download" before the first render.
   scene.updateMatrixWorld(true)
-  for (const r of shapes) {
-    if (!r.visible) continue
-    if ((r.mesh as THREE.SkinnedMesh).isSkinnedMesh) {
-      ;(r.mesh as THREE.SkinnedMesh).skeleton.update()
-    }
-  }
-
-  // Per-shape: bake → weld → subdivide. We keep meshes separate
-  // through these steps because cross-shape vertex sharing isn't
-  // meaningful for BFRES (different shapes have different
-  // materials and topologies that happen to coincide spatially).
-  const cooked: IndexedMesh[] = []
-  for (const r of shapes) {
-    if (!r.visible) continue
-    const baked = bakeShapeToWorld(r)
-    if (!baked) continue
-    let m = weldByPosition(baked)
-    for (let p = 0; p < subdivisionPasses; p++) {
-      m = loopSubdivide(m)
-    }
-    cooked.push(m)
-  }
-
-  if (cooked.length === 0) return
-
-  // Slicer-friendly export: BFRES is Y-up, so let the emitter
-  // rotate to Z-up. Header note + subdivision count get baked
-  // into the STL header for traceability.
-  const headerNote =
-    `nx-archive BFRES export ${baseName}${suffix}` +
-    (subdivisionPasses > 0 ? ` sub${subdivisionPasses}` : "")
-  const bytes = emitBinarySTL(cooked, {
-    header: headerNote,
-    sourceAxis: "y-up",
-  })
-
-  const stem = sanitizeStem(baseName) || "model"
-  const subSuffix = subdivisionPasses > 0 ? `_sub${subdivisionPasses}` : ""
-  const fileName = `${stem}${suffix}${subSuffix}.stl`
-  triggerDownload(bytes, fileName, "model/stl")
-}
-
-function threeWrapToPaint(w: THREE.Wrapping): PaintTextureWrap {
-  if (w === THREE.ClampToEdgeWrapping) return "clamp"
-  if (w === THREE.MirroredRepeatWrapping) return "mirror"
-  return "repeat"
-}
-
-/**
- * Multi-colour sibling of {@link exportPosedSTL}: bakes the current
- * pose and writes an OrcaSlicer / Bambu Studio 3MF whose triangles
- * carry `paint_color` filament assignments derived from each shape's
- * *currently displayed* albedo (so an active FMAA flipbook frame is
- * what gets painted). Returns the palette, index 0 = filament 1.
- */
-function exportPosed3MF(
-  shapes: ShapeRecord[],
-  scene: THREE.Scene,
-  baseName: string,
-  suffix: string,
-  subdivisionPasses: number,
-  colorCount: number,
-): Rgb[] | null {
-  scene.updateMatrixWorld(true)
-  const inputs: PaintMeshInput[] = []
+  const out: ExportMesh[] = []
   for (const r of shapes) {
     if (!r.visible) continue
     if ((r.mesh as THREE.SkinnedMesh).isSkinnedMesh) {
@@ -1615,46 +1513,10 @@ function exportPosed3MF(
     }
     const baked = bakeShapeToWorld(r)
     if (!baked) continue
-    const map = (r.mesh.material as THREE.MeshBasicMaterial).map as
-      | THREE.DataTexture
-      | null
-      | undefined
-    const img = map?.image as
-      | { data: ArrayLike<number>; width: number; height: number }
-      | undefined
-    inputs.push({
-      positions: baked.positions,
-      indices: baked.indices,
-      uvs: r.geom.uvs ?? null,
-      texture:
-        map && img?.data
-          ? {
-              pixels: img.data,
-              width: img.width,
-              height: img.height,
-              wrapS: threeWrapToPaint(map.wrapS),
-              wrapT: threeWrapToPaint(map.wrapT),
-            }
-          : null,
-    })
+    const m = exportMeshFromThree(r.mesh, baked.positions)
+    if (m) out.push(m)
   }
-  if (inputs.length === 0) return null
-
-  const title = `${baseName}${suffix}`
-  const result = buildPainted3MF(inputs, {
-    colorCount,
-    subdivisionPasses,
-    sourceAxis: "y-up",
-    title,
-  })
-  const stem = sanitizeStem(baseName) || "model"
-  const subSuffix = subdivisionPasses > 0 ? `_sub${subdivisionPasses}` : ""
-  triggerDownload(
-    result.bytes,
-    `${stem}${suffix}${subSuffix}_${result.palette.length}c.3mf`,
-    "model/3mf",
-  )
-  return result.palette
+  return out
 }
 
 /**
@@ -1694,15 +1556,6 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
   const textureCacheRef = useRef<BntxTextureCache | null>(null)
   const materialsRef = useRef<BfresMaterial[][] | null>(null)
   const [showSkeleton, setShowSkeleton] = useState(false)
-  // STL export options. `stlSubdivision` is the number of Loop
-  // subdivision passes applied before STL emit — 0 = raw mesh
-  // (fastest, smallest file, blocky look on low-poly characters);
-  // 1 = ~4× tris (recommended for Switch character meshes); 2 =
-  // ~16× tris (overkill for most prints, but available).
-  const [stlSubdivision, setStlSubdivision] = useState<number>(1)
-  // Filament count for the multi-colour 3MF export (e.g. 4 for a
-  // 4-toolhead Snapmaker U1 / single-AMS Bambu).
-  const [paintColors, setPaintColors] = useState<number>(4)
   // Animation playback state. `currentAnim` indexes into
   // `animations.skeletal` (or -1 for "no animation, bind pose").
   const [currentAnim, setCurrentAnim] = useState<number>(-1)
@@ -2558,109 +2411,18 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
           </span>
         </div>
       ) : null}
-      <div className="flex items-center justify-end gap-3 text-xs text-muted-foreground">
-        <label className="flex items-center gap-1.5">
-          <span>Smooth</span>
-          <select
-            value={stlSubdivision}
-            onChange={(e) => setStlSubdivision(Number(e.target.value))}
-            title="Loop subdivision passes applied before STL export. Each pass quadruples the triangle count and rounds out corners."
-            className="rounded-md border bg-card px-1.5 py-0.5"
-          >
-            <option value={0}>None</option>
-            <option value={1}>1× (4× tris)</option>
-            <option value={2}>2× (16× tris)</option>
-          </select>
-        </label>
-        <button
-          type="button"
-          onClick={() => {
-            const ctx = sceneRef.current
-            if (!ctx || !shapes) return
-            exportPosedSTL(
-              shapes,
-              ctx.scene,
-              node.name,
-              exportSuffix(),
-              stlSubdivision,
-            )
-          }}
-          disabled={!shapes || shapes.length === 0}
-          title="Download the current pose as a binary STL (Z-up, slicer-ready)"
-          className="rounded-md border bg-card px-2 py-1 disabled:opacity-50"
-        >
-          Download STL
-        </button>
-        <label className="flex items-center gap-1.5">
-          <span>Colors</span>
-          <select
-            value={paintColors}
-            onChange={(e) => setPaintColors(Number(e.target.value))}
-            title="Number of filaments the texture is reduced to for the 3MF export"
-            className="rounded-md border bg-card px-1.5 py-0.5"
-          >
-            {[2, 3, 4, 5, 6, 7, 8, 12, 16].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          onClick={() => {
-            const ctx = sceneRef.current
-            if (!ctx || !shapes) return
-            const suffix = exportSuffix()
-            const id = toast.loading("Painting 3MF…")
-            // Yield a frame so the toast renders before the
-            // (synchronous, potentially multi-second) bake.
-            setTimeout(() => {
-              try {
-                const palette = exportPosed3MF(
-                  shapes,
-                  ctx.scene,
-                  node.name,
-                  suffix,
-                  stlSubdivision,
-                  paintColors,
-                )
-                if (!palette) {
-                  toast.dismiss(id)
-                  return
-                }
-                toast.success(`Exported ${palette.length}-color 3MF`, {
-                  id,
-                  duration: 15000,
-                  description: (
-                    <div className="mt-1 flex flex-col gap-0.5">
-                      <span>Set these filament colors in your slicer:</span>
-                      {palette.map((c, i) => (
-                        <span key={i} className="flex items-center gap-1.5 font-mono">
-                          <span
-                            className="inline-block size-3 rounded-sm border"
-                            style={{ backgroundColor: rgbToHex(c) }}
-                          />
-                          {i + 1}: {rgbToHex(c)}
-                        </span>
-                      ))}
-                    </div>
-                  ),
-                })
-              } catch (err) {
-                toast.error("3MF export failed", {
-                  id,
-                  description: err instanceof Error ? err.message : String(err),
-                })
-              }
-            }, 16)
-          }}
-          disabled={!shapes || shapes.length === 0}
-          title="Download the current pose as a multi-color 3MF with per-triangle filament painting (OrcaSlicer / Bambu Studio)"
-          className="rounded-md border bg-card px-2 py-1 disabled:opacity-50"
-        >
-          Download 3MF
-        </button>
+      <MeshExportBar
+        bake={() => {
+          const ctx = sceneRef.current
+          if (!ctx || !shapes) return null
+          return bakeVisibleShapes(shapes, ctx.scene)
+        }}
+        baseName={node.name}
+        suffix={exportSuffix}
+        // 1 pass suits low-poly Switch character meshes.
+        defaultSubdivision={1}
+        disabled={!shapes || shapes.length === 0}
+      >
         <label className="flex items-center gap-1.5">
           <input
             type="checkbox"
@@ -2670,7 +2432,7 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
           />
           <span>Show skeleton</span>
         </label>
-      </div>
+      </MeshExportBar>
       <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
         {shapes.map((r, i) => {
           const tris = r.geom.indices.length / 3
