@@ -8,6 +8,16 @@ export {
   type DecodedTexture,
 } from "./texture.js"
 
+// Mesh geometry decoding (TypeTree-decoded `Mesh` → typed arrays).
+export {
+  extractUnityMesh,
+  toRightHanded,
+  unityMeshStreamRef,
+  type UnityMeshGeometry,
+  type UnityMeshSubMesh,
+  type UnityMeshStreamRef,
+} from "./mesh.js"
+
 // Hardcoded class-layout readers for SerializedFiles that ship
 // without TypeTrees (release builds typically strip them). These
 // produce values shaped exactly like the TypeTree-driven
@@ -87,6 +97,8 @@ export const ClassId = {
   GameObject: 1,
   Transform: 4,
   Material: 21,
+  MeshRenderer: 23,
+  MeshFilter: 33,
   Texture2D: 28,
   Shader: 48,
   TextAsset: 49,
@@ -96,6 +108,7 @@ export const ClassId = {
   AnimationClip: 74,
   AudioClip: 83,
   Sprite: 213,
+  SkinnedMeshRenderer: 137,
   AssetBundle: 142,
   AnimatorController: 91,
   ScriptableObject: 114, // alias of MonoBehaviour

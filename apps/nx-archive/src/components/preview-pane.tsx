@@ -54,6 +54,9 @@ import {
 } from "~/lib/usm-stream"
 import {
   ClassId as UnityClassId,
+  extractUnityMesh,
+  toRightHanded as unityMeshToRightHanded,
+  unityMeshStreamRef,
   parseObject as parseUnityObject,
   parseSerializedFile,
   parseUnityAudioClip,
@@ -69,6 +72,12 @@ import {
   type SerializedObject,
 } from "@tootallnate/unity-asset"
 import { decodeTexture2D as decodeUnityTexture2D } from "~/lib/unity-texture"
+import {
+  resolveMeshAlbedoTextures,
+  type UnityObjectRef,
+} from "~/lib/unity-mesh"
+import type { DecodedTexture as MeshDecodedTexture } from "~/lib/uasset-material-chain"
+import { UnityMeshViewer } from "./unity-mesh-viewer"
 import { StaticMeshViewer } from "./static-mesh-viewer"
 import { PhyreMeshViewer } from "./phyre-mesh-viewer"
 import { MidiPreview, Sf2Preview } from "./midi-preview"
@@ -11517,6 +11526,16 @@ function UnityObjectClassPreview({
           cabId={cabId}
         />
       )
+    case "Mesh":
+      return (
+        <UnityMeshPreview
+          decoded={decoded}
+          parsed={parsed}
+          node={node}
+          root={root}
+          cabId={cabId}
+        />
+      )
     case "Sprite":
       return (
         <UnitySpritePreview
@@ -12295,6 +12314,147 @@ async function resolveTexture2DPayload(
     return (inline as { data: Uint8Array }).data
   }
   return null
+}
+
+// -------- Unity `Mesh` (class 43) 3D preview --------
+
+/**
+ * Decode a Unity `Mesh` and render it in the shared 3D viewer.
+ *
+ * Geometry comes from `extractUnityMesh` (inline vertex bytes, or the
+ * `.resS` slice named by `m_StreamData`). Textures are resolved
+ * through whichever renderer in this SerializedFile draws the mesh
+ * (`SkinnedMeshRenderer`, or `MeshFilter` + `MeshRenderer`).
+ * `m_Materials[i]` gives sub-mesh `i`'s Material, and its albedo
+ * Texture2D is picked by `pickAlbedoTexture` and decoded via the same
+ * path as the Texture2D preview.
+ */
+function UnityMeshPreview({
+  decoded,
+  parsed,
+  node,
+  root,
+  cabId,
+}: {
+  decoded: UnityDecodedObject
+  parsed: ParsedSerializedFile
+  node: Node
+  root: Node | null
+  cabId: string | undefined
+}) {
+  const { loading, data, error } = useAsync(async () => {
+    const v = decoded.value as Record<string, unknown> | null
+    if (!v || typeof v !== "object" || !("m_VertexData" in v)) {
+      throw new Error(
+        "This Mesh has no TypeTree, so its geometry can't be decoded (stripped release build).",
+      )
+    }
+    let streamData: Uint8Array | undefined
+    const ref = unityMeshStreamRef(v)
+    if (ref) {
+      const externals = await resolveTexture2DExternals(root, cabId)
+      const base = (/([^/\\]+)$/.exec(ref.path)?.[1] ?? "").toLowerCase()
+      const blob = externals.get(base)
+      if (blob) {
+        streamData = new Uint8Array(
+          await blob.slice(ref.offset, ref.offset + ref.size).arrayBuffer(),
+        )
+      }
+    }
+    const geometry = unityMeshToRightHanded(
+      extractUnityMesh(v, parsed.header.unityVersion, streamData),
+    )
+
+    // Lazily decode (and memoise) object values for material lookup.
+    const cache = new Map<bigint, Promise<Record<string, unknown> | null>>()
+    const objects: UnityObjectRef[] = parsed.objects.map((o) => ({
+      classId: o.classId,
+      pathId: o.pathId,
+      value: () => {
+        let p = cache.get(o.pathId)
+        if (!p) {
+          const tree = parsed.types[o.typeIndex]?.typeTree
+          p = tree
+            ? parseUnityObject(o, tree)
+                .then((x) => (x && typeof x === "object" ? (x as Record<string, unknown>) : null))
+                .catch(() => null)
+            : Promise.resolve(null)
+          cache.set(o.pathId, p)
+        }
+        return p
+      },
+    }))
+    const resolved = await resolveMeshAlbedoTextures(objects, decoded.obj.pathId)
+    const decodedTextures = new Map<unknown, Promise<MeshDecodedTexture | null>>()
+    const decodeTex = (tex: Record<string, unknown>) => {
+      let p = decodedTextures.get(tex)
+      if (!p) {
+        p = (async () => {
+          const payload = await resolveTexture2DPayload(tex, root, cabId)
+          if (!payload?.length) return null
+          const t = await decodeUnityTexture2D(
+            asNumber(tex.m_Width),
+            asNumber(tex.m_Height),
+            asNumber(tex.m_TextureFormat),
+            payload,
+            parsed.header.platform,
+          )
+          const settings = tex.m_TextureSettings as Record<string, unknown> | undefined
+          const wrap = (m: unknown) => (asNumber(m) === 1 ? "clamp" : asNumber(m) === 2 ? "mirror" : "repeat")
+          return {
+            packagePath: asString(tex.m_Name),
+            width: t.width,
+            height: t.height,
+            pixels: t.pixels,
+            pixelFormat: UnityTextureFormatName(asNumber(tex.m_TextureFormat)) ?? "",
+            normalReconstructed: false,
+            // Decoded rows are top-down; Unity UVs have V = 0 at the bottom.
+            flipY: true,
+            wrapS: wrap(settings?.m_WrapU),
+            wrapT: wrap(settings?.m_WrapV),
+          } satisfies MeshDecodedTexture
+        })().catch(() => null)
+        decodedTextures.set(tex, p)
+      }
+      return p
+    }
+    const textures = await Promise.all(
+      geometry.subMeshes.map((_, i) => {
+        const tex = resolved.textures[i]
+        return tex ? decodeTex(tex) : Promise.resolve(null)
+      }),
+    )
+    return { geometry, textures, materialNames: resolved.materialNames }
+  }, [decoded.obj.pathId.toString(), cabId])
+
+  if (loading) return <LoadingFiller label="Decoding mesh…" />
+  if (error) {
+    return (
+      <section className="flex flex-col gap-2 rounded-md border bg-card p-4">
+        <p className="text-sm font-medium text-foreground">Couldn't decode this Mesh.</p>
+        <p className="text-xs text-muted-foreground">{error.message}</p>
+      </section>
+    )
+  }
+  const { geometry, textures, materialNames } = data!
+  return (
+    <section className="flex flex-col gap-3">
+      <UnityMeshViewer node={node} geometry={geometry} textures={textures} />
+      <KvBlock title="Mesh">
+        <KvRow k="Vertices" v={geometry.vertexCount.toLocaleString()} />
+        <KvRow k="Triangles" v={(geometry.indices.length / 3).toLocaleString()} />
+        {geometry.subMeshes.map((sm, i) => (
+          <KvRow
+            key={i}
+            k={`Sub-mesh ${i}`}
+            v={`${(sm.indexCount / 3).toLocaleString()} tris · ${
+              materialNames[i] || "no material"
+            }${textures[i] ? ` · ${textures[i]!.packagePath}` : ""}`}
+          />
+        ))}
+      </KvBlock>
+    </section>
+  )
 }
 
 // -------- Unity `Sprite` (class 213) preview --------
