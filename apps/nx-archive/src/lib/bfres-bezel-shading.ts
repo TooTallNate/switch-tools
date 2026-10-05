@@ -62,6 +62,28 @@ export function isBezelMaterial(mat: BfresMaterial | undefined): boolean {
 }
 
 /**
+ * Whether a material is drawn in the engine's main colour pass.
+ *
+ * Bezel tags every on-screen material with a `render_color` render
+ * info. Materials without it are only drawn by other passes. Players'
+ * `forward_plus_fluid` materials are an example: flat height/velocity
+ * quads under the feet and body (`fluid_type=1`), drawn into the
+ * board's ground-fluid simulation (water/sand ripples), never on
+ * screen. Other engines don't use `render_color`, so a material lacking
+ * it only counts as off-screen when a sibling material in the same
+ * model has it.
+ */
+export function rendersInColorPass(
+	mat: BfresMaterial | undefined,
+	modelMaterials: readonly BfresMaterial[],
+): boolean {
+	if (!mat?.renderInfo) return true;
+	const flag = mat.renderInfo.render_color;
+	if (flag) return Number(flag[0]) !== 0;
+	return !modelMaterials.some((m) => m.renderInfo && 'render_color' in m.renderInfo);
+}
+
+/**
  * Constant albedo for Bezel materials with `use_base_color_value`
  * on: the linear RGB `baseColor` param. The shader multiplies it into
  * the `_a0` texture when there is one, and uses it alone when there

@@ -47,6 +47,7 @@ import {
   hasAlpha,
   isBezelMaterial,
   planBezelAlbedo,
+  rendersInColorPass,
 } from "~/lib/bfres-bezel-shading"
 import type { ExportMesh, IndexedMesh } from "~/lib/mesh-export"
 import { exportMeshFromThree } from "~/lib/three-export"
@@ -2074,7 +2075,13 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
             }
           }
           mesh.name = g.name
-          const visible = isShapeBoneVisible(g, skeletons[g.modelIndex])
+          // Hidden by default: alternate facial expressions on hidden
+          // bones, and materials drawn only by non-colour passes (e.g.
+          // Bezel fluid-simulation emitters under a player's feet).
+          const modelMaterials = materials[g.modelIndex] ?? []
+          const visible =
+            isShapeBoneVisible(g, skeletons[g.modelIndex]) &&
+            rendersInColorPass(modelMaterials[g.materialIndex], modelMaterials)
           mesh.visible = visible
           return {
             geom: g,

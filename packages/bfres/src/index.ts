@@ -310,6 +310,12 @@ export interface BfresMaterial {
 	shaderAssign?: BfresShaderAssign;
 	/** Shader parameters keyed by name (v5–v9 only). */
 	shaderParams?: Record<string, BfresShaderParam>;
+	/**
+	 * Render info: engine-defined per-material render settings, keyed
+	 * by name (e.g. Bezel's `render_color`, `cast_shadow`,
+	 * `fluid_type`). Values are int/float/string arrays. v5–v9 only.
+	 */
+	renderInfo?: Record<string, (number | string)[]>;
 }
 
 export interface BfresShaderAssign {
@@ -1506,6 +1512,8 @@ export async function extractMaterials(blob: Blob): Promise<BfresMaterial[][]> {
 						mat.shaderAssign = shader.assign;
 						mat.shaderParams = shader.params;
 					}
+					const renderInfo = readMaterialRenderInfo(data, v, off, major);
+					if (Object.keys(renderInfo).length > 0) mat.renderInfo = renderInfo;
 				} catch {
 					// Shader info is optional; never fail the material on it.
 				}
@@ -1522,6 +1530,57 @@ export async function extractMaterials(blob: Blob): Promise<BfresMaterial[][]> {
 			});
 		}
 		out.push(matsForFmdl);
+	}
+	return out;
+}
+
+const RENDER_INFO_RECORD_SIZE = 0x18;
+const RENDER_INFO_TYPE_INT = 0;
+const RENDER_INFO_TYPE_FLOAT = 1;
+const RENDER_INFO_TYPE_STRING = 2;
+
+/**
+ * Read a material's render info (Switch v5–v9). The values array
+ * pointer and dict sit at FMAT +0x18 / +0x20 (−8 on v9); each 0x18-byte
+ * record is name ptr, data ptr, u16 count, u8 type (0 int, 1 float,
+ * 2 string pointer).
+ */
+function readMaterialRenderInfo(
+	data: Uint8Array,
+	v: DataView,
+	matOff: number,
+	major: number,
+): Record<string, (number | string)[]> {
+	const shift = major >= 9 ? -8 : 0;
+	const inBounds = (o: number, len: number) => o > 0 && o + len <= data.length;
+	const ptr = (o: number) => (inBounds(o, 8) ? Number(v.getBigUint64(o, true)) : 0);
+	const valuesOff = ptr(matOff + 0x18 + shift);
+	const count = v.getUint16(matOff + (major >= 9 ? 0x9a : 0xa6), true);
+	const out: Record<string, (number | string)[]> = {};
+	if (!valuesOff || count === 0 || count > 0x400) return out;
+	for (let i = 0; i < count; i++) {
+		const r = valuesOff + i * RENDER_INFO_RECORD_SIZE;
+		if (!inBounds(r, RENDER_INFO_RECORD_SIZE)) break;
+		const name = readPoolString(data, ptr(r));
+		const dataOff = ptr(r + 0x08);
+		const n = v.getUint16(r + 0x10, true);
+		const type = data[r + 0x12];
+		if (!name || n > 0x100) continue;
+		const values: (number | string)[] = [];
+		for (let j = 0; j < n; j++) {
+			if (type === RENDER_INFO_TYPE_STRING) {
+				values.push(readPoolString(data, ptr(dataOff + j * 8)));
+			} else if (inBounds(dataOff + j * 4, 4)) {
+				values.push(
+					type === RENDER_INFO_TYPE_FLOAT
+						? v.getFloat32(dataOff + j * 4, true)
+						: type === RENDER_INFO_TYPE_INT
+							? v.getInt32(dataOff + j * 4, true)
+							: v.getUint32(dataOff + j * 4, true),
+				);
+			}
+		}
+		out[name] = values;
 	}
 	return out;
 }

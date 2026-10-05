@@ -8,6 +8,7 @@ import {
   hasAlpha,
   isBezelMaterial,
   planBezelAlbedo,
+  rendersInColorPass,
 } from '~/lib/bfres-bezel-shading'
 
 const srt = (scaleX: number, translateX: number) => ({
@@ -142,5 +143,25 @@ describe('bezelBaseColor', () => {
     mat.shaderAssign!.options.use_base_color_value = '1'
     expect(bezelBaseColor(mat)).toEqual([0.006, 0.006, 0.034])
     expect(bezelBaseColor({ ...mat, shaderAssign: undefined })).toBeNull()
+  })
+})
+
+describe('rendersInColorPass', () => {
+  const mat = (renderInfo?: Record<string, (number | string)[]>) =>
+    ({ ...eyeMaterial(), renderInfo }) as BfresMaterial
+
+  it('follows the render_color flag', () => {
+    expect(rendersInColorPass(mat({ render_color: [1] }), [])).toBe(true)
+    expect(rendersInColorPass(mat({ render_color: [0] }), [])).toBe(false)
+  })
+
+  it('hides untagged materials only when the model uses the convention', () => {
+    const body = mat({ render_color: [1] })
+    const fluid = mat({ fluid_type: [1] })
+    expect(rendersInColorPass(fluid, [body, fluid])).toBe(false)
+    // Another engine's render info: no render_color anywhere.
+    const other = mat({ gsys_render_state_mode: ['opaque'] })
+    expect(rendersInColorPass(other, [other])).toBe(true)
+    expect(rendersInColorPass(mat(undefined), [body])).toBe(true)
   })
 })
