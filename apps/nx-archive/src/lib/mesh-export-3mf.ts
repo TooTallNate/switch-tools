@@ -100,6 +100,15 @@ export interface Paint3mfOptions {
 		| ((palette: Rgb[]) => Record<string, string | Uint8Array>);
 	/** Overrides the 3MF `Description` metadata (function: given the final palette). */
 	description?: string | ((palette: Rgb[]) => string);
+	/**
+	 * Plate position (mm) to centre the model on in XY; the model is
+	 * also dropped to Z = 0. OrcaSlicer re-centres geometry-only imports
+	 * itself, but keeps file coordinates when a 3MF is opened as a
+	 * project (e.g. one carrying `project_settings.config`), so the file
+	 * has to be on the plate already. Default (128, 128): the centre of
+	 * a 256 mm bed.
+	 */
+	bedCenter?: readonly [number, number];
 	/** Loop-subdivision passes before painting (shape smoothing). */
 	subdivisionPasses?: number;
 	/** Source axis convention. Default `'y-up'` (rotated to Z-up). */
@@ -849,7 +858,34 @@ export function buildPainted3MF(
 		paint[t] = root === 1 ? '' : typeof root === 'number' ? encodePaintLeaf(root) : root;
 	}
 
-	// --- 5. Serialise. -----------------------------------------------------
+	// --- 5. Place on the plate. ---------------------------------------------
+	// Only referenced vertices count (orphans are dropped below).
+	{
+		let minX = Infinity, minY = Infinity, minZ = Infinity;
+		let maxX = -Infinity, maxY = -Infinity;
+		for (let i = 0; i < tris.length; i++) {
+			const o = tris[i]! * 3;
+			const x = positions[o]!, y = positions[o + 1]!, z = positions[o + 2]!;
+			if (x < minX) minX = x;
+			if (x > maxX) maxX = x;
+			if (y < minY) minY = y;
+			if (y > maxY) maxY = y;
+			if (z < minZ) minZ = z;
+		}
+		if (Number.isFinite(minX + maxX + minY + maxY + minZ)) {
+			const [cx, cy] = options.bedCenter ?? [128, 128];
+			const dx = cx - (minX + maxX) / 2;
+			const dy = cy - (minY + maxY) / 2;
+			const dz = -minZ;
+			for (let v = 0; v < vertTotal; v++) {
+				positions[v * 3] = positions[v * 3]! + dx;
+				positions[v * 3 + 1] = positions[v * 3 + 1]! + dy;
+				positions[v * 3 + 2] = positions[v * 3 + 2]! + dz;
+			}
+		}
+	}
+
+	// --- 6. Serialise. -----------------------------------------------------
 	const title = options.title ?? 'model';
 	const fmt = (x: number) => String(Math.round(x * 1e5) / 1e5);
 

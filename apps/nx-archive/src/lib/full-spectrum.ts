@@ -59,6 +59,13 @@ export const FULL_SPECTRUM_BUNDLE: readonly PhysicalFilament[] = [
 ];
 
 /**
+ * Centre of the Snapmaker U1 plate. Its printable area is
+ * X 0.5–270.5, Y 1–271 (Snapmaker Orca
+ * `resources/profiles/Snapmaker/machine/Snapmaker U1 (0.4 nozzle).json`).
+ */
+export const U1_BED_CENTER: readonly [number, number] = [135.5, 136];
+
+/**
  * Mix percentages (of the second component) offered as candidates.
  * Snapmaker recommends two-colour mixes with each component between
  * 33 % and 67 % for the most predictable results.
@@ -236,6 +243,8 @@ export interface FullSpectrumOptions {
 	subdivisionPasses?: number;
 	sourceAxis?: 'y-up' | 'z-up';
 	title?: string;
+	/** Plate centre to place the model at. Default: the U1's. */
+	bedCenter?: readonly [number, number];
 }
 
 export interface FullSpectrumResult {
@@ -263,6 +272,9 @@ export function buildFullSpectrum3MF(meshes: ExportMesh[], options: FullSpectrum
 		// Flat tops/bottoms only ever show one layer, so a layer-
 		// alternation mix would print as one of its components there.
 		flatSurfaceColors: baseRgb.length,
+		// The project_settings.config makes Snapmaker Orca open this as
+		// a project, which keeps file coordinates as-is.
+		bedCenter: options.bedCenter ?? U1_BED_CENTER,
 		description: () => fullSpectrumDescription(base, mixes),
 		extraFiles: () => ({
 			'Metadata/project_settings.config': fullSpectrumProjectSettings(baseRgb, mixes),

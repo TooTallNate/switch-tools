@@ -109,6 +109,24 @@ describe('buildPainted3MF', () => {
     expect(signedVolume([parseModel(xml)])).toBeGreaterThan(0)
   })
 
+  it('places the model on the plate: centred in XY, resting on Z = 0', () => {
+    // Origin-centred cube-ish tetra hanging below the bed, like most game models.
+    const inp: ExportMesh = {
+      positions: new Float32Array([-5, -5, -20, 5, -5, -20, -5, 5, -20, -5, -5, -10]),
+      indices: new Uint32Array([0, 2, 1, 0, 1, 3, 0, 3, 2, 1, 2, 3]),
+    }
+    const check = (center: [number, number] | undefined, want: [number, number]) => {
+      const m = parseModel(modelXml(buildPainted3MF([inp], { colorCount: 1, sourceAxis: 'z-up', bedCenter: center }).bytes))
+      const xs = [], ys = [], zs = []
+      for (let i = 0; i < m.positions.length; i += 3) xs.push(m.positions[i]!), ys.push(m.positions[i + 1]!), zs.push(m.positions[i + 2]!)
+      expect((Math.min(...xs) + Math.max(...xs)) / 2).toBeCloseTo(want[0])
+      expect((Math.min(...ys) + Math.max(...ys)) / 2).toBeCloseTo(want[1])
+      expect(Math.min(...zs)).toBeCloseTo(0)
+    }
+    check(undefined, [128, 128])
+    check([135.5, 136], [135.5, 136])
+  })
+
   it('omits unreferenced vertices (no NaN from subdividing orphans)', () => {
     // Quad plus two vertices no triangle uses — like spare entries in
     // a BFRES vertex buffer. Loop subdivision used to turn them into
