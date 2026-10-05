@@ -133,6 +133,13 @@ export interface BfresGeometry {
 	normals: Float32Array | null;
 	/** Optional UVs: `Float32Array` of length `vertexCount * 2`. */
 	uvs: Float32Array | null;
+	/**
+	 * Every UV set on the vertex buffer, keyed by attribute name
+	 * (`_u0`, `_u1`, …). `uvs` is `uvSets._u0`. Materials can route
+	 * any of these to a shader input via
+	 * {@link BfresShaderAssign.attribAssign}.
+	 */
+	uvSets: Record<string, Float32Array>;
 	/** Optional vertex colors: `Float32Array` of length `vertexCount * 4` (RGBA, 0..1). */
 	colors: Float32Array | null;
 	/** Triangle indices. The width matches the on-disk format (u16 vs u32). */
@@ -212,6 +219,12 @@ export interface BfresBone {
 	 */
 	rigidMatrixIndex: number;
 	/**
+	 * Bind-pose visibility (`BoneFlags.Visible`). Shapes on a hidden
+	 * bone — e.g. alternate facial expressions — aren't drawn until a
+	 * bone-visibility animation turns them on.
+	 */
+	visible: boolean;
+	/**
 	 * 4×4 column-major **local** matrix (relative to parent),
 	 * computed from S/R/T. Length 16. Column-major means
 	 * `m[col*4 + row]` — the same layout as Three.js / glTF / WebGL.
@@ -288,6 +301,53 @@ export interface BfresMaterial {
 	samplers: string[];
 	/** Convenience: sampler-to-texture pairings. */
 	bindings: BfresTextureBinding[];
+	/**
+	 * How the material plugs into its shader: which mesh attribute
+	 * feeds each shader input, which material sampler feeds each
+	 * shader sampler, and the static shader options. Only parsed for
+	 * v5–v9 files; `undefined` when unavailable.
+	 */
+	shaderAssign?: BfresShaderAssign;
+	/** Shader parameters keyed by name (v5–v9 only). */
+	shaderParams?: Record<string, BfresShaderParam>;
+}
+
+export interface BfresShaderAssign {
+	/** Shader archive name (e.g. `"forward_plus_custom"`). */
+	shaderArchive: string;
+	/** Shading model inside the archive. */
+	shadingModel: string;
+	/**
+	 * Shader vertex input → mesh attribute name. E.g. Bezel eye
+	 * materials map shader `_u0` to the mesh's `_u2` UV set.
+	 */
+	attribAssign: Record<string, string>;
+	/** Shader sampler → material sampler name (a key of `bindings`). */
+	samplerAssign: Record<string, string>;
+	/** Static shader option values (strings, as stored). */
+	options: Record<string, string>;
+}
+
+/** Texture SRT (`TexSrt` / `TexSrtEx` shader-param types). */
+export interface BfresTexSrt {
+	/** 0 = Maya, 1 = 3ds Max, 2 = Softimage. */
+	mode: number;
+	scaleX: number;
+	scaleY: number;
+	/** Radians. */
+	rotation: number;
+	translateX: number;
+	translateY: number;
+}
+
+export interface BfresShaderParam {
+	name: string;
+	/** Raw `ShaderParamType` (12 = Float, 30 = TexSrt, …). */
+	type: number;
+	/** Raw data words decoded as floats (ints/bools as their numeric value). */
+	values: number[];
+	/** Decoded texture SRT for `TexSrt` / `TexSrtEx` params. */
+	texSrt?: BfresTexSrt;
 }
 
 // ----- Animation types (FSKA / FMAA / FVIS / FSHU / FSCN) -----
@@ -1438,7 +1498,19 @@ export async function extractMaterials(blob: Blob): Promise<BfresMaterial[][]> {
 					textureName: textureRefs[p],
 				});
 			}
-			matsForFmdl.push({ name, textureRefs, samplers, bindings });
+			const mat: BfresMaterial = { name, textureRefs, samplers, bindings };
+			if (major <= 9) {
+				try {
+					const shader = readMaterialShaderInfo(data, v, off, major);
+					if (shader) {
+						mat.shaderAssign = shader.assign;
+						mat.shaderParams = shader.params;
+					}
+				} catch {
+					// Shader info is optional; never fail the material on it.
+				}
+			}
+			matsForFmdl.push(mat);
 		}
 		// Pad to numMaterial in case of early break.
 		while (matsForFmdl.length < numMaterial) {
@@ -1452,6 +1524,92 @@ export async function extractMaterials(blob: Blob): Promise<BfresMaterial[][]> {
 		out.push(matsForFmdl);
 	}
 	return out;
+}
+
+/** `BoneFlags.Visible` (BfresLibrary). */
+const BONE_FLAG_VISIBLE = 0x1;
+
+/** `ShaderParamType` values for texture SRTs. */
+const SHADER_PARAM_TEX_SRT = 30;
+const SHADER_PARAM_TEX_SRT_EX = 31;
+const SHADER_PARAM_RECORD_SIZE = 0x20;
+
+/**
+ * Read a material's shader assign + shader params (Switch v5–v9).
+ *
+ * FMAT pointer block, relative to `matOff` (v9 shifts everything
+ * by −8 because its leading header block is a u32 flags field):
+ *
+ * ```
+ * 0x28 shaderAssign      0x58 shaderParam values  0x60 shaderParam dict
+ * 0x68 shaderParam data  …  0xaa u16 numShaderParam   (v5–v8 offsets)
+ * ```
+ *
+ * ShaderAssign: archive name, model name, then three
+ * `(values, dict)` pairs — attrib assigns, sampler assigns, options —
+ * whose values are string pointers.
+ *
+ * ShaderParam records are 0x20 bytes: callback ptr, name ptr,
+ * u8 type, u8 size, u16 offset into the param-data block, ….
+ */
+function readMaterialShaderInfo(
+	data: Uint8Array,
+	v: DataView,
+	matOff: number,
+	major: number,
+): { assign: BfresShaderAssign; params: Record<string, BfresShaderParam> } | null {
+	const shift = major >= 9 ? -8 : 0;
+	const inBounds = (o: number, len: number) => o > 0 && o + len <= data.length;
+	const ptr = (o: number) => (inBounds(o, 8) ? Number(v.getBigUint64(o, true)) : 0);
+
+	const assignOff = ptr(matOff + 0x28 + shift);
+	if (!inBounds(assignOff, 0x40)) return null;
+	const readStringMap = (valuesOff: number, dictOff: number): Record<string, string> => {
+		const keys = readDict(data, v, dictOff);
+		const out: Record<string, string> = {};
+		keys.forEach((k, i) => {
+			out[k] = readPoolString(data, ptr(valuesOff + i * 8));
+		});
+		return out;
+	};
+	const assign: BfresShaderAssign = {
+		shaderArchive: readPoolString(data, ptr(assignOff)),
+		shadingModel: readPoolString(data, ptr(assignOff + 0x08)),
+		attribAssign: readStringMap(ptr(assignOff + 0x10), ptr(assignOff + 0x18)),
+		samplerAssign: readStringMap(ptr(assignOff + 0x20), ptr(assignOff + 0x28)),
+		options: readStringMap(ptr(assignOff + 0x30), ptr(assignOff + 0x38)),
+	};
+
+	const params: Record<string, BfresShaderParam> = {};
+	const paramValuesOff = ptr(matOff + 0x58 + shift);
+	const paramDataOff = ptr(matOff + 0x68 + shift);
+	const numParam = v.getUint16(matOff + (major >= 9 ? 0x9e : 0xaa), true);
+	if (paramValuesOff && paramDataOff && numParam > 0 && numParam < 0x1000) {
+		for (let i = 0; i < numParam; i++) {
+			const r = paramValuesOff + i * SHADER_PARAM_RECORD_SIZE;
+			if (!inBounds(r, SHADER_PARAM_RECORD_SIZE)) break;
+			const name = readPoolString(data, ptr(r + 0x08));
+			const type = data[r + 0x10];
+			const size = data[r + 0x11];
+			const dataOff = paramDataOff + v.getUint16(r + 0x12, true);
+			if (!name || type > 31 || !inBounds(dataOff, size)) continue;
+			const values: number[] = [];
+			for (let k = 0; k + 4 <= size; k += 4) values.push(v.getFloat32(dataOff + k, true));
+			const param: BfresShaderParam = { name, type, values };
+			if ((type === SHADER_PARAM_TEX_SRT || type === SHADER_PARAM_TEX_SRT_EX) && size >= 24) {
+				param.texSrt = {
+					mode: v.getUint32(dataOff, true),
+					scaleX: values[1],
+					scaleY: values[2],
+					rotation: values[3],
+					translateX: values[4],
+					translateY: values[5],
+				};
+			}
+			params[name] = param;
+		}
+	}
+	return { assign, params };
 }
 
 /**
@@ -1727,6 +1885,7 @@ function readSkeleton(
 			rotationMode: boneRotMode,
 			smoothMatrixIndex,
 			rigidMatrixIndex,
+			visible: (bFlags & BONE_FLAG_VISIBLE) !== 0,
 			localMatrix,
 			// Filled in below after the loop, once we have all locals.
 			worldMatrix: new Float32Array(16),
@@ -2845,7 +3004,13 @@ function readShapeGeometry(
 	const positions = decodePositions(fvtx);
 	if (!positions) return null;
 	const normals = decodeNormals(fvtx);
-	const uvs = decodeUvs(fvtx);
+	const uvSets: Record<string, Float32Array> = {};
+	for (const a of fvtx.attributes) {
+		if (!/^_u\d+$/.test(a.name)) continue;
+		const set = decodeUvs(fvtx, a.name);
+		if (set) uvSets[a.name] = set;
+	}
+	const uvs = uvSets._u0 ?? null;
 	const colors = decodeColors(fvtx);
 	const skinIndices = decodeSkinIndices(fvtx);
 	let skinWeights = decodeSkinWeights(fvtx);
@@ -2905,6 +3070,7 @@ function readShapeGeometry(
 		positions,
 		normals,
 		uvs,
+		uvSets,
 		colors,
 		indices: mesh.indices,
 		vertexCount: fvtx.vertexCount,
@@ -3057,8 +3223,8 @@ function decodeNormals(fvtx: FvtxData): Float32Array | null {
 	return out;
 }
 
-function decodeUvs(fvtx: FvtxData): Float32Array | null {
-	const a = findAttribute(fvtx, ['_u0']);
+function decodeUvs(fvtx: FvtxData, name = '_u0'): Float32Array | null {
+	const a = findAttribute(fvtx, [name]);
 	if (!a) return null;
 	const out = new Float32Array(fvtx.vertexCount * 2);
 	const start = fvtx.bufferStarts[a.bufferIndex];

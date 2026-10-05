@@ -41,6 +41,12 @@ import {
 
 import type { Node } from "~/lib/archive"
 import { getAstcBlockDecoder } from "~/lib/astc"
+import {
+  bakeAlbedoLayers,
+  hasAlpha,
+  isBezelMaterial,
+  planBezelAlbedo,
+} from "~/lib/bfres-bezel-shading"
 import type { ExportMesh, IndexedMesh } from "~/lib/mesh-export"
 import { exportMeshFromThree } from "~/lib/three-export"
 
@@ -782,6 +788,20 @@ function pickPrimaryFmdl(skeletons: BfresSkeleton[]): number {
   return best
 }
 
+/**
+ * Bind-pose visibility of a rigid shape's bone. Characters ship
+ * alternate facial expressions (`facial_01`…) as rigid shapes on
+ * bones flagged hidden; drawing them all stacks every expression on
+ * the face. Smooth-skinned shapes are always visible.
+ */
+function isShapeBoneVisible(
+  g: BfresGeometry,
+  skel: BfresSkeleton | undefined,
+): boolean {
+  if (!skel || g.vertexSkinCount > 1) return true
+  return skel.bones[g.boneIndex]?.visible !== false
+}
+
 function findBone(
   skel: BfresSkeleton,
   name: string,
@@ -1219,61 +1239,66 @@ function pickAlbedo(
   geom: BfresGeometry,
   materials: BfresMaterial[][],
   cache: BntxTextureCache | null,
+  textureNameOverride?: string,
 ): THREE.Texture | null {
   if (!cache) return null
-  const mat = materials[geom.modelIndex]?.[geom.materialIndex]
-  if (!mat) return null
-  let textureName: string | null = null
-  for (const want of ALBEDO_SAMPLERS) {
-    const b = mat.bindings.find((bb) => bb.samplerName === want)
-    if (b) {
-      textureName = b.textureName
-      break
+  let textureName: string | null = textureNameOverride ?? null
+  if (!textureName) {
+    const mat = materials[geom.modelIndex]?.[geom.materialIndex]
+    if (!mat) return null
+    for (const want of ALBEDO_SAMPLERS) {
+      const b = mat.bindings.find((bb) => bb.samplerName === want)
+      if (b) {
+        textureName = b.textureName
+        break
+      }
     }
   }
   if (!textureName) return null
+  return getTextureByName(cache, textureName, pickWrapMode(geom))
+}
 
-  const wrap = pickWrapMode(geom)
-  const wrapKey = wrap === THREE.ClampToEdgeWrapping ? "clamp" : "repeat"
-  const cacheKey = `${textureName}|${wrapKey}`
-  // Already built a Three.js texture for this (name, wrap-mode) pair?
-  if (cache.textures.has(cacheKey)) {
-    return cache.textures.get(cacheKey) ?? null
-  }
-
-  // Decode the raw RGBA pixels once per texture name (memoised).
-  // Search every bank in priority order so companion `.Tex.sbfres`
-  // banks (BotW-style split layout) fill in for textures the
-  // model's own embedded BNTX doesn't carry.
-  let decoded = cache.decoded.get(textureName) ?? null
-  if (!cache.decoded.has(textureName)) {
-    const found = findInBanks(cache.banks, textureName)
-    if (found) {
-      try {
-        const d = decodeBntxLayer(found.bytes, found.tex, 0, {
-          astcDecoder: cache.astcDecoder,
-        })
-        decoded = {
-          pixels: new Uint8ClampedArray(
-            d.pixels.buffer,
-            d.pixels.byteOffset,
-            d.pixels.byteLength,
-          ),
-          width: d.width,
-          height: d.height,
-          srgb: found.tex.srgb,
-        }
-      } catch {
-        decoded = null
+/**
+ * Decode a texture by name to RGBA8 through the bank cache (searching
+ * every bank in priority order, so companion `.Tex.sbfres` / BEA
+ * banks fill in for textures the model's own BNTX doesn't carry).
+ * Memoised per name; `null` if missing or undecodable.
+ */
+function decodeTextureByName(
+  cache: BntxTextureCache,
+  textureName: string,
+): DecodedRgba | null {
+  if (cache.decoded.has(textureName)) return cache.decoded.get(textureName) ?? null
+  let decoded: DecodedRgba | null = null
+  const found = findInBanks(cache.banks, textureName)
+  if (found) {
+    try {
+      const d = decodeBntxLayer(found.bytes, found.tex, 0, {
+        astcDecoder: cache.astcDecoder,
+      })
+      decoded = {
+        pixels: new Uint8ClampedArray(
+          d.pixels.buffer,
+          d.pixels.byteOffset,
+          d.pixels.byteLength,
+        ),
+        width: d.width,
+        height: d.height,
+        srgb: found.tex.srgb,
       }
+    } catch {
+      decoded = null
     }
-    cache.decoded.set(textureName, decoded)
   }
-  if (!decoded) {
-    cache.textures.set(cacheKey, null)
-    return null
-  }
+  cache.decoded.set(textureName, decoded)
+  return decoded
+}
 
+/** Wrap decoded RGBA pixels in a viewer-configured `DataTexture`. */
+function makeDataTexture(
+  decoded: DecodedRgba,
+  wrap: THREE.Wrapping,
+): THREE.DataTexture {
   const tex = new THREE.DataTexture(
     decoded.pixels,
     decoded.width,
@@ -1291,7 +1316,6 @@ function pickAlbedo(
   tex.magFilter = THREE.LinearFilter
   tex.generateMipmaps = true
   tex.needsUpdate = true
-  cache.textures.set(cacheKey, tex)
   return tex
 }
 
@@ -1302,9 +1326,8 @@ function pickAlbedo(
  * decoded. The result is memoised inside the cache so repeat
  * lookups for the same `(name, wrap)` pair don't re-decode.
  *
- * Used by the FMAA driver to swap in flipbook textures on the
- * fly. Identical decode pipeline as `pickAlbedo`'s tail half;
- * factored out so we don't repeat ourselves.
+ * Used by `pickAlbedo` and by the FMAA driver to swap in flipbook
+ * textures on the fly.
  */
 function getTextureByName(
   cache: BntxTextureCache,
@@ -1314,51 +1337,52 @@ function getTextureByName(
   const wrapKey = wrap === THREE.ClampToEdgeWrapping ? "clamp" : "repeat"
   const cacheKey = `${textureName}|${wrapKey}`
   if (cache.textures.has(cacheKey)) return cache.textures.get(cacheKey) ?? null
-  let decoded = cache.decoded.get(textureName) ?? null
-  if (!cache.decoded.has(textureName)) {
-    const found = findInBanks(cache.banks, textureName)
-    if (found) {
-      try {
-        const d = decodeBntxLayer(found.bytes, found.tex, 0, {
-          astcDecoder: cache.astcDecoder,
-        })
-        decoded = {
-          pixels: new Uint8ClampedArray(
-            d.pixels.buffer,
-            d.pixels.byteOffset,
-            d.pixels.byteLength,
-          ),
-          width: d.width,
-          height: d.height,
-          srgb: found.tex.srgb,
-        }
-      } catch {
-        decoded = null
-      }
-    }
-    cache.decoded.set(textureName, decoded)
-  }
-  if (!decoded) {
-    cache.textures.set(cacheKey, null)
-    return null
-  }
-  const tex = new THREE.DataTexture(
-    decoded.pixels,
-    decoded.width,
-    decoded.height,
-    THREE.RGBAFormat,
-    THREE.UnsignedByteType,
-  )
-  tex.colorSpace = decoded.srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
-  tex.flipY = false
-  tex.wrapS = wrap
-  tex.wrapT = wrap
-  tex.minFilter = THREE.LinearMipMapLinearFilter
-  tex.magFilter = THREE.LinearFilter
-  tex.generateMipmaps = true
-  tex.needsUpdate = true
+  const decoded = decodeTextureByName(cache, textureName)
+  const tex = decoded ? makeDataTexture(decoded, wrap) : null
   cache.textures.set(cacheKey, tex)
   return tex
+}
+
+/**
+ * Albedo for a Bezel Engine material (see `~/lib/bfres-bezel-shading`).
+ * Returns the texture plus the UVs it must be sampled with, or `null`
+ * to fall back to the generic path. Multi-layer materials (eyes,
+ * brows) get a per-shape baked texture with the layers composited in.
+ */
+function pickBezelAlbedo(
+  geom: BfresGeometry,
+  material: BfresMaterial | undefined,
+  cache: BntxTextureCache | null,
+): { texture: THREE.Texture; uvs: Float32Array } | null {
+  if (!cache) return null
+  const plan = planBezelAlbedo(geom, material)
+  if (!plan || !plan.baseUvs) return null
+  const remapped: BfresGeometry = { ...geom, uvs: plan.baseUvs }
+  if (plan.layers.length === 0) {
+    const texture = pickAlbedo(remapped, [], cache, plan.baseTexture)
+    return texture ? { texture, uvs: plan.baseUvs } : null
+  }
+  const base = decodeTextureByName(cache, plan.baseTexture)
+  if (!base) return null
+  const layers = plan.layers
+    .map((l) => {
+      const image = decodeTextureByName(cache, l.textureName)
+      return image ? { image, uvs: l.uvs } : null
+    })
+    .filter((l): l is NonNullable<typeof l> => l !== null)
+  if (layers.length === 0) {
+    const texture = pickAlbedo(remapped, [], cache, plan.baseTexture)
+    return texture ? { texture, uvs: plan.baseUvs } : null
+  }
+  const pixels = bakeAlbedoLayers(
+    base,
+    plan.baseUvs,
+    geom.indices,
+    layers,
+    hasAlpha(base) ? plan.windowColor : null,
+  )
+  const texture = makeDataTexture({ ...base, pixels }, pickWrapMode(remapped))
+  return { texture, uvs: plan.baseUvs }
 }
 
 /**
@@ -1483,6 +1507,9 @@ function applyMaterialAnim(
     for (const shape of shapes) {
       const mat = materials[shape.geom.modelIndex]?.[shape.geom.materialIndex]
       if (!mat || mat.name !== ma.name) continue
+      // Bezel albedo is resolved (and possibly baked) via the shader
+      // assign; a generic `_a0` swap here would clobber it.
+      if (isBezelMaterial(mat)) continue
       stats.shapesMatched++
       const mesh = shape.mesh
       if (!(mesh.material instanceof THREE.Material)) continue
@@ -1889,15 +1916,25 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
               new THREE.BufferAttribute(g.normals, 3),
             )
           }
-          if (g.uvs) {
-            geometry.setAttribute("uv", new THREE.BufferAttribute(g.uvs, 2))
+          // Bezel Engine materials route albedo through their shader's
+          // attribute/sampler assigns and texture SRTs (and composite
+          // eye/brow layers); everything else uses `_a0` on `_u0`.
+          const bezel = pickBezelAlbedo(
+            g,
+            materials[g.modelIndex]?.[g.materialIndex],
+            mergedTextures,
+          )
+          const uvs = bezel?.uvs ?? g.uvs
+          if (uvs) {
+            geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2))
           }
           geometry.setIndex(new THREE.BufferAttribute(g.indices, 1))
           if (!g.normals) geometry.computeVertexNormals()
 
           // Pick a material: prefer the resolved albedo texture,
           // fall back to flat-shaded normal-vis if there isn't one.
-          const albedo = pickAlbedo(g, materials, mergedTextures)
+          const albedo =
+            bezel?.texture ?? pickAlbedo(g, materials, mergedTextures)
           // Many Switch albedo textures (BC3 specifically) carry
           // meaningful alpha — pupil textures are a clear example,
           // with ~57% of pixels alpha=0 to make the eye visible
@@ -2023,10 +2060,12 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
             }
           }
           mesh.name = g.name
+          const visible = isShapeBoneVisible(g, skeletons[g.modelIndex])
+          mesh.visible = visible
           return {
             geom: g,
             mesh,
-            visible: true,
+            visible,
             hasAlbedo: !!albedo,
             bindAlbedo: albedo,
           }
