@@ -69,9 +69,37 @@ import {
 
 export type Rgb = readonly [number, number, number];
 
+/** One non-empty bin of the area-weighted surface colour histogram. */
+export interface ColorBin {
+	rgb: Rgb;
+	weight: number;
+}
+
 export interface Paint3mfOptions {
-	/** Number of filaments to quantise to (1–16). */
+	/** Number of filaments to quantise to (1–16) for the default k-means palette. */
 	colorCount: number;
+	/**
+	 * Replace the default k-means palette. Receives the area-weighted
+	 * surface colours (alpha-cutout texels excluded) and returns the
+	 * palette *in filament order*: entry i is painted as filament i + 1.
+	 */
+	choosePalette?: (bins: ColorBin[]) => Rgb[];
+	/**
+	 * When set, near-horizontal faces may only use the first N palette
+	 * entries. Used for layer-alternation mixes (Snapmaker Full
+	 * Spectrum), which can't show on flat tops/bottoms — only the
+	 * outermost layer is visible there.
+	 */
+	flatSurfaceColors?: number;
+	/**
+	 * Extra archive entries, e.g. `Metadata/project_settings.config`.
+	 * A function is called with the final palette.
+	 */
+	extraFiles?:
+		| Record<string, string | Uint8Array>
+		| ((palette: Rgb[]) => Record<string, string | Uint8Array>);
+	/** Overrides the 3MF `Description` metadata (function: given the final palette). */
+	description?: string | ((palette: Rgb[]) => string);
 	/** Loop-subdivision passes before painting (shape smoothing). */
 	subdivisionPasses?: number;
 	/** Source axis convention. Default `'y-up'` (rotated to Z-up). */
@@ -87,7 +115,7 @@ export interface Paint3mfOptions {
 
 export interface Paint3mfResult {
 	bytes: Uint8Array;
-	/** Filament colours, index 0 = filament 1. Sorted by coverage. */
+	/** Filament colours, index 0 = filament 1. */
 	palette: Rgb[];
 	triangleCount: number;
 	/** Paint-tree leaves sampled, before uniform subtrees collapse (diagnostic). */
@@ -102,11 +130,29 @@ const DEFAULT_BASE: Rgb = [160, 160, 160];
 
 const HEX = '0123456789ABCDEF';
 
-/** Encode one leaf `state` (0 = unpainted, 1.. = filament). */
+/**
+ * Encode one leaf `state` (0 = unpainted, 1.. = filament).
+ *
+ * States ≥ 3 are the code `0b1100` followed by 4-bit chunks of
+ * `state − 3`, where a `0xF` chunk means "add 15, another chunk
+ * follows" (Snapmaker Orca's `TriangleSelector::serialize`). Upstream
+ * OrcaSlicer / Bambu use the same layout up to state 32, which covers
+ * every physical-filament case; higher states are only meaningful to
+ * Snapmaker Orca's virtual (mixed) filaments.
+ */
 export function encodePaintLeaf(state: number): string {
+	if (!Number.isInteger(state) || state < 0 || state > 255) {
+		throw new RangeError(`paint state ${state} out of range (0–255)`);
+	}
 	if (state < 3) return HEX[state << 2]!;
-	if (state < 18) return HEX[state - 3]! + 'C';
-	throw new RangeError(`paint state ${state} out of range (max 17)`);
+	// Nibbles are emitted in reverse, so the final chunk comes first.
+	let n = state - 3;
+	let continuation = '';
+	while (n >= 15) {
+		continuation += 'F';
+		n -= 15;
+	}
+	return HEX[n]! + continuation + 'C';
 }
 
 /**
@@ -145,7 +191,8 @@ function labFInv(t: number): number {
 	return t3 > 216 / 24389 ? t3 : (116 * t - 16) / (24389 / 27);
 }
 
-function rgbToLab(r: number, g: number, b: number, out: Float64Array, o: number): void {
+/** sRGB bytes → CIELAB (D65), written to `out[o..o+2]`. */
+export function rgbToLab(r: number, g: number, b: number, out: Float64Array, o: number): void {
 	const lr = SRGB_TO_LINEAR[r]!;
 	const lg = SRGB_TO_LINEAR[g]!;
 	const lb = SRGB_TO_LINEAR[b]!;
@@ -686,8 +733,33 @@ export function buildPainted3MF(
 			addHist(rgb[0]!, rgb[1]!, rgb[2]!, 1);
 		}
 	}
-	const palette = reducePalette(hist, colorCount);
-	const quantize = makeQuantizer(palette);
+	let palette: Rgb[];
+	if (options.choosePalette) {
+		const bins: ColorBin[] = [];
+		for (let i = 0; i < BIN_COUNT; i++) {
+			const w = hist[i * 4 + 3]!;
+			if (w > 0) {
+				bins.push({
+					rgb: [
+						Math.round(hist[i * 4]! / w),
+						Math.round(hist[i * 4 + 1]! / w),
+						Math.round(hist[i * 4 + 2]! / w),
+					],
+					weight: w,
+				});
+			}
+		}
+		palette = options.choosePalette(bins);
+		if (palette.length === 0) palette = [DEFAULT_BASE];
+	} else {
+		palette = reducePalette(hist, colorCount);
+	}
+	const fullQuantize = makeQuantizer(palette);
+	const flatCount = Math.min(palette.length, Math.max(1, options.flatSurfaceColors ?? palette.length));
+	const flatQuantize =
+		flatCount < palette.length ? makeQuantizer(palette.slice(0, flatCount)) : fullQuantize;
+	/** |normal·Z| above which a face counts as a flat top / bottom (~18°). */
+	const FLAT_NZ = 0.95;
 
 	// --- 4. Paint trees. ---------------------------------------------------
 	const TRANSPARENT = -1;
@@ -696,6 +768,17 @@ export function buildPainted3MF(
 	const paint: string[] = new Array(triCount);
 	for (let t = 0; t < triCount; t++) {
 		const src = sources[t]!;
+		let quantize = fullQuantize;
+		if (flatQuantize !== fullQuantize) {
+			const a = tris[t * 3]! * 3, b = tris[t * 3 + 1]! * 3, c = tris[t * 3 + 2]! * 3;
+			const e1x = positions[b]! - positions[a]!, e1y = positions[b + 1]! - positions[a + 1]!;
+			const e1z = positions[b + 2]! - positions[a + 2]!;
+			const e2x = positions[c]! - positions[a]!, e2y = positions[c + 1]! - positions[a + 1]!;
+			const e2z = positions[c + 2]! - positions[a + 2]!;
+			const nz = e1x * e2y - e1y * e2x;
+			const len = Math.hypot(e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, nz);
+			if (len > 0 && Math.abs(nz) / len > FLAT_NZ) quantize = flatQuantize;
+		}
 		let depth = 0;
 		if (src.kind === KIND_TEXTURE) {
 			const a = src.attr;
@@ -777,7 +860,10 @@ export function buildPainted3MF(
 		` <metadata name="Title">${xmlEscape(title)}</metadata>\n`,
 		` <metadata name="Designer">nx-archive</metadata>\n`,
 		` <metadata name="Description">${xmlEscape(
-			`Filaments: ${palette.map((c, i) => `${i + 1}=${rgbToHex(c)}`).join(' ')}`,
+			(typeof options.description === 'function'
+				? options.description(palette)
+				: options.description) ??
+				`Filaments: ${palette.map((c, i) => `${i + 1}=${rgbToHex(c)}`).join(' ')}`,
 		)}</metadata>\n`,
 		' <resources>\n',
 		`  <object id="1" type="model" name="${xmlEscape(title)}">\n`,
@@ -825,14 +911,17 @@ export function buildPainted3MF(
 		'<Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>' +
 		'</Relationships>\n';
 
-	const bytes = zipSync(
-		{
-			'[Content_Types].xml': strToU8(contentTypes),
-			'_rels/.rels': strToU8(rels),
-			'3D/3dmodel.model': strToU8(parts.join('')),
-		},
-		{ level: 6 },
-	);
+	const files: Record<string, Uint8Array> = {
+		'[Content_Types].xml': strToU8(contentTypes),
+		'_rels/.rels': strToU8(rels),
+		'3D/3dmodel.model': strToU8(parts.join('')),
+	};
+	const extra =
+		typeof options.extraFiles === 'function' ? options.extraFiles(palette) : options.extraFiles;
+	for (const [name, data] of Object.entries(extra ?? {})) {
+		files[name] = typeof data === 'string' ? strToU8(data) : data;
+	}
+	const bytes = zipSync(files, { level: 6 });
 
 	return { bytes, palette, triangleCount: triCount, leafCount };
 }
