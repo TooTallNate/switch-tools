@@ -4,6 +4,7 @@ import type { BfresGeometry, BfresMaterial } from '@tootallnate/bfres'
 import {
   applyTexSrt,
   bakeAlbedoLayers,
+  bezelBaseColor,
   hasAlpha,
   isBezelMaterial,
   planBezelAlbedo,
@@ -130,5 +131,16 @@ describe('bakeAlbedoLayers', () => {
     const off = new Float32Array([2.5, 0.5, 2.5, 0.5, 2.5, 0.5])
     const out = bakeAlbedoLayers(base, baseUvs, indices, [{ image: layer, uvs: off }], null)
     expect([...out.subarray(0, 4)]).toEqual([10, 20, 30, 255])
+  })
+})
+
+describe('bezelBaseColor', () => {
+  it('returns baseColor only when use_base_color_value is on', () => {
+    const mat = eyeMaterial()
+    mat.shaderParams!.baseColor = { name: 'baseColor', type: 15, values: [0.006, 0.006, 0.034, 1] }
+    expect(bezelBaseColor(mat)).toBeNull()
+    mat.shaderAssign!.options.use_base_color_value = '1'
+    expect(bezelBaseColor(mat)).toEqual([0.006, 0.006, 0.034])
+    expect(bezelBaseColor({ ...mat, shaderAssign: undefined })).toBeNull()
   })
 })

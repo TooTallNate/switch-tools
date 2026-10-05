@@ -62,6 +62,23 @@ export function isBezelMaterial(mat: BfresMaterial | undefined): boolean {
 }
 
 /**
+ * Constant albedo for Bezel materials with `use_base_color_value`
+ * on: the linear RGB `baseColor` param. The shader multiplies it into
+ * the `_a0` texture when there is one, and uses it alone when there
+ * isn't (e.g. a Bob-omb's untextured navy body). `null` when the
+ * option is off.
+ */
+export function bezelBaseColor(
+	mat: BfresMaterial | undefined,
+): [number, number, number] | null {
+	if (!mat || !isBezelMaterial(mat)) return null;
+	if (mat.shaderAssign!.options.use_base_color_value !== '1') return null;
+	const c = mat.shaderParams?.baseColor?.values;
+	if (!c || c.length < 3) return null;
+	return [c[0]!, c[1]!, c[2]!];
+}
+
+/**
  * Apply a texture SRT to a UV array.
  *
  * Maya-mode semantics (mode 0, the only one Bezel uses), expressed in

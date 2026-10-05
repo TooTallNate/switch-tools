@@ -43,6 +43,7 @@ import type { Node } from "~/lib/archive"
 import { getAstcBlockDecoder } from "~/lib/astc"
 import {
   bakeAlbedoLayers,
+  bezelBaseColor,
   hasAlpha,
   isBezelMaterial,
   planBezelAlbedo,
@@ -1944,15 +1945,28 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
           // alphaTest discards alpha<0.5 fragments in the GPU
           // before depth-write, also avoiding z-fighting between
           // the pupil mesh and surrounding eye geometry.
+          const baseColor = bezelBaseColor(
+            materials[g.modelIndex]?.[g.materialIndex],
+          )
           const material: THREE.Material = albedo
             ? new THREE.MeshBasicMaterial({
                 map: albedo,
                 side: THREE.DoubleSide,
-                color: 0xffffff,
+                color: baseColor
+                  ? new THREE.Color().setRGB(...baseColor, THREE.LinearSRGBColorSpace)
+                  : 0xffffff,
                 transparent: true,
                 alphaTest: 0.5,
               })
-            : new THREE.MeshNormalMaterial({
+            : baseColor
+              ? new THREE.MeshBasicMaterial({
+                  side: THREE.DoubleSide,
+                  color: new THREE.Color().setRGB(
+                    ...baseColor,
+                    THREE.LinearSRGBColorSpace,
+                  ),
+                })
+              : new THREE.MeshNormalMaterial({
                 flatShading: false,
                 side: THREE.DoubleSide,
               })
