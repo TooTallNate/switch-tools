@@ -99,6 +99,14 @@ describe('buildFullSpectrum3MF', () => {
     const settings = JSON.parse(strFromU8(files['Metadata/project_settings.config']!))
     expect(settings.filament_colour).toEqual(['#08ABFB', '#D93B90', '#F9ED3D', '#9199A4'])
     expect(settings.mixed_filament_definitions.split(';')[0]).toMatch(/^1,3,1,1,50,/)
+    // Opened as a project, these name the system presets every
+    // unlisted setting is taken from (so the printer profile survives).
+    expect(settings.printer_settings_id).toBe('Snapmaker U1 (0.4 nozzle)')
+    expect(settings.print_settings_id).toBe('0.10mm Color Mixing @Snapmaker U1 (0.4 nozzle)')
+    expect(settings.filament_settings_id).toEqual(Array(4).fill('Snapmaker PLA Full Spectrum @U1 0.4 nozzle'))
+    // [process, filament × 4, printer], nothing differing from system.
+    expect(settings.different_settings_to_system).toEqual(Array(6).fill(''))
+    expect(settings.dithering_local_z_mode).toBe('1')
     const model = strFromU8(files['3D/3dmodel.model']!)
     // Filament 5 (the first mix) is encoded "2C".
     expect(model).toMatch(/paint_color="[0-9A-F]*2C[0-9A-F]*"/)

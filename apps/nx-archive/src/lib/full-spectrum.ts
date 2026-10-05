@@ -221,12 +221,61 @@ export function mixedFilamentDefinitions(mixes: readonly MixRecipe[], physicalCo
 	return rows.join(';');
 }
 
-/** `Metadata/project_settings.config` carrying filaments + mixes. */
-export function fullSpectrumProjectSettings(base: readonly Rgb[], mixes: readonly MixRecipe[]): string {
+/** Snapmaker Orca system presets the project settings point at. */
+export interface U1Presets {
+	printer: string;
+	process: string;
+	filament: string;
+}
+
+/**
+ * Snapmaker U1, 0.4 mm nozzle, with Snapmaker's dedicated colour-mixing
+ * process and the Full Spectrum PLA filament profile (names from
+ * Snapmaker Orca's `resources/profiles/Snapmaker/{machine,process,filament}`).
+ */
+export const U1_FULL_SPECTRUM_PRESETS: U1Presets = {
+	printer: 'Snapmaker U1 (0.4 nozzle)',
+	process: '0.10mm Color Mixing @Snapmaker U1 (0.4 nozzle)',
+	filament: 'Snapmaker PLA Full Spectrum @U1 0.4 nozzle',
+};
+
+/**
+ * `Metadata/project_settings.config` carrying filaments + mixes.
+ *
+ * Opening a 3MF *as a project* (Snapmaker Orca's default for an empty
+ * plate) layers this file over factory defaults
+ * (`config.apply(FullPrintConfig::defaults())`), so a config holding only
+ * our keys would wipe the printer profile — layer G-code, retraction,
+ * etc. Bambu-style project configs avoid that by naming system presets
+ * and listing per-preset `different_settings_to_system`: for every key
+ * *not* listed, `PresetCollection::load_external_preset` takes the
+ * named system preset's value, and the preset is then simply selected.
+ * Our presets differ in nothing (empty lists), so the user gets the
+ * stock U1 printer / colour-mixing process / Full Spectrum filament
+ * profiles. Filament colours and mix recipes are *project* options
+ * (`s_project_options`), applied from this file directly.
+ */
+export function fullSpectrumProjectSettings(
+	base: readonly Rgb[],
+	mixes: readonly MixRecipe[],
+	presets: U1Presets = U1_FULL_SPECTRUM_PRESETS,
+): string {
 	return JSON.stringify(
 		{
+			printer_settings_id: presets.printer,
+			print_settings_id: presets.process,
+			filament_settings_id: base.map(() => presets.filament),
+			// [process, filament 1..N, printer]
+			different_settings_to_system: Array.from({ length: base.length + 2 }, () => ''),
+			// Project options:
 			filament_colour: base.map(rgbToHex),
 			mixed_filament_definitions: mixedFilamentDefinitions(mixes, base.length),
+			// U1 default plate; filament bed temperatures depend on it.
+			curr_bed_type: 'Textured PEI Plate',
+			// "Subdivide Mix Layer" + "Apply Subdivision to Infill":
+			// finer layers in mixed regions, as Snapmaker recommends.
+			dithering_local_z_mode: '1',
+			dithering_local_z_infill: '1',
 		},
 		null,
 		4,
