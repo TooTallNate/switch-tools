@@ -47,6 +47,7 @@ import {
 import { parseBfsar, extForMagic as bfsarExtForMagic } from '@tootallnate/bfsar';
 import { parseBfwar } from '@tootallnate/bfwar';
 import { parseBfres } from '@tootallnate/bfres';
+import { parseBea, type BeaEntry } from '@tootallnate/bea';
 import { parseGfpak } from '@tootallnate/gfpak';
 import { parseAkpk } from '@tootallnate/wwise-pck';
 import { parseBnk } from '@tootallnate/wwise-bnk';
@@ -251,6 +252,12 @@ export type NodeKind =
 	| 'ff8-fs'
 	| 'lz4'
 	| 'zstd'
+	/**
+	 * Bezel Engine Archive (`.bea`, magic `SCNE`). A flat bundle of
+	 * individually zstd-compressed assets (BFRES models + animations,
+	 * BNTX textures, shader packs) for one actor.
+	 */
+	| 'bea'
 	| 'unityfs'
 	| 'unity-asset'
 	| 'unity-object'
@@ -658,6 +665,12 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	byml: 'BYML',
 	bntx: 'BNTX', // Nintendo texture format (BC1/3/4/5/7, RGBA8, etc.)
 	bfres: 'BFRES', // Nintendo 3D resource (FRES) — models + embedded BNTX
+	// Bezel Engine (`.bea`) titles store BFRES under per-role extensions.
+	fmdb: 'BFRES', // model
+	fskb: 'BFRES', // skeletal animation
+	fmab: 'BFRES', // material animation
+	fvbb: 'BFRES', // bone-visibility animation
+	bea: 'BEA', // Bezel Engine Archive (magic SCNE) — zstd-compressed asset bundle
 	gfpak: 'GFPAK', // Game Freak archive
 	gfbmdl: 'GFBMDL', // Game Freak model
 	gfbanm: 'GFBANM', // Game Freak skeletal animation
@@ -772,6 +785,7 @@ type SniffedFormat =
 	| 'fmod-bank'
 	| 'awb'
 	| 'zstd'
+	| 'bea'
 	| 'idtech-resources'
 	| 'idfont'
 	| 'bimage'
@@ -845,6 +859,7 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (m4 === 'FSAR') return 'bfsar';
 	if (m4 === 'FWAR') return 'bfwar';
 	if (m4 === 'FRES') return 'bfres';
+	if (m4 === 'SCNE') return 'bea'; // Bezel Engine Archive
 	if (m4 === 'AFS2') return 'awb';
 	// Square `.wd` wave bank: byte pattern 'W' 'D' 0 0. The
 	// trailing nulls would break a plain TextDecoder match, so
@@ -1179,6 +1194,12 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		sniff: ['zstd'],
 		build: (a) => makeZstdNode(a.id, a.name, a.blob, a.ctx),
 	},
+	{
+		format: 'BEA',
+		extensions: ['bea'],
+		sniff: ['bea'],
+		build: (a) => makeBeaNode(a.id, a.name, a.blob, a.ctx),
+	},
 
 	// --- GameCube / Wii ---
 	{
@@ -1348,7 +1369,7 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 	},
 	{
 		format: 'BFRES',
-		extensions: ['bfres'],
+		extensions: ['bfres', 'fmdb', 'fskb', 'fmab', 'fvbb'],
 		sniff: ['bfres'],
 		build: (a) => makeBfresNode(a.id, a.name, a.blob, a.ctx),
 	},
@@ -5530,6 +5551,140 @@ function makeZstdNode(
 			];
 		},
 	};
+}
+
+// ----- BEA (Bezel Engine Archive) -----
+
+/**
+ * Extensions inside BEAs that are opaque to us (effect / sound
+ * triggers, shader packs, texture-pointer stubs). Their children are
+ * built without a magic sniff so expanding a 1700-entry archive
+ * doesn't decompress every one of them just to read 12 bytes.
+ */
+const BEA_NO_SNIFF_EXTS = new Set(['ftrg', 'ftxb', 'nkn', 'bnbshpk']);
+
+/**
+ * Lazily-decompressed `Blob` for one BEA asset. Reports the
+ * uncompressed size synchronously; decompression runs (once) on
+ * first byte-level access.
+ */
+function beaEntryBlob(entry: BeaEntry): Blob {
+	if (entry.compression === 'none') return entry.data;
+	let cached: Promise<Blob> | null = null;
+	return makeLazyBlob(entry.uncompressedSize, () => {
+		if (!cached) {
+			cached = (async () => {
+				const stored = new Uint8Array(await entry.data.arrayBuffer());
+				const isZstd =
+					stored.length >= 4 &&
+					stored[0] === 0x28 &&
+					stored[1] === 0xb5 &&
+					stored[2] === 0x2f &&
+					stored[3] === 0xfd;
+				if (!isZstd) {
+					if (entry.compression === 'zstd') {
+						throw new Error(`BEA asset "${entry.name}" is not a valid Zstandard frame`);
+					}
+					// Unknown compression type with no zstd frame: hand back
+					// the stored bytes untouched.
+					return new Blob([stored as BlobPart]);
+				}
+				const out = await zstdDecompressBytes(stored);
+				return new Blob([out as BlobPart]);
+			})();
+			// Allow a retry if decompression failed.
+			cached.catch(() => {
+				cached = null;
+			});
+		}
+		return cached;
+	});
+}
+
+/**
+ * Bezel Engine Archive (`.bea`, magic `SCNE`). Entries carry full
+ * slash-delimited paths (`chara/pc/pc02_luigi/model/pc02_luigi.fmdb`),
+ * so we rebuild the directory tree and route each file through
+ * {@link childNodeFor} — `.fmdb` / `.fskb` / … land on the BFRES
+ * handler, `.bntx` on the texture preview.
+ */
+function makeBeaNode(
+	id: string,
+	name: string,
+	blob: Blob,
+	ctx: ArchiveContext,
+): Node {
+	return {
+		id,
+		name,
+		kind: 'bea',
+		isContainer: true,
+		size: blob.size,
+		format: 'BEA',
+		blob: async () => blob,
+		getChildren: async () => {
+			const parsed = await parseBea(blob);
+			return beaEntriesToNodes(id, parsed.entries, ctx);
+		},
+	};
+}
+
+async function beaEntriesToNodes(
+	parentId: string,
+	entries: BeaEntry[],
+	ctx: ArchiveContext,
+): Promise<Node[]> {
+	type Tree = Map<string, { dir?: Tree; file?: BeaEntry }>;
+	const root: Tree = new Map();
+	for (const entry of entries) {
+		// A few texture-pointer paths use Windows separators.
+		const parts = entry.name.split(/[\\/]/).filter((p) => p.length > 0);
+		if (parts.length === 0) continue;
+		let cur = root;
+		for (let i = 0; i < parts.length; i++) {
+			const part = parts[i];
+			let node = cur.get(part);
+			if (!node) {
+				node = {};
+				cur.set(part, node);
+			}
+			if (i === parts.length - 1) {
+				node.file = entry;
+			} else {
+				if (!node.dir) node.dir = new Map();
+				cur = node.dir;
+			}
+		}
+	}
+
+	const treeToNodes = async (treeId: string, t: Tree): Promise<Node[]> => {
+		const names = [...t.keys()].sort((a, b) => {
+			const aIsDir = !!t.get(a)!.dir;
+			const bIsDir = !!t.get(b)!.dir;
+			if (aIsDir !== bIsDir) return aIsDir ? -1 : 1;
+			return humanCompare(a, b);
+		});
+		return Promise.all(
+			names.map(async (childName): Promise<Node> => {
+				const child = t.get(childName)!;
+				const childId = `${treeId}/${childName}`;
+				if (child.dir) {
+					const subNodes = await treeToNodes(childId, child.dir);
+					return childDirectoryNodeFor({
+						id: childId,
+						name: childName,
+						getChildren: async () => subNodes,
+					});
+				}
+				const entry = child.file!;
+				return childNodeFor(childId, childName, beaEntryBlob(entry), ctx, {
+					skipMagicSniff: BEA_NO_SNIFF_EXTS.has(extOf(childName)),
+				});
+			}),
+		);
+	};
+
+	return treeToNodes(parentId, root);
 }
 
 function makeLz4Node(

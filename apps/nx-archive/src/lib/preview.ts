@@ -349,6 +349,9 @@ export const TEXT_EXTS = new Set([
 	'py',
 	'sql',
 	'css',
+	// Bezel Engine texture-pointer stubs: a plain path to the BNTX
+	// bank that holds the texture.
+	'ftxb',
 ]);
 
 export const JSON_EXTS = new Set([

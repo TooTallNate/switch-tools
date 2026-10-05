@@ -207,16 +207,20 @@ async function loadBntxBankFromBfres(blob: Blob): Promise<BntxBank | null> {
     const parsed = await parseBfres(blob)
     const ext = parsed.embeddedBntx
     if (!ext) return null
-    const bytes = new Uint8Array(await ext.data.arrayBuffer())
-    const bntx = parseBntx(bytes)
-    const byName = new Map<string, BntxTexture>()
-    for (const tex of bntx.textures) {
-      if (tex.name) byName.set(tex.name, tex)
-    }
-    return { byName, bytes }
+    return loadBntxBankFromBytes(new Uint8Array(await ext.data.arrayBuffer()))
   } catch {
     return null
   }
+}
+
+/** Index a standalone BNTX file's textures by name. Throws on bad input. */
+function loadBntxBankFromBytes(bytes: Uint8Array): BntxBank {
+  const bntx = parseBntx(bytes)
+  const byName = new Map<string, BntxTexture>()
+  for (const tex of bntx.textures) {
+    if (tex.name) byName.set(tex.name, tex)
+  }
+  return { byName, bytes }
 }
 
 /**
@@ -485,6 +489,105 @@ async function findCompanionBfresBlobs(
   )
 
   return { textures, animations }
+}
+
+/** Resolved children of `node`, expanding (and caching) on first use. */
+async function childrenOf(node: Node): Promise<Node[]> {
+  if (!node.getChildren) return []
+  if (node._children) return node._children
+  try {
+    const kids = await node.getChildren()
+    node._children = kids
+    return kids
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Nearest ancestor of `selected` (or `root` itself) that is a Bezel
+ * Engine Archive. BEA bundles keep the model, its texture bank and
+ * its animations as separate files in one archive, so the archive —
+ * rather than the model's own directory — is the companion scope.
+ */
+async function findEnclosingBea(
+  root: Node,
+  selected: Node,
+): Promise<Node | null> {
+  const ids: string[] = []
+  let cur = selected.id
+  while (cur && cur !== root.id) {
+    const slash = cur.lastIndexOf("/")
+    if (slash <= 0) break
+    cur = cur.slice(0, slash)
+    ids.push(cur)
+  }
+  if (!ids.includes(root.id)) ids.push(root.id)
+  for (const id of ids) {
+    const node = await findNodeById(root, id)
+    if (node?.kind === "bea") return node
+  }
+  return null
+}
+
+/**
+ * Companion assets pulled from the enclosing BEA: every `.bntx`
+ * bank, and every other BFRES carrying animations (`.fskb` skeletal
+ * / `.fmab` material). Bezel titles keep these in sibling
+ * directories (`model/textures_chara/…`, `motion/`) of the `.fmdb`
+ * model, which the stem-based BFRES companion search can't see.
+ */
+interface BeaCompanions {
+  textureBanks: BntxBank[]
+  animations: Blob[]
+}
+
+async function findBeaCompanions(
+  root: Node | null,
+  selected: Node,
+): Promise<BeaCompanions> {
+  const empty: BeaCompanions = { textureBanks: [], animations: [] }
+  if (!root) return empty
+  const bea = await findEnclosingBea(root, selected)
+  if (!bea) return empty
+
+  // Walk the archive's directory tree. Only plain directories are
+  // descended into — nested containers (each BFRES is one) would
+  // otherwise get parsed just to enumerate their external files.
+  const bntxNodes: Node[] = []
+  const animNodes: Node[] = []
+  const walk = async (dir: Node): Promise<void> => {
+    const kids = await childrenOf(dir)
+    await Promise.all(
+      kids.map(async (k) => {
+        if (k.kind === "directory") return walk(k)
+        if (k.id === selected.id || !k.blob) return
+        const lower = k.name.toLowerCase()
+        if (lower.endsWith(".bntx")) bntxNodes.push(k)
+        else if (lower.endsWith(".fskb") || lower.endsWith(".fmab")) animNodes.push(k)
+      }),
+    )
+  }
+  await walk(bea)
+
+  const textureBanks = (
+    await Promise.all(
+      bntxNodes.map(async (n) => {
+        try {
+          return loadBntxBankFromBytes(new Uint8Array(await (await n.blob!()).arrayBuffer()))
+        } catch {
+          return null
+        }
+      }),
+    )
+  ).filter((b): b is BntxBank => b !== null)
+  // Keep archive order (the tree is name-sorted) so the clip
+  // dropdown reads alphabetically.
+  animNodes.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const animations = (
+    await Promise.all(animNodes.map((n) => n.blob!().catch(() => null)))
+  ).filter((b): b is Blob => b !== null)
+  return { textureBanks, animations }
 }
 
 /**
@@ -1605,6 +1708,7 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
           animations,
           textureCache,
           companions,
+          beaCompanions,
         ] = await Promise.all([
           extractGeometry(blob),
           extractMaterials(blob),
@@ -1613,6 +1717,9 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
           loadEmbeddedBntxTextures(blob),
           findCompanionBfresBlobs(root, node).catch(
             (): CompanionBlobs => ({ textures: [], animations: [] }),
+          ),
+          findBeaCompanions(root, node).catch(
+            (): BeaCompanions => ({ textureBanks: [], animations: [] }),
           ),
         ])
         if (cancelled) return
@@ -1646,6 +1753,20 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
             await ensureAstcDecoder(mergedTextures)
           }
         }
+        // Bezel Engine Archive: the model's texture bank is a
+        // standalone `.bntx` elsewhere in the same `.bea`.
+        if (beaCompanions.textureBanks.length > 0) {
+          if (!mergedTextures) {
+            mergedTextures = {
+              banks: beaCompanions.textureBanks,
+              decoded: new Map(),
+              textures: new Map(),
+            }
+          } else {
+            mergedTextures.banks.push(...beaCompanions.textureBanks)
+          }
+          await ensureAstcDecoder(mergedTextures)
+        }
         // Second-pass: if any albedo bindings still aren't
         // satisfied, look for shared texture archives in sibling
         // `.Tex.sbfres` files (BotW Mannequin → `Link.Tex.sbfres`,
@@ -1678,9 +1799,13 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
         // single canonical skeleton across all assets for a given
         // character).
         let mergedAnimations = animations
-        if (companions.animations.length > 0) {
+        const companionAnimBlobs = [
+          ...companions.animations,
+          ...beaCompanions.animations,
+        ]
+        if (companionAnimBlobs.length > 0) {
           const companionAnims = await Promise.all(
-            companions.animations.map((b) =>
+            companionAnimBlobs.map((b) =>
               extractAnimations(b).catch(
                 (): BfresAnimations => ({
                   skeletal: [],
@@ -1699,7 +1824,12 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
             ],
             material: [
               ...animations.material,
-              ...companionAnims.flatMap((a) => a.material),
+              // Drop companion clips with no texture-pattern tracks
+              // (Bezel `.fmab` files are mostly shader-param anims we
+              // can't play) so they don't flood the dropdown.
+              ...companionAnims.flatMap((a) =>
+                a.material.filter((m) => m.materialAnims.length > 0),
+              ),
             ],
             boneVis: [
               ...animations.boneVis,

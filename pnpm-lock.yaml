@@ -250,6 +250,9 @@ importers:
       '@tootallnate/bcn':
         specifier: workspace:*
         version: link:../../packages/bcn
+      '@tootallnate/bea':
+        specifier: workspace:*
+        version: link:../../packages/bea
       '@tootallnate/bffnt':
         specifier: workspace:*
         version: link:../../packages/bffnt
@@ -729,6 +732,12 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
+
+  packages/bea:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
 
   packages/bffnt:
     devDependencies:

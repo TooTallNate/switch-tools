@@ -108,6 +108,7 @@
     "@tootallnate/romfs": "workspace:*",
     "@tootallnate/rvz": "workspace:*",
     "@tootallnate/sarc": "workspace:*",
+    "@tootallnate/bea": "workspace:*",
     "@tootallnate/sead-audio": "workspace:*",
     "@tootallnate/smw": "workspace:*",
     "@tootallnate/snes-rom": "workspace:*",

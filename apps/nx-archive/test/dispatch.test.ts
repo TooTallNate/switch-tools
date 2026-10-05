@@ -216,3 +216,77 @@ describe('MTH dispatch', () => {
     expect(n.isContainer).toBe(false)
   })
 })
+
+describe('BEA (Bezel Engine Archive)', () => {
+  /** Minimal uncompressed BEA: header, asset pointers, ASST blocks, strings, payloads. */
+  const buildBea = (files: { name: string; data: Uint8Array }[]): Uint8Array => {
+    const enc = new TextEncoder()
+    const arrayOffset = 0x48
+    const asstOffset = arrayOffset + files.length * 8
+    let cur = asstOffset + files.length * 0x30
+    const strs = ['test~archive', ...files.map((f) => f.name)].map((s) => enc.encode(s))
+    const strOffsets = strs.map((s) => {
+      const o = cur
+      cur = (cur + 2 + s.length + 2) & ~1
+      return o
+    })
+    const metaSize = (cur + 7) & ~7
+    const dataOffsets: number[] = []
+    let total = metaSize
+    for (const f of files) {
+      dataOffsets.push(total)
+      total = (total + f.data.length + 7) & ~7
+    }
+    const out = new Uint8Array(total)
+    const dv = new DataView(out.buffer)
+    out.set(enc.encode('SCNE'), 0)
+    dv.setUint32(0x08, 0x00010100, true)
+    dv.setUint16(0x0c, 0xfeff, true)
+    dv.setUint32(0x1c, metaSize, true)
+    dv.setUint16(0x20, files.length, true)
+    dv.setBigUint64(0x28, BigInt(arrayOffset), true)
+    dv.setBigUint64(0x40, BigInt(strOffsets[0]), true)
+    strs.forEach((s, i) => {
+      dv.setUint16(strOffsets[i], s.length, true)
+      out.set(s, strOffsets[i] + 2)
+    })
+    files.forEach((f, i) => {
+      const a = asstOffset + i * 0x30
+      dv.setBigUint64(arrayOffset + i * 8, BigInt(a), true)
+      out.set(enc.encode('ASST'), a)
+      dv.setUint32(a + 0x14, f.data.length, true)
+      dv.setUint32(a + 0x18, f.data.length, true)
+      dv.setBigUint64(a + 0x20, BigInt(dataOffsets[i]), true)
+      dv.setBigUint64(a + 0x28, BigInt(strOffsets[i + 1]), true)
+      out.set(f.data, dataOffsets[i])
+    })
+    return out
+  }
+
+  const archive = () =>
+    buildBea([
+      { name: 'object/coin/model/coin.fmdb', data: new TextEncoder().encode('FRES    ') },
+      { name: 'object/coin/model/textures/coin_alb.ftxb', data: new TextEncoder().encode('a/b.bntx') },
+    ])
+
+  it('opens by extension and rebuilds the directory tree', async () => {
+    const root = await buildRootNode(new Blob([archive() as BlobPart]), 'object~coin.nx.bea', ctx)
+    expect(root.kind).toBe('bea')
+    expect(root.format).toBe('BEA')
+    const [object] = await root.getChildren!()
+    expect(object.name).toBe('object')
+    const [coin] = await object.getChildren!()
+    const [model] = await coin.getChildren!()
+    const kids = await model.getChildren!()
+    expect(kids.map((k) => k.name)).toEqual(['textures', 'coin.fmdb'])
+    // `.fmdb` is a BFRES under a Bezel-specific extension.
+    expect(kids[1].kind).toBe('bfres')
+    const [ftxb] = await kids[0].getChildren!()
+    expect(await (await ftxb.blob!()).text()).toBe('a/b.bntx')
+  })
+
+  it('is detected by its SCNE magic under an unknown extension', async () => {
+    const root = await buildRootNode(new Blob([archive() as BlobPart]), 'mystery.bin_', ctx)
+    expect(root.kind).toBe('bea')
+  })
+})
