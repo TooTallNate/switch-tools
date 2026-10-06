@@ -38,8 +38,10 @@ import {
 	rgbToHex,
 	rgbToLab,
 	type ColorBin,
+	type Paint3mfOptions,
 	type Rgb,
 } from './mesh-export-3mf';
+import type { RepairSummary } from './mesh-repair';
 
 export interface PhysicalFilament {
 	name: string;
@@ -294,6 +296,8 @@ export interface FullSpectrumOptions {
 	title?: string;
 	/** Plate centre to place the model at. Default: the U1's. */
 	bedCenter?: readonly [number, number];
+	/** See {@link Paint3mfOptions.repair}. Default true. */
+	repair?: Paint3mfOptions['repair'];
 }
 
 export interface FullSpectrumResult {
@@ -302,6 +306,7 @@ export interface FullSpectrumResult {
 	/** Chosen mixes; mix i is painted as filament `base.length + 1 + i`. */
 	mixes: MixRecipe[];
 	triangleCount: number;
+	repair: RepairSummary | null;
 }
 
 /** Build a Snapmaker Orca Full Spectrum 3MF. */
@@ -314,6 +319,7 @@ export function buildFullSpectrum3MF(meshes: ExportMesh[], options: FullSpectrum
 		subdivisionPasses: options.subdivisionPasses,
 		sourceAxis: options.sourceAxis,
 		title: options.title,
+		repair: options.repair,
 		choosePalette: (bins) => {
 			mixes = chooseMixes(bins, baseRgb, options.maxMixes, options.mixPercents);
 			return [...baseRgb, ...mixes.map((m) => m.rgb)];
@@ -329,7 +335,13 @@ export function buildFullSpectrum3MF(meshes: ExportMesh[], options: FullSpectrum
 			'Metadata/project_settings.config': fullSpectrumProjectSettings(baseRgb, mixes),
 		}),
 	});
-	return { bytes: result.bytes, base, mixes, triangleCount: result.triangleCount };
+	return {
+		bytes: result.bytes,
+		base,
+		mixes,
+		triangleCount: result.triangleCount,
+		repair: result.repair,
+	};
 }
 
 /** Human-readable recipe, e.g. `5=Cyan 67% + Yellow 33%`. */

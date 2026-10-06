@@ -119,7 +119,7 @@ describe('buildFullSpectrum3MF', () => {
       ...wall,
       positions: new Float32Array([0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0]),
     }
-    const res = buildFullSpectrum3MF([flat], { maxMixes: 4, sourceAxis: 'z-up' })
+    const res = buildFullSpectrum3MF([flat], { maxMixes: 4, sourceAxis: 'z-up', repair: false })
     const model = strFromU8(unzipSync(res.bytes)['3D/3dmodel.model']!)
     const states = [...model.matchAll(/paint_color="([0-9A-F]+)"/g)].map((m) => m[1]!)
     // Only "", "4", "8", "0C", "1C" (filaments 1–4) may appear.

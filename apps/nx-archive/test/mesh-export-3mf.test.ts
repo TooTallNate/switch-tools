@@ -38,7 +38,7 @@ describe('buildPainted3MF', () => {
   it('paints a two-colour texture', () => {
     const res = buildPainted3MF(
       [{ ...quad(), materials: [{ texture: tex([255, 0, 0, 255, 0, 0, 255, 255], 2, 1) }] }],
-      { colorCount: 4, sourceAxis: 'z-up' },
+      { colorCount: 4, sourceAxis: 'z-up', repair: false },
     )
     expect(res.palette.length).toBe(2)
     const files = unzipSync(res.bytes)
@@ -92,7 +92,7 @@ describe('buildPainted3MF', () => {
     const pixels = [0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 255, 0, 0, 0]
     const res = buildPainted3MF(
       [{ ...quad(), materials: [{ texture: tex(pixels, 4, 1) }] }],
-      { colorCount: 4, sourceAxis: 'z-up' },
+      { colorCount: 4, sourceAxis: 'z-up', repair: false },
     )
     // Red never makes it into the palette, and nothing is painted with it.
     expect(res.palette).toEqual([[0, 0, 255]])
@@ -136,7 +136,7 @@ describe('buildPainted3MF', () => {
       positions: new Float32Array([...q.positions, 99, 99, 99, 5, 5, 5]),
       indices: q.indices,
     }
-    const xml = modelXml(buildPainted3MF([inp], { colorCount: 1, sourceAxis: 'z-up', subdivisionPasses: 1 }).bytes)
+    const xml = modelXml(buildPainted3MF([inp], { colorCount: 1, sourceAxis: 'z-up', subdivisionPasses: 1, repair: false }).bytes)
     expect(xml).not.toMatch(/NaN|Infinity/)
     const m = parseModel(xml)
     // Every written vertex is referenced by some triangle.

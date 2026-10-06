@@ -66,6 +66,13 @@ import {
 	type ExportTextureWrap,
 	type IndexedMesh,
 } from './mesh-export';
+import {
+	defaultMinThickness,
+	repairForPrinting,
+	summarizeRepairs,
+	type RepairReport,
+	type RepairSummary,
+} from './mesh-repair';
 
 export type Rgb = readonly [number, number, number];
 
@@ -111,6 +118,12 @@ export interface Paint3mfOptions {
 	bedCenter?: readonly [number, number];
 	/** Loop-subdivision passes before painting (shape smoothing). */
 	subdivisionPasses?: number;
+	/**
+	 * Make every part a closed, outward-facing solid before painting
+	 * (see `mesh-repair.ts`). Default true. `minThickness` defaults to
+	 * 1 % of the combined bounding-box diagonal.
+	 */
+	repair?: boolean | { minThickness?: number };
 	/** Source axis convention. Default `'y-up'` (rotated to Z-up). */
 	sourceAxis?: 'y-up' | 'z-up';
 	/**
@@ -129,6 +142,8 @@ export interface Paint3mfResult {
 	triangleCount: number;
 	/** Paint-tree leaves sampled, before uniform subtrees collapse (diagnostic). */
 	leafCount: number;
+	/** Summed repair report across inputs (null when repair is off). */
+	repair: RepairSummary | null;
 }
 
 const DEFAULT_BASE: Rgb = [160, 160, 160];
@@ -441,18 +456,32 @@ interface TrackedShape {
 	bary: Float32Array;
 }
 
-function trackShape(input: ExportMesh, passes: number): TrackedShape {
+function trackShape(
+	input: ExportMesh,
+	passes: number,
+	repair: { minThickness: number } | null,
+	reports: RepairReport[],
+): TrackedShape {
 	const welded = weldByPositionTracked({
 		positions: input.positions,
 		indices: input.indices,
 	});
 	let mesh = welded.mesh;
 	let src = welded.keptTriangles;
-	let bary = new Float32Array(src.length * 9);
+	let bary: Float32Array = new Float32Array(src.length * 9);
 	for (let t = 0; t < src.length; t++) {
 		bary[t * 9 + 0] = 1;
 		bary[t * 9 + 4] = 1;
 		bary[t * 9 + 8] = 1;
+	}
+	if (repair) {
+		// Before subdivision: smoothing then treats caps / walls as part
+		// of the surface instead of creasing open rims.
+		const r = repairForPrinting({ ...mesh, src, bary }, repair);
+		mesh = { positions: r.positions, indices: r.indices };
+		src = r.src;
+		bary = r.bary;
+		reports.push(r.report);
 	}
 	for (let p = 0; p < passes; p++) {
 		mesh = loopSubdivide(mesh);
@@ -573,7 +602,16 @@ export function buildPainted3MF(
 	const vcolorDepth = Math.min(maxDepth, 3);
 
 	// --- 1. Merge meshes, keeping per-triangle source tracking. ----------
-	const shapes = inputs.map((inp) => trackShape(inp, passes));
+	const repairOpt =
+		options.repair === false
+			? null
+			: {
+					minThickness:
+						(typeof options.repair === 'object' ? options.repair.minThickness : undefined) ??
+						defaultMinThickness(inputs),
+				};
+	const reports: RepairReport[] = [];
+	const shapes = inputs.map((inp) => trackShape(inp, passes, repairOpt, reports));
 
 	let vertTotal = 0;
 	for (const s of shapes) vertTotal += s.mesh.positions.length / 3;
@@ -959,7 +997,13 @@ export function buildPainted3MF(
 	}
 	const bytes = zipSync(files, { level: 6 });
 
-	return { bytes, palette, triangleCount: triCount, leafCount };
+	return {
+		bytes,
+		palette,
+		triangleCount: triCount,
+		leafCount,
+		repair: repairOpt ? summarizeRepairs(reports) : null,
+	};
 }
 
 function xmlEscape(s: string): string {

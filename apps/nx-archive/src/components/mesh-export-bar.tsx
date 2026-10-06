@@ -31,6 +31,14 @@ import {
   type ExportMesh,
 } from "~/lib/mesh-export"
 import { buildPainted3MF, rgbToHex, type Rgb } from "~/lib/mesh-export-3mf"
+import {
+  defaultMinThickness,
+  repairChangedAnything,
+  repairForPrinting,
+  summarizeRepairs,
+  type RepairReport,
+  type RepairSummary,
+} from "~/lib/mesh-repair"
 
 export interface MeshExportBarProps {
   /**
@@ -61,6 +69,8 @@ interface ExportPrefs {
   mixes: number
   /** Physical filament colours (hex) for Full Spectrum mode. */
   base: string[]
+  /** Close holes / thicken sheets so every part is a printable solid. */
+  repair: boolean
 }
 
 const DEFAULT_PREFS: ExportPrefs = {
@@ -68,6 +78,7 @@ const DEFAULT_PREFS: ExportPrefs = {
   colors: 4,
   mixes: 12,
   base: FULL_SPECTRUM_BUNDLE.map((f) => rgbToHex(f.rgb)),
+  repair: true,
 }
 
 function loadPrefs(): ExportPrefs {
@@ -94,6 +105,28 @@ function baseFilaments(hexes: string[]): PhysicalFilament[] {
     const same = bundle && rgbToHex(bundle.rgb) === hex.toUpperCase()
     return { name: same ? bundle.name : `F${i + 1}`, rgb: hexToRgb(hex) }
   })
+}
+
+/** One-line description of what printability repair changed. */
+function describeRepair(s: RepairSummary): string {
+  const parts: string[] = []
+  if (s.holesFilled) parts.push(`closed ${s.holesFilled} hole${s.holesFilled === 1 ? "" : "s"}`)
+  if (s.sheetsThickened)
+    parts.push(`thickened ${s.sheetsThickened} open surface${s.sheetsThickened === 1 ? "" : "s"}`)
+  if (s.duplicatesRemoved)
+    parts.push(`removed ${s.duplicatesRemoved} duplicate face${s.duplicatesRemoved === 1 ? "" : "s"}`)
+  if (s.nonManifoldEdgesCut) parts.push(`split ${s.nonManifoldEdgesCut} non-manifold edges`)
+  const left = s.openEdgesAfter > 0 ? ` (${s.openEdgesAfter} open edges remain)` : ""
+  return `Repaired for printing: ${parts.join(", ")}${left}.`
+}
+
+function RepairLine({ summary }: { summary: RepairSummary | null }) {
+  if (!summary || !repairChangedAnything(summary)) return null
+  return <span>{describeRepair(summary)}</span>
+}
+
+function notifyRepair(summary: RepairSummary) {
+  if (repairChangedAnything(summary)) toast.info(describeRepair(summary), { duration: 8000 })
 }
 
 function Swatch({ rgb }: { rgb: Rgb }) {
@@ -135,11 +168,19 @@ export function MeshExportBar({
   const exportSTL = () => {
     const meshes = bake()
     if (!meshes || meshes.length === 0) return
+    const minThickness = defaultMinThickness(meshes)
+    const reports: RepairReport[] = []
     const cooked = meshes.map((m) => {
       let c = weldByPosition(m)
+      if (prefs.repair) {
+        const r = repairForPrinting(c, { minThickness })
+        reports.push(r.report)
+        c = r
+      }
       for (let p = 0; p < subdivision; p++) c = loopSubdivide(c)
       return c
     })
+    if (prefs.repair) notifyRepair(summarizeRepairs(reports))
     const { stem, pose, sub } = names()
     const bytes = emitBinarySTL(cooked, {
       header: `nx-archive ${stem}${pose}${sub}`,
@@ -155,7 +196,7 @@ export function MeshExportBar({
     const meshes = bake()
     if (!meshes || meshes.length === 0) return
     const { stem, pose, sub } = names()
-    const { mode, colors, mixes, base } = prefs
+    const { mode, colors, mixes, base, repair } = prefs
     const id = toast.loading("Painting 3MF…")
     setTimeout(() => {
       try {
@@ -163,6 +204,7 @@ export function MeshExportBar({
           const result = buildFullSpectrum3MF(meshes, {
             base: baseFilaments(base),
             maxMixes: mixes,
+            repair,
             subdivisionPasses: subdivision,
             sourceAxis,
             title: `${stem}${pose}`,
@@ -174,6 +216,7 @@ export function MeshExportBar({
             duration: 30000,
             description: (
               <div className="mt-1 flex flex-col gap-0.5">
+                <RepairLine summary={result.repair} />
                 <span>
                   Open in Snapmaker Orca in a new, empty project — filaments and mixes load
                   automatically. For smooth blends use 0.08 mm layers and enable Process →
@@ -198,6 +241,7 @@ export function MeshExportBar({
         }
         const result = buildPainted3MF(meshes, {
           colorCount: colors,
+          repair,
           subdivisionPasses: subdivision,
           sourceAxis,
           title: `${stem}${pose}`,
@@ -209,6 +253,7 @@ export function MeshExportBar({
           duration: 15000,
           description: (
             <div className="mt-1 flex flex-col gap-0.5">
+              <RepairLine summary={result.repair} />
               <span>Set these filament colors in your slicer:</span>
               {result.palette.map((c, i) => (
                 <span key={i} className="flex items-center gap-1.5 font-mono">
@@ -245,6 +290,18 @@ export function MeshExportBar({
           <option value={1}>1× (4× tris)</option>
           <option value={2}>2× (16× tris)</option>
         </select>
+      </label>
+      <label
+        className="flex items-center gap-1.5"
+        title="Make every part a closed, outward-facing solid for 3D printing: removes duplicate double-sided faces, closes holes (e.g. missing undersides) and thickens open surfaces, so slicers don't report errors that need fixing."
+      >
+        <input
+          type="checkbox"
+          checked={prefs.repair}
+          onChange={(e) => update({ repair: e.target.checked })}
+          className="h-3 w-3"
+        />
+        <span>Repair</span>
       </label>
       <button
         type="button"
