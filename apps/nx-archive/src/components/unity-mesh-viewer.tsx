@@ -21,11 +21,14 @@ export function UnityMeshViewer({
   node,
   geometry,
   textures,
+  baseColors,
 }: {
   node: Node
   geometry: UnityMeshGeometry
   /** One entry per material slot (sub-mesh index). */
   textures: Array<DecodedTexture | null>
+  /** Material base colours (sRGB 0–1) for slots without a texture. */
+  baseColors?: Array<[number, number, number] | null>
 }) {
   const renderable: RenderableMesh = useMemo(() => {
     const triangles = geometry.indices.length / 3
@@ -65,6 +68,7 @@ export function UnityMeshViewer({
       infoText={infoText}
       baseName={node.name.replace(/\.mesh\.bin$/i, "")}
       materialDiffuseTextures={textures}
+      materialBaseColors={baseColors}
     />
   )
 }

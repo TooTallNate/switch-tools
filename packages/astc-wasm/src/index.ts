@@ -83,6 +83,13 @@ interface WasmExports {
  * decoder across calls amortises the WASM instantiation cost; for
  * one-off decodes use {@link decodeAstcBytes}.
  */
+/**
+ * Bytes we let one WASM call stage (input + output). The crate's
+ * bump arena is 32 MiB (`ARENA_SIZE` in `crate/src/lib.rs`); leave
+ * headroom for alignment padding.
+ */
+const ARENA_BUDGET = 30 * 1024 * 1024
+
 export class AstcDecoder {
 	private constructor(private readonly exports: WasmExports) {}
 
@@ -130,6 +137,44 @@ export class AstcDecoder {
 				`AstcDecoder.decode: source too short (${src.length} bytes; need ${expectedSrcLen} for ${blocksX}×${blocksY} blocks of ${blockW}×${blockH})`,
 			)
 		}
+		// The WASM side stages input + output in a fixed 32 MiB bump
+		// arena, which a single call can't exceed (a 2048×4096 RGBA
+		// output alone is 32 MiB). ASTC block rows are independent and
+		// stored contiguously, so large images are decoded in strips of
+		// whole block rows that each fit, then stitched together.
+		const rowSrcBytes = blocksX * 16
+		const rowDstBytes = width * blockH * 4
+		const rowsPerStrip = Math.max(
+			1,
+			Math.floor(ARENA_BUDGET / (rowSrcBytes + rowDstBytes)),
+		)
+		if (rowsPerStrip >= blocksY) {
+			return this.decodeStrip(width, height, blockW, blockH, src.subarray(0, expectedSrcLen))
+		}
+		const out = new Uint8Array(width * height * 4)
+		for (let by = 0; by < blocksY; by += rowsPerStrip) {
+			const rows = Math.min(rowsPerStrip, blocksY - by)
+			const y0 = by * blockH
+			const stripHeight = Math.min(rows * blockH, height - y0)
+			const strip = this.decodeStrip(
+				width,
+				stripHeight,
+				blockW,
+				blockH,
+				src.subarray(by * rowSrcBytes, (by + rows) * rowSrcBytes),
+			)
+			out.set(strip, y0 * width * 4)
+		}
+		return out
+	}
+
+	private decodeStrip(
+		width: number,
+		height: number,
+		blockW: number,
+		blockH: number,
+		src: Uint8Array,
+	): Uint8Array {
 		const { astc_alloc, astc_free, astc_decode, memory } = this.exports
 		const srcPtr = astc_alloc(src.length)
 		if (!srcPtr) {

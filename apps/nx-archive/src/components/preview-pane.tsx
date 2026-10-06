@@ -74,8 +74,10 @@ import {
 import { decodeTexture2D as decodeUnityTexture2D } from "~/lib/unity-texture"
 import {
   resolveMeshAlbedoTextures,
-  type UnityObjectRef,
+  type ResolvedTexture,
+  type UnityFileContext,
 } from "~/lib/unity-mesh"
+import { externalCabName, findExternalCab } from "~/lib/unity-external"
 import type { DecodedTexture as MeshDecodedTexture } from "~/lib/uasset-material-chain"
 import { UnityMeshViewer } from "./unity-mesh-viewer"
 import { StaticMeshViewer } from "./static-mesh-viewer"
@@ -12318,6 +12320,11 @@ async function resolveTexture2DPayload(
 
 // -------- Unity `Mesh` (class 43) 3D preview --------
 
+/** A {@link UnityFileContext} that also carries its parsed SerializedFile. */
+interface UnityMeshFile extends UnityFileContext {
+  parsed: ParsedSerializedFile
+}
+
 /**
  * Decode a Unity `Mesh` and render it in the shared 3D viewer.
  *
@@ -12365,39 +12372,68 @@ function UnityMeshPreview({
       extractUnityMesh(v, parsed.header.unityVersion, streamData),
     )
 
-    // Lazily decode (and memoise) object values for material lookup.
-    const cache = new Map<bigint, Promise<Record<string, unknown> | null>>()
-    const objects: UnityObjectRef[] = parsed.objects.map((o) => ({
-      classId: o.classId,
-      pathId: o.pathId,
-      value: () => {
-        let p = cache.get(o.pathId)
-        if (!p) {
-          const tree = parsed.types[o.typeIndex]?.typeTree
-          p = tree
-            ? parseUnityObject(o, tree)
-                .then((x) => (x && typeof x === "object" ? (x as Record<string, unknown>) : null))
-                .catch(() => null)
-            : Promise.resolve(null)
-          cache.set(o.pathId, p)
-        }
-        return p
-      },
-    }))
-    const resolved = await resolveMeshAlbedoTextures(objects, decoded.obj.pathId)
+    // One context per SerializedFile involved in the lookup: this
+    // CAB, plus any CABs in other bundles that its PPtrs point into
+    // (shared materials / textures in Addressables builds).
+    const fileContexts = new Map<string, Promise<UnityMeshFile | null>>()
+    const makeFile = (cabNodeId: string, p: ParsedSerializedFile): UnityMeshFile => {
+      const cache = new Map<bigint, Promise<Record<string, unknown> | null>>()
+      const file: UnityMeshFile = {
+        key: cabNodeId,
+        parsed: p,
+        objects: p.objects.map((o) => ({
+          classId: o.classId,
+          pathId: o.pathId,
+          value: () => {
+            let v = cache.get(o.pathId)
+            if (!v) {
+              const tree = p.types[o.typeIndex]?.typeTree
+              v = tree
+                ? parseUnityObject(o, tree)
+                    .then((x) => (x && typeof x === "object" ? (x as Record<string, unknown>) : null))
+                    .catch(() => null)
+                : Promise.resolve(null)
+              cache.set(o.pathId, v)
+            }
+            return v
+          },
+        })),
+        resolveExternal: async (fileId) => {
+          const ext = p.externals[fileId - 1]
+          if (!ext || !root) return null
+          const cabName = externalCabName(ext.pathName)
+          let ctx = fileContexts.get(cabName)
+          if (!ctx) {
+            ctx = (async () => {
+              const cab = await findExternalCab(root, cabNodeId, cabName)
+              if (!cab?.blob) return null
+              const parsedExt = await parseSerializedFile(await cab.blob()).catch(() => null)
+              return parsedExt ? makeFile(cab.id, parsedExt) : null
+            })()
+            fileContexts.set(cabName, ctx)
+          }
+          return ctx
+        },
+      }
+      return file
+    }
+    const self = makeFile(cabId ?? node.id, parsed)
+    const resolved = await resolveMeshAlbedoTextures(self, decoded.obj.pathId)
     const decodedTextures = new Map<unknown, Promise<MeshDecodedTexture | null>>()
-    const decodeTex = (tex: Record<string, unknown>) => {
+    const decodeTex = (r: ResolvedTexture) => {
+      const tex = r.texture
+      const texFile = r.file as UnityMeshFile
       let p = decodedTextures.get(tex)
       if (!p) {
         p = (async () => {
-          const payload = await resolveTexture2DPayload(tex, root, cabId)
+          const payload = await resolveTexture2DPayload(tex, root, texFile.key)
           if (!payload?.length) return null
           const t = await decodeUnityTexture2D(
             asNumber(tex.m_Width),
             asNumber(tex.m_Height),
             asNumber(tex.m_TextureFormat),
             payload,
-            parsed.header.platform,
+            texFile.parsed.header.platform,
           )
           const settings = tex.m_TextureSettings as Record<string, unknown> | undefined
           const wrap = (m: unknown) => (asNumber(m) === 1 ? "clamp" : asNumber(m) === 2 ? "mirror" : "repeat")
@@ -12424,7 +12460,12 @@ function UnityMeshPreview({
         return tex ? decodeTex(tex) : Promise.resolve(null)
       }),
     )
-    return { geometry, textures, materialNames: resolved.materialNames }
+    return {
+      geometry,
+      textures,
+      materialNames: resolved.materialNames,
+      baseColors: geometry.subMeshes.map((_, i) => resolved.baseColors[i] ?? null),
+    }
   }, [decoded.obj.pathId.toString(), cabId])
 
   if (loading) return <LoadingFiller label="Decoding mesh…" />
@@ -12436,10 +12477,15 @@ function UnityMeshPreview({
       </section>
     )
   }
-  const { geometry, textures, materialNames } = data!
+  const { geometry, textures, materialNames, baseColors } = data!
   return (
     <section className="flex flex-col gap-3">
-      <UnityMeshViewer node={node} geometry={geometry} textures={textures} />
+      <UnityMeshViewer
+        node={node}
+        geometry={geometry}
+        textures={textures}
+        baseColors={baseColors}
+      />
       <KvBlock title="Mesh">
         <KvRow k="Vertices" v={geometry.vertexCount.toLocaleString()} />
         <KvRow k="Triangles" v={(geometry.indices.length / 3).toLocaleString()} />

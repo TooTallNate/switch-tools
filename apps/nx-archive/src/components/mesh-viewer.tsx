@@ -205,6 +205,14 @@ interface MeshViewerProps {
    * null, falls back to {@link THREE.MeshNormalMaterial}.
    */
   materialDiffuseTextures?: Array<DecodedTexture | null>
+  /**
+   * Optional per-slot flat colours (sRGB, 0–1) for slots without a
+   * texture, e.g. a material's base-colour property. Slots that have
+   * neither a texture nor a colour render neutral grey when any other
+   * slot is textured (a rainbow normals patch on a textured model reads
+   * as a bug), and as normal-shaded otherwise.
+   */
+  materialBaseColors?: Array<[number, number, number] | null>
   /** Optional informational text shown in the toolbar (e.g. "4 sections · 1522 triangles"). */
   infoText?: string
   /** Animation drivers (zero or more). Each renders its own dropdown. */
@@ -282,6 +290,17 @@ function buildGeometry(lod: RenderableMeshLOD): THREE.BufferGeometry {
   geom.computeBoundingBox()
   geom.computeBoundingSphere()
   return geom
+}
+
+/** Lit, untextured material for slots shown as a flat colour. */
+function flatMaterial(color: THREE.Color, wireframe: boolean): THREE.Material {
+  return new THREE.MeshStandardMaterial({
+    color,
+    side: THREE.DoubleSide,
+    wireframe,
+    roughness: 0.85,
+    metalness: 0,
+  })
 }
 
 function threeWrap(w: DecodedTexture["wrapS"]): THREE.Wrapping {
@@ -377,6 +396,7 @@ function meshTransform(
 export function MeshViewer({
   mesh,
   materialDiffuseTextures,
+  materialBaseColors,
   infoText,
   animationDrivers,
   exportProvider,
@@ -513,6 +533,9 @@ export function MeshViewer({
             alphaTest: 0.5,
           }),
         )
+      } else if (!forceNormalShading && materialBaseColors?.[i]) {
+        const c = materialBaseColors[i]!
+        materials.push(flatMaterial(new THREE.Color().setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace), showWireframe))
       } else if (hasVertexColors && !forceNormalShading) {
         // Per-vertex baked colors (FF7 PC field models). Use a
         // basic unlit-ish material so the authored colors show
@@ -524,6 +547,8 @@ export function MeshViewer({
             wireframe: showWireframe,
           }),
         )
+      } else if (useTextures) {
+        materials.push(flatMaterial(new THREE.Color(0xbdbdbd), showWireframe))
       } else {
         materials.push(
           new THREE.MeshNormalMaterial({
@@ -632,6 +657,7 @@ export function MeshViewer({
     showWireframe,
     showNormals,
     materialDiffuseTextures,
+    materialBaseColors,
     forceNormalShading,
     hasAnyTexture,
     upAxis,

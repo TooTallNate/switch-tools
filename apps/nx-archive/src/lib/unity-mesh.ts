@@ -57,17 +57,16 @@ function localTarget(p: UnityPPtr | null): bigint | null {
 }
 
 /**
- * Material pathIds for each sub-mesh of the mesh `meshPathId`,
- * taken from the first renderer that draws it. Entries are `null`
- * where the slot is empty or points into another bundle. An empty
- * array means no renderer in this file references the mesh.
+ * Material PPtrs for each sub-mesh of the mesh `meshPathId`, taken
+ * from the first renderer in this file that draws it. An empty array
+ * means no renderer here references the mesh.
  */
-export async function findMeshMaterialIds(
+export async function findMeshRenderer(
 	objects: readonly UnityObjectRef[],
 	meshPathId: bigint,
-): Promise<(bigint | null)[]> {
+): Promise<(UnityPPtr | null)[]> {
 	const materialsOf = (renderer: Record<string, unknown>) =>
-		((renderer.m_Materials as unknown[]) ?? []).map((m) => localTarget(readPPtr(m)));
+		((renderer.m_Materials as unknown[]) ?? []).map((m) => readPPtr(m));
 
 	for (const o of objects) {
 		if (o.classId !== CLASS_SKINNED_MESH_RENDERER) continue;
@@ -92,6 +91,17 @@ export async function findMeshMaterialIds(
 	return [];
 }
 
+/**
+ * Same-file material pathIds per sub-mesh (`null` for empty slots
+ * or slots pointing into another bundle).
+ */
+export async function findMeshMaterialIds(
+	objects: readonly UnityObjectRef[],
+	meshPathId: bigint,
+): Promise<(bigint | null)[]> {
+	return (await findMeshRenderer(objects, meshPathId)).map(localTarget);
+}
+
 /** Property names that conventionally hold the albedo / base colour. */
 const ALBEDO_PROPERTY_NAMES = [
 	'_MainTex',
@@ -114,7 +124,7 @@ const ALBEDO_PROPERTY_NAMES = [
  * normals, masks, emission, PBR channels, matcaps, ramps, and so on.
  */
 const NON_ALBEDO_NAME =
-	/(^|[_\-. ])(n|nm|nml|nrm|norm|normal|bump|emm|emi|emis|emission|emissive|mask|msk|frmask|cam|matcap|mass|mtl|metal|metallic|rough|rgh|spec|specular|smooth|ao|occ|occlusion|height|hgt|disp|ramp|lut|noise|flow|dissolve|detail|sss|rim|shadow|vlc)(\d+)?$/i;
+	/(^|[_\-. ])(n|nm|nml|nrm|norm|normal|bump|emm|emi|emis|emission|emissive|mask|msk|frmask|cam|matcap|mass|metallic|rough|rgh|spec|specular|smooth|ao|occ|occlusion|height|hgt|disp|ramp|lut|noise|flow|dissolve|detail|sss|rim|shadow|vlc)(\d+)?$/i;
 
 export interface AlbedoCandidate {
 	/** Shader property name in `m_TexEnvs`. */
@@ -122,23 +132,6 @@ export interface AlbedoCandidate {
 	texturePathId: bigint;
 	/** Decoded Texture2D, if it lives in this file. */
 	texture: Record<string, unknown> | null;
-}
-
-/** Every same-file texture a material references, in `m_TexEnvs` order. */
-export function materialTextureSlots(material: Record<string, unknown>): {
-	property: string;
-	texturePathId: bigint;
-}[] {
-	const props = material.m_SavedProperties as Record<string, unknown> | undefined;
-	const envs = (props?.m_TexEnvs as unknown[]) ?? [];
-	const out: { property: string; texturePathId: bigint }[] = [];
-	for (const e of envs) {
-		// TypeTree `map` entries decode as `{ first, second }` pairs.
-		const pair = e as { first?: unknown; second?: Record<string, unknown> };
-		const id = localTarget(readPPtr(pair.second?.m_Texture));
-		if (id !== null) out.push({ property: String(pair.first ?? ''), texturePathId: id });
-	}
-	return out;
 }
 
 /**
@@ -178,38 +171,167 @@ export function pickAlbedoTexture(candidates: readonly AlbedoCandidate[]): Albed
 }
 
 /**
- * Resolve the albedo Texture2D for every material slot of a mesh.
- * Returns one entry per material slot (`null` where unresolved).
+ * One SerializedFile participating in a lookup. `resolveExternal`
+ * maps a PPtr `m_FileID` (1-based into the file's externals) to that
+ * file's context, or `null` when it can't be found.
+ */
+export interface UnityFileContext {
+	/** Stable identity (e.g. the CAB's tree-node id). */
+	key: string;
+	objects: readonly UnityObjectRef[];
+	resolveExternal: (fileId: number) => Promise<UnityFileContext | null>;
+}
+
+/** A Texture2D value plus the file it lives in (needed to find its `.resS`). */
+export interface ResolvedTexture {
+	texture: Record<string, unknown>;
+	file: UnityFileContext;
+}
+
+const byIdCache = new WeakMap<UnityFileContext, Map<bigint, UnityObjectRef>>();
+function objectIn(file: UnityFileContext, pathId: bigint): UnityObjectRef | undefined {
+	let m = byIdCache.get(file);
+	if (!m) byIdCache.set(file, (m = new Map(file.objects.map((o) => [o.pathId, o]))));
+	return m.get(pathId);
+}
+
+/** Follow a PPtr from `file` to the object it names, across files if needed. */
+async function deref(
+	file: UnityFileContext,
+	p: UnityPPtr | null,
+	classId: number,
+): Promise<{ value: Record<string, unknown>; file: UnityFileContext } | null> {
+	if (!p || p.pathId === 0n) return null;
+	const target = p.fileId === 0 ? file : await file.resolveExternal(p.fileId);
+	if (!target) return null;
+	const obj = objectIn(target, p.pathId);
+	if (!obj || obj.classId !== classId) return null;
+	const value = await obj.value();
+	return value ? { value, file: target } : null;
+}
+
+/** Albedo texture of one material (looked up relative to the material's own file). */
+async function materialAlbedo(
+	material: Record<string, unknown>,
+	file: UnityFileContext,
+): Promise<ResolvedTexture | null> {
+	const props = material.m_SavedProperties as Record<string, unknown> | undefined;
+	const envs = (props?.m_TexEnvs as unknown[]) ?? [];
+	const candidates: (AlbedoCandidate & { file: UnityFileContext | null })[] = [];
+	for (const e of envs) {
+		const pair = e as { first?: unknown; second?: Record<string, unknown> };
+		const ref = readPPtr(pair.second?.m_Texture);
+		if (!ref || ref.pathId === 0n) continue;
+		const hit = await deref(file, ref, CLASS_TEXTURE2D);
+		candidates.push({
+			property: String(pair.first ?? ''),
+			texturePathId: ref.pathId,
+			texture: hit?.value ?? null,
+			file: hit?.file ?? null,
+		});
+	}
+	const pick = pickAlbedoTexture(candidates) as (typeof candidates)[number] | null;
+	return pick?.texture && pick.file ? { texture: pick.texture, file: pick.file } : null;
+}
+
+const nameOf = (v: Record<string, unknown>) => String(v.m_Name ?? '');
+
+/**
+ * Fallback albedo for a material whose texture slots are all empty.
+ *
+ * Unity's FBX importer gives every mesh a default material
+ * (`<model>_<material>`, usually URP Lit with no textures). Games often
+ * keep that on the prefab's renderer and swap the real material in at
+ * runtime. Super Mario RPG does this: renderers reference
+ * `p0001_mdl_mario_new_p0001_base` while the textured Shader Graph
+ * material `p0001_base` sits in the same file. So we look for a
+ * textured material in the same file with the same name, or whose name
+ * ends the empty material's name, preferring the longest match.
+ *
+ * Deliberately not done: guessing a texture from name tokens. Mario's
+ * empty `…_p0001_eye` material would match the body atlas `p0001`, but
+ * the real eye material is assigned by script from another bundle, so
+ * the guess paints the wrong part of the atlas onto the eyes.
+ */
+async function fallbackAlbedo(
+	material: Record<string, unknown>,
+	file: UnityFileContext,
+): Promise<ResolvedTexture | null> {
+	const name = nameOf(material).toLowerCase();
+	if (!name) return null;
+	const siblings: { name: string; obj: UnityObjectRef }[] = [];
+	for (const o of file.objects) {
+		if (o.classId !== CLASS_MATERIAL) continue;
+		const v = await o.value();
+		const n = v ? nameOf(v).toLowerCase() : '';
+		if (n) siblings.push({ name: n, obj: o });
+	}
+	const matches = siblings
+		.filter((m) => m.name === name || name.endsWith(`_${m.name}`))
+		.sort((a, b) => b.name.length - a.name.length);
+	for (const m of matches) {
+		const v = await m.obj.value();
+		if (!v || v === material) continue;
+		const hit = await materialAlbedo(v, file);
+		if (hit) return hit;
+	}
+	return null;
+}
+
+/**
+ * Resolve the albedo Texture2D for every material slot of a mesh,
+ * following references into other bundles via `file.resolveExternal`.
  */
 export async function resolveMeshAlbedoTextures(
-	objects: readonly UnityObjectRef[],
+	file: UnityFileContext,
 	meshPathId: bigint,
 ): Promise<{
-	materialIds: (bigint | null)[];
-	textures: (Record<string, unknown> | null)[];
+	textures: (ResolvedTexture | null)[];
 	materialNames: string[];
+	/** Base colour per slot (sRGB 0–1), for slots rendered without a texture. */
+	baseColors: ([number, number, number] | null)[];
 }> {
-	const byId = new Map(objects.map((o) => [o.pathId, o]));
-	const materialIds = await findMeshMaterialIds(objects, meshPathId);
-	const textures: (Record<string, unknown> | null)[] = [];
+	const renderer = await findMeshRenderer(file.objects, meshPathId);
+	const textures: (ResolvedTexture | null)[] = [];
 	const materialNames: string[] = [];
-	for (const id of materialIds) {
-		const matObj = id !== null ? byId.get(id) : undefined;
-		const mat = matObj?.classId === CLASS_MATERIAL ? await matObj.value() : null;
-		materialNames.push(mat ? String(mat.m_Name ?? '') : '');
+	const baseColors: ([number, number, number] | null)[] = [];
+	for (const ref of renderer) {
+		const mat = await deref(file, ref, CLASS_MATERIAL);
+		materialNames.push(mat ? nameOf(mat.value) : '');
+		baseColors.push(mat ? materialBaseColor(mat.value) : null);
 		if (!mat) {
 			textures.push(null);
 			continue;
 		}
-		const candidates: AlbedoCandidate[] = [];
-		for (const slot of materialTextureSlots(mat)) {
-			const texObj = byId.get(slot.texturePathId);
-			candidates.push({
-				...slot,
-				texture: texObj?.classId === CLASS_TEXTURE2D ? await texObj.value() : null,
-			});
-		}
-		textures.push(pickAlbedoTexture(candidates)?.texture ?? null);
+		textures.push(
+			(await materialAlbedo(mat.value, mat.file)) ?? (await fallbackAlbedo(mat.value, mat.file)),
+		);
 	}
-	return { materialIds, textures, materialNames };
+	return { textures, materialNames, baseColors };
+}
+
+/** Conventional base-colour properties, in priority order. */
+const BASE_COLOR_PROPERTY_NAMES = ['_BaseColor', '_Color', '_MainColor', '_TintColor'];
+
+/**
+ * A material's base colour from `m_SavedProperties.m_Colors`, if it uses
+ * a conventional property name. Unity serialises material colours in
+ * gamma (sRGB) space.
+ */
+export function materialBaseColor(
+	material: Record<string, unknown>,
+): [number, number, number] | null {
+	const props = material.m_SavedProperties as Record<string, unknown> | undefined;
+	const colors = (props?.m_Colors as unknown[]) ?? [];
+	for (const want of BASE_COLOR_PROPERTY_NAMES) {
+		for (const e of colors) {
+			const pair = e as { first?: unknown; second?: Record<string, unknown> };
+			if (pair.first !== want || !pair.second) continue;
+			const c = pair.second;
+			const rgb = [c.r, c.g, c.b].map((x) => Math.min(Math.max(Number(x ?? 1), 0), 1));
+			if (rgb.some((x) => !Number.isFinite(x))) continue;
+			return rgb as [number, number, number];
+		}
+	}
+	return null;
 }
