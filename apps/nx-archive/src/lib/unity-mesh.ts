@@ -91,6 +91,19 @@ export async function findMeshRenderer(
 	return [];
 }
 
+/** The `SkinnedMeshRenderer` in this file that draws `meshPathId`, if any. */
+export async function findSkinnedMeshRenderer(
+	objects: readonly UnityObjectRef[],
+	meshPathId: bigint,
+): Promise<Record<string, unknown> | null> {
+	for (const o of objects) {
+		if (o.classId !== CLASS_SKINNED_MESH_RENDERER) continue;
+		const v = await o.value();
+		if (v && localTarget(readPPtr(v.m_Mesh)) === meshPathId) return v;
+	}
+	return null;
+}
+
 /**
  * Same-file material pathIds per sub-mesh (`null` for empty slots
  * or slots pointing into another bundle).

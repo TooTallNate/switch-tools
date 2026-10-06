@@ -52,6 +52,21 @@ export interface UnityMeshGeometry {
 	indices: Uint32Array;
 	/** One entry per Unity sub-mesh, in order (sub-mesh i ↔ material slot i). */
 	subMeshes: UnityMeshSubMesh[];
+	/** Per-vertex skinning, or `null` for unskinned meshes. */
+	skin: UnityMeshSkin | null;
+	/**
+	 * Inverse bind matrices, one per bone, as column-major 4×4 arrays
+	 * (`m[col * 4 + row]`, the Three.js / glTF layout). Bone `i` is
+	 * `SkinnedMeshRenderer.m_Bones[i]`.
+	 */
+	bindPoses: Float32Array[];
+}
+
+export interface UnityMeshSkin {
+	/** Up to 4 influences per vertex; unused slots have weight 0. `vertexCount * 4`. */
+	weights: Float32Array;
+	/** Bone indices matching {@link weights}. `vertexCount * 4`. */
+	indices: Uint16Array;
 }
 
 /** Semantic slots of `m_Channels` (Unity 2018+ layout, 14 channels). */
@@ -61,6 +76,8 @@ const CH = {
 	tangent: 2,
 	color: 3,
 	uv0: 4,
+	blendWeight: 12,
+	blendIndices: 13,
 } as const;
 /** Pre-2018 layout (8 channels): pos, normal, color, uv0–uv3, tangent. */
 const CH_LEGACY = { position: 0, normal: 1, color: 2, uv0: 3 } as const;
@@ -260,6 +277,8 @@ export function extractUnityMesh(
 	const normals = readChannel(slots.normal, 3);
 	const uv0 = readChannel(slots.uv0, 2);
 	const colors = readChannel(slots.color, 4);
+	const skin = readSkin(mesh, channels.length >= 14 ? readChannel(CH.blendWeight, 4) : null, channels.length >= 14 ? readChannel(CH.blendIndices, 4) : null, vertexCount);
+	const bindPoses = ((mesh.m_BindPose as unknown[]) ?? []).map((m) => unityMatrixToColumnMajor(m as Record<string, unknown>));
 
 	// Index buffer + sub-meshes.
 	const ib = bytesOf(mesh.m_IndexBuffer) ?? new Uint8Array(0);
@@ -306,7 +325,85 @@ export function extractUnityMesh(
 		if (indices[i]! >= vertexCount) throw new Error(`Mesh index ${indices[i]} out of range (${vertexCount} vertices)`);
 	}
 
-	return { name, vertexCount, positions, normals, uv0, colors, indices, subMeshes };
+	return { name, vertexCount, positions, normals, uv0, colors, indices, subMeshes, skin, bindPoses };
+}
+
+/**
+ * Skin weights from the vertex stream (2019+: `BlendWeight` /
+ * `BlendIndices` channels, where a missing weight channel means a
+ * single influence of 1), or from the legacy `m_Skin` array of
+ * `BoneWeights4`.
+ */
+function readSkin(
+	mesh: Record<string, unknown>,
+	weightsCh: Float32Array | null,
+	indicesCh: Float32Array | null,
+	vertexCount: number,
+): UnityMeshSkin | null {
+	if (indicesCh) {
+		const weights = new Float32Array(vertexCount * 4);
+		const indices = new Uint16Array(vertexCount * 4);
+		for (let i = 0; i < vertexCount * 4; i++) indices[i] = indicesCh[i]!;
+		if (weightsCh) {
+			weights.set(weightsCh);
+			// Unity stores only as many weights as the dimension; the
+			// channel reader pads alpha-style slots with 1, so zero
+			// any slot beyond the stored dimension.
+			const dim = weightsChannelDimension(mesh);
+			if (dim < 4) for (let v = 0; v < vertexCount; v++) for (let k = dim; k < 4; k++) weights[v * 4 + k] = 0;
+		} else {
+			for (let v = 0; v < vertexCount; v++) weights[v * 4] = 1;
+		}
+		const dimI = indicesChannelDimension(mesh);
+		if (dimI < 4) for (let v = 0; v < vertexCount; v++) for (let k = dimI; k < 4; k++) indices[v * 4 + k] = 0;
+		return { weights, indices };
+	}
+	const legacy = mesh.m_Skin as unknown[] | undefined;
+	if (Array.isArray(legacy) && legacy.length === vertexCount && vertexCount > 0) {
+		const weights = new Float32Array(vertexCount * 4);
+		const indices = new Uint16Array(vertexCount * 4);
+		legacy.forEach((bw, v) => {
+			const o = bw as Record<string, unknown>;
+			for (let k = 0; k < 4; k++) {
+				weights[v * 4 + k] = num(o[`weight[${k}]`]);
+				indices[v * 4 + k] = num(o[`boneIndex[${k}]`]);
+			}
+		});
+		return { weights, indices };
+	}
+	return null;
+}
+
+function channelDimension(mesh: Record<string, unknown>, slot: number): number {
+	const vd = mesh.m_VertexData as Record<string, unknown> | undefined;
+	const ch = ((vd?.m_Channels as unknown[]) ?? [])[slot] as Record<string, unknown> | undefined;
+	return ch ? num(ch.dimension) & 0xf : 0;
+}
+const weightsChannelDimension = (m: Record<string, unknown>) => channelDimension(m, CH.blendWeight);
+const indicesChannelDimension = (m: Record<string, unknown>) => channelDimension(m, CH.blendIndices);
+
+/** Unity `Matrix4x4` (`eRC` fields) → column-major `Float32Array(16)`. */
+export function unityMatrixToColumnMajor(m: Record<string, unknown>): Float32Array {
+	const out = new Float32Array(16);
+	for (let r = 0; r < 4; r++) {
+		for (let c = 0; c < 4; c++) out[c * 4 + r] = num(m[`e${r}${c}`]);
+	}
+	return out;
+}
+
+/**
+ * Mirror a column-major matrix across X (`S·M·S`, `S = diag(-1,1,1,1)`),
+ * converting a transform between Unity's left-handed space and a
+ * right-handed one.
+ */
+export function mirrorMatrixX(m: Float32Array): Float32Array {
+	const out = new Float32Array(m);
+	for (let c = 0; c < 4; c++) {
+		for (let r = 0; r < 4; r++) {
+			if ((r === 0) !== (c === 0)) out[c * 4 + r] = -out[c * 4 + r]!;
+		}
+	}
+	return out;
 }
 
 /**
@@ -321,5 +418,6 @@ export function toRightHanded(geom: UnityMeshGeometry): UnityMeshGeometry {
 		geom.indices[i + 1] = geom.indices[i + 2]!;
 		geom.indices[i + 2] = t;
 	}
+	geom.bindPoses = geom.bindPoses.map(mirrorMatrixX);
 	return geom;
 }

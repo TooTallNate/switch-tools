@@ -8,11 +8,23 @@ export {
   type DecodedTexture,
 } from "./texture.js"
 
+// Mecanim AnimationClip decoding + binding path hashes.
+export {
+  decodeUnityAnimationClip,
+  unityPathHash,
+  type UnityAnimationClip,
+  type UnityTransformTrack,
+  type UnityTransformProperty,
+} from "./animation.js"
+
 // Mesh geometry decoding (TypeTree-decoded `Mesh` → typed arrays).
 export {
   extractUnityMesh,
   toRightHanded,
   unityMeshStreamRef,
+  unityMatrixToColumnMajor,
+  mirrorMatrixX,
+  type UnityMeshSkin,
   type UnityMeshGeometry,
   type UnityMeshSubMesh,
   type UnityMeshStreamRef,

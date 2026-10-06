@@ -96,4 +96,33 @@ describe('extractUnityMesh', () => {
 		expect(g.positions[3]).toBe(-1)
 		expect([...g.indices.slice(0, 3)]).toEqual([0, 2, 1])
 	})
+
+	it('decodes skin weights, bone indices and bind poses', () => {
+		const { mesh, bytes } = quadMesh()
+		// Append a third stream: 2 × float weights + 2 × u32 indices per vertex.
+		const stride = 16
+		const s2Start = (bytes.length + 15) & ~15
+		const all = new Uint8Array(s2Start + stride * 4)
+		all.set(bytes)
+		const dv = new DataView(all.buffer)
+		for (let v = 0; v < 4; v++) {
+			dv.setFloat32(s2Start + v * stride, 0.75, true)
+			dv.setFloat32(s2Start + v * stride + 4, 0.25, true)
+			dv.setUint32(s2Start + v * stride + 8, v, true)
+			dv.setUint32(s2Start + v * stride + 12, 1, true)
+		}
+		const vd = mesh.m_VertexData as Record<string, any>
+		vd.m_DataSize = { size: all.length, data: all }
+		vd.m_Channels[12] = { stream: 2, offset: 0, format: 0, dimension: 2 }
+		vd.m_Channels[13] = { stream: 2, offset: 8, format: 10, dimension: 2 }
+		const ident: Record<string, number> = {}
+		for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) ident[`e${r}${c}`] = r === c ? 1 : 0
+		mesh.m_BindPose = [{ ...ident, e03: 5 }]
+		const g = extractUnityMesh(mesh, '2021.3.15f1')
+		expect([...g.skin!.weights.slice(4, 8)]).toEqual([0.75, 0.25, 0, 0])
+		expect([...g.skin!.indices.slice(8, 12)]).toEqual([2, 1, 0, 0])
+		expect(g.bindPoses[0]![12]).toBe(5) // translation x, column-major
+		expect(toRightHanded(g).bindPoses[0]![12]).toBe(-5)
+	})
 })
+

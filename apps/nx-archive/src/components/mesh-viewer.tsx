@@ -159,6 +159,12 @@ export interface MeshViewerAnimationDriver {
   /** Animation clips. The viewer renders one `<select>` per driver. */
   animations: MeshViewerAnimation[]
   /**
+   * Clip selected when the viewer mounts (default `-1`, none). Lets a
+   * format open posed (e.g. a skinned character on its idle clip
+   * rather than its T-pose bind pose).
+   */
+  defaultIndex?: number
+  /**
    * Apply a clip + frame to the scene. Called every rAF tick
    * the viewer's frame counter changes. `index = -1` means "no
    * animation selected" — the driver should reset to bind pose.
@@ -427,7 +433,7 @@ export function MeshViewer({
   // together.
   const drivers = animationDrivers ?? []
   const [selectedAnims, setSelectedAnims] = useState<number[]>(() =>
-    drivers.map(() => -1),
+    drivers.map((d) => d.defaultIndex ?? -1),
   )
   const [frame, setFrame] = useState(0)
   const [playing, setPlaying] = useState(true)
@@ -444,7 +450,7 @@ export function MeshViewer({
   // changes (rare — drivers usually arrive once at mount).
   useEffect(() => {
     if (selectedAnims.length !== drivers.length) {
-      setSelectedAnims(drivers.map(() => -1))
+      setSelectedAnims(drivers.map((d) => d.defaultIndex ?? -1))
     }
   }, [drivers.length])
 

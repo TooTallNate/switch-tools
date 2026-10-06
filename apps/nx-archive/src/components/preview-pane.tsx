@@ -73,13 +73,15 @@ import {
 } from "@tootallnate/unity-asset"
 import { decodeTexture2D as decodeUnityTexture2D } from "~/lib/unity-texture"
 import {
+  findSkinnedMeshRenderer,
   resolveMeshAlbedoTextures,
   type ResolvedTexture,
   type UnityFileContext,
 } from "~/lib/unity-mesh"
 import { externalCabName, findExternalCab } from "~/lib/unity-external"
 import type { DecodedTexture as MeshDecodedTexture } from "~/lib/uasset-material-chain"
-import { UnityMeshViewer } from "./unity-mesh-viewer"
+import { UnityMeshViewer, type UnityMeshAnimation } from "./unity-mesh-viewer"
+import { buildUnityRig, findRigClips, UnityPosePlayer } from "~/lib/unity-rig"
 import { StaticMeshViewer } from "./static-mesh-viewer"
 import { PhyreMeshViewer } from "./phyre-mesh-viewer"
 import { MidiPreview, Sf2Preview } from "./midi-preview"
@@ -12463,11 +12465,36 @@ function UnityMeshPreview({
         return tex ? decodeTex(tex) : Promise.resolve(null)
       }),
     )
+    // Skinned meshes: pose with the renderer's bones and the clips in
+    // this file, so characters don't sit in their T-pose bind pose.
+    let animation: UnityMeshAnimation | null = null
+    try {
+      const renderer = geometry.skin
+        ? await findSkinnedMeshRenderer(self.objects, decoded.obj.pathId)
+        : null
+      const rig = renderer ? await buildUnityRig(self, renderer, geometry) : null
+      if (rig) {
+        const clips = (await findRigClips(self, rig)).sort((a, b) =>
+          a.clip.name.localeCompare(b.clip.name),
+        )
+        const most = Math.max(0, ...clips.map((c) => c.bound.length))
+        animation = {
+          player: new UnityPosePlayer(rig, geometry),
+          // Clips driving at least half as many bones as the busiest one
+          // are full-body; the rest (face, hands) are overlays.
+          bodyClips: clips.filter((c) => c.bound.length >= most / 2),
+          overlayClips: clips.filter((c) => c.bound.length < most / 2),
+        }
+      }
+    } catch {
+      animation = null
+    }
     return {
       geometry,
       textures,
       materialNames: resolved.materialNames,
       baseColors: geometry.subMeshes.map((_, i) => resolved.baseColors[i] ?? null),
+      animation,
     }
   }, [decoded.obj.pathId.toString(), cabId])
 
@@ -12480,7 +12507,7 @@ function UnityMeshPreview({
       </section>
     )
   }
-  const { geometry, textures, materialNames, baseColors } = data!
+  const { geometry, textures, materialNames, baseColors, animation } = data!
   return (
     <section className="flex flex-col gap-3">
       <UnityMeshViewer
@@ -12488,6 +12515,7 @@ function UnityMeshPreview({
         geometry={geometry}
         textures={textures}
         baseColors={baseColors}
+        animation={animation}
       />
       <KvBlock title="Mesh">
         <KvRow k="Vertices" v={geometry.vertexCount.toLocaleString()} />
