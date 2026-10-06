@@ -253,26 +253,16 @@ export async function parseUnityFs(blob: Blob): Promise<ParsedUnityFs> {
 		blockStreamFileOffset = alignUp(blockStreamFileOffset, 16);
 	}
 
-	// --- Lazy block-stream materialisation. ---
-	// Decompressing every block up-front would force the entire bundle
-	// into memory the moment the user expands the node in the tree —
-	// even if they never click into any of the inner files. Defer it
-	// to the first node read.
-	let decompressed: Promise<Uint8Array> | null = null;
-	const getDecompressed = () => {
-		if (!decompressed) {
-			decompressed = materialiseBlockStream(
-				blob,
-				blockStreamFileOffset,
-				storageBlocks,
-			);
-		}
-		return decompressed;
-	};
+	// --- Random-access block stream. ---
+	// Node reads decompress only the storage blocks they overlap
+	// (typically 128 KiB LZ4 chunks), via a shared size-bounded cache.
+	// Materialising the whole stream instead would pin every bundle
+	// the user (or a tree search) has touched in memory.
+	const stream = new BlockStream(blob, blockStreamFileOffset, storageBlocks);
 
 	// --- Build the lazy node list. ---
 	const nodes: UnityFsNode[] = directory.map((entry) => {
-		const data = makeLazyNodeBlob(entry, getDecompressed);
+		const data = makeRangeBlob(stream, entry.offset, entry.size);
 		return {
 			path: entry.path,
 			offset: entry.offset,
@@ -299,34 +289,125 @@ interface DirectoryEntry {
 }
 
 /**
- * Decompress every storage block, concatenated, into a single
- * `Uint8Array` representing the bundle's "block stream". Node
- * offsets in the directory are relative to this stream.
+ * Global cache of decompressed storage blocks, bounded by total
+ * bytes. `Map` iteration order doubles as LRU order (re-inserted on
+ * hit). Shared across bundles so the bound holds no matter how many
+ * bundles are open.
  */
-async function materialiseBlockStream(
-	blob: Blob,
-	streamFileOffset: number,
-	blocks: StorageBlock[],
-): Promise<Uint8Array> {
-	const totalSize = blocks.reduce((s, b) => s + b.uncompressedSize, 0);
-	const out = new Uint8Array(totalSize);
-	let inPos = streamFileOffset;
-	let outPos = 0;
-	for (const block of blocks) {
-		const compressed = new Uint8Array(
-			await blob.slice(inPos, inPos + block.compressedSize).arrayBuffer(),
-		);
-		const decompressed = decompressBlock(
-			compressed,
-			block.uncompressedSize,
-			block.flags & STORAGE_FLAG_COMPRESSION_MASK,
-			'block',
-		);
-		out.set(decompressed, outPos);
-		inPos += block.compressedSize;
-		outPos += block.uncompressedSize;
+const BLOCK_CACHE_BUDGET = 96 * 1024 * 1024;
+const blockCache = new Map<string, Promise<Uint8Array>>();
+const blockCacheSizes = new Map<string, number>();
+let blockCacheBytes = 0;
+let nextStreamId = 0;
+
+function cacheGet(key: string): Promise<Uint8Array> | undefined {
+	const hit = blockCache.get(key);
+	if (hit) {
+		blockCache.delete(key);
+		blockCache.set(key, hit);
 	}
-	return out;
+	return hit;
+}
+
+function cachePut(key: string, value: Promise<Uint8Array>, size: number): void {
+	blockCache.set(key, value);
+	blockCacheSizes.set(key, size);
+	blockCacheBytes += size;
+	for (const k of blockCache.keys()) {
+		if (blockCacheBytes <= BLOCK_CACHE_BUDGET || k === key) break;
+		blockCacheBytes -= blockCacheSizes.get(k) ?? 0;
+		blockCache.delete(k);
+		blockCacheSizes.delete(k);
+	}
+}
+
+/**
+ * Random access into a bundle's decompressed block stream. Node
+ * offsets index this stream; each storage block decompresses
+ * independently, so a read only touches the blocks it overlaps.
+ */
+class BlockStream {
+	private readonly id = nextStreamId++;
+	/** Uncompressed start offset of each block (plus a final total). */
+	private readonly starts: number[] = [];
+	/** File offset of each block's compressed bytes. */
+	private readonly fileOffsets: number[] = [];
+
+	constructor(
+		private readonly blob: Blob,
+		streamFileOffset: number,
+		private readonly blocks: StorageBlock[],
+	) {
+		let u = 0;
+		let f = streamFileOffset;
+		for (const b of blocks) {
+			this.starts.push(u);
+			this.fileOffsets.push(f);
+			u += b.uncompressedSize;
+			f += b.compressedSize;
+		}
+		this.starts.push(u);
+	}
+
+	/** Index of the block containing uncompressed offset `pos`. */
+	private blockAt(pos: number): number {
+		let lo = 0;
+		let hi = this.blocks.length - 1;
+		while (lo < hi) {
+			const mid = (lo + hi + 1) >> 1;
+			if (this.starts[mid]! <= pos) lo = mid;
+			else hi = mid - 1;
+		}
+		return lo;
+	}
+
+	private block(i: number): Promise<Uint8Array> {
+		const key = `${this.id}:${i}`;
+		const hit = cacheGet(key);
+		if (hit) return hit;
+		const b = this.blocks[i]!;
+		const p = (async () => {
+			const off = this.fileOffsets[i]!;
+			const compressed = new Uint8Array(
+				await this.blob.slice(off, off + b.compressedSize).arrayBuffer(),
+			);
+			return decompressBlock(
+				compressed,
+				b.uncompressedSize,
+				b.flags & STORAGE_FLAG_COMPRESSION_MASK,
+				'block',
+			);
+		})();
+		// Failed reads mustn't poison the cache.
+		p.catch(() => {
+			if (blockCache.get(key) === p) {
+				blockCacheBytes -= blockCacheSizes.get(key) ?? 0;
+				blockCache.delete(key);
+				blockCacheSizes.delete(key);
+			}
+		});
+		cachePut(key, p, b.uncompressedSize);
+		return p;
+	}
+
+	/** Copy uncompressed bytes `[start, end)` out of the stream. */
+	async read(start: number, end: number): Promise<Uint8Array> {
+		const out = new Uint8Array(Math.max(0, end - start));
+		if (out.length === 0 || this.blocks.length === 0) return out;
+		const first = this.blockAt(start);
+		const last = this.blockAt(end - 1);
+		const parts = await Promise.all(
+			Array.from({ length: last - first + 1 }, (_, k) => this.block(first + k)),
+		);
+		for (let k = 0; k < parts.length; k++) {
+			const i = first + k;
+			const blockStart = this.starts[i]!;
+			const from = Math.max(start, blockStart) - blockStart;
+			const to = Math.min(end, this.starts[i + 1]!) - blockStart;
+			out.set(parts[k]!.subarray(from, to), blockStart + from - start);
+		}
+		return out;
+	}
 }
 
 /**
@@ -368,83 +449,56 @@ function decompressBlock(
 	}
 }
 
-/**
- * Wrap a directory entry in a lazy `Blob` whose data is sliced from
- * the (lazily-decompressed) block stream. `size` is reported
- * synchronously so consumers can see it without forcing a read.
- *
- * `slice()` returns another lazy facade chained off the same
- * resolver, so further slicing doesn't double the work.
- */
-function makeLazyNodeBlob(
-	entry: DirectoryEntry,
-	getDecompressed: () => Promise<Uint8Array>,
-): Blob {
-	return makeLazyBlob(entry.size, async () => {
-		const stream = await getDecompressed();
-		const slice = stream.subarray(entry.offset, entry.offset + entry.size);
-		// Copy out so the caller doesn't accidentally hold a view
-		// into the long-lived decompressed buffer.
-		const copy = new Uint8Array(slice.length);
-		copy.set(slice);
-		return new Blob([copy as BlobPart]);
-	});
-}
+/** Bytes per chunk when streaming a range blob. */
+const STREAM_CHUNK = 1024 * 1024;
 
 /**
- * Build a synchronous `Blob`-shaped facade backed by an async
- * resolver. Mirrors the helper in `archive.ts`'s ZIP path —
- * duplicated here to keep this file standalone.
+ * `Blob`-shaped view of `[offset, offset + size)` in a block stream.
+ * Reports `size` synchronously. Every read goes straight to
+ * {@link BlockStream.read}, so no intermediate `Blob` is created.
+ * That matters: browsers keep `Blob` bytes in a bounded blob store,
+ * and copying every entry of a large game into fresh Blobs eventually
+ * fails reads with `NotReadableError`.
  */
-function makeLazyBlob(size: number, resolve: () => Promise<Blob>): Blob {
-	let cached: Promise<Blob> | null = null;
-	const get = () => {
-		if (!cached) cached = resolve();
-		return cached;
-	};
+function makeRangeBlob(stream: BlockStream, offset: number, size: number): Blob {
+	const readAll = () => stream.read(offset, offset + size);
 	const facade = {
 		size,
 		type: '',
 		async arrayBuffer() {
-			return (await get()).arrayBuffer();
+			const b = await readAll();
+			return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
 		},
 		async bytes() {
-			const b = await get();
-			return typeof (b as Blob & { bytes?: () => Promise<Uint8Array> })
-				.bytes === 'function'
-				? (b as Blob & { bytes: () => Promise<Uint8Array> }).bytes()
-				: new Uint8Array(await b.arrayBuffer());
+			return readAll();
 		},
 		async text() {
-			return (await get()).text();
+			return new TextDecoder().decode(await readAll());
 		},
 		stream() {
+			let pos = 0;
 			return new ReadableStream<Uint8Array>({
-				async start(controller) {
-					try {
-						const b = await get();
-						const r = b.stream().getReader();
-						for (;;) {
-							const { value, done } = await r.read();
-							if (done) break;
-							controller.enqueue(value);
-						}
+				async pull(controller) {
+					if (pos >= size) {
 						controller.close();
+						return;
+					}
+					const n = Math.min(STREAM_CHUNK, size - pos);
+					try {
+						controller.enqueue(await stream.read(offset + pos, offset + pos + n));
+						pos += n;
 					} catch (e) {
 						controller.error(e);
 					}
 				},
 			});
 		},
-		slice(start?: number, end?: number, contentType?: string) {
+		slice(start?: number, end?: number) {
 			const s = clampInt(start ?? 0);
 			const e = clampInt(end ?? size);
 			const lo = Math.min(Math.max(s < 0 ? size + s : s, 0), size);
 			const hi = Math.min(Math.max(e < 0 ? size + e : e, lo), size);
-			return makeLazyBlob(hi - lo, async () => {
-				const b = await get();
-				return b.slice(lo, hi, contentType);
-			});
+			return makeRangeBlob(stream, offset + lo, hi - lo);
 		},
 	};
 	return facade as unknown as Blob;
@@ -452,7 +506,7 @@ function makeLazyBlob(size: number, resolve: () => Promise<Blob>): Blob {
 
 function clampInt(n: number): number {
 	if (!Number.isFinite(n)) return 0;
-	return n | 0;
+	return Math.trunc(n);
 }
 
 function alignUp(n: number, alignment: number): number {
