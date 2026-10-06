@@ -46,6 +46,7 @@ import {
 import { readHashId, useHashId } from "~/lib/url-hash"
 import type { KeySet } from "@tootallnate/nca"
 import { formatBytes } from "~/lib/utils"
+import { ModelExportScopeContext, type ModelExportScope } from "~/components/model-export-scope"
 
 /**
  * What's currently open in the UI. Either a single file the user
@@ -118,6 +119,18 @@ async function findNodeById(root: Node, target: string): Promise<Node | null> {
 function ArchiveApp() {
   const [opened, setOpened] = useState<Opened | null>(null)
   const [selected, setSelected] = useState<Node | null>(null)
+  // 3D exports from the same opened file share one print scale, so
+  // models stay proportional to each other (see ~/lib/print-scale).
+  const exportScope = useMemo<ModelExportScope | null>(
+    () =>
+      opened
+        ? {
+            key: `${openedDisplayName(opened)}:${openedDisplaySize(opened)}`,
+            label: openedDisplayName(opened),
+          }
+        : null,
+    [opened],
+  )
   // Reflects the current selection in `location.hash`. The hook
   // also picks up back/forward navigations so the React state
   // stays in sync with the URL.
@@ -669,11 +682,13 @@ function ArchiveApp() {
               minSize="30%"
               className="min-h-0 min-w-0 overflow-hidden bg-background"
             >
-              <PreviewPane
-                node={selected}
-                root={opened.root}
-                onNavigate={(n) => selectNode(n, "push")}
-              />
+              <ModelExportScopeContext.Provider value={exportScope}>
+                <PreviewPane
+                  node={selected}
+                  root={opened.root}
+                  onNavigate={(n) => selectNode(n, "push")}
+                />
+              </ModelExportScopeContext.Provider>
             </ResizablePanel>
           </ResizablePanelGroup>
         )}
