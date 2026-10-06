@@ -70,4 +70,11 @@ export {
 	encodeWavBlobFromPcm16,
 } from './decode.js';
 
-export { wemSwitchOpusToOggOpus } from './opusnx.js';
+export {
+	wemSwitchOpusToOggOpus,
+	framedOpusToOggOpus,
+	isNintendoOpus,
+	parseNintendoOpus,
+	nintendoOpusToOggOpus,
+	type NintendoOpusInfo,
+} from './opusnx.js';

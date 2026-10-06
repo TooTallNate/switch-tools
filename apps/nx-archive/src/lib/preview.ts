@@ -131,6 +131,8 @@ export type PreviewKind =
 	 * an AWB bank or any source that hands us raw HCA bytes routes
 	 * here; the preview decodes to PCM via `@tootallnate/hca`. */
 	| 'hca-audio'
+	/** Nintendo Opus (`.lopus`), e.g. tracks inside CRI AWB banks. */
+	| 'nx-opus-audio'
 	/** Standard MIDI file (`.mid` / `.midi`, magic `MThd`). */
 	| 'midi-audio'
 	/** SoundFont 2 bank (`.sf2`, RIFF/sfbk). */
@@ -521,6 +523,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	// `kind === 'awb'` and the preview pane dispatches directly on
 	// that, so it never reaches `detectPreviewKind`.
 	if (lower.endsWith('.hca')) return 'hca-audio';
+	if (lower.endsWith('.lopus') || lower.endsWith('.nop')) return 'nx-opus-audio';
 	if (lower.endsWith('.mid') || lower.endsWith('.midi'))
 		return 'midi-audio';
 	if (lower.endsWith('.sf2')) return 'sf2-info';

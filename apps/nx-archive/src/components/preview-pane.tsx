@@ -197,8 +197,9 @@ import {
   parseBwav,
 } from "@tootallnate/bwav"
 import { parseMsbt, type ParsedMsbt } from "@tootallnate/msbt"
-import { parseAwb, type ParsedAwb } from "@tootallnate/awb"
+import { parseAwb, readAwbHeader, type ParsedAwb } from "@tootallnate/awb"
 import { decodeHca, encodeToWav, parseHca } from "@tootallnate/hca"
+import { isNintendoOpus, nintendoOpusToOggOpus } from "@tootallnate/wem"
 import {
   AUDIO_MIME,
   IMAGE_MIME,
@@ -1902,6 +1903,8 @@ function FilePreview({
       return <FmodSamplePreview node={node} />
     case "hca-audio":
       return <HcaAudioPreview node={node} />
+    case "nx-opus-audio":
+      return <NintendoOpusPreview node={node} />
     case "midi-audio":
       return <MidiPreview node={node} root={root} />
     case "sf2-info":
@@ -13562,23 +13565,20 @@ async function parseAwbForView(
 	parsed: ParsedAwb;
 	encryptedTrackCount: number;
 	codecHits: number;
+	opusHits: number;
 	totalBytes: number;
 }> {
 	if (!node.blob) throw new Error('AWB node has no backing blob.')
 	const fullBlob = await node.blob()
-	// Header parsing only needs the first chunk. 64 KiB covers any
-	// AWB we've ever seen; for genuinely huge track tables the
-	// parser will tell us and we can grow this.
-	const headBytes = await fullBlob
-		.slice(0, Math.min(64 * 1024, fullBlob.size))
-		.arrayBuffer()
-	const parsed = parseAwb(new Uint8Array(headBytes))
+	// Read exactly the header (sized from its own first 16 bytes).
+	const parsed = parseAwb(await readAwbHeader(fullBlob))
 
 	// Sniff each track's HCA header by reading at most 4 KiB (the
 	// HCA header section is ~256 B in practice). We use the results
 	// to compute codec + cipher counters for the bank-level summary;
 	// the per-track playback path does its own re-parse.
 	let codecHits = 0
+	let opusHits = 0
 	let encryptedTrackCount = 0
 	let totalBytes = 0
 	for (const t of parsed.tracks) {
@@ -13587,15 +13587,20 @@ async function parseAwbForView(
 		const sniff = await fullBlob
 			.slice(t.offset, t.offset + sniffSize)
 			.arrayBuffer()
+		const head = new Uint8Array(sniff)
+		if (isNintendoOpus(head)) {
+			opusHits++
+			continue
+		}
 		try {
-			const hca = parseHca(new Uint8Array(sniff))
+			const hca = parseHca(head)
 			codecHits++
 			if (hca.ciphType === 56) encryptedTrackCount++
 		} catch {
 			// Non-HCA payload (or unparseable) — counted as not-HCA.
 		}
 	}
-	return { parsed, encryptedTrackCount, codecHits, totalBytes }
+	return { parsed, encryptedTrackCount, codecHits, opusHits, totalBytes }
 }
 
 function AwbPreview({ node }: { node: Node }) {
@@ -13618,9 +13623,16 @@ function AwbPreview({ node }: { node: Node }) {
 					<KvRow
 						k="Codec"
 						v={
-							v.codecHits === trackCount
-								? `HCA (all ${v.codecHits} tracks)`
-								: `HCA × ${v.codecHits}/${trackCount}`
+							v.opusHits === trackCount
+								? `Nintendo Opus (all ${v.opusHits} tracks)`
+								: v.codecHits === trackCount
+									? `HCA (all ${v.codecHits} tracks)`
+									: [
+											v.codecHits && `HCA × ${v.codecHits}`,
+											v.opusHits && `Nintendo Opus × ${v.opusHits}`,
+										]
+											.filter(Boolean)
+											.join(", ") + ` of ${trackCount}`
 						}
 					/>
 					<KvRow k="Alignment" v={`${v.parsed.alignment} bytes`} />
@@ -13657,10 +13669,90 @@ function AwbPreview({ node }: { node: Node }) {
 					<CircleAlertIcon />
 					<AlertTitle>Expand to play tracks</AlertTitle>
 					<AlertDescription>
-						Each track is exposed as a `.hca` child in the tree.
-						Click one to decode + play it in the browser.
+						Each track is exposed as a child in the tree (`.hca` or
+						`.lopus`). Click one to decode + play it in the browser.
 					</AlertDescription>
 				</Alert>
+			</div>
+		</ScrollArea>
+	)
+}
+
+// ====================================================================
+// Nintendo Opus — standalone-track audio preview
+// ====================================================================
+//
+// Nintendo Opus (`.lopus`) is a thin header over size-prefixed Opus
+// packets. We remux those packets into Ogg-Opus (no transcoding) and
+// let the browser's built-in Opus decoder play it.
+
+function NintendoOpusPreview({ node }: { node: Node }) {
+	const { loading, data, error } = useAsync(async () => {
+		if (!node.blob) throw new Error('Opus node has no backing blob.')
+		const bytes = new Uint8Array(await (await node.blob()).arrayBuffer())
+		const { info, ogg } = nintendoOpusToOggOpus(bytes)
+		return { info, ogg: new Blob([ogg], { type: 'audio/ogg; codecs=opus' }), bytes }
+	}, [node.id])
+
+	const urls = useMemo(() => {
+		if (!data) return null
+		return {
+			ogg: URL.createObjectURL(data.ogg),
+			raw: URL.createObjectURL(new Blob([data.bytes as BlobPart])),
+		}
+	}, [data])
+	useEffect(() => {
+		return () => {
+			if (urls) {
+				URL.revokeObjectURL(urls.ogg)
+				URL.revokeObjectURL(urls.raw)
+			}
+		}
+	}, [urls])
+
+	if (loading) return <LoadingFiller label="Decoding Opus…" />
+	if (error) return <ErrorFiller error={error} />
+	const v = data!
+	const baseName = node.name.replace(/\.(lopus|nop)$/i, '')
+	return (
+		<ScrollArea className="h-full">
+			<div className="flex flex-col gap-5 p-5">
+				<SectionHeader title="Nintendo Opus audio" />
+				<section className="flex flex-col gap-3 rounded-md border bg-card p-4">
+					{urls && <audio src={urls.ogg} controls className="w-full" preload="auto" />}
+					<div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+						<span>
+							Opus (remuxed to Ogg) ·{' '}
+							{v.info.channels === 1 ? 'mono' : `${v.info.channels} ch`} ·{' '}
+							{v.info.sampleRate} Hz
+						</span>
+						{urls && (
+							<div className="flex items-center gap-2">
+								<a
+									href={urls.ogg}
+									download={`${baseName}.ogg`}
+									className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+								>
+									Save .ogg
+								</a>
+								<a
+									href={urls.raw}
+									download={`${baseName}.lopus`}
+									className="rounded-md border bg-background px-2 py-1 font-medium hover:bg-accent"
+								>
+									Save .lopus
+								</a>
+							</div>
+						)}
+					</div>
+				</section>
+				<KvBlock title="Stream">
+					<KvRow k="Channels" v={String(v.info.channels)} />
+					<KvRow k="Sample rate" v={`${v.info.sampleRate} Hz`} />
+					<KvRow k="Pre-skip" v={`${v.info.preSkip} samples`} />
+					<KvRow k="Packet data" v={formatBytes(v.info.dataSize)} />
+					{node.meta?.awbCueName ? <KvRow k="Cue" v={String(node.meta.awbCueName)} /> : null}
+				</KvBlock>
 			</div>
 		</ScrollArea>
 	)

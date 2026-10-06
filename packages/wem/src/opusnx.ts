@@ -102,30 +102,47 @@ export async function wemSwitchOpusToOggOpus(parsed: ParsedWem): Promise<Blob> {
 	}
 	const opusFramed = dataAll.subarray(seekSize);
 
-	// Walk the framed Opus packets and extract bare Opus packet data.
+	return framedOpusToOggOpus(opusFramed, {
+		channels: fmt.channels,
+		sampleRate: fmt.sampleRate,
+		numSamples,
+		preSkip: OPUS_PRE_SKIP,
+	});
+}
+
+/**
+ * Remux Nintendo-framed Opus packets into an Ogg-Opus `Blob`.
+ *
+ * Nintendo's framing (shared by Wwise OPUSNX WEMs and standalone
+ * Nintendo Opus streams) is a run of packets, each prefixed with a
+ * big-endian u32 payload size and a u32 encoder final-range value.
+ * A zero size ends the stream.
+ */
+export function framedOpusToOggOpus(
+	framed: Uint8Array,
+	info: { channels: number; sampleRate: number; numSamples?: number; preSkip?: number },
+): Blob {
+	const preSkip = info.preSkip ?? OPUS_PRE_SKIP;
+	const numSamples = info.numSamples ?? 0;
 	const packets: Uint8Array[] = [];
 	{
 		let off = 0;
-		const fdv2 = new DataView(
-			opusFramed.buffer,
-			opusFramed.byteOffset,
-			opusFramed.byteLength,
-		);
-		while (off + 8 <= opusFramed.length) {
-			const pktSize = fdv2.getUint32(off, false); // BE!
+		const dv = new DataView(framed.buffer, framed.byteOffset, framed.byteLength);
+		while (off + 8 <= framed.length) {
+			const pktSize = dv.getUint32(off, false); // BE!
 			// final_range at off+4 (ignored)
 			off += 8;
 			if (pktSize === 0) break;
-			if (off + pktSize > opusFramed.length) {
+			if (off + pktSize > framed.length) {
 				// Truncated final packet; bail.
 				break;
 			}
-			packets.push(opusFramed.subarray(off, off + pktSize));
+			packets.push(framed.subarray(off, off + pktSize));
 			off += pktSize;
 		}
 	}
 	if (packets.length === 0) {
-		throw new Error('OPUSNX has no decodable Opus packets');
+		throw new Error('Opus stream has no decodable packets');
 	}
 
 	// Build the Ogg-Opus stream.
@@ -134,38 +151,109 @@ export async function wemSwitchOpusToOggOpus(parsed: ParsedWem): Promise<Blob> {
 
 	// Page 0: OpusHead (BOS).
 	builder.appendPage(
-		[buildOpusHead(fmt.channels, OPUS_PRE_SKIP, fmt.sampleRate)],
+		[buildOpusHead(info.channels, preSkip, info.sampleRate)],
 		0n,
 		/* bos */ true,
 		/* eos */ false,
 	);
 
 	// Page 1: OpusTags.
-	builder.appendPage(
-		[buildOpusTags()],
-		0n,
-		/* bos */ false,
-		/* eos */ false,
-	);
+	builder.appendPage([buildOpusTags()], 0n, /* bos */ false, /* eos */ false);
 
-	// Pages 2+: audio. Granule increments by samples per packet (we
-	// determine this from the Opus TOC byte of each packet).
-	let cumulativeSamples = BigInt(OPUS_PRE_SKIP); // first audio frame's granule = pre_skip + samples
+	// Pages 2+: audio. Granule = cumulative decoded samples (incl.
+	// pre-skip), derived from each packet's TOC byte.
+	let cumulativeSamples = BigInt(preSkip);
 	for (let i = 0; i < packets.length; i += PACKETS_PER_PAGE) {
 		const slice = packets.slice(i, i + PACKETS_PER_PAGE);
-		// Update cumulative samples *for the entire page*.
 		for (const pkt of slice) {
 			cumulativeSamples += BigInt(opusPacketSamples(pkt, OPUS_RATE));
 		}
 		const isLast = i + PACKETS_PER_PAGE >= packets.length;
 		// On the last page, set granule to numSamples + pre_skip if known.
-		const granule = isLast && numSamples > 0
-			? BigInt(numSamples + OPUS_PRE_SKIP)
-			: cumulativeSamples;
+		const granule =
+			isLast && numSamples > 0 ? BigInt(numSamples + preSkip) : cumulativeSamples;
 		builder.appendPage(slice, granule, /* bos */ false, /* eos */ isLast);
 	}
 
 	return builder.toBlob();
+}
+
+// ---------------------------------------------------------------------------
+// Standalone Nintendo Opus (`.lopus` / `.nop`, header id 0x80000001).
+// ---------------------------------------------------------------------------
+
+const NX_OPUS_HEADER_ID = 0x80000001;
+const NX_OPUS_DATA_ID = 0x80000004;
+
+export interface NintendoOpusInfo {
+	channels: number;
+	sampleRate: number;
+	/** Encoder pre-skip in samples (0x1C), or the standard 120 if unset. */
+	preSkip: number;
+	/** Absolute offset of the framed packet data. */
+	dataOffset: number;
+	/** Byte length of the framed packet data. */
+	dataSize: number;
+}
+
+/** True if `bytes` starts with the Nintendo Opus header id `0x80000001`. */
+export function isNintendoOpus(bytes: Uint8Array): boolean {
+	return (
+		bytes.length >= 4 &&
+		bytes[0] === 0x01 &&
+		bytes[1] === 0x00 &&
+		bytes[2] === 0x00 &&
+		bytes[3] === 0x80
+	);
+}
+
+/**
+ * Parse a Nintendo Opus header (as used by Switch titles directly and
+ * inside CRI AWB banks, e.g. Super Mario RPG's music):
+ *
+ * ```
+ * 0x00 u32 0x80000001  header id
+ * 0x04 u32 header size
+ * 0x08 u8  version
+ * 0x09 u8  channel count
+ * 0x0A u16 frame size (0 = VBR)
+ * 0x0C u32 sample rate
+ * 0x10 u32 offset of the data chunk
+ * 0x1C u16 pre-skip
+ * data chunk: u32 0x80000004, u32 size, framed packets
+ * ```
+ *
+ * Reference: vgmstream `src/meta/opus.c`.
+ */
+export function parseNintendoOpus(bytes: Uint8Array): NintendoOpusInfo {
+	if (bytes.length < 0x20) throw new Error('Nintendo Opus header truncated');
+	const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	if (dv.getUint32(0, true) !== NX_OPUS_HEADER_ID) {
+		throw new Error('Not a Nintendo Opus stream (missing 0x80000001 header)');
+	}
+	const channels = bytes[0x09]!;
+	const sampleRate = dv.getUint32(0x0c, true);
+	const chunk = dv.getUint32(0x10, true);
+	if (chunk + 8 > bytes.length || dv.getUint32(chunk, true) !== NX_OPUS_DATA_ID) {
+		throw new Error('Nintendo Opus data chunk (0x80000004) not found');
+	}
+	if (channels < 1 || channels > 2) {
+		throw new Error(`Nintendo Opus with ${channels} channels is not supported (mono/stereo only)`);
+	}
+	const dataSize = Math.min(dv.getUint32(chunk + 4, true), bytes.length - (chunk + 8));
+	const preSkip = dv.getUint16(0x1c, true) || OPUS_PRE_SKIP;
+	return { channels, sampleRate, preSkip, dataOffset: chunk + 8, dataSize };
+}
+
+/** Remux a standalone Nintendo Opus stream into a playable Ogg-Opus `Blob`. */
+export function nintendoOpusToOggOpus(bytes: Uint8Array): { info: NintendoOpusInfo; ogg: Blob } {
+	const info = parseNintendoOpus(bytes);
+	const ogg = framedOpusToOggOpus(bytes.subarray(info.dataOffset, info.dataOffset + info.dataSize), {
+		channels: info.channels,
+		sampleRate: info.sampleRate,
+		preSkip: info.preSkip,
+	});
+	return { info, ogg };
 }
 
 // ---------------------------------------------------------------------------

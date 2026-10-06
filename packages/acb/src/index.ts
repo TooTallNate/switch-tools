@@ -82,8 +82,8 @@ export interface AcbCue {
 	/**
 	 * Track id inside the source AWB. For memory cues this is
 	 * `MemoryAwbId`; for stream cues this is `StreamAwbId`.
-	 * `null` when the cue's reference type isn't a direct waveform
-	 * (e.g. sequence or block) — we don't decode those.
+	 * `null` when the cue resolves to no waveform. When a cue plays
+	 * several waveforms this is the first. See {@link waveforms}.
 	 */
 	awbTrackId: number | null;
 	/**
@@ -91,6 +91,15 @@ export interface AcbCue {
 	 * table — i.e. which `.awb` file the track lives in when a
 	 * bank has multiple streamed companions. `null` for memory cues.
 	 */
+	streamAwbPortNo: number | null;
+	/** Every waveform the cue reaches (through synths / sequences), in order. */
+	waveforms: AcbCueWaveform[];
+}
+
+/** One waveform a cue plays. */
+export interface AcbCueWaveform {
+	source: CueWaveformSource;
+	awbTrackId: number;
 	streamAwbPortNo: number | null;
 }
 
@@ -147,53 +156,25 @@ export function parseAcb(bytes: Uint8Array): ParsedAcb {
 		}
 	}
 
-	// Resolve each cue to its waveform (when direct).
+	// Resolve each cue to the waveform(s) it plays.
+	const resolver = new ReferenceResolver(root);
 	const cues: AcbCue[] = [];
-	if (cueTable && waveformTable) {
+	if (cueTable) {
 		for (let i = 0; i < cueTable.rows.length; i++) {
 			const cue = cueTable.rows[i]!;
-			const referenceType = Number(cue['ReferenceType'] ?? 0);
-			const referenceIndex = Number(cue['ReferenceIndex'] ?? -1);
 			const name = cueNameByIndex.get(i) ?? '';
-			// ReferenceType 1 = direct Waveform; other types (2 = Synth,
-			// 3 = Sequence, …) need additional resolution we don't do here.
-			if (referenceType !== 1 || referenceIndex < 0) {
-				cues.push({
-					cueIndex: i,
-					name,
-					source: CueWaveformSource.Memory,
-					awbTrackId: null,
-					streamAwbPortNo: null,
-				});
-				continue;
-			}
-			const wf = waveformTable.rows[referenceIndex];
-			if (!wf) {
-				cues.push({
-					cueIndex: i,
-					name,
-					source: CueWaveformSource.Memory,
-					awbTrackId: null,
-					streamAwbPortNo: null,
-				});
-				continue;
-			}
-			const streaming = Number(wf['Streaming'] ?? 0);
-			const isMemory = streaming === 0;
-			const awbTrackId = isMemory
-				? Number(wf['MemoryAwbId'] ?? -1)
-				: Number(wf['StreamAwbId'] ?? -1);
-			const streamAwbPortNo = isMemory
-				? null
-				: Number(wf['StreamAwbPortNo'] ?? 0);
+			const waveforms = resolver.resolve(
+				Number(cue['ReferenceType'] ?? 0),
+				Number(cue['ReferenceIndex'] ?? -1),
+			);
+			const first = waveforms[0];
 			cues.push({
 				cueIndex: i,
 				name,
-				source: isMemory
-					? CueWaveformSource.Memory
-					: CueWaveformSource.Stream,
-				awbTrackId: awbTrackId >= 0 ? awbTrackId : null,
-				streamAwbPortNo,
+				source: first?.source ?? CueWaveformSource.Memory,
+				awbTrackId: first?.awbTrackId ?? null,
+				streamAwbPortNo: first?.streamAwbPortNo ?? null,
+				waveforms,
 			});
 		}
 	}
@@ -241,13 +222,12 @@ export function cueNamesForAwb(
 ): Map<number, string> {
 	const out = new Map<number, string>();
 	for (const cue of acb.cues) {
-		if (cue.awbTrackId === null) continue;
-		if (cue.source !== source) continue;
-		if (source === CueWaveformSource.Stream && cue.streamAwbPortNo !== streamAwbPortNo) {
-			continue;
-		}
-		if (!out.has(cue.awbTrackId)) {
-			out.set(cue.awbTrackId, cue.name);
+		for (const wf of cue.waveforms) {
+			if (wf.source !== source) continue;
+			if (source === CueWaveformSource.Stream && wf.streamAwbPortNo !== streamAwbPortNo) {
+				continue;
+			}
+			if (!out.has(wf.awbTrackId)) out.set(wf.awbTrackId, cue.name);
 		}
 	}
 	return out;
@@ -263,4 +243,125 @@ function subTable(
 	// without rows. Defensive duck-type.
 	if ('rows' in v && 'columns' in v) return v as ParsedUtf;
 	return null;
+}
+
+/** `ReferenceType` / reference-item type codes. */
+const REF_WAVEFORM = 1;
+const REF_SYNTH = 2;
+const REF_SEQUENCE = 3;
+/** Track-event commands that start playback of a referenced item. */
+const CMD_NOTE_ON = 2000;
+const CMD_NOTE_ON_WITH_NO = 2003;
+/** Guard against cyclic or pathologically deep reference graphs. */
+const MAX_REFERENCE_DEPTH = 16;
+
+/**
+ * Follows a cue's reference to the waveform(s) it ultimately plays.
+ *
+ * - **Waveform** (1): a `WaveformTable` row.
+ * - **Synth** (2): `SynthTable.ReferenceItems` is a list of big-endian
+ *   `(u16 type, u16 index)` pairs naming waveforms, synths or sequences.
+ * - **Sequence** (3): `SequenceTable.TrackIndex` is a big-endian u16
+ *   list of `TrackTable` rows. Each track's `TrackEventTable[EventIndex]`
+ *   `Command` blob is a run of `(u16 code, u8 size, data)` commands,
+ *   where noteOn commands (2000 / 2003) carry a `(u16 type, u16 index)`
+ *   reference.
+ *
+ * Block sequences and other reference kinds resolve to nothing.
+ * Reference: vgmstream `src/meta/acb.c` (ISC).
+ */
+class ReferenceResolver {
+	private readonly waveformTable: ParsedUtf | null;
+	private readonly synthTable: ParsedUtf | null;
+	private readonly sequenceTable: ParsedUtf | null;
+	private readonly trackTable: ParsedUtf | null;
+	private readonly trackEventTable: ParsedUtf | null;
+
+	constructor(root: Record<string, UtfValue>) {
+		this.waveformTable = subTable(root, 'WaveformTable');
+		this.synthTable = subTable(root, 'SynthTable');
+		this.sequenceTable = subTable(root, 'SequenceTable');
+		this.trackTable = subTable(root, 'TrackTable');
+		// Older ACBs name the event table `CommandTable`.
+		this.trackEventTable = subTable(root, 'TrackEventTable') ?? subTable(root, 'CommandTable');
+	}
+
+	resolve(type: number, index: number, depth = 0, seen = new Set<string>()): AcbCueWaveform[] {
+		if (index < 0 || depth > MAX_REFERENCE_DEPTH) return [];
+		const key = `${type}:${index}`;
+		if (seen.has(key)) return [];
+		seen.add(key);
+		switch (type) {
+			case REF_WAVEFORM:
+				return this.waveform(index);
+			case REF_SYNTH: {
+				const row = this.synthTable?.rows[index];
+				const items = row ? bytesCell(row['ReferenceItems']) : null;
+				if (!items) return [];
+				const out: AcbCueWaveform[] = [];
+				for (let o = 0; o + 4 <= items.length; o += 4) {
+					const t = (items[o]! << 8) | items[o + 1]!;
+					const i = (items[o + 2]! << 8) | items[o + 3]!;
+					out.push(...this.resolve(t, i, depth + 1, seen));
+				}
+				return out;
+			}
+			case REF_SEQUENCE: {
+				const row = this.sequenceTable?.rows[index];
+				const tracks = row ? bytesCell(row['TrackIndex']) : null;
+				if (!tracks) return [];
+				const numTracks = Number(row!['NumTracks'] ?? tracks.length / 2);
+				const out: AcbCueWaveform[] = [];
+				for (let k = 0; k < numTracks && k * 2 + 2 <= tracks.length; k++) {
+					const trackIndex = (tracks[k * 2]! << 8) | tracks[k * 2 + 1]!;
+					out.push(...this.track(trackIndex, depth + 1, seen));
+				}
+				return out;
+			}
+			default:
+				return [];
+		}
+	}
+
+	private waveform(index: number): AcbCueWaveform[] {
+		const wf = this.waveformTable?.rows[index];
+		if (!wf) return [];
+		const isMemory = Number(wf['Streaming'] ?? 0) === 0;
+		const id = isMemory ? Number(wf['MemoryAwbId'] ?? -1) : Number(wf['StreamAwbId'] ?? -1);
+		if (id < 0) return [];
+		return [
+			{
+				source: isMemory ? CueWaveformSource.Memory : CueWaveformSource.Stream,
+				awbTrackId: id,
+				streamAwbPortNo: isMemory ? null : Number(wf['StreamAwbPortNo'] ?? 0),
+			},
+		];
+	}
+
+	private track(index: number, depth: number, seen: Set<string>): AcbCueWaveform[] {
+		const row = this.trackTable?.rows[index];
+		if (!row) return [];
+		const eventIndex = Number(row['EventIndex'] ?? -1);
+		const event = eventIndex >= 0 ? this.trackEventTable?.rows[eventIndex] : undefined;
+		const cmd = event ? bytesCell(event['Command']) : null;
+		if (!cmd) return [];
+		const out: AcbCueWaveform[] = [];
+		for (let o = 0; o + 3 <= cmd.length; ) {
+			const code = (cmd[o]! << 8) | cmd[o + 1]!;
+			const size = cmd[o + 2]!;
+			const data = o + 3;
+			if (code === 0 && size === 0) break;
+			if ((code === CMD_NOTE_ON || code === CMD_NOTE_ON_WITH_NO) && size >= 4 && data + 4 <= cmd.length) {
+				const t = (cmd[data]! << 8) | cmd[data + 1]!;
+				const i = (cmd[data + 2]! << 8) | cmd[data + 3]!;
+				out.push(...this.resolve(t, i, depth + 1, seen));
+			}
+			o = data + size;
+		}
+		return out;
+	}
+}
+
+function bytesCell(v: UtfValue | undefined): Uint8Array | null {
+	return v instanceof Uint8Array ? v : null;
 }

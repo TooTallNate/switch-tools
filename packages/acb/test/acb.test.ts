@@ -176,3 +176,81 @@ describe('parseAcb', () => {
 		expect(acb.embeddedAwb).toBeNull();
 	});
 });
+
+describe('parseAcb — synth / sequence references', () => {
+	const u16be = (...xs: number[]) => new Uint8Array(xs.flatMap((x) => [x >> 8, x & 0xff]));
+	/**
+	 * Super Mario RPG layout: every cue is a Sequence (type 3) whose
+	 * track's event command does noteOn → Synth (type 2), and the synth's
+	 * ReferenceItems point at a Waveform (type 1).
+	 */
+	function buildSequencedAcb(): Uint8Array {
+		const per = (name: string, type: UtfType) => ({ name, type, storage: UtfStorage.PerRow });
+		const cueTable = buildUtfForTesting('CueTable', [per('ReferenceType', UtfType.U8), per('ReferenceIndex', UtfType.U16)], [
+			{ ReferenceType: 3, ReferenceIndex: 0 }, // sequence 0
+			{ ReferenceType: 2, ReferenceIndex: 1 }, // synth 1 directly
+			{ ReferenceType: 8, ReferenceIndex: 0 }, // block sequence: unsupported
+		]);
+		const cueNameTable = buildUtfForTesting('CueNameTable', [per('CueName', UtfType.String), per('CueIndex', UtfType.U16)], [
+			{ CueName: 'BGM_001', CueIndex: 0 },
+			{ CueName: 'SE_jump', CueIndex: 1 },
+			{ CueName: 'BLOCK', CueIndex: 2 },
+		]);
+		const sequenceTable = buildUtfForTesting('SequenceTable', [per('NumTracks', UtfType.U16), per('TrackIndex', UtfType.Bytes)], [
+			{ NumTracks: 1, TrackIndex: u16be(0) },
+		]);
+		const trackTable = buildUtfForTesting('TrackTable', [per('EventIndex', UtfType.U16)], [{ EventIndex: 0 }]);
+		// Commands: (0x07D1, 4 bytes) ignored, then noteOn (0x07D0) → synth 0, then end.
+		const command = new Uint8Array([0x07, 0xd1, 4, 0, 0, 0, 0x32, 0x07, 0xd0, 4, 0, 2, 0, 0, 0, 0, 0]);
+		const trackEventTable = buildUtfForTesting('TrackEventTable', [per('Command', UtfType.Bytes)], [{ Command: command }]);
+		const synthTable = buildUtfForTesting('SynthTable', [per('ReferenceItems', UtfType.Bytes)], [
+			{ ReferenceItems: u16be(1, 0) }, // waveform 0
+			{ ReferenceItems: u16be(1, 1, 1, 2) }, // waveforms 1 and 2
+		]);
+		const waveformTable = buildUtfForTesting(
+			'WaveformTable',
+			[per('Streaming', UtfType.U8), per('MemoryAwbId', UtfType.U16), per('StreamAwbId', UtfType.U16), per('StreamAwbPortNo', UtfType.U16)],
+			[
+				{ Streaming: 1, MemoryAwbId: 0xffff, StreamAwbId: 5, StreamAwbPortNo: 0 },
+				{ Streaming: 0, MemoryAwbId: 7, StreamAwbId: 0xffff, StreamAwbPortNo: 0 },
+				{ Streaming: 0, MemoryAwbId: 8, StreamAwbId: 0xffff, StreamAwbPortNo: 0 },
+			],
+		);
+		const tables = { cueTable, cueNameTable, sequenceTable, trackTable, trackEventTable, synthTable, waveformTable }
+		return buildUtfForTesting(
+			'Header',
+			[
+				per('Name', UtfType.String),
+				...['CueTable', 'CueNameTable', 'SequenceTable', 'TrackTable', 'TrackEventTable', 'SynthTable', 'WaveformTable'].map((n) => per(n, UtfType.Bytes)),
+			],
+			[
+				{
+					Name: 'BGM',
+					CueTable: tables.cueTable,
+					CueNameTable: tables.cueNameTable,
+					SequenceTable: tables.sequenceTable,
+					TrackTable: tables.trackTable,
+					TrackEventTable: tables.trackEventTable,
+					SynthTable: tables.synthTable,
+					WaveformTable: tables.waveformTable,
+				},
+			],
+		);
+	}
+
+	it('follows sequence → track event → synth → waveform', () => {
+		const acb = parseAcb(buildSequencedAcb());
+		expect(acb.cues[0]).toMatchObject({ name: 'BGM_001', source: CueWaveformSource.Stream, awbTrackId: 5, streamAwbPortNo: 0 });
+		expect(acb.cues[1]!.waveforms.map((w) => w.awbTrackId)).toEqual([7, 8]);
+		expect(acb.cues[2]).toMatchObject({ name: 'BLOCK', awbTrackId: null, waveforms: [] });
+	});
+
+	it('maps every waveform a cue reaches', () => {
+		const acb = parseAcb(buildSequencedAcb());
+		expect([...cueNamesForAwb(acb, CueWaveformSource.Stream, 0)]).toEqual([[5, 'BGM_001']]);
+		expect([...cueNamesForAwb(acb, CueWaveformSource.Memory)]).toEqual([
+			[7, 'SE_jump'],
+			[8, 'SE_jump'],
+		]);
+	});
+});

@@ -38,7 +38,7 @@ import {
 import { decompressYaz0 } from '@tootallnate/yaz0';
 import { decompressLz4, decodeBlock, type Lz4Variant } from '@tootallnate/lz4';
 import { parseBars, type BarsEntry } from '@tootallnate/bars';
-import { parseAwb } from '@tootallnate/awb';
+import { parseAwb, readAwbHeader } from '@tootallnate/awb';
 import {
 	cueNamesForAwb,
 	CueWaveformSource,
@@ -4833,12 +4833,41 @@ function makeSeadAudioNode(
 	};
 }
 
+/**
+ * Identify the codec of an AWB track from its first bytes. HCA's
+ * magic may have the high bit of each byte set (CRI's header
+ * "masking"), so it's compared with the top bit stripped.
+ */
+async function sniffAwbTrackCodec(
+	blob: Blob,
+	track: { offset: number; size: number } | undefined,
+): Promise<{ ext: string; format: string }> {
+	const hca = { ext: 'hca', format: 'HCA' };
+	if (!track || track.size < 4) return hca;
+	const b = new Uint8Array(await blob.slice(track.offset, track.offset + 4).arrayBuffer());
+	if (b[0] === 0x01 && b[1] === 0x00 && b[2] === 0x00 && b[3] === 0x80) {
+		return { ext: 'lopus', format: 'NX-OPUS' };
+	}
+	if ((b[0]! & 0x7f) === 0x48 && (b[1]! & 0x7f) === 0x43 && (b[2]! & 0x7f) === 0x41) return hca;
+	if (b[0] === 0x80 && b[1] === 0x00) return { ext: 'adx', format: 'ADX' };
+	return hca;
+}
+
+/**
+ * Which of an ACB's AWBs a node is: the ACB's embedded memory bank or
+ * one of its streamed companions (by `StreamAwbHash` port). Picks the
+ * right cue → track-id map. Loose `.awb` files leave this unset and
+ * try stream port 0, then the memory map.
+ */
+type AwbCueSource = { kind: 'memory' } | { kind: 'stream'; port: number };
+
 function makeAwbNode(
 	id: string,
 	name: string,
 	blob: Blob,
 	ctx: ArchiveContext,
 	siblingResolver?: AwbSiblingResolver,
+	cueSource?: AwbCueSource,
 ): Node {
 	return {
 		id,
@@ -4849,13 +4878,8 @@ function makeAwbNode(
 		format: 'AWB',
 		blob: async () => blob,
 		getChildren: async () => {
-			// Header is small; 64 KiB is more than enough for any
-			// bank we've seen. If a future bank has a massive id/offset
-			// table the parser will throw a clear error and we can
-			// grow this.
-			const headLen = Math.min(blob.size, 0x10000);
-			const head = new Uint8Array(await blob.slice(0, headLen).arrayBuffer());
-			const parsed = parseAwb(head);
+			// Read exactly the header (sized from its own first 16 bytes).
+			const parsed = parseAwb(await readAwbHeader(blob));
 			void ctx; // reserved for future tikMap-style propagation
 
 			// Optional ACB sibling lookup. `<name>.awb` → `<name>.acb`.
@@ -4876,10 +4900,16 @@ function makeAwbNode(
 						// per ACB) which matches the vast majority of
 						// in-the-wild banks. When that yields nothing
 						// (memory-only ACB), fall back to the memory map.
-						const stream = cueNamesForAwb(acb, CueWaveformSource.Stream, 0);
-						cueNames = stream.size > 0
-							? stream
-							: cueNamesForAwb(acb, CueWaveformSource.Memory);
+						if (cueSource?.kind === 'memory') {
+							cueNames = cueNamesForAwb(acb, CueWaveformSource.Memory);
+						} else if (cueSource?.kind === 'stream') {
+							cueNames = cueNamesForAwb(acb, CueWaveformSource.Stream, cueSource.port);
+						} else {
+							const stream = cueNamesForAwb(acb, CueWaveformSource.Stream, 0);
+							cueNames = stream.size > 0
+								? stream
+								: cueNamesForAwb(acb, CueWaveformSource.Memory);
+						}
 					}
 				} catch {
 					// Soft-fall-back to generic names; logging would
@@ -4888,6 +4918,10 @@ function makeAwbNode(
 				}
 			}
 
+			// AWB is codec-agnostic. Banks are homogeneous in practice,
+			// so sniff the first track to name every leaf: HCA (most
+			// CRI titles) or Nintendo Opus (e.g. Super Mario RPG).
+			const codec = await sniffAwbTrackCodec(blob, parsed.tracks[0]);
 			const width = Math.max(3, String(parsed.tracks.length).length);
 			const used = new Set<string>();
 			return parsed.tracks.map((t, i): Node => {
@@ -4898,14 +4932,14 @@ function makeAwbNode(
 					// that's not [A-Za-z0-9._-] with `_`. ACB cue names
 					// in the wild are mostly ASCII; defensive anyway.
 					const safe = cueName.replace(/[^A-Za-z0-9._-]/g, '_');
-					leafName = `${safe}.hca`;
+					leafName = `${safe}.${codec.ext}`;
 					// Disambiguate if the sanitization collapses two
 					// distinct cues to the same name.
 					if (used.has(leafName)) {
-						leafName = `${safe}_${i}.hca`;
+						leafName = `${safe}_${i}.${codec.ext}`;
 					}
 				} else {
-					leafName = `track_${String(i).padStart(width, '0')}.hca`;
+					leafName = `track_${String(i).padStart(width, '0')}.${codec.ext}`;
 				}
 				used.add(leafName);
 				const childId = `${id}/${leafName}`;
@@ -4916,7 +4950,7 @@ function makeAwbNode(
 					kind: 'file',
 					isContainer: false,
 					size: t.size,
-					format: 'HCA',
+					format: codec.format,
 					meta: {
 						awbTrackId: t.id,
 						awbSubkey: parsed.subkey,
@@ -4993,7 +5027,7 @@ function makeAcbNode(
 						// return our own bytes.
 						if (lookupName.toLowerCase().endsWith('.acb')) return blob;
 						return null;
-					}),
+					}, { kind: 'memory' }),
 				);
 			}
 
@@ -5002,7 +5036,7 @@ function makeAcbNode(
 			// directory / RomFS), surface as a child AWB so the user
 			// can open it in-tree.
 			const seenStream = new Set<string>();
-			for (const stream of acb.streamAwbs) {
+			for (const [port, stream] of acb.streamAwbs.entries()) {
 				if (!stream.name || seenStream.has(stream.name.toLowerCase())) continue;
 				seenStream.add(stream.name.toLowerCase());
 				const awbName = `${stream.name}.awb`;
@@ -5014,7 +5048,7 @@ function makeAcbNode(
 							// Same self-resolution as the memory case.
 							if (lookupName.toLowerCase().endsWith('.acb')) return blob;
 							return null;
-						}),
+						}, { kind: 'stream', port }),
 					);
 				} else {
 					// Sibling not present in the archive we have access

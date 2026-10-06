@@ -13,13 +13,14 @@
  *   0x00  u8[4]   magic            "AFS2"
  *   0x04  u8      type             always 0x01 / 0x02 (subtype)
  *   0x05  u8      offsetSize       4 or 2 — width of each track offset
- *   0x06  u8      idSize           2 (only width seen in the wild)
+ *   0x06  u8      idSize           2 or 4 — width of each track id
+ *                                  (4 in e.g. Super Mario RPG's BGM / SE banks)
  *   0x07  u8      reserved
  *   0x08  u32     trackCount
  *   0x0C  u16     alignment        usually 32; each track aligned up to this
  *   0x0E  u16     subkey           per-bank HCA subkey (0 when unencrypted)
- *   0x10  u16[]   trackIds         `trackCount` × u16
- *         u32[]   trackOffsets     `trackCount + 1` × u32 (LE):
+ *   0x10  u16/u32[] trackIds       `trackCount` × idSize
+ *         u16/u32[] trackOffsets   `trackCount + 1` × offsetSize (LE):
  *                                  offsets[i] = start of track i,
  *                                  offsets[trackCount] = first byte
  *                                  past the last track.
@@ -53,8 +54,8 @@ export interface ParsedAwb {
 	subtype: number;
 	/** Track-offset width: 2 or 4 bytes. */
 	offsetSize: 2 | 4;
-	/** Track-id width: 2 bytes (only value seen so far). */
-	idSize: 2;
+	/** Track-id width: 2 or 4 bytes. */
+	idSize: 2 | 4;
 	/** Total number of tracks in the bank. */
 	trackCount: number;
 	/** Alignment applied to each track's start offset. Usually 32. */
@@ -126,9 +127,9 @@ export function parseAwb(bytes: Uint8Array): ParsedAwb {
 			`Unsupported AFS2 offset width: ${offsetSize} (expected 2 or 4)`,
 		);
 	}
-	if (idSize !== 2) {
+	if (idSize !== 2 && idSize !== 4) {
 		throw new AwbParseError(
-			`Unsupported AFS2 id width: ${idSize} (only 2 is implemented)`,
+			`Unsupported AFS2 id width: ${idSize} (expected 2 or 4)`,
 		);
 	}
 	const trackCount = dv.getUint32(0x08, true);
@@ -153,11 +154,12 @@ export function parseAwb(bytes: Uint8Array): ParsedAwb {
 
 	const ids = new Array<number>(trackCount);
 	for (let i = 0; i < trackCount; i++) {
-		ids[i] = dv.getUint16(0x10 + i * 2, true);
+		const o = 0x10 + i * idSize;
+		ids[i] = idSize === 2 ? dv.getUint16(o, true) : dv.getUint32(o, true);
 	}
 
 	const offsets = new Array<number>(trackCount + 1);
-	const offsetTableStart = 0x10 + trackCount * 2;
+	const offsetTableStart = 0x10 + trackCount * idSize;
 	for (let i = 0; i <= trackCount; i++) {
 		const o = offsetTableStart + i * offsetSize;
 		offsets[i] =
@@ -176,29 +178,45 @@ export function parseAwb(bytes: Uint8Array): ParsedAwb {
 		tracks[i] = { id: ids[i]!, offset: start, size: Math.max(0, end - start) };
 	}
 
-	return { subtype, offsetSize, idSize: 2, trackCount, alignment, subkey, tracks };
+	return { subtype, offsetSize, idSize, trackCount, alignment, subkey, tracks };
 }
 
 /**
- * Convenience for the common case: read just the header bytes
- * (offset 0, length `headBytes`) from a `Blob`, parse them, and
- * return the parsed AWB plus per-track `Blob.slice(...)` references
- * for lazy track extraction.
- *
- * The default `headBytes` (64 KiB) is enough for any AWB seen in
- * the wild — even with a million tracks the table only reaches
- * 0x10 + 1M × (2 + 4) ≈ 6 MiB; trim the default when reading
- * known-small banks for a tighter network read.
+ * Bytes needed to parse the full AFS2 header (fixed fields + id and
+ * offset tables), computed from its first 16 bytes. Returns `null`
+ * if `head` isn't an AFS2 header.
  */
-export async function parseAwbBlob(
-	blob: Blob,
-	headBytes = 0x10000,
-): Promise<{
+export function awbHeaderSize(head: Uint8Array): number | null {
+	if (!isAwbMagic(head) || head.length < 0x10) return null;
+	const dv = new DataView(head.buffer, head.byteOffset, head.byteLength);
+	const offsetSize = dv.getUint8(0x05);
+	const idSize = dv.getUint8(0x06);
+	const trackCount = dv.getUint32(0x08, true);
+	return 0x10 + trackCount * idSize + (trackCount + 1) * offsetSize;
+}
+
+/**
+ * Read exactly the header bytes {@link parseAwb} needs from a `Blob`
+ * (two small reads, regardless of how large the id/offset tables are).
+ */
+export async function readAwbHeader(blob: Blob): Promise<Uint8Array> {
+	const first = new Uint8Array(await blob.slice(0, Math.min(blob.size, 0x10)).arrayBuffer());
+	const size = awbHeaderSize(first);
+	if (size === null || size <= first.length) return first;
+	return new Uint8Array(await blob.slice(0, Math.min(blob.size, size)).arrayBuffer());
+}
+
+/**
+ * Convenience for the common case: read just the header bytes from
+ * a `Blob` (sized from the header itself, see {@link readAwbHeader}),
+ * parse them, and return the parsed AWB plus per-track
+ * `Blob.slice(...)` references for lazy track extraction.
+ */
+export async function parseAwbBlob(blob: Blob): Promise<{
 	parsed: ParsedAwb;
 	tracks: Array<{ id: number; offset: number; size: number; blob: Blob }>;
 }> {
-	const head = await blob.slice(0, Math.min(headBytes, blob.size)).arrayBuffer();
-	const parsed = parseAwb(new Uint8Array(head));
+	const parsed = parseAwb(await readAwbHeader(blob));
 	const tracks = parsed.tracks.map((t) => ({
 		id: t.id,
 		offset: t.offset,
