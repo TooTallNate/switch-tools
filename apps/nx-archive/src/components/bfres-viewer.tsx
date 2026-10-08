@@ -571,7 +571,10 @@ async function findBeaCompanions(
         if (k.kind === "directory") return walk(k)
         if (k.id === selected.id || !k.blob) return
         const lower = k.name.toLowerCase()
-        if (lower.endsWith(".bntx")) bntxNodes.push(k)
+        // Super Mario Party ships each texture as a standalone BNTX
+        // `.ftxb` (no shared bank); later titles' `.ftxb` are path
+        // stubs, which the magic check below drops.
+        if (lower.endsWith(".bntx") || lower.endsWith(".ftxb")) bntxNodes.push(k)
         else if (lower.endsWith(".fskb") || lower.endsWith(".fmab")) animNodes.push(k)
       }),
     )
@@ -582,7 +585,12 @@ async function findBeaCompanions(
     await Promise.all(
       bntxNodes.map(async (n) => {
         try {
-          return loadBntxBankFromBytes(new Uint8Array(await (await n.blob!()).arrayBuffer()))
+          const blob = await n.blob!()
+          // Cheap reject for `.ftxb` path stubs before reading it all.
+          if (blob.size < 0x200) return null
+          const bytes = new Uint8Array(await blob.arrayBuffer())
+          if (String.fromCharCode(...bytes.subarray(0, 4)) !== "BNTX") return null
+          return loadBntxBankFromBytes(bytes)
         } catch {
           return null
         }

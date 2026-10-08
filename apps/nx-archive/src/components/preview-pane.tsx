@@ -443,6 +443,9 @@ function PreviewContent({
       // unwrapped the LZ4 layer; we just need to route the now-
       // raw DDS bytes to the DDS preview.
       if (node.meta?.ddsz) return "dds-image"
+      // Bezel `.ftxb` that is a whole BNTX bank (Super Mario Party),
+      // as opposed to the path-stub `.ftxb` of later titles.
+      if (node.meta?.bntxTexture) return "bntx-image"
       // GB / GBC ROMs identified by magic sniff (deep logo check)
       // rather than extension.
       if (node.meta?.gbRom) return "gb-rom-info"

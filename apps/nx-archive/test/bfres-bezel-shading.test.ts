@@ -165,3 +165,40 @@ describe('rendersInColorPass', () => {
     expect(rendersInColorPass(mat(undefined), [body])).toBe(true)
   })
 })
+
+describe('older Bezel shaders (Super Mario Party)', () => {
+  /** `forward_plus_char`: no `texture_srt_enable*` options, SRTs always apply. */
+  function smpEyeMaterial(): BfresMaterial {
+    return {
+      name: 'eye_m',
+      textureRefs: ['pc56_eye_alb'],
+      samplers: ['_a0'],
+      bindings: [{ samplerName: '_a0', textureName: 'pc56_eye_alb' }],
+      shaderAssign: {
+        shaderArchive: 'forward_plus_char',
+        shadingModel: 'forward_plus_color',
+        attribAssign: { _u0: '_u1', _u1: '_u1' },
+        samplerAssign: { _a0: '_a0' },
+        options: { eye_render_mode: '0' },
+      },
+      shaderParams: {
+        texsrt0: { name: 'texsrt0', type: 30, values: [], texSrt: srt(0.125, 0) },
+      },
+    }
+  }
+
+  it('recognises the shader archive and applies the SRT without an enable option', () => {
+    const mat = smpEyeMaterial()
+    expect(isBezelMaterial(mat)).toBe(true)
+    const plan = planBezelAlbedo(geometry({ _u1: [1.5, 0.5] }), mat)!
+    expect(plan.baseTexture).toBe('pc56_eye_alb')
+    expect([...plan.baseUvs!]).toEqual([0.1875, 0.5])
+    expect(plan.layers).toEqual([])
+  })
+
+  it('still honours an explicit texture_srt_enable0 = 0', () => {
+    const mat = smpEyeMaterial()
+    mat.shaderAssign!.options.texture_srt_enable0 = '0'
+    expect([...planBezelAlbedo(geometry({ _u1: [1.5, 0.5] }), mat)!.baseUvs!]).toEqual([1.5, 0.5])
+  })
+})

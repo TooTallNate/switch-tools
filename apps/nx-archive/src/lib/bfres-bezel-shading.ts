@@ -53,12 +53,26 @@ export interface BezelAlbedoPlan {
 }
 
 /**
- * True for materials compiled against a Bezel-style shader. We key
- * on the `texture_srt_enable0` option rather than the archive name so
- * that renamed shader archives are still handled.
+ * True for materials compiled against a Bezel-style shader: either
+ * the `texture_srt_enable0` option (Mario Party Superstars era) or a
+ * `forward_plus*` shader archive (`forward_plus_char` in Super Mario
+ * Party, which predates the per-UV SRT enable options).
  */
 export function isBezelMaterial(mat: BfresMaterial | undefined): boolean {
-	return !!mat?.shaderAssign && 'texture_srt_enable0' in mat.shaderAssign.options;
+	const sa = mat?.shaderAssign;
+	if (!sa) return false;
+	return 'texture_srt_enable0' in sa.options || /^forward_plus/.test(sa.shaderArchive);
+}
+
+/**
+ * Whether `texsrt<index>` applies. Newer shaders gate each SRT with a
+ * `texture_srt_enable<index>` option. Older ones have no such option
+ * and always apply the SRT param when present.
+ */
+function texSrtEnabled(mat: BfresMaterial, index: number): boolean {
+	const opt = mat.shaderAssign?.options[`texture_srt_enable${index}`];
+	if (opt !== undefined) return opt === '1';
+	return !!mat.shaderParams?.[`texsrt${index}`]?.texSrt;
 }
 
 /**
@@ -144,9 +158,8 @@ export function shaderUvs(
 	const meshAttr = mat.shaderAssign?.attribAssign[key] ?? key;
 	const raw = geom.uvSets?.[meshAttr] ?? (meshAttr === '_u0' ? geom.uvs : null);
 	if (!raw) return null;
-	const enabled = mat.shaderAssign?.options[`texture_srt_enable${index}`] === '1';
 	const srt = mat.shaderParams?.[`texsrt${index}`]?.texSrt;
-	return enabled && srt ? applyTexSrt(raw, srt) : raw;
+	return srt && texSrtEnabled(mat, index) ? applyTexSrt(raw, srt) : raw;
 }
 
 /** Texture bound to shader sampler `shaderSampler`, via the sampler assign. */
@@ -180,7 +193,7 @@ export function planBezelAlbedo(
 			// just draw the layer twice.
 			const meshAttr = mat.shaderAssign!.attribAssign[`_u${index}`] ?? `_u${index}`;
 			const srt = mat.shaderParams?.[`texsrt${index}`]?.texSrt;
-			const enabled = mat.shaderAssign!.options[`texture_srt_enable${index}`] === '1';
+			const enabled = texSrtEnabled(mat, index);
 			const key = `${meshAttr}|${enabled && srt ? JSON.stringify(srt) : 'identity'}`;
 			if (seen.has(key)) continue;
 			seen.add(key);

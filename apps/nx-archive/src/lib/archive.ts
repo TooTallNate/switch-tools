@@ -5598,6 +5598,15 @@ function makeZstdNode(
 const BEA_NO_SNIFF_EXTS = new Set(['ftrg', 'ftxb', 'nkn', 'bnbshpk']);
 
 /**
+ * `.ftxb` is a texture *pointer* in later Bezel titles (a ~60-byte
+ * path to the BNTX bank, e.g. Mario Party Superstars) but a whole
+ * single-texture BNTX in earlier ones (Super Mario Party). A BNTX
+ * header alone is over 0x1000 bytes, so size tells them apart
+ * without decompressing every entry.
+ */
+const BEA_FTXB_BNTX_MIN_SIZE = 0x200;
+
+/**
  * Lazily-decompressed `Blob` for one BEA asset. Reports the
  * uncompressed size synchronously; decompression runs (once) on
  * first byte-level access.
@@ -5711,6 +5720,19 @@ async function beaEntriesToNodes(
 					});
 				}
 				const entry = child.file!;
+				if (extOf(childName) === 'ftxb' && entry.uncompressedSize >= BEA_FTXB_BNTX_MIN_SIZE) {
+					const blob = beaEntryBlob(entry);
+					return {
+						id: childId,
+						name: childName,
+						kind: 'file',
+						isContainer: false,
+						size: blob.size,
+						format: 'BNTX',
+						meta: { bntxTexture: true },
+						blob: async () => blob,
+					};
+				}
 				return childNodeFor(childId, childName, beaEntryBlob(entry), ctx, {
 					skipMagicSniff: BEA_NO_SNIFF_EXTS.has(extOf(childName)),
 				});
