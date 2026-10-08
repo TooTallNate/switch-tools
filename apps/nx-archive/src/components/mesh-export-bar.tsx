@@ -47,6 +47,7 @@ import { Spinner } from "~/components/ui/spinner"
 import { Switch } from "~/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "~/components/ui/toggle-group"
 import { mixLabel } from "~/lib/full-spectrum"
+import { SLICER_PROFILES, slicerProfile } from "~/lib/slicer-profile"
 import { sanitizeStem, triggerDownload, type ExportMesh } from "~/lib/mesh-export"
 import { rgbToHex, type Rgb } from "~/lib/mesh-export-3mf"
 import { repairChangedAnything, type RepairSummary } from "~/lib/mesh-repair"
@@ -54,6 +55,7 @@ import {
   DEFAULT_EXPORT_SETTINGS,
   printSize,
   runModelExport,
+  targetProfile,
   type ExportFormat,
   type ModelExportResult,
   type ModelExportSettings,
@@ -132,9 +134,10 @@ function saveSettings(s: StoredSettings) {
 // ---------------------------------------------------------------------------
 
 /** Build volume used for the "too big" warning. */
-function bedLimit(format: ExportFormat): { mm: number; label: string } {
-  return format === "3mf-full-spectrum"
-    ? { mm: 270, label: "the Snapmaker U1's 270 mm build volume" }
+function bedLimit(settings: Pick<ModelExportSettings, "format" | "profile">): { mm: number; label: string } {
+  const profile = targetProfile(settings)
+  return profile
+    ? { mm: profile.buildVolumeMm, label: `the ${profile.label}'s ${profile.buildVolumeMm} mm build volume` }
     : { mm: 256, label: "a typical 256 mm build volume" }
 }
 
@@ -253,7 +256,11 @@ function successToast(result: ModelExportResult): { title: string; description: 
       description: (
         <div className="mt-1 flex flex-col gap-0.5">
           {repairLine}
-          <span>Set these filament colors in your slicer:</span>
+          <span>
+            {result.profile
+              ? `Filament colors are embedded for the ${result.profile.label}. Open in Snapmaker Orca in a new, empty project.`
+              : "Set these filament colors in your slicer:"}
+          </span>
           {result.palette.map((c, i) => (
             <span key={i} className="flex items-center gap-1.5 font-mono">
               <Swatch rgb={c} />
@@ -308,7 +315,7 @@ export function MeshExportBar({
     () => (sizeUnits ? (sizeUnits.map((v) => v * scale) as [number, number, number]) : null),
     [sizeUnits, scale],
   )
-  const limit = bedLimit(settings.format)
+  const limit = bedLimit(settings)
   const tooBig = sizeMm ? Math.max(...sizeMm) > limit.mm : false
 
   const doExport = () => {
@@ -507,6 +514,29 @@ export function MeshExportBar({
                       </SelectContent>
                     </Select>
                     <FieldDescription>The model's colors are reduced to this many filaments.</FieldDescription>
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="export-profile">Slicer profile</FieldLabel>
+                    <Select value={settings.profile} onValueChange={(profile) => update({ profile })}>
+                      <SelectTrigger id="export-profile" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectGroup>
+                          {SLICER_PROFILES.map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.label}
+                            </SelectItem>
+                          ))}
+                          <SelectItem value="none">None</SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FieldDescription>
+                      {slicerProfile(settings.profile)
+                        ? "Embeds the filament colors and selects this printer's stock profiles, so the file opens ready to print in Snapmaker Orca."
+                        : "Plain 3MF for any OrcaSlicer / Bambu Studio printer. Filament colors aren't embedded; you set them in the slicer."}
+                    </FieldDescription>
                   </Field>
                 </FieldSet>
               )}

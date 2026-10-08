@@ -60,6 +60,31 @@ describe('runModelExport', () => {
     expect(r.repair?.sheetsThickened).toBe(1)
   })
 
+  it('embeds the palette as filament colours with the U1 profile', () => {
+    // Two-colour texture: red | blue.
+    const quad: ExportMesh = {
+      ...box(1, 1, 1),
+      uvs: new Float32Array(16).map((_, i) => (i % 2 === 0 ? (i / 2) % 2 : 0.5)),
+      materials: [{ texture: { pixels: new Uint8Array([255, 0, 0, 255, 0, 0, 255, 255]), width: 2, height: 1, wrapS: 'clamp', wrapT: 'clamp' } }],
+    }
+    const r = runModelExport({ ...job, meshes: [quad], settings: settings({ format: '3mf', colors: 4 }), mmPerUnit: 20 })
+    const files = unzipSync(r.bytes)
+    const cfg = JSON.parse(strFromU8(files['Metadata/project_settings.config']!))
+    expect(cfg.filament_colour).toEqual(r.palette!.map((c) => '#' + c.map((x) => x.toString(16).padStart(2, '0')).join('').toUpperCase()))
+    expect(cfg.filament_colour.length).toBeGreaterThan(1)
+    expect(cfg.printer_settings_id).toBe('Snapmaker U1 (0.4 nozzle)')
+    expect(cfg.print_settings_id).toBe('0.20mm Standard @Snapmaker U1 (0.4 nozzle)')
+    expect(cfg.filament_settings_id).toEqual(cfg.filament_colour.map(() => 'Snapmaker PLA Basic @U1'))
+    expect(cfg.different_settings_to_system).toHaveLength(cfg.filament_colour.length + 2)
+    expect(r.profile?.id).toBe('snapmaker-u1')
+  })
+
+  it('writes a plain 3MF without a profile', () => {
+    const r = runModelExport({ ...job, meshes: [box(1, 1, 1)], settings: settings({ format: '3mf', profile: 'none' }), mmPerUnit: 20 })
+    expect(Object.keys(unzipSync(r.bytes))).not.toContain('Metadata/project_settings.config')
+    expect(r.profile).toBeUndefined()
+  })
+
   it('produces Full Spectrum 3MFs', () => {
     const r = runModelExport({ ...job, meshes: [box(1, 1, 1)], settings: settings({ format: '3mf-full-spectrum' }), mmPerUnit: 20 })
     expect(r.fileName).toMatch(/_fs\d+\.3mf$/)

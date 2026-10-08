@@ -22,6 +22,7 @@ import {
 } from './mesh-export';
 import { buildPainted3MF, rgbToHex, type Rgb } from './mesh-export-3mf';
 import { repairForPrinting, summarizeRepairs, type RepairReport, type RepairSummary } from './mesh-repair';
+import { SNAPMAKER_U1, projectSettingsConfig, slicerProfile, type SlicerProfile } from './slicer-profile';
 
 export type ExportFormat = 'stl' | '3mf' | '3mf-full-spectrum';
 
@@ -39,6 +40,12 @@ export interface ModelExportSettings {
 	mixes: number;
 	/** Full Spectrum: physical filament colours (hex), toolhead order. */
 	base: string[];
+	/**
+	 * Standard 3MF: slicer profile to embed filament colours + stock
+	 * presets for (`slicer-profile.ts`), or `'none'` for a plain 3MF.
+	 * Full Spectrum always targets the Snapmaker U1.
+	 */
+	profile: string;
 }
 
 export const DEFAULT_EXPORT_SETTINGS: ModelExportSettings = {
@@ -49,7 +56,15 @@ export const DEFAULT_EXPORT_SETTINGS: ModelExportSettings = {
 	colors: 4,
 	mixes: 12,
 	base: FULL_SPECTRUM_BUNDLE.map((f) => rgbToHex(f.rgb)),
+	profile: SNAPMAKER_U1.id,
 };
+
+/** Printer the export is laid out for: always the U1 for Full Spectrum. */
+export function targetProfile(s: Pick<ModelExportSettings, 'format' | 'profile'>): SlicerProfile | null {
+	if (s.format === '3mf-full-spectrum') return SNAPMAKER_U1;
+	if (s.format === 'stl') return null;
+	return slicerProfile(s.profile);
+}
 
 /**
  * Model size in *print* axes (X width, Y depth, Z height), in the
@@ -116,6 +131,8 @@ export interface ModelExportResult {
 	repair: RepairSummary | null;
 	/** Standard 3MF palette (filament i + 1). */
 	palette?: Rgb[];
+	/** Profile whose presets + filament colours were embedded, if any. */
+	profile?: SlicerProfile;
 	/** Full Spectrum filaments + mixes. */
 	fullSpectrum?: { base: readonly PhysicalFilament[]; mixes: MixRecipe[] };
 }
@@ -165,12 +182,20 @@ export function runModelExport(job: ModelExportJob): ModelExportResult {
 		};
 	}
 
+	const profile = targetProfile(s);
 	const r = buildPainted3MF([...meshes], {
 		colorCount: s.colors,
 		subdivisionPasses: s.subdivision,
 		sourceAxis: job.sourceAxis,
 		title: `${stem}${pose}`,
 		repair,
+		...(profile && {
+			bedCenter: profile.bedCenter,
+			// Filament colours ride along in the project settings.
+			extraFiles: (palette: Rgb[]) => ({
+				'Metadata/project_settings.config': projectSettingsConfig(profile, palette),
+			}),
+		}),
 	});
 	return {
 		bytes: r.bytes,
@@ -178,5 +203,6 @@ export function runModelExport(job: ModelExportJob): ModelExportResult {
 		mimeType: 'model/3mf',
 		repair: r.repair,
 		palette: r.palette,
+		profile: profile ?? undefined,
 	};
 }
