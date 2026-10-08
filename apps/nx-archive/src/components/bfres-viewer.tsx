@@ -45,6 +45,8 @@ import {
   bakeAlbedoLayers,
   bezelBaseColor,
   hasAlpha,
+  separateOverlappingIslands,
+  tileHorizontally,
   isBezelMaterial,
   planBezelAlbedo,
   rendersInColorPass,
@@ -1384,15 +1386,22 @@ function pickBezelAlbedo(
     const texture = pickAlbedo(remapped, [], cache, plan.baseTexture)
     return texture ? { texture, uvs: plan.baseUvs } : null
   }
+  // Islands that share base texels (e.g. both of Yoshi's eyes) get
+  // their own tile so each can carry its own baked pupil.
+  const split = separateOverlappingIslands(plan.baseUvs, geom.indices)
+  const tiled = tileHorizontally(base, split.copies)
   const pixels = bakeAlbedoLayers(
-    base,
-    plan.baseUvs,
+    tiled,
+    split.uvs,
     geom.indices,
     layers,
     hasAlpha(base) ? plan.windowColor : null,
   )
-  const texture = makeDataTexture({ ...base, pixels }, pickWrapMode(remapped))
-  return { texture, uvs: plan.baseUvs }
+  const texture = makeDataTexture(
+    { ...base, pixels, width: tiled.width, height: tiled.height },
+    split.copies > 1 ? THREE.ClampToEdgeWrapping : pickWrapMode(remapped),
+  )
+  return { texture, uvs: split.uvs }
 }
 
 /**

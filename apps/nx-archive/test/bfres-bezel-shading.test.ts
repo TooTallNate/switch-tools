@@ -9,6 +9,8 @@ import {
   isBezelMaterial,
   planBezelAlbedo,
   rendersInColorPass,
+  separateOverlappingIslands,
+  tileHorizontally,
 } from '~/lib/bfres-bezel-shading'
 
 const srt = (scaleX: number, translateX: number) => ({
@@ -200,5 +202,40 @@ describe('older Bezel shaders (Super Mario Party)', () => {
     const mat = smpEyeMaterial()
     mat.shaderAssign!.options.texture_srt_enable0 = '0'
     expect([...planBezelAlbedo(geometry({ _u1: [1.5, 0.5] }), mat)!.baseUvs!]).toEqual([1.5, 0.5])
+  })
+})
+
+describe('per-eye pupils', () => {
+  it('samples the second pupil at raw UV1 when the shader has no _u2 input', () => {
+    // Super Mario Party Yoshi: texsrt1 shifts one eye's pupil island by 2;
+    // the other eye's island sits at its raw UV1.
+    const mat = eyeMaterial()
+    mat.shaderAssign!.attribAssign = { _u0: '_u0', _u1: '_u1' }
+    const plan = planBezelAlbedo(geometry({ _u0: [0.5, 0.5], _u1: [2.5, 0.5] }), mat)!
+    expect(plan.layers.map((l) => [...l.uvs])).toEqual([
+      [0.5, 0.5], // UV1 − 2
+      [2.5, 0.5], // raw UV1
+    ])
+  })
+
+  it('moves overlapping UV islands into their own tiles', () => {
+    // Two disconnected triangles (both eyes) over the same base texels.
+    const uvs = new Float32Array([0.1, 0.1, 0.4, 0.1, 0.1, 0.4, 0.1, 0.1, 0.4, 0.1, 0.1, 0.4])
+    const split = separateOverlappingIslands(uvs, [0, 1, 2, 3, 4, 5])
+    expect(split.copies).toBe(2)
+    expect([...split.uvs.slice(0, 2)].map((x) => +x.toFixed(3))).toEqual([0.05, 0.1])
+    expect([...split.uvs.slice(6, 8)].map((x) => +x.toFixed(3))).toEqual([0.55, 0.1])
+  })
+
+  it('leaves disjoint or wrapped islands alone', () => {
+    const disjoint = new Float32Array([0.1, 0.1, 0.2, 0.1, 0.1, 0.2, 0.6, 0.6, 0.7, 0.6, 0.6, 0.7])
+    expect(separateOverlappingIslands(disjoint, [0, 1, 2, 3, 4, 5]).copies).toBe(1)
+    const wrapped = new Float32Array([1.1, 0.1, 1.4, 0.1, 1.1, 0.4, 1.1, 0.1, 1.4, 0.1, 1.1, 0.4])
+    expect(separateOverlappingIslands(wrapped, [0, 1, 2, 3, 4, 5]).copies).toBe(1)
+  })
+
+  it('tiles an image horizontally', () => {
+    const img = { pixels: new Uint8ClampedArray([1, 2, 3, 4, 5, 6, 7, 8]), width: 1, height: 2 }
+    expect([...tileHorizontally(img, 2).pixels]).toEqual([1, 2, 3, 4, 1, 2, 3, 4, 5, 6, 7, 8, 5, 6, 7, 8])
   })
 })

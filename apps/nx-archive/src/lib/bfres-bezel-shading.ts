@@ -187,7 +187,22 @@ export function planBezelAlbedo(
 	const layerTexture = shaderSamplerTexture(mat, '_a1');
 	if (layerTexture && layerTexture !== baseTexture) {
 		const seen = new Set<string>();
-		for (const index of [1, 2]) {
+		// Older shaders (Super Mario Party) have no shader `_u2` input:
+		// the second eye's pupil is sampled at UV1 *without* `texsrt1`.
+		// Newer ones route it through `_u2`, which dedupes against this.
+		const indices: (1 | 2 | 'u1-raw')[] =
+			'_u2' in mat.shaderAssign!.attribAssign ? [1, 2] : [1, 'u1-raw'];
+		for (const index of indices) {
+			if (index === 'u1-raw') {
+				const meshAttr = mat.shaderAssign!.attribAssign._u1 ?? '_u1';
+				const key = `${meshAttr}|identity`;
+				const raw = geom.uvSets?.[meshAttr];
+				if (raw && !seen.has(key)) {
+					seen.add(key);
+					layers.push({ textureName: layerTexture, uvs: raw });
+				}
+				continue;
+			}
 			// UV1 and UV2 often come from the same mesh attribute with
 			// different SRTs (one per eye). Two identical inputs would
 			// just draw the layer twice.
@@ -224,6 +239,99 @@ function windowColorOf(mat: BfresMaterial): [number, number, number] {
 		return Math.round(s * 255);
 	};
 	return [toSrgb(c[0]!), toSrgb(c[1]!), toSrgb(c[2]!)];
+}
+
+/**
+ * Give every UV island of a mesh its own copy of the base texture
+ * when islands overlap in base-UV space.
+ *
+ * A baked texture holds one colour per texel, but two islands that
+ * share texels may need different results. Yoshi's two eyeballs reuse
+ * one region of the body atlas, yet each eye shows its own pupil. When
+ * islands' bounding boxes overlap, the texture is laid out as
+ * `copies` side-by-side tiles of the base, and island `k` is moved
+ * into tile `k`.
+ *
+ * Islands are connected components of the triangle mesh (triangles
+ * sharing a vertex index). Returns the (possibly remapped) UVs and the
+ * tile count (1 = unchanged).
+ */
+export function separateOverlappingIslands(
+	uvs: Float32Array,
+	indices: ArrayLike<number>,
+	maxCopies = 8,
+): { uvs: Float32Array; copies: number } {
+	const vertexCount = uvs.length / 2;
+	const parent = new Int32Array(vertexCount).map((_, i) => i);
+	const find = (i: number): number => {
+		while (parent[i] !== i) i = parent[i] = parent[parent[i]!]!;
+		return i;
+	};
+	for (let t = 0; t + 2 < indices.length; t += 3) {
+		const a = find(indices[t]!);
+		const b = find(indices[t + 1]!);
+		const c = find(indices[t + 2]!);
+		parent[b] = a;
+		parent[find(c)] = a;
+	}
+	// Bounding box per island (only vertices used by triangles).
+	const boxes = new Map<number, [number, number, number, number]>();
+	for (let t = 0; t < indices.length; t++) {
+		const v = indices[t]!;
+		const r = find(v);
+		const u = uvs[v * 2]!;
+		const w = uvs[v * 2 + 1]!;
+		const b = boxes.get(r);
+		if (!b) boxes.set(r, [u, w, u, w]);
+		else {
+			b[0] = Math.min(b[0], u);
+			b[1] = Math.min(b[1], w);
+			b[2] = Math.max(b[2], u);
+			b[3] = Math.max(b[3], w);
+		}
+	}
+	// Tiling relocates UVs, which only works for islands inside [0, 1]
+	// (a repeat-wrapped island would spill into the neighbouring tile).
+	for (const b of boxes.values()) {
+		if (b[0] < 0 || b[1] < 0 || b[2] > 1 || b[3] > 1) return { uvs, copies: 1 };
+	}
+	const roots = [...boxes.keys()];
+	const overlaps = (a: number[], b: number[]) =>
+		a[0]! < b[2]! && b[0]! < a[2]! && a[1]! < b[3]! && b[1]! < a[3]!;
+	// Greedy tile assignment: an island goes in the first tile where it
+	// overlaps nothing already placed.
+	const tiles: number[][] = [];
+	const tileOf = new Map<number, number>();
+	for (const r of roots) {
+		const box = boxes.get(r)!;
+		let k = tiles.findIndex((members) => members.every((m) => !overlaps(box, boxes.get(m)!)));
+		if (k < 0) {
+			if (tiles.length >= maxCopies) k = tiles.length - 1;
+			else k = tiles.push([]) - 1;
+		}
+		tiles[k]!.push(r);
+		tileOf.set(r, k);
+	}
+	const copies = Math.max(1, tiles.length);
+	if (copies === 1) return { uvs, copies };
+	const out = new Float32Array(uvs);
+	for (let v = 0; v < vertexCount; v++) {
+		const k = tileOf.get(find(v)) ?? 0;
+		out[v * 2] = (uvs[v * 2]! + k) / copies;
+	}
+	return { uvs: out, copies };
+}
+
+/** `copies` side-by-side repetitions of `img` (for {@link separateOverlappingIslands}). */
+export function tileHorizontally(img: RgbaImage, copies: number): RgbaImage {
+	if (copies <= 1) return img;
+	const { width: w, height: h } = img;
+	const out = new Uint8ClampedArray(w * copies * h * 4);
+	for (let y = 0; y < h; y++) {
+		const row = img.pixels.subarray(y * w * 4, (y + 1) * w * 4);
+		for (let k = 0; k < copies; k++) out.set(row, (y * w * copies + k * w) * 4);
+	}
+	return { pixels: out, width: w * copies, height: h };
 }
 
 /** True if any pixel is meaningfully transparent. */
