@@ -79,6 +79,18 @@ async function inflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
 			chunks.push(value);
 			total += value.length;
 		}
+	} catch (err: unknown) {
+		// Some `DecompressionStream` implementations (Node.js ≥ v21)
+		// reject when bytes follow the DEFLATE stream's final block.
+		// The Rare 1172 format is length-less and relies on DEFLATE's
+		// self-termination, so callers routinely pass a buffer that
+		// extends past the stream.  If we already collected output, the
+		// stream was valid — treat trailing-data errors as a clean EOF.
+		const isTrailingJunk =
+			total > 0 &&
+			err instanceof TypeError &&
+			/trailing/i.test(err.message);
+		if (!isTrailingJunk) throw err;
 	} finally {
 		await pump;
 	}
