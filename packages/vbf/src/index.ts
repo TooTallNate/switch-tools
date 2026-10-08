@@ -642,8 +642,14 @@ function inflateAsync(compressed: Uint8Array): Promise<Uint8Array> {
 				);
 			}
 		};
+		// Guard against environments where the fflate Worker
+		// spawns but never calls back (or takes too long to
+		// start). 64 KiB zlib decompression is <1 ms
+		// synchronously, so 500 ms is extremely generous.
+		const timer = setTimeout(() => fallbackToSync('timeout'), 500);
 		try {
 			unzlib(compressed, (err, data) => {
+				clearTimeout(timer);
 				if (settled) return;
 				if (err) {
 					fallbackToSync(err);
@@ -653,6 +659,7 @@ function inflateAsync(compressed: Uint8Array): Promise<Uint8Array> {
 				resolve(data);
 			});
 		} catch (err) {
+			clearTimeout(timer);
 			fallbackToSync(err);
 		}
 	});
