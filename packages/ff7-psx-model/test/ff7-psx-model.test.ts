@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildBattleMesh, buildFieldMesh, decompressLzs, parseBattleModel, parseBcx } from '../src/index.js';
+import { applyPose, BattleAnimator, buildBattleMesh, buildFieldMesh, decompressLzs, parseBattleModel, parseBcx } from '../src/index.js';
 
 /** Store `raw` as an all-literal FF7 LZSS stream (control byte 0xFF per 8 bytes). */
 function lzsStore(raw: Uint8Array): Uint8Array {
@@ -76,6 +76,34 @@ describe('battle models', () => {
 		expect(model.bones).toEqual([]);
 		expect(model.rootMesh).toBe(0x30);
 		expect(buildBattleMesh(raw, model).indices.length).toBe(3);
+	});
+
+	it('decodes animation deltas and re-poses the mesh', () => {
+		const raw = battleModel();
+		// Two frames, no compression. Frame 0: zero translation + 2 × 3 zero
+		// angles. Frame 1: zero translation deltas (flag 0 + 7 bits each),
+		// root angles unchanged, bone 1 rx += 1 (flag 1, category 1, bit 0), ry/rz unchanged.
+		const bits = '0'.repeat(48 + 72) + '0'.repeat(24) + '000' + '1' + '001' + '0' + '00';
+		const stream = new Uint8Array(Math.ceil(bits.length / 8));
+		for (let i = 0; i < bits.length; i++) if (bits[i] === '1') stream[i >> 3] |= 0x80 >> (i & 7);
+		const dv = new DataView(raw.buffer);
+		dv.setUint16(0x90, 2, true);
+		dv.setUint16(0x92, stream.length, true);
+		raw.set(stream, 0x95);
+		const model = parseBattleModel(raw);
+		const animator = new BattleAnimator(raw, model);
+		expect(animator.clips).toEqual([{ name: 'Animation 0', frames: 2 }]);
+		expect(animator.pose(0, 0).R[1][4]).toBeCloseTo(1);
+		const turn = (Math.PI * 2) / 4096;
+		expect(animator.pose(0, 1).R[1][4]).toBeCloseTo(Math.cos(turn), 10);
+		expect(animator.pose(0, 1).R[1][7]).toBeCloseTo(Math.sin(turn), 10);
+		// Re-posing writes new positions from the bone-local copies.
+		const mesh = buildBattleMesh(raw, model);
+		const before = [...mesh.positions];
+		applyPose(mesh, animator.pose(0, 1));
+		expect([...mesh.positions]).not.toEqual(before);
+		applyPose(mesh, animator.pose(0, 0));
+		expect([...mesh.positions].map((v) => Math.round(v * 1e4) / 1e4)).toEqual(before.map((v) => Math.round(v * 1e4) / 1e4));
 	});
 
 	it('rejects other data', () => {

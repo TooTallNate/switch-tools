@@ -41,6 +41,14 @@ export interface PsxMeshGroup {
 	indexCount: number;
 }
 
+export type Vec3 = [number, number, number];
+
+/** World transforms of every bone (index meaning is format-specific). */
+export interface Pose {
+	R: Mat3[];
+	T: Vec3[];
+}
+
 /** A posed, triangulated model in Y-up space. */
 export interface PsxMesh {
 	positions: Float32Array;
@@ -51,12 +59,20 @@ export interface PsxMesh {
 	groups: PsxMeshGroup[];
 	textures: PsxTexture[];
 	bones: number;
+	/**
+	 * Rigid skinning: each vertex's transform index and its position in
+	 * that bone's local (PSX) space, for re-posing with {@link applyPose}.
+	 */
+	skin: { bone: Uint16Array; local: Float32Array };
 }
 
 interface Corner {
 	p: [number, number, number];
 	c: [number, number, number];
 	uv: [number, number];
+	/** Transform index and bone-local position (for animation). */
+	b?: number;
+	l?: Vec3;
 }
 
 /** Accumulates triangles per material, then lays them out as contiguous groups. */
@@ -84,6 +100,8 @@ export class MeshBuilder {
 		const colors = new Float32Array(count * 3);
 		const uvs = new Float32Array(count * 2);
 		const indices = new Uint32Array(count);
+		const bone = new Uint16Array(count);
+		const local = new Float32Array(count * 3);
 		const groups: PsxMeshGroup[] = [];
 		let n = 0;
 		const keys = [...this.tris.keys()].sort((a, b) => a - b);
@@ -98,10 +116,12 @@ export class MeshBuilder {
 				uvs[n * 2] = corner.uv[0];
 				uvs[n * 2 + 1] = corner.uv[1];
 				indices[n] = n;
+				bone[n] = corner.b ?? 0;
+				if (corner.l) local.set(corner.l, n * 3);
 				n++;
 			}
 		}
-		return { positions, colors, uvs, indices, groups, textures: this.textures, bones };
+		return { positions, colors, uvs, indices, groups, textures: this.textures, bones, skin: { bone, local } };
 	}
 }
 
@@ -110,3 +130,29 @@ export function rgb(bytes: Uint8Array, o: number): [number, number, number] {
 }
 
 export const WHITE: [number, number, number] = [1, 1, 1];
+
+/** Write a pose into `out` (Y-up positions, same layout as `PsxMesh.positions`). */
+export function applyPose(mesh: PsxMesh, pose: Pose, out: Float32Array = mesh.positions): Float32Array {
+	const { bone, local } = mesh.skin;
+	for (let i = 0; i < bone.length; i++) {
+		const R = pose.R[bone[i]] ?? IDENTITY;
+		const T = pose.T[bone[i]] ?? [0, 0, 0];
+		const x = local[i * 3], y = local[i * 3 + 1], z = local[i * 3 + 2];
+		out[i * 3] = R[0] * x + R[1] * y + R[2] * z + T[0];
+		out[i * 3 + 1] = -(R[3] * x + R[4] * y + R[5] * z + T[1]);
+		out[i * 3 + 2] = -(R[6] * x + R[7] * y + R[8] * z + T[2]);
+	}
+	return out;
+}
+
+/** An animation clip: frame count; the animator samples poses. */
+export interface PsxClip {
+	name: string;
+	frames: number;
+}
+
+export interface PsxAnimator {
+	clips: PsxClip[];
+	/** World transforms for `clip` at `frame` (clamped). */
+	pose(clip: number, frame: number): Pose;
+}

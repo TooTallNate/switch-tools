@@ -12,10 +12,14 @@
  * A bone is placed at its own length along its parent's Z axis, plus
  * the animation's translation; rotations compose as Ry · Rx · Rz.
  * Layout per Akari's q-gears_reverse notes (BCX.txt, BSX.txt) and the
- * Q-Gears field model exporter. Face textures (FIELD.TDB) aren't
- * applied; textured polygons fall back to their vertex colours.
+ * Q-Gears field model exporter.
+ *
+ * Faces are textured polygons that sample eye and mouth images the
+ * engine uploads from FIELD.TDB (32×32, 4 bpp, 8 images + 1 palette
+ * per character). Pass the decompressed TDB and the character's face
+ * id to apply them; otherwise those polygons keep their vertex colours.
  */
-import { apply, IDENTITY, MeshBuilder, mul, rgb, rotationYXZ, type Mat3, type PsxMesh } from './mesh.js';
+import { apply, IDENTITY, MeshBuilder, mul, rgb, rotationYXZ, type Mat3, type Pose, type PsxAnimator, type PsxClip, type PsxMesh, type Vec3 } from './mesh.js';
 
 interface FieldBone {
 	length: number;
@@ -24,6 +28,9 @@ interface FieldBone {
 
 interface FieldPart {
 	bone: number;
+	texCoords: number; // absolute offset of u8 u, v pairs
+	settings: number; // absolute offset of u32 texture settings words
+	control: number; // absolute offset of the per-textured-polygon control bytes
 	vertexCount: number;
 	counts: number[]; // 8 polygon groups
 	polygons: number; // absolute offset
@@ -69,7 +76,16 @@ function readParts(dv: DataView, at: number, count: number): FieldPart[] {
 		const data = ptr(dv.getUint32(o + 0x18, true));
 		const counts: number[] = [];
 		for (let k = 0; k < 8; k++) counts.push(dv.getUint8(o + 4 + k));
-		parts.push({ bone: dv.getUint8(o + 1), vertexCount: dv.getUint8(o + 2), counts, polygons: data + dv.getUint16(o + 0x0e, true), data });
+		parts.push({
+			bone: dv.getUint8(o + 1),
+			vertexCount: dv.getUint8(o + 2),
+			counts,
+			polygons: data + dv.getUint16(o + 0x0e, true),
+			texCoords: data + dv.getUint16(o + 0x10, true),
+			settings: data + dv.getUint16(o + 0x12, true),
+			control: data + dv.getUint16(o + 0x14, true),
+			data,
+		});
 	}
 	return parts;
 }
@@ -162,48 +178,156 @@ function frame(dv: DataView, anim: FieldAnimation, f: number, boneCount: number)
 	return { rot, trans };
 }
 
-/** Pose (frame 0 of animation 0) and triangulate a field model; colours only. */
-export function buildFieldMesh(bytes: Uint8Array, model: FieldModel): PsxMesh {
+/** Samples field animations (u8 angles, keyframe tables) into bone transforms. */
+export class FieldAnimator implements PsxAnimator {
+	readonly clips: PsxClip[];
+	private readonly dv: DataView;
+	constructor(
+		bytes: Uint8Array,
+		private readonly model: FieldModel,
+	) {
+		this.dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+		// Global characters (BCX) carry stand / walk / run; field scripts add the rest.
+		const names = model.animations.length === 3 ? ['Stand', 'Walk', 'Run'] : [];
+		this.clips = model.animations.map((a, i) => ({ name: names[i] ?? `Animation ${i}`, frames: a.frames }));
+	}
+
+	pose(clip: number, f: number): Pose {
+		const nb = this.model.bones.length;
+		const anim = clip >= 0 ? this.model.animations[clip] : undefined;
+		const fr = anim ? frame(this.dv, anim, Math.max(0, Math.min(anim.frames - 1, Math.floor(f))), nb) : null;
+		const R: Mat3[] = [];
+		const T: Vec3[] = [];
+		this.model.bones.forEach((b, i) => {
+			const p = b.parent >= 0 && b.parent < i ? b.parent : -1;
+			const Rp = p >= 0 ? R[p] : IDENTITY;
+			const Tp = p >= 0 ? T[p] : [0, 0, 0];
+			const [tx, ty, tz] = fr ? fr.trans[i] : [0, 0, 0];
+			const off = apply(Rp, tx, ty, b.length + tz);
+			T[i] = [Tp[0] + off[0], Tp[1] + off[1], Tp[2] + off[2]];
+			R[i] = mul(Rp, fr ? rotationYXZ(...fr.rot[i]) : IDENTITY);
+		});
+		return { R, T };
+	}
+}
+
+/** Face ids (FIELD.TDB palette / image group) of the global characters, by BCX name. */
+export const FIELD_CHARACTER_FACES: Record<string, number> = {
+	CLOUD: 0,
+	EARITH: 1,
+	BALLET: 2,
+	TIFA: 3,
+	RED: 4,
+	CID: 5,
+	YUFI: 6,
+	KETCY: 7,
+	VINCENT: 8,
+};
+
+export interface FieldFaceOptions {
+	/** Decompressed FIELD.TDB. */
+	tdb: Uint8Array;
+	/** Face id (0 = Cloud, …; see {@link FIELD_CHARACTER_FACES}). */
+	face: number;
+}
+
+const ATLAS = 64;
+
+/**
+ * Build the face atlas the polygons sample: both eye slots (each the
+ * open-eye image, `face * 8`) side by side on top, the mouth
+ * (`face * 8 + 5`) below. Colour 0x0000 is transparent.
+ */
+function faceAtlas(tdb: Uint8Array, face: number): Uint8Array | null {
+	const dv = new DataView(tdb.buffer, tdb.byteOffset, tdb.byteLength);
+	if (tdb.length < 16) return null;
+	const images = dv.getUint16(4, true);
+	const palettes = dv.getUint16(6, true);
+	const imageAt = dv.getUint32(8, true);
+	const paletteAt = dv.getUint32(12, true);
+	if (face >= palettes || face * 8 + 5 >= images) return null;
+	const out = new Uint8Array(ATLAS * ATLAS * 4);
+	const blit = (image: number, ox: number, oy: number) => {
+		for (let y = 0; y < 32; y++) {
+			for (let x = 0; x < 32; x++) {
+				const b = tdb[imageAt + image * 0x200 + y * 16 + (x >> 1)];
+				const idx = x & 1 ? b >> 4 : b & 15;
+				const c = dv.getUint16(paletteAt + face * 0x20 + idx * 2, true);
+				const o = ((oy + y) * ATLAS + ox + x) * 4;
+				out[o] = ((c & 31) * 255) / 31;
+				out[o + 1] = (((c >> 5) & 31) * 255) / 31;
+				out[o + 2] = (((c >> 10) & 31) * 255) / 31;
+				out[o + 3] = c === 0 ? 0 : 255;
+			}
+		}
+	};
+	blit(face * 8, 0, 0);
+	blit(face * 8, 32, 0);
+	blit(face * 8 + 5, 0, 32);
+	return out;
+}
+
+/** Pose (frame 0 of animation 0) and triangulate a field model. */
+export function buildFieldMesh(bytes: Uint8Array, model: FieldModel, faceOptions?: FieldFaceOptions): PsxMesh {
 	const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	const nb = model.bones.length;
-	const pose = model.animations.length ? frame(dv, model.animations[0], 0, nb) : null;
-	const R: Mat3[] = [];
-	const T: [number, number, number][] = [];
-	model.bones.forEach((b, i) => {
-		const p = b.parent >= 0 && b.parent < i ? b.parent : -1;
-		const Rp = p >= 0 ? R[p] : IDENTITY;
-		const Tp = p >= 0 ? T[p] : [0, 0, 0];
-		const [tx, ty, tz] = pose ? pose.trans[i] : [0, 0, 0];
-		const off = apply(Rp, tx, ty, b.length + tz);
-		T[i] = [Tp[0] + off[0], Tp[1] + off[1], Tp[2] + off[2]];
-		R[i] = mul(Rp, pose ? rotationYXZ(...pose.rot[i]) : IDENTITY);
-	});
+	const { R, T } = new FieldAnimator(bytes, model).pose(model.animations.length ? 0 : -1, 0);
 
 	const builder = new MeshBuilder();
+	const atlas = faceOptions ? faceAtlas(faceOptions.tdb, faceOptions.face) : null;
+	if (atlas) builder.textures.push({ width: ATLAS, height: ATLAS, pixels: atlas });
 	for (const part of model.parts) {
 		const rot = R[part.bone] ?? IDENTITY;
 		const tr = T[part.bone] ?? [0, 0, 0];
-		const verts: [number, number, number][] = [];
+		const locals: Vec3[] = [];
 		for (let k = 0; k < part.vertexCount; k++) {
 			const o = part.data + 4 + k * 8;
 			if (o + 6 > bytes.length) break;
-			const w = apply(rot, dv.getInt16(o, true), dv.getInt16(o + 2, true), dv.getInt16(o + 4, true));
-			verts.push([w[0] + tr[0], w[1] + tr[1], w[2] + tr[2]]);
+			locals.push([dv.getInt16(o, true), dv.getInt16(o + 2, true), dv.getInt16(o + 4, true)]);
 		}
-		const vtx = (i: number) => verts[i] ?? [0, 0, 0];
+		const centroid = [0, 0, 0];
+		for (const v of locals) for (let k = 0; k < 3; k++) centroid[k] += v[k] / Math.max(1, locals.length);
+		const world = (l: Vec3): Vec3 => {
+			const w = apply(rot, l[0], l[1], l[2]);
+			return [w[0] + tr[0], w[1] + tr[1], w[2] + tr[2]];
+		};
 		let p = part.polygons;
+		let textured = 0;
 		for (let g = 0; g < 8; g++) {
 			const size = SIZES[g];
 			for (let k = 0; k < part.counts[g]; k++, p += size) {
 				if (p + size > bytes.length) break;
 				const n = QUAD[g] ? 4 : 3;
+				// Groups 0–3 are textured: their last 4 bytes index the texcoords.
+				let texture = -1;
+				let uvs: [number, number][] | null = null;
+				if (g < 4) {
+					const ctl = bytes[part.control + textured++] ?? 0;
+					const settings = part.settings + (ctl & 0x0f) * 4;
+					const mode = settings + 4 <= bytes.length ? dv.getUint32(settings, true) & 0x3f : -1;
+					if (atlas && (mode === 0 || mode === 1)) {
+						texture = 0;
+						uvs = [];
+						for (let v = 0; v < n; v++) {
+							const t = part.texCoords + bytes[p + size - 4 + v] * 2;
+							const u = bytes[t];
+							// Mouth texcoords include the 0xA0 offset of its VRAM row.
+							const vv = mode === 1 ? bytes[t + 1] - 0xa0 + 32 : bytes[t + 1];
+							uvs.push([(u + 0.5) / ATLAS, (vv + 0.5) / ATLAS]);
+						}
+					}
+				}
 				const corners = [];
 				for (let v = 0; v < n; v++) {
 					const c = GOURAUD[g] ? rgb(bytes, p + 4 + v * 4) : rgb(bytes, p + 4);
-					corners.push({ p: vtx(bytes[p + v]), c, uv: [0, 0] as [number, number] });
+					let l: Vec3 = locals[bytes[p + v]] ?? [0, 0, 0];
+					// Face decals sit on top of coplanar skin polygons (the PSX
+					// draws them later); nudge them outward to avoid z-fighting.
+					if (texture >= 0) l = [l[0] + (l[0] - centroid[0]) * 0.02, l[1] + (l[1] - centroid[1]) * 0.02, l[2] + (l[2] - centroid[2]) * 0.02];
+					corners.push({ p: world(l), l, b: part.bone, c, uv: uvs ? uvs[v] : ([0, 0] as [number, number]) });
 				}
-				if (n === 4) builder.quad(-1, corners[0], corners[1], corners[2], corners[3]);
-				else builder.tri(-1, corners[0], corners[1], corners[2]);
+				if (n === 4) builder.quad(texture, corners[0], corners[1], corners[2], corners[3]);
+				else builder.tri(texture, corners[0], corners[1], corners[2]);
 			}
 		}
 	}

@@ -21,7 +21,7 @@
  * the Q-Gears battle model exporter.
  */
 import { decodeTim, timLayout, pixelWidth, type TimLayout } from '@tootallnate/psx-tim';
-import { apply, IDENTITY, MeshBuilder, mul, rgb, rotationYXZ, WHITE, type Mat3, type PsxMesh } from './mesh.js';
+import { apply, IDENTITY, MeshBuilder, mul, rgb, rotationYXZ, WHITE, type Mat3, type Pose, type PsxAnimator, type PsxClip, type PsxMesh, type Vec3 } from './mesh.js';
 
 interface BattleBone {
 	parent: number; // 0 = root, else 1-based bone index
@@ -95,7 +95,7 @@ export function parseBattleModel(bytes: Uint8Array): BattleModel {
 
 /** MSB-first bit reader. */
 class Bits {
-	private pos = 0;
+	pos = 0;
 	constructor(
 		private readonly bytes: Uint8Array,
 		private readonly start: number,
@@ -107,50 +107,117 @@ class Bits {
 			const byte = this.bytes[this.start + (p >> 3)] ?? 0;
 			v = (v << 1) | ((byte >> (7 - (p & 7))) & 1);
 		}
-		return v;
+		return v >>> 0;
 	}
 	signed(n: number): number {
 		const v = this.read(n);
-		return v & (1 << (n - 1)) ? v - (1 << n) : v;
+		return n && v & (1 << (n - 1)) ? v - 2 ** n : v;
 	}
 }
 
-/** Root translation and per-bone (root + bones) rotations of frame 0, in radians. */
-function firstFrame(bytes: Uint8Array, anim: number, boneCount: number): { root: [number, number, number]; rot: [number, number, number][] } {
+/** Per-frame root translation + (root + bones) × 3 angles in 1/4096 turns. */
+interface DecodedClip {
+	frames: number;
+	trans: Int32Array; // frames × 3
+	rot: Int32Array; // frames × (bones + 1) × 3
+}
+
+/** Decode a battle animation's delta-coded bitstream (per Q-Gears' AnimationExtractor). */
+function decodeClip(bytes: Uint8Array, anim: number, boneCount: number): DecodedClip {
+	const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	const frames = dv.getUint16(anim, true);
 	const c = bytes[anim + 4];
 	const bits = new Bits(bytes, anim + 5);
-	const root: [number, number, number] = [bits.signed(16), bits.signed(16), bits.signed(16)];
-	const rot: [number, number, number][] = [];
-	const toRad = (v: number) => ((v & 0xfff) / 4096) * Math.PI * 2;
-	for (let i = 0; i <= boneCount; i++) {
-		const rx = bits.read(12 - c) << c;
-		const ry = bits.read(12 - c) << c;
-		const rz = bits.read(12 - c) << c;
-		rot.push([toRad(rx), toRad(ry), toRad(rz)]);
+	const limit = dv.getUint16(anim + 2, true) * 8;
+	const n = boneCount + 1;
+	const trans = new Int32Array(frames * 3);
+	const rot = new Int32Array(frames * n * 3);
+	const t = [0, 0, 0];
+	const r = new Int32Array(n * 3);
+	const rotDelta = (): number => {
+		if (!bits.read(1)) return 0;
+		const k = bits.read(3);
+		if (k === 0) return -(1 << c);
+		if (k === 7) return bits.signed(12 - c) * (1 << c);
+		let v = bits.signed(k);
+		v += v >= 0 ? 1 << (k - 1) : -(1 << (k - 1));
+		return ((v << c) << 16) >> 16;
+	};
+	const transDelta = (): number => (bits.read(1) ? bits.signed(16) : bits.signed(7));
+	for (let f = 0; f < frames; f++) {
+		if (bits.pos > limit) {
+			// Truncated stream: hold the last pose.
+			trans.copyWithin(f * 3, (f - 1) * 3, f * 3);
+			rot.copyWithin(f * n * 3, (f - 1) * n * 3, f * n * 3);
+			continue;
+		}
+		if (f === 0) {
+			for (let k = 0; k < 3; k++) t[k] = bits.signed(16);
+			for (let k = 0; k < n * 3; k++) r[k] = bits.signed(12 - c) * (1 << c);
+		} else {
+			for (let k = 0; k < 3; k++) t[k] += transDelta();
+			for (let k = 0; k < n * 3; k++) r[k] += rotDelta();
+		}
+		trans.set(t, f * 3);
+		rot.set(r, f * n * 3);
 	}
-	return { root, rot };
+	return { frames, trans, rot };
+}
+
+const TURN = (Math.PI * 2) / 4096;
+
+/** Samples battle animations into bone transforms (index 0 = root, i = bone i). */
+export class BattleAnimator implements PsxAnimator {
+	readonly clips: PsxClip[];
+	private cache = new Map<number, DecodedClip>();
+	constructor(
+		private readonly bytes: Uint8Array,
+		private readonly model: BattleModel,
+	) {
+		const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+		this.clips = model.animations.map((o, i) => ({ name: `Animation ${i}`, frames: dv.getUint16(o, true) }));
+	}
+
+	private clip(i: number): DecodedClip {
+		let c = this.cache.get(i);
+		if (!c) this.cache.set(i, (c = decodeClip(this.bytes, this.model.animations[i], this.model.bones.length)));
+		return c;
+	}
+
+	pose(clip: number, frame: number): Pose {
+		const { bones } = this.model;
+		const n = bones.length + 1;
+		const R: Mat3[] = [];
+		const T: Vec3[] = [];
+		let rot: (k: number) => Mat3 = () => IDENTITY;
+		let root: Vec3 = [0, 0, 0];
+		if (clip >= 0 && clip < this.clips.length) {
+			const c = this.clip(clip);
+			const f = Math.max(0, Math.min(c.frames - 1, Math.floor(frame)));
+			const base = f * n * 3;
+			rot = (k) => rotationYXZ(c.rot[base + k * 3] * TURN, c.rot[base + k * 3 + 1] * TURN, c.rot[base + k * 3 + 2] * TURN);
+			// Root motion relative to frame 0, so the model stays where it was framed.
+			root = [c.trans[f * 3] - c.trans[0], c.trans[f * 3 + 1] - c.trans[1], c.trans[f * 3 + 2] - c.trans[2]];
+		}
+		const lengths = [0, ...bones.map((b) => b.length)];
+		R[0] = rot(0);
+		T[0] = root;
+		bones.forEach((b, i) => {
+			const idx = i + 1;
+			const p = b.parent < idx ? b.parent : 0;
+			const off = apply(R[p], 0, 0, lengths[p]);
+			T[idx] = [T[p][0] + off[0], T[p][1] + off[1], T[p][2] + off[2]];
+			R[idx] = mul(R[p], rot(idx));
+		});
+		return { R, T };
+	}
 }
 
 /** Pose (frame 0 of the first animation) and triangulate a battle model. */
 export function buildBattleMesh(bytes: Uint8Array, model = parseBattleModel(bytes)): PsxMesh {
 	const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	const { bones } = model;
-	const pose = model.animations.length ? firstFrame(bytes, model.animations[0], bones.length) : null;
-
-	// World transforms: index 0 = root, 1..n = bones.
-	const R: Mat3[] = [];
-	const T: [number, number, number][] = [];
-	const lengths = [0, ...bones.map((b) => b.length)];
-	R[0] = pose ? rotationYXZ(...pose.rot[0]) : IDENTITY;
-	T[0] = [0, 0, 0];
-	bones.forEach((b, i) => {
-		const idx = i + 1;
-		const p = b.parent < idx ? b.parent : 0;
-		const local = pose ? rotationYXZ(...pose.rot[idx]) : IDENTITY;
-		const off = apply(R[p], 0, 0, lengths[p]);
-		T[idx] = [T[p][0] + off[0], T[p][1] + off[1], T[p][2] + off[2]];
-		R[idx] = mul(R[p], local);
-	});
+	const { R, T } = new BattleAnimator(bytes, model).pose(model.animations.length ? 0 : -1, 0);
 
 	// Texture: one decoded image per CLUT row the polygons use.
 	const builder = new MeshBuilder();
@@ -197,12 +264,16 @@ export function buildBattleMesh(bytes: Uint8Array, model = parseBattleModel(byte
 		const vcount = vbytes >> 3;
 		if (m + 4 + vbytes > bytes.length) continue;
 		const verts: [number, number, number][] = [];
+		const locals: Vec3[] = [];
 		for (let k = 0; k < vcount; k++) {
 			const o = m + 4 + k * 8;
-			const w = apply(rot, dv.getInt16(o, true), dv.getInt16(o + 2, true), dv.getInt16(o + 4, true));
+			const l: Vec3 = [dv.getInt16(o, true), dv.getInt16(o + 2, true), dv.getInt16(o + 4, true)];
+			const w = apply(rot, ...l);
+			locals.push(l);
 			verts.push([w[0] + tr[0], w[1] + tr[1], w[2] + tr[2]]);
 		}
 		const vtx = (byteOff: number) => verts[byteOff >> 3] ?? [0, 0, 0];
+		const loc = (byteOff: number) => locals[byteOff >> 3] ?? [0, 0, 0];
 		let p = m + 4 + vbytes;
 		for (let group = 0; group < 4; group++) {
 			if (p + 4 > bytes.length) break;
@@ -212,35 +283,31 @@ export function buildBattleMesh(bytes: Uint8Array, model = parseBattleModel(byte
 			const size = [TEX_TRI, TEX_QUAD, COL_TRI, COL_QUAD][group];
 			if (p + count * size > bytes.length) break;
 			for (let k = 0; k < count; k++, p += size) {
-				const a = vtx(dv.getUint16(p, true));
-				const bb = vtx(dv.getUint16(p + 2, true));
-				const c = vtx(dv.getUint16(p + 4, true));
+				const corner = (at: number, c: Vec3, uv: [number, number]) => {
+					const off = dv.getUint16(at, true);
+					return { p: vtx(off), l: loc(off), b: bone, c, uv };
+				};
 				if (group === 0) {
 					const tex = textureFor(dv.getUint16(p + 10, true));
 					builder.tri(tex,
-						{ p: a, c: WHITE, uv: uvFor(tpage, bytes[p + 8], bytes[p + 9]) },
-						{ p: bb, c: WHITE, uv: uvFor(tpage, bytes[p + 12], bytes[p + 13]) },
-						{ p: c, c: WHITE, uv: uvFor(tpage, bytes[p + 14], bytes[p + 15]) });
+						corner(p, WHITE, uvFor(tpage, bytes[p + 8], bytes[p + 9])),
+						corner(p + 2, WHITE, uvFor(tpage, bytes[p + 12], bytes[p + 13])),
+						corner(p + 4, WHITE, uvFor(tpage, bytes[p + 14], bytes[p + 15])));
 				} else if (group === 1) {
-					const d = vtx(dv.getUint16(p + 6, true));
 					const tex = textureFor(dv.getUint16(p + 10, true));
 					builder.quad(tex,
-						{ p: a, c: WHITE, uv: uvFor(tpage, bytes[p + 8], bytes[p + 9]) },
-						{ p: bb, c: WHITE, uv: uvFor(tpage, bytes[p + 12], bytes[p + 13]) },
-						{ p: c, c: WHITE, uv: uvFor(tpage, bytes[p + 14], bytes[p + 15]) },
-						{ p: d, c: WHITE, uv: uvFor(tpage, bytes[p + 16], bytes[p + 17]) });
+						corner(p, WHITE, uvFor(tpage, bytes[p + 8], bytes[p + 9])),
+						corner(p + 2, WHITE, uvFor(tpage, bytes[p + 12], bytes[p + 13])),
+						corner(p + 4, WHITE, uvFor(tpage, bytes[p + 14], bytes[p + 15])),
+						corner(p + 6, WHITE, uvFor(tpage, bytes[p + 16], bytes[p + 17])));
 				} else if (group === 2) {
-					builder.tri(-1,
-						{ p: a, c: rgb(bytes, p + 8), uv: [0, 0] },
-						{ p: bb, c: rgb(bytes, p + 12), uv: [0, 0] },
-						{ p: c, c: rgb(bytes, p + 16), uv: [0, 0] });
+					builder.tri(-1, corner(p, rgb(bytes, p + 8), [0, 0]), corner(p + 2, rgb(bytes, p + 12), [0, 0]), corner(p + 4, rgb(bytes, p + 16), [0, 0]));
 				} else {
-					const d = vtx(dv.getUint16(p + 6, true));
 					builder.quad(-1,
-						{ p: a, c: rgb(bytes, p + 8), uv: [0, 0] },
-						{ p: bb, c: rgb(bytes, p + 12), uv: [0, 0] },
-						{ p: c, c: rgb(bytes, p + 16), uv: [0, 0] },
-						{ p: d, c: rgb(bytes, p + 20), uv: [0, 0] });
+						corner(p, rgb(bytes, p + 8), [0, 0]),
+						corner(p + 2, rgb(bytes, p + 12), [0, 0]),
+						corner(p + 4, rgb(bytes, p + 16), [0, 0]),
+						corner(p + 6, rgb(bytes, p + 20), [0, 0]));
 				}
 			}
 		}
