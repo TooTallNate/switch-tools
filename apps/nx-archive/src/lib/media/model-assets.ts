@@ -494,6 +494,7 @@ export function modelAssetToExportMeshes(a: ModelAsset): ExportMesh[] {
 		if (t) {
 			materials.push({
 				texture: { pixels: t.pixels, width: t.width, height: t.height, wrapS: t.wrapS ?? 'repeat', wrapT: t.wrapT ?? 'repeat', flipY: t.flipY ?? true },
+				...(t.decal && { decal: true }),
 			});
 			continue;
 		}
@@ -515,6 +516,9 @@ export function modelAssetToExportMeshes(a: ModelAsset): ExportMesh[] {
 			colorSpace: 'linear',
 			materials,
 			triangleMaterials,
+			skeleton: lod.skeleton
+				? { ...lod.skeleton, joints: upAxisPositions(lod.skeleton.joints, a.mesh!.upAxis) }
+				: null,
 		},
 	];
 }

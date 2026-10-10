@@ -65,6 +65,26 @@ export interface ExportMaterial {
 	useVertexColors?: boolean;
 	/** Flat colour (sRGB bytes) when neither applies. */
 	baseColor?: readonly [number, number, number];
+	/**
+	 * A decal: drawn on top of a coplanar surface (e.g. painted-on
+	 * eyes). Not printed as geometry; its opaque texels are painted
+	 * onto the surface beneath instead.
+	 */
+	decal?: boolean;
+}
+
+/** Rigid skeleton hints for structural supports (see `mesh-supports.ts`). */
+export interface ExportSkeleton {
+	/** Per vertex: bone index. */
+	vertexBone: Uint16Array;
+	/** Per bone: parent bone (-1 for roots). */
+	parent: Int16Array;
+	/**
+	 * Per bone: origin position, same space as `positions`. Formats place
+	 * origins differently (a bone's start or its end), so the support
+	 * pass picks whichever nearby origin actually sits at the junction.
+	 */
+	joints: Float32Array;
 }
 
 /**
@@ -91,6 +111,8 @@ export interface ExportMesh extends IndexedMesh {
 	materials?: ExportMaterial[];
 	/** Per-triangle index into `materials`. Default: all 0. */
 	triangleMaterials?: ArrayLike<number> | null;
+	/** Optional skeleton, for placing structural supports along bones. */
+	skeleton?: ExportSkeleton | null;
 }
 
 /**

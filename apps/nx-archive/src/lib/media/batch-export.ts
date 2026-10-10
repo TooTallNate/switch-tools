@@ -79,6 +79,8 @@ export async function exportModelsZip(
 				sourceAxis: 'y-up',
 				stem: sanitizeStem(item.title) || 'model',
 				pose: asset.pose ? `_${sanitizeStem(asset.pose)}` : '',
+				source: item.path,
+				subject: `${item.title} · ${asset.pose ? `${asset.pose}, frame 0` : 'rest pose'}`,
 			});
 			let name = r.fileName;
 			for (let n = 2; used.has(name); n++) name = r.fileName.replace(/(\.[^.]+)$/, `_${n}$1`);

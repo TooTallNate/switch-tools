@@ -110,6 +110,12 @@ export interface RenderableMeshLOD {
   sections: RenderableMeshSection[]
   /** Optional short label shown in the LOD picker. */
   label?: string
+  /**
+   * Rigid skeleton hints carried into 3D-print exports (struts follow
+   * bones). Drivers that re-pose the geometry should update
+   * `geometry.userData.skeleton.joints`.
+   */
+  skeleton?: import("~/lib/mesh-export").ExportSkeleton
 }
 
 /**
@@ -297,6 +303,9 @@ function buildGeometry(lod: RenderableMeshLOD): THREE.BufferGeometry {
   }
   geom.computeBoundingBox()
   geom.computeBoundingSphere()
+  if (lod.skeleton) {
+    geom.userData.skeleton = { ...lod.skeleton, joints: lod.skeleton.joints.slice() }
+  }
   return geom
 }
 
@@ -539,8 +548,11 @@ export function MeshViewer({
             // model behind them shows through.
             transparent: true,
             alphaTest: 0.5,
+            // Decals sit on coplanar surfaces: win the depth test.
+            ...(decoded.decal && { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
           }),
         )
+        if (decoded.decal) materials[materials.length - 1]!.userData.decal = true
       } else if (!forceNormalShading && materialBaseColors?.[i]) {
         const c = materialBaseColors[i]!
         materials.push(flatMaterial(new THREE.Color().setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace), showWireframe))

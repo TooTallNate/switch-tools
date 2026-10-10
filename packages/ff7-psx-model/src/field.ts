@@ -331,5 +331,5 @@ export function buildFieldMesh(bytes: Uint8Array, model: FieldModel, faceOptions
 			}
 		}
 	}
-	return builder.build(nb);
+	return builder.build(nb, model.bones.map((b, i) => (b.parent >= 0 && b.parent < i ? b.parent : -1)));
 }

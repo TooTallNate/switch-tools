@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import type {
 	ExportMaterial,
 	ExportMesh,
+	ExportSkeleton,
 	ExportTexture,
 	ExportTextureWrap,
 } from './mesh-export';
@@ -55,7 +56,7 @@ function exportMaterialOf(m: THREE.Material | undefined): ExportMaterial {
 		const hex = any.color.getHex(); // sRGB-encoded
 		baseColor = [(hex >> 16) & 0xff, (hex >> 8) & 0xff, hex & 0xff];
 	}
-	return { texture, useVertexColors: Boolean(m.vertexColors), baseColor };
+	return { texture, useVertexColors: Boolean(m.vertexColors), baseColor, ...(m.userData?.decal && { decal: true }) };
 }
 
 /**
@@ -120,6 +121,21 @@ export function exportMeshFromThree(
 		}
 	}
 
+	// Skeleton hints (joints move with the pose, like the positions).
+	let skeleton: ExportSkeleton | null = null;
+	const sk = geom.userData?.skeleton as ExportSkeleton | undefined;
+	if (sk && sk.vertexBone.length === vertexCount) {
+		const joints = new Float32Array(sk.joints.length);
+		const tmp = new THREE.Vector3();
+		for (let j = 0; j < joints.length / 3; j++) {
+			tmp.set(sk.joints[j * 3]!, sk.joints[j * 3 + 1]!, sk.joints[j * 3 + 2]!).applyMatrix4(obj.matrixWorld);
+			joints[j * 3] = tmp.x;
+			joints[j * 3 + 1] = tmp.y;
+			joints[j * 3 + 2] = tmp.z;
+		}
+		skeleton = { vertexBone: sk.vertexBone, parent: sk.parent, joints };
+	}
+
 	return {
 		positions,
 		indices,
@@ -129,6 +145,7 @@ export function exportMeshFromThree(
 		colorSpace: 'linear',
 		materials,
 		triangleMaterials,
+		skeleton,
 	};
 }
 

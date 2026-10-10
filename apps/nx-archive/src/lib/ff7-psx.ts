@@ -14,6 +14,7 @@ import {
 	FieldAnimator,
 	parseBattleModel,
 	parseBcx,
+	poseJoints,
 	type PsxAnimator,
 	type PsxMesh,
 } from '@tootallnate/ff7-psx-model';
@@ -118,6 +119,8 @@ export async function loadFf7PsxModelView(node: Node, root: Node | null = null):
 		flipY: false,
 		wrapS: 'clamp',
 		wrapT: 'clamp',
+		// Field models' only texture is the face atlas: eyes / mouth drawn over the skin.
+		...(kind === 'field' && { decal: true }),
 	}));
 	textures.push(null); // material for vertex-coloured polygons
 	const colors = m.colors.map(toLinear);
@@ -133,6 +136,11 @@ export async function loadFf7PsxModelView(node: Node, root: Node | null = null):
 			numTriangles: g.indexCount / 3,
 		})),
 		label: `${(m.positions.length / 3).toLocaleString()} verts, ${(m.indices.length / 3).toLocaleString()} tris`,
+		skeleton: {
+			vertexBone: m.skin.bone,
+			parent: m.parents,
+			joints: poseJoints(animator.pose(animator.clips.length ? 0 : -1, 0)),
+		},
 	};
 	return {
 		mesh: { lods: [lod], upAxis: 'y-up' },

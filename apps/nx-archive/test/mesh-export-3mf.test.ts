@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 
 import { emitBinarySTL, signedVolume, type ExportMesh } from '~/lib/mesh-export'
-import { buildPainted3MF, encodePaintLeaf, encodePaintTree } from '~/lib/mesh-export-3mf'
+import { buildPainted3MF, encodePaintLeaf, encodePaintTree, splitDecals } from '~/lib/mesh-export-3mf'
 import { exportMeshFromThree } from '~/lib/three-export'
 
 const modelXml = (bytes: Uint8Array) => strFromU8(unzipSync(bytes)['3D/3dmodel.model']!)
@@ -42,7 +42,7 @@ describe('buildPainted3MF', () => {
     )
     expect(res.palette.length).toBe(2)
     const files = unzipSync(res.bytes)
-    expect(Object.keys(files).sort()).toEqual(['3D/3dmodel.model', '[Content_Types].xml', '_rels/.rels'])
+    expect(Object.keys(files).sort()).toEqual(['3D/3dmodel.model', 'Metadata/model_settings.config', '[Content_Types].xml', '_rels/.rels'])
     const xml = modelXml(res.bytes)
     expect(xml.match(/<vertex /g)?.length).toBe(4)
     expect(paints(xml).join('')).toMatch(/8/)
@@ -196,5 +196,63 @@ describe('exportMeshFromThree', () => {
     expect(out.materials![1]!.useVertexColors).toBe(true)
     expect(out.uvs?.length).toBe(8)
     expect(out.colors?.length).toBe(12)
+  })
+})
+
+describe('decals', () => {
+  // A red (vertex-coloured) quad with a decal quad 0.1 above it whose
+  // texture is a blue dot (left texel) on transparency (right texel).
+  const withDecal = (): ExportMesh => ({
+    positions: new Float32Array([
+      0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0,
+      0, 0, 0.1, 10, 0, 0.1, 10, 10, 0.1, 0, 10, 0.1,
+    ]),
+    indices: new Uint32Array([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]),
+    uvs: new Float32Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 1]),
+    colors: new Float32Array([1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]),
+    colorStride: 3,
+    colorSpace: 'srgb',
+    materials: [{ texture: null, useVertexColors: true }, { texture: tex([0, 0, 255, 255, 0, 0, 0, 0], 2, 1), decal: true }],
+    triangleMaterials: [0, 0, 1, 1],
+  })
+
+  it('pulls decal triangles out of the geometry', () => {
+    const { meshes, decals } = splitDecals([withDecal()])
+    expect(decals).toHaveLength(2)
+    expect(meshes[0]!.indices.length).toBe(6)
+    expect([...meshes[0]!.triangleMaterials!]).toEqual([0, 0])
+  })
+
+  it('paints opaque decal texels onto the surface beneath', () => {
+    const { meshes, decals } = splitDecals([withDecal()])
+    const res = buildPainted3MF(meshes, { colorCount: 4, sourceAxis: 'z-up', repair: false, decals })
+    // Red skin plus the blue decal; no black from transparent texels.
+    expect(res.palette.map((c) => c.join(','))).toEqual(expect.arrayContaining(['255,0,0', '0,0,255']))
+    expect(res.palette.some((c) => c[0] + c[1] + c[2] < 30)).toBe(false)
+    const xml = modelXml(res.bytes)
+    expect(xml.match(/<triangle /g)?.length).toBe(2)
+    expect(paints(xml).some(Boolean)).toBe(true)
+  })
+})
+
+describe('3MF metadata', () => {
+  it('names the object and plate, and embeds custom metadata', () => {
+    const res = buildPainted3MF([{ ...quad(), materials: [{ texture: null, baseColor: [10, 20, 30] }] }], {
+      colorCount: 1,
+      sourceAxis: 'z-up',
+      repair: false,
+      title: 'CLOUD_Walk_f0012',
+      metadata: { SourceFile: 'Final Fantasy VII (USA).pbp', Pose: 'CLOUD · Walk, frame 12', CreationDate: '2026-10-10' },
+    })
+    const files = unzipSync(res.bytes)
+    const xml = strFromU8(files['3D/3dmodel.model']!)
+    expect(xml).toContain('xmlns:nx="')
+    expect(xml).toContain('<metadata name="nx:SourceFile">Final Fantasy VII (USA).pbp</metadata>')
+    expect(xml).toContain('<metadata name="nx:Pose">CLOUD · Walk, frame 12</metadata>')
+    expect(xml).toContain('<metadata name="CreationDate">2026-10-10</metadata>')
+    expect(xml).toContain('<object id="1" type="model" name="CLOUD_Walk_f0012">')
+    const settings = strFromU8(files['Metadata/model_settings.config']!)
+    expect(settings).toContain('<metadata key="name" value="CLOUD_Walk_f0012"/>')
+    expect(settings).toContain('<metadata key="plater_name" value="CLOUD_Walk_f0012"/>')
   })
 })

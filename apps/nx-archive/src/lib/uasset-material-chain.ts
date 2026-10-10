@@ -71,6 +71,8 @@ export interface DecodedTexture {
 	/** Sampler wrap modes. Default `'repeat'`. */
 	wrapS?: 'repeat' | 'clamp' | 'mirror';
 	wrapT?: 'repeat' | 'clamp' | 'mirror';
+	/** Overlay on a coplanar surface (e.g. painted-on eyes); see `ExportMaterial.decal`. */
+	decal?: boolean;
 }
 
 /**

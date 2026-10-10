@@ -368,6 +368,12 @@ export interface FullSpectrumOptions {
 	bedCenter?: readonly [number, number];
 	/** See {@link Paint3mfOptions.repair}. Default true. */
 	repair?: Paint3mfOptions['repair'];
+	/** See {@link Paint3mfOptions.decals}. */
+	decals?: Paint3mfOptions['decals'];
+	/** See {@link Paint3mfOptions.objectName}. */
+	objectName?: string;
+	/** See {@link Paint3mfOptions.metadata}. */
+	metadata?: Paint3mfOptions['metadata'];
 }
 
 export interface FullSpectrumResult {
@@ -390,6 +396,9 @@ export function buildFullSpectrum3MF(meshes: ExportMesh[], options: FullSpectrum
 		sourceAxis: options.sourceAxis,
 		title: options.title,
 		repair: options.repair,
+		decals: options.decals,
+		objectName: options.objectName,
+		metadata: options.metadata,
 		choosePalette: (bins) => {
 			mixes = chooseMixes(bins, baseRgb, options.maxMixes, options.mixPercents);
 			return [...baseRgb, ...mixes.map((m) => m.rgb)];

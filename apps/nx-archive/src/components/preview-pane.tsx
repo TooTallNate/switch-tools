@@ -322,7 +322,7 @@ import { MeshViewer, type MeshViewerAnimationDriver } from "./mesh-viewer"
 import type * as THREE from "three"
 import { loadHaloModelView, type HaloModelRef } from "~/lib/halo"
 import { loadFf7PsxModelView } from "~/lib/ff7-psx"
-import { applyPose } from "@tootallnate/ff7-psx-model"
+import { applyPose, poseJoints } from "@tootallnate/ff7-psx-model"
 import { strFrameSource } from "~/lib/psx-str-source"
 import { decodeTim } from "@tootallnate/psx-tim"
 import { encodePng } from "~/lib/png"
@@ -15206,8 +15206,11 @@ function Ff7PsxModelPreview({ node, root }: { node: Node; root: Node | null }) {
         sample: (index, frame, { geometry }) => {
           const attr = geometry?.getAttribute("position") as THREE.BufferAttribute | undefined
           if (!attr || attr.count * 3 !== mesh_.skin.local.length) return
-          applyPose(mesh_, animator.pose(index < 0 ? 0 : index, index < 0 ? 0 : frame), attr.array as Float32Array)
+          const pose = animator.pose(index < 0 ? 0 : index, index < 0 ? 0 : frame)
+          applyPose(mesh_, pose, attr.array as Float32Array)
           attr.needsUpdate = true
+          // Keep the export's joint hints on the current pose.
+          if (geometry!.userData.skeleton) geometry!.userData.skeleton.joints = poseJoints(pose)
           geometry!.computeVertexNormals()
           geometry!.computeBoundingSphere()
         },

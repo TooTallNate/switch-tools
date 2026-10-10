@@ -16,6 +16,12 @@
  *     point), so a short strut is added across the joint;
  *   - **floating**: there's a gap, so a strut bridges it.
  *
+ * With a skeleton (`ExportMesh.skeleton`), a part is attached to the
+ * piece of its parent bone, and the strut runs along the parent bone
+ * through the joint, extending the parent piece into the child (a tail
+ * into the flame at its tip) and sized to stay inside both. Without
+ * one, it bridges the nearest points.
+ *
  * Struts are closed cylinders that extend into both parts, so slicers
  * (which union overlapping solids per layer) fuse everything into one
  * piece. Each strut takes the colour of the surface it leaves from.
@@ -267,12 +273,6 @@ function surfaceSamples(part: Part, step: number): number[][] {
 	return out;
 }
 
-interface Strut {
-	from: [number, number, number];
-	to: [number, number, number];
-	color: readonly [number, number, number];
-}
-
 /** sRGB colour of a source vertex: texture texel, vertex colour or material colour. */
 function vertexColor(m: ExportMesh, v: number): readonly [number, number, number] {
 	let tri = -1;
@@ -305,6 +305,159 @@ function vertexColor(m: ExportMesh, v: number): readonly [number, number, number
 	return material?.baseColor ?? [200, 200, 200];
 }
 
+interface Strut {
+	from: [number, number, number];
+	to: [number, number, number];
+	color: readonly [number, number, number];
+	radius: number;
+}
+
+/** Bones of a part: (mesh, bone) → vertex count, plus the dominant one. */
+function partBones(part: Part, meshes: readonly ExportMesh[]): { counts: Map<string, number>; dominant: [number, number] | null } {
+	const counts = new Map<string, number>();
+	let best: [number, number] | null = null;
+	let bestN = 0;
+	for (let i = 0; i < part.mesh.length; i++) {
+		const sk = meshes[part.mesh[i]]?.skeleton;
+		if (!sk) continue;
+		const b = sk.vertexBone[part.vertex[i]];
+		const k = `${part.mesh[i]}:${b}`;
+		const n = (counts.get(k) ?? 0) + 1;
+		counts.set(k, n);
+		if (n > bestN) {
+			bestN = n;
+			best = [part.mesh[i], b];
+		}
+	}
+	return { counts, dominant: best };
+}
+
+/** Median distance of a part's vertices from the line through `p` along unit `d`. */
+function radiusAround(part: Part, p: readonly number[], d: readonly number[]): number {
+	const P = part.points;
+	const ds: number[] = [];
+	for (let i = 0; i < P.length; i += 3) {
+		const v = [P[i] - p[0], P[i + 1] - p[1], P[i + 2] - p[2]];
+		const along = v[0] * d[0] + v[1] * d[1] + v[2] * d[2];
+		ds.push(Math.sqrt(Math.max(0, v[0] * v[0] + v[1] * v[1] + v[2] * v[2] - along * along)));
+	}
+	ds.sort((a, b) => a - b);
+	return ds[Math.floor(ds.length / 2)] ?? 0;
+}
+
+/** Distance from `p` to the nearest vertex of a part. */
+function nearestDist(part: Part, p: readonly number[]): number {
+	let best = Infinity;
+	const P = part.points;
+	for (let i = 0; i < P.length; i += 3) best = Math.min(best, (P[i] - p[0]) ** 2 + (P[i + 1] - p[1]) ** 2 + (P[i + 2] - p[2]) ** 2);
+	return Math.sqrt(best);
+}
+
+/** Ray-parity inside test against a set of triangles (+X ray). */
+function insideTris(p: readonly number[], tris: number[][][]): boolean {
+	let hits = 0;
+	for (const [a, b, c] of tris) {
+		// Project onto the YZ plane; ray along +X.
+		const y = p[1], z = p[2];
+		const d = (b[1] - a[1]) * (c[2] - a[2]) - (c[1] - a[1]) * (b[2] - a[2]);
+		if (Math.abs(d) < 1e-12) continue;
+		const u = ((y - a[1]) * (c[2] - a[2]) - (c[1] - a[1]) * (z - a[2])) / d;
+		const v = ((b[1] - a[1]) * (z - a[2]) - (y - a[1]) * (b[2] - a[2])) / d;
+		if (u < 0 || v < 0 || u + v > 1) continue;
+		const x = a[0] + u * (b[0] - a[0]) + v * (c[0] - a[0]);
+		if (x > p[0]) hits++;
+	}
+	return (hits & 1) === 1;
+}
+
+function partTris(part: Part): number[][][] {
+	const P = part.points;
+	const out: number[][][] = [];
+	for (let t = 0; t < part.tris.length; t += 3) {
+		out.push([0, 1, 2].map((k) => {
+			const i = part.tris[t + k] * 3;
+			return [P[i], P[i + 1], P[i + 2]];
+		}));
+	}
+	return out;
+}
+
+const MAX_INSIDE_TRIS = 50_000;
+
+/** Principal axis of a part's vertices and how elongated it is (λ1 / λ2). */
+function principalAxis(part: Part): { axis: number[]; elongation: number } {
+	const P = part.points;
+	const c = part.centroid;
+	const C = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+	for (let i = 0; i < P.length; i += 3) {
+		const v = [P[i] - c[0], P[i + 1] - c[1], P[i + 2] - c[2]];
+		for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) C[a * 3 + b] += v[a] * v[b];
+	}
+	const power = (M: number[], start: number[]): { v: number[]; l: number } => {
+		let v = start;
+		let l = 0;
+		for (let k = 0; k < 32; k++) {
+			const w = [0, 1, 2].map((a) => M[a * 3] * v[0] + M[a * 3 + 1] * v[1] + M[a * 3 + 2] * v[2]);
+			l = Math.hypot(w[0], w[1], w[2]);
+			if (l < 1e-12) return { v, l: 0 };
+			v = w.map((x) => x / l);
+		}
+		return { v, l };
+	};
+	const e1 = power(C, [0.57, 0.58, 0.59]);
+	// Deflate for the second eigenvalue, starting orthogonal to the first
+	// axis (an isotropic blob would otherwise collapse to zero).
+	const D = C.map((x, i) => x - e1.l * e1.v[Math.floor(i / 3)] * e1.v[i % 3]);
+	const v = e1.v;
+	const helper = Math.abs(v[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+	const ortho = [v[1] * helper[2] - v[2] * helper[1], v[2] * helper[0] - v[0] * helper[2], v[0] * helper[1] - v[1] * helper[0]];
+	const ol = Math.hypot(ortho[0], ortho[1], ortho[2]) || 1;
+	const e2 = power(D, ortho.map((x) => x / ol));
+	return { axis: e1.v, elongation: e2.l > 1e-12 ? e1.l / e2.l : Infinity };
+}
+
+/**
+ * Strut axis at junction J between a loose part and its target: along
+ * the part if it's limb-like, else extending the target piece (a tail
+ * into the flame at its tip), else straight from J into the part.
+ */
+function strutAxis(part: Part, target: Part, J: readonly number[]): { axis: number[]; through: number[] | null } | null {
+	const c = part.centroid;
+	const toPart = [c[0] - J[0], c[1] - J[1], c[2] - J[2]];
+	const orient = (v: number[], ref: number[]) => {
+		const sign = v[0] * ref[0] + v[1] * ref[1] + v[2] * ref[2] < 0 ? -1 : 1;
+		return v.map((x) => x * sign);
+	};
+	const mine = principalAxis(part);
+	const theirs = principalAxis(target);
+	let axis: number[];
+	// The strut runs along this piece's centre line (null: through J).
+	let through: number[] | null = null;
+	if (mine.elongation > 2) {
+		axis = orient(mine.axis, toPart);
+		through = part.centroid;
+	} else if (theirs.elongation > 2) {
+		const t = target.centroid;
+		axis = orient(theirs.axis, [J[0] - t[0], J[1] - t[1], J[2] - t[2]]);
+		through = t;
+	} else {
+		// Two blobs: the line between their centres passes through both.
+		const t = target.centroid;
+		axis = [c[0] - t[0], c[1] - t[1], c[2] - t[2]];
+		if (Math.hypot(axis[0], axis[1], axis[2]) < 1e-9) axis = toPart;
+		else through = t;
+	}
+	const len = Math.hypot(axis[0], axis[1], axis[2]);
+	return len < 1e-9 ? null : { axis: axis.map((v) => v / len), through };
+}
+
+/** Depth of a bone in its skeleton (roots are 0). */
+function boneDepth(parent: Int16Array, b: number): number {
+	let d = 0;
+	for (let a = parent[b]; a >= 0 && d < 256; a = parent[a]) d++;
+	return d;
+}
+
 /** Plan struts without building geometry (for the export dialog's summary). */
 export function planSupports(meshes: readonly ExportMesh[], opts: SupportOptions): { report: SupportReport; struts: Strut[] } {
 	const parts = findParts(meshes);
@@ -316,8 +469,29 @@ export function planSupports(meshes: readonly ExportMesh[], opts: SupportOptions
 	// A sample within half a strut radius of the assembly's surface is in contact.
 	const touch = r / 2;
 	const grid = new TriGrid(Math.max(r * 4, 1e-3), touch);
-	grid.add(parts[0]);
-	const attached = [0];
+	const bones = parts.map((p) => partBones(p, meshes));
+	const skeletal = bones.some((b) => b.dominant);
+	if (skeletal) {
+		// Anchor on the root-most piece so attachment follows the hierarchy.
+		const depth = (i: number) => {
+			const d = bones[i].dominant;
+			return d ? boneDepth(meshes[d[0]].skeleton!.parent, d[1]) : 1e9;
+		};
+		let anchor = 0;
+		for (let i = 1; i < parts.length; i++) {
+			if (depth(i) < depth(anchor) || (depth(i) === depth(anchor) && parts[i].tris.length > parts[anchor].tris.length)) anchor = i;
+		}
+		[parts[0], parts[anchor]] = [parts[anchor], parts[0]];
+		[bones[0], bones[anchor]] = [bones[anchor], bones[0]];
+	}
+	const attachedFlag = parts.map(() => false);
+	const attachedTris: number[][][] = [];
+	const attach = (i: number) => {
+		attachedFlag[i] = true;
+		grid.add(parts[i]);
+		if (attachedTris.length < MAX_INSIDE_TRIS) attachedTris.push(...partTris(parts[i]));
+	};
+	attach(0);
 	// Best sampled distance from each waiting part to the assembly.
 	const best = parts.map(() => ({ dist: Infinity, to: -1 }));
 	const update = (p: number, c: number) => {
@@ -326,42 +500,118 @@ export function planSupports(meshes: readonly ExportMesh[], opts: SupportOptions
 	};
 	const waiting = new Set(parts.map((_, i) => i).filter((i) => i > 0));
 	for (const p of waiting) update(p, 0);
+
+	/**
+	 * Skeleton route from a part to the assembly: an attached piece of
+	 * the same bone, else of the nearest attached ancestor bone, and the
+	 * joint + axis to strut along.
+	 */
+	const skeletonTarget = (p: number): { target: number; joint: number[] | null; axis: number[] | null } | null => {
+		const dom = bones[p].dominant;
+		if (!dom) return null;
+		const [mi, b0] = dom;
+		const sk = meshes[mi].skeleton!;
+		const holder = (bone: number) => {
+			let target = -1;
+			let n = 0;
+			for (let q = 0; q < parts.length; q++) {
+				if (!attachedFlag[q] || q === p) continue;
+				const c = bones[q].counts.get(`${mi}:${bone}`) ?? 0;
+				if (c > n) {
+					n = c;
+					target = q;
+				}
+			}
+			return target;
+		};
+		// Another piece of the same bone: brace the two directly.
+		const same = holder(b0);
+		if (same >= 0) return { target: same, joint: null, axis: null };
+		let child = b0;
+		let a = sk.parent[b0];
+		const origin = (b: number) => [sk.joints[b * 3], sk.joints[b * 3 + 1], sk.joints[b * 3 + 2]];
+		for (let guard = 0; a >= 0 && guard < 256; guard++) {
+			const target = holder(a);
+			if (target >= 0) {
+				// The junction: whichever nearby bone origin sits closest to both pieces.
+				const candidates = [b0, child, a, sk.parent[a]].filter((b) => b >= 0).map(origin);
+				let J = candidates[0];
+				let bestGap = Infinity;
+				for (const c of candidates) {
+					const gap = nearestDist(parts[p], c) + nearestDist(parts[target], c);
+					if (gap < bestGap) {
+						bestGap = gap;
+						J = c;
+					}
+				}
+				return { target, joint: J, axis: null };
+			}
+			child = a;
+			a = sk.parent[a];
+		}
+		return null;
+	};
+
 	const struts: Strut[] = [];
 	while (waiting.size) {
-		// Prim: attach the waiting part nearest to the assembly next.
+		// Prim: the waiting part nearest to the assembly. With a skeleton,
+		// prefer parts whose ancestor bone is already attached.
 		let next = -1;
-		for (const p of waiting) if (next < 0 || best[p].dist < best[next].dist) next = p;
+		let route: ReturnType<typeof skeletonTarget> = null;
+		if (skeletal) {
+			for (const p of waiting) {
+				const rt = skeletonTarget(p);
+				if (rt && (next < 0 || best[p].dist < best[next].dist)) {
+					next = p;
+					route = rt;
+				}
+			}
+		}
+		if (next < 0) for (const p of waiting) if (next < 0 || best[p].dist < best[next].dist) next = p;
 		waiting.delete(next);
 		const part = parts[next];
-		const target = parts[best[next].to];
 		let contacts = 0;
 		for (const p of surfaceSamples(part, r)) {
 			if (grid.near(p, touch) && ++contacts >= minContacts) break;
 		}
-		if (contacts < minContacts) {
-			const pair = closest(part, target);
-			const a: [number, number, number] = [part.points[pair.i * 3], part.points[pair.i * 3 + 1], part.points[pair.i * 3 + 2]];
-			const b: [number, number, number] = [target.points[pair.j * 3], target.points[pair.j * 3 + 1], target.points[pair.j * 3 + 2]];
-			let dir = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-			let len = Math.hypot(dir[0], dir[1], dir[2]);
-			if (len < r * 0.5) {
-				// Touching: brace across the joint, centroid to centroid.
-				dir = [target.centroid[0] - part.centroid[0], target.centroid[1] - part.centroid[1], target.centroid[2] - part.centroid[2]];
-				len = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+		if (contacts < minContacts && attachedTris.length) {
+			// Sunk into the assembly (e.g. a limb inside the torso)?
+			const P = part.points;
+			for (let i = 0; i < P.length && contacts < minContacts; i += 3 * Math.max(1, Math.floor(P.length / 3 / 32))) {
+				if (insideTris([P[i], P[i + 1], P[i + 2]], attachedTris)) contacts++;
 			}
-			const n = dir.map((v) => v / len);
-			// Extend into both parts so the slicer fuses them.
-			const ext = r * 2;
-			struts.push({
-				from: [a[0] - n[0] * ext, a[1] - n[1] * ext, a[2] - n[2] * ext],
-				to: [b[0] + n[0] * ext, b[1] + n[1] * ext, b[2] + n[2] * ext],
-				color: vertexColor(meshes[part.mesh[pair.i]], part.vertex[pair.i]),
-			});
+		}
+		if (contacts < minContacts) {
+			const target = parts[route ? route.target : best[next].to];
+			const pair = closest(part, target);
+			const color = vertexColor(meshes[part.mesh[pair.i]], part.vertex[pair.i]);
 			if (pair.dist > r * 0.5) report.floating++;
 			else report.weak++;
+			// Junction: the bone joint when the skeleton gives one, else the
+			// midpoint of the closest points.
+			const a = [part.points[pair.i * 3], part.points[pair.i * 3 + 1], part.points[pair.i * 3 + 2]];
+			const b = [target.points[pair.j * 3], target.points[pair.j * 3 + 1], target.points[pair.j * 3 + 2]];
+			let J = route?.joint ?? [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+			const ax = strutAxis(part, target, J);
+			const d = ax?.axis ?? [0, 1, 0];
+			if (ax?.through) {
+				// Centre the strut inside the limb-like piece: project J onto its centre line.
+				const c = ax.through;
+				const t = (J[0] - c[0]) * d[0] + (J[1] - c[1]) * d[1] + (J[2] - c[2]) * d[2];
+				J = [c[0] + d[0] * t, c[1] + d[1] * t, c[2] + d[2] * t];
+			}
+			// Reach far enough into both pieces, and stay inside the thinner one.
+			const reachChild = Math.max(r * 3, nearestDist(part, J) + r * 2);
+			const reachParent = Math.max(r * 3, nearestDist(target, J) + r * 2);
+			const fit = Math.min(radiusAround(part, J, d), radiusAround(target, J, d)) * 0.6;
+			struts.push({
+				from: [J[0] - d[0] * reachParent, J[1] - d[1] * reachParent, J[2] - d[2] * reachParent],
+				to: [J[0] + d[0] * reachChild, J[1] + d[1] * reachChild, J[2] + d[2] * reachChild],
+				color,
+				radius: Math.max(Math.min(r, fit), Math.min(r, 0.4)),
+			});
 		}
-		grid.add(part);
-		attached.push(next);
+		attach(next);
 		for (const p of waiting) update(p, next);
 	}
 	report.struts = struts.length;
@@ -406,7 +656,7 @@ function cylinder(a: readonly number[], b: readonly number[], r: number, segment
 export function addStructuralSupports(meshes: readonly ExportMesh[], opts: SupportOptions): { meshes: ExportMesh[]; report: SupportReport } {
 	const { report, struts } = planSupports(meshes, opts);
 	const extra: ExportMesh[] = struts.map((s) => {
-		const c = cylinder(s.from, s.to, opts.radiusMm);
+		const c = cylinder(s.from, s.to, s.radius);
 		return { ...c, materials: [{ texture: null, baseColor: s.color }] };
 	});
 	return { meshes: [...meshes, ...extra], report };

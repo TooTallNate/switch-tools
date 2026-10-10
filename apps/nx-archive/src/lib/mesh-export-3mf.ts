@@ -85,6 +85,17 @@ export interface ColorBin {
 export interface Paint3mfOptions {
 	/** Number of filaments to quantise to (1–16) for the default k-means palette. */
 	colorCount: number;
+	/** Painted-on overlays (from {@link splitDecals}) to paint onto the surfaces beneath. */
+	decals?: readonly DecalTri[];
+	/** Object and plate name shown in the slicer (default: `title`). */
+	objectName?: string;
+	/**
+	 * Extra metadata. Standard 3MF names (Title, Designer, Description,
+	 * Copyright, LicenseTerms, Rating, CreationDate, ModificationDate,
+	 * Application) are written as-is; anything else is namespaced
+	 * `nx:` (e.g. the source file, pose and export settings).
+	 */
+	metadata?: Record<string, string>;
 	/**
 	 * Replace the default k-means palette. Receives the area-weighted
 	 * surface colours (alpha-cutout texels excluded) and returns the
@@ -526,6 +537,106 @@ function trackShape(
 }
 
 // ---------------------------------------------------------------------------
+// Decals (painted-on overlays such as eyes)
+// ---------------------------------------------------------------------------
+
+/** One decal triangle, in the same space as the meshes it overlays. */
+export interface DecalTri {
+	/** Corner positions (9). */
+	p: Float64Array;
+	/** Corner UVs (6). */
+	uv: Float64Array;
+	texture: ExportTexture;
+	/** Unit plane normal. */
+	n: [number, number, number];
+	lo: [number, number, number];
+	hi: [number, number, number];
+}
+
+/**
+ * Pull decal triangles (`ExportMaterial.decal`) out of the meshes: the
+ * geometry that remains is printed, the decals are painted onto it.
+ */
+export function splitDecals(meshes: readonly ExportMesh[]): { meshes: ExportMesh[]; decals: DecalTri[] } {
+	const decals: DecalTri[] = [];
+	const out = meshes.map((m) => {
+		const mats = m.materials ?? [];
+		if (!mats.some((x) => x.decal)) return m;
+		const keep: number[] = [];
+		const keepMat: number[] = [];
+		const P = m.positions;
+		for (let t = 0; t < m.indices.length / 3; t++) {
+			const mi = Number(m.triangleMaterials?.[t] ?? 0);
+			const mat = mats[mi];
+			const ia = m.indices[t * 3]!, ib = m.indices[t * 3 + 1]!, ic = m.indices[t * 3 + 2]!;
+			if (mat?.decal && mat.texture && m.uvs) {
+				const p = new Float64Array(9);
+				const uv = new Float64Array(6);
+				[ia, ib, ic].forEach((v, k) => {
+					for (let c = 0; c < 3; c++) p[k * 3 + c] = P[v * 3 + c]!;
+					uv[k * 2] = m.uvs![v * 2]!;
+					uv[k * 2 + 1] = m.uvs![v * 2 + 1]!;
+				});
+				const e1 = [p[3]! - p[0]!, p[4]! - p[1]!, p[5]! - p[2]!];
+				const e2 = [p[6]! - p[0]!, p[7]! - p[1]!, p[8]! - p[2]!];
+				const n = [e1[1]! * e2[2]! - e1[2]! * e2[1]!, e1[2]! * e2[0]! - e1[0]! * e2[2]!, e1[0]! * e2[1]! - e1[1]! * e2[0]!];
+				const len = Math.hypot(n[0]!, n[1]!, n[2]!);
+				if (len > 0) {
+					decals.push({
+						p,
+						uv,
+						texture: mat.texture,
+						n: [n[0]! / len, n[1]! / len, n[2]! / len],
+						lo: [0, 1, 2].map((c) => Math.min(p[c]!, p[3 + c]!, p[6 + c]!)) as [number, number, number],
+						hi: [0, 1, 2].map((c) => Math.max(p[c]!, p[3 + c]!, p[6 + c]!)) as [number, number, number],
+					});
+				}
+				continue;
+			}
+			keep.push(ia, ib, ic);
+			keepMat.push(mi);
+		}
+		return { ...m, indices: Uint32Array.from(keep), triangleMaterials: Int32Array.from(keepMat) };
+	});
+	return { meshes: out, decals };
+}
+
+/** How far (along the decal normal) a surface may sit from a decal and still receive it. */
+const DECAL_REACH = 0.6;
+
+/** Colour of the decals at point q, or false where none is opaque. */
+function sampleDecals(decals: readonly DecalTri[], q: readonly number[], out: Uint8Array): boolean {
+	for (const d of decals) {
+		const p = d.p;
+		const dist = (q[0]! - p[0]!) * d.n[0] + (q[1]! - p[1]!) * d.n[1] + (q[2]! - p[2]!) * d.n[2];
+		if (Math.abs(dist) > DECAL_REACH) continue;
+		// Barycentric of q's projection onto the decal plane.
+		const e1 = [p[3]! - p[0]!, p[4]! - p[1]!, p[5]! - p[2]!];
+		const e2 = [p[6]! - p[0]!, p[7]! - p[1]!, p[8]! - p[2]!];
+		const w = [q[0]! - p[0]! - d.n[0] * dist, q[1]! - p[1]! - d.n[1] * dist, q[2]! - p[2]! - d.n[2] * dist];
+		const d00 = e1[0]! * e1[0]! + e1[1]! * e1[1]! + e1[2]! * e1[2]!;
+		const d01 = e1[0]! * e2[0]! + e1[1]! * e2[1]! + e1[2]! * e2[2]!;
+		const d11 = e2[0]! * e2[0]! + e2[1]! * e2[1]! + e2[2]! * e2[2]!;
+		const d20 = w[0]! * e1[0]! + w[1]! * e1[1]! + w[2]! * e1[2]!;
+		const d21 = w[0]! * e2[0]! + w[1]! * e2[1]! + w[2]! * e2[2]!;
+		const den = d00 * d11 - d01 * d01;
+		if (den === 0) continue;
+		const s = (d11 * d20 - d01 * d21) / den;
+		const t = (d00 * d21 - d01 * d20) / den;
+		if (s < -1e-4 || t < -1e-4 || s + t > 1 + 1e-4) continue;
+		const r = 1 - s - t;
+		const uv = d.uv;
+		const px = texelOffset(d.texture, r * uv[0]! + s * uv[2]! + t * uv[4]!, r * uv[1]! + s * uv[3]! + t * uv[5]!);
+		if ((d.texture.pixels[px + 3] ?? 0) < 128) continue;
+		out[0] = d.texture.pixels[px]!;
+		out[1] = d.texture.pixels[px + 1]!;
+		out[2] = d.texture.pixels[px + 2]!;
+		return true;
+	}
+	return false;
+}
+
+// ---------------------------------------------------------------------------
 // Per-triangle colour sources
 // ---------------------------------------------------------------------------
 
@@ -548,6 +659,10 @@ interface TriSource {
 	attr: Float64Array;
 	/** Vertex colours need linear → sRGB encoding at sample time. */
 	linear: boolean;
+	/** Decals overlapping this triangle, painted over its own colour. */
+	decals?: DecalTri[];
+	/** Corner positions (9), for decal lookups. */
+	pos?: Float64Array;
 }
 
 /**
@@ -558,6 +673,11 @@ interface TriSource {
 function sampleSource(src: TriSource, s: number, t: number, out: Uint8Array): boolean {
 	const a = src.attr;
 	const r = 1 - s - t;
+	if (src.decals && src.pos) {
+		const p = src.pos;
+		const q = [r * p[0]! + s * p[3]! + t * p[6]!, r * p[1]! + s * p[4]! + t * p[7]!, r * p[2]! + s * p[5]! + t * p[8]!];
+		if (sampleDecals(src.decals, q, out)) return true;
+	}
 	if (src.kind === KIND_TEXTURE) {
 		const tex = src.texture!;
 		const u = r * a[0]! + s * a[2]! + t * a[4]!;
@@ -759,7 +879,30 @@ export function buildPainted3MF(
 			tris.push(a, b, c);
 
 			const st = s.src[t]!;
-			sources.push(triSourceOf(inp, st, s.bary, t * 9));
+			const src = triSourceOf(inp, st, s.bary, t * 9);
+			if (options.decals?.length) {
+				// Decals are in input space; so are the shape's positions.
+				const sp = s.mesh.positions;
+				const ia = idx[t * 3]! * 3, ib = idx[t * 3 + 1]! * 3, ic = idx[t * 3 + 2]! * 3;
+				const pos = Float64Array.of(sp[ia]!, sp[ia + 1]!, sp[ia + 2]!, sp[ib]!, sp[ib + 1]!, sp[ib + 2]!, sp[ic]!, sp[ic + 1]!, sp[ic + 2]!);
+				const lo = [0, 1, 2].map((k) => Math.min(pos[k]!, pos[3 + k]!, pos[6 + k]!) - DECAL_REACH);
+				const hi = [0, 1, 2].map((k) => Math.max(pos[k]!, pos[3 + k]!, pos[6 + k]!) + DECAL_REACH);
+				const e1 = [pos[3]! - pos[0]!, pos[4]! - pos[1]!, pos[5]! - pos[2]!];
+				const e2 = [pos[6]! - pos[0]!, pos[7]! - pos[1]!, pos[8]! - pos[2]!];
+				const n = [e1[1]! * e2[2]! - e1[2]! * e2[1]!, e1[2]! * e2[0]! - e1[0]! * e2[2]!, e1[0]! * e2[1]! - e1[1]! * e2[0]!];
+				const nl = Math.hypot(n[0]!, n[1]!, n[2]!) || 1;
+				const near = options.decals.filter(
+					(d) =>
+						d.lo[0] <= hi[0]! && d.hi[0] >= lo[0]! && d.lo[1] <= hi[1]! && d.hi[1] >= lo[1]! && d.lo[2] <= hi[2]! && d.hi[2] >= lo[2]! &&
+						// Same surface orientation (either winding).
+						Math.abs((d.n[0] * n[0]! + d.n[1] * n[1]! + d.n[2] * n[2]!) / nl) > 0.5,
+				);
+				if (near.length) {
+					src.decals = near;
+					src.pos = pos;
+				}
+			}
+			sources.push(src);
 		}
 		vBase += p.length / 3;
 	}
@@ -779,7 +922,13 @@ export function buildPainted3MF(
 			const tmp = tris[t * 3 + 1]!;
 			tris[t * 3 + 1] = tris[t * 3 + 2]!;
 			tris[t * 3 + 2] = tmp;
-			// Swap the B and C corner attributes to match.
+			// Swap the B and C corner attributes (and decal positions) to match.
+			const pos = sources[t]!.pos;
+			if (pos) for (let k = 0; k < 3; k++) {
+				const tv = pos[3 + k]!;
+				pos[3 + k] = pos[6 + k]!;
+				pos[6 + k] = tv;
+			}
 			const a = sources[t]!.attr;
 			const n = a.length / 3;
 			for (let k = 0; k < n; k++) {
@@ -889,7 +1038,10 @@ export function buildPainted3MF(
 			if (len > 0 && Math.abs(nz) / len > FLAT_NZ) quantize = flatQuantize;
 		}
 		let depth = 0;
-		if (src.kind === KIND_TEXTURE) {
+		if (src.decals) {
+			// Decal detail lives inside this triangle; resolve it fully.
+			depth = maxDepth;
+		} else if (src.kind === KIND_TEXTURE) {
 			const a = src.attr;
 			const tex = src.texture!;
 			const texelArea =
@@ -987,14 +1139,22 @@ export function buildPainted3MF(
 
 	// --- 6. Serialise. -----------------------------------------------------
 	const title = options.title ?? 'model';
+	const objectName = options.objectName ?? title;
 	const fmt = (x: number) => String(Math.round(x * 1e5) / 1e5);
+	const extraMeta = Object.entries(options.metadata ?? {})
+		.filter(([k]) => k !== 'Title' && k !== 'Designer' && k !== 'Description')
+		.map(([k, v]) => ` <metadata name="${STANDARD_METADATA.has(k) ? k : `nx:${k}`}">${xmlEscape(v)}</metadata>\n`)
+		.join('');
 
 	const parts: string[] = [];
 	parts.push(
 		'<?xml version="1.0" encoding="UTF-8"?>\n',
-		'<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n',
+		`<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02"${
+			extraMeta.includes('"nx:') ? ` xmlns:nx="${NX_NAMESPACE}"` : ''
+		}>\n`,
 		` <metadata name="Title">${xmlEscape(title)}</metadata>\n`,
 		` <metadata name="Designer">nx-archive</metadata>\n`,
+		extraMeta,
 		` <metadata name="Description">${xmlEscape(
 			(typeof options.description === 'function'
 				? options.description(palette)
@@ -1002,7 +1162,7 @@ export function buildPainted3MF(
 				`Filaments: ${palette.map((c, i) => `${i + 1}=${rgbToHex(c)}`).join(' ')}`,
 		)}</metadata>\n`,
 		' <resources>\n',
-		`  <object id="1" type="model" name="${xmlEscape(title)}">\n`,
+		`  <object id="1" type="model" name="${xmlEscape(objectName)}">\n`,
 		'   <mesh>\n    <vertices>\n',
 	);
 	// Only write vertices that a kept triangle references. Source
@@ -1054,6 +1214,9 @@ export function buildPainted3MF(
 	};
 	const extra =
 		typeof options.extraFiles === 'function' ? options.extraFiles(palette) : options.extraFiles;
+	// Orca / Bambu Studio name objects and plates from their own config
+	// (without it the plate shows "Untitled").
+	files['Metadata/model_settings.config'] = strToU8(modelSettingsConfig(objectName));
 	for (const [name, data] of Object.entries(extra ?? {})) {
 		files[name] = typeof data === 'string' ? strToU8(data) : data;
 	}
@@ -1066,6 +1229,34 @@ export function buildPainted3MF(
 		leafCount,
 		repair: repairOpt ? summarizeRepairs(reports) : null,
 	};
+}
+
+const STANDARD_METADATA = new Set([
+	'Title',
+	'Designer',
+	'Description',
+	'Copyright',
+	'LicenseTerms',
+	'Rating',
+	'CreationDate',
+	'ModificationDate',
+	'Application',
+]);
+
+/** Namespace for nx-archive's own 3MF metadata (export settings, pose, source). */
+export const NX_NAMESPACE = 'https://github.com/TooTallNate/switch-tools/nx-archive/3mf';
+
+/** Orca / Bambu Studio object + plate names for the single object. */
+function modelSettingsConfig(name: string): string {
+	const n = xmlEscape(name);
+	return (
+		'<?xml version="1.0" encoding="UTF-8"?>\n<config>\n' +
+		`  <object id="1">\n    <metadata key="name" value="${n}"/>\n    <metadata key="extruder" value="1"/>\n  </object>\n` +
+		'  <plate>\n    <metadata key="plater_id" value="1"/>\n' +
+		`    <metadata key="plater_name" value="${n}"/>\n    <metadata key="locked" value="false"/>\n` +
+		'    <model_instance>\n      <metadata key="object_id" value="1"/>\n      <metadata key="instance_id" value="0"/>\n    </model_instance>\n' +
+		'  </plate>\n</config>\n'
+	);
 }
 
 function xmlEscape(s: string): string {

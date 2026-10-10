@@ -64,6 +64,8 @@ export interface PsxMesh {
 	 * that bone's local (PSX) space, for re-posing with {@link applyPose}.
 	 */
 	skin: { bone: Uint16Array; local: Float32Array };
+	/** Parent transform index of each transform (-1 for roots). */
+	parents: Int16Array;
 }
 
 interface Corner {
@@ -93,7 +95,7 @@ export class MeshBuilder {
 		this.tri(texture, v1, v3, v2);
 	}
 
-	build(bones: number): PsxMesh {
+	build(bones: number, parents: ArrayLike<number> = []): PsxMesh {
 		let count = 0;
 		for (const list of this.tris.values()) count += list.length;
 		const positions = new Float32Array(count * 3);
@@ -121,7 +123,7 @@ export class MeshBuilder {
 				n++;
 			}
 		}
-		return { positions, colors, uvs, indices, groups, textures: this.textures, bones, skin: { bone, local } };
+		return { positions, colors, uvs, indices, groups, textures: this.textures, bones, skin: { bone, local }, parents: Int16Array.from(parents) };
 	}
 }
 
@@ -155,4 +157,15 @@ export interface PsxAnimator {
 	clips: PsxClip[];
 	/** World transforms for `clip` at `frame` (clamped). */
 	pose(clip: number, frame: number): Pose;
+}
+
+/** Bone origin positions of a pose, Y-up like `PsxMesh.positions`. */
+export function poseJoints(pose: Pose): Float32Array {
+	const out = new Float32Array(pose.T.length * 3);
+	pose.T.forEach((t, i) => {
+		out[i * 3] = t[0];
+		out[i * 3 + 1] = -t[1];
+		out[i * 3 + 2] = -t[2];
+	});
+	return out;
 }

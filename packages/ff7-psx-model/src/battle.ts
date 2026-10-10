@@ -312,5 +312,6 @@ export function buildBattleMesh(bytes: Uint8Array, model = parseBattleModel(byte
 			}
 		}
 	}
-	return builder.build(bones.length);
+	// Transform 0 is the root; bone i (1-based) hangs from `parent` (0 = root).
+	return builder.build(bones.length, [-1, ...bones.map((b, i) => (b.parent < i + 1 ? b.parent : 0))]);
 }

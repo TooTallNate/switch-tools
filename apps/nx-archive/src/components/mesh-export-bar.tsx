@@ -432,6 +432,8 @@ export function MeshExportBar({
           sourceAxis,
           stem,
           pose,
+          source: scope.label,
+          subject: describeSubject(baseName, pose),
         })
         savePrintScale(scope.key, scale)
         triggerDownload(result.bytes, result.fileName, result.mimeType)

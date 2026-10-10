@@ -20,7 +20,7 @@ import {
 	weldByPosition,
 	type ExportMesh,
 } from './mesh-export';
-import { buildPainted3MF, rgbToHex, type Rgb } from './mesh-export-3mf';
+import { buildPainted3MF, rgbToHex, splitDecals, type Rgb } from './mesh-export-3mf';
 import { repairForPrinting, summarizeRepairs, type RepairReport, type RepairSummary } from './mesh-repair';
 import { SNAPMAKER_U1, projectSettingsConfig, slicerProfile, type SlicerProfile } from './slicer-profile';
 import { addStructuralSupports, type SupportReport } from './mesh-supports';
@@ -129,6 +129,10 @@ export interface ModelExportJob {
 	/** File-name stem and pose suffix (e.g. `_Walk_f0012`). */
 	stem: string;
 	pose: string;
+	/** Opened file the model came from (embedded in 3MF metadata). */
+	source?: string;
+	/** Human-readable model + pose, e.g. `CLOUD · Walk, frame 12`. */
+	subject?: string;
 }
 
 export interface ModelExportResult {
@@ -146,15 +150,46 @@ export interface ModelExportResult {
 	fullSpectrum?: { base: readonly PhysicalFilament[]; mixes: MixRecipe[] };
 }
 
+/** What a 3MF records about its own export: source, pose, settings, supports. */
+function exportMetadata(job: ModelExportJob, supports: SupportReport | null): Record<string, string> {
+	const s = job.settings;
+	const meta: Record<string, string> = {
+		Application: 'nx-archive',
+		CreationDate: new Date().toISOString().slice(0, 10),
+		Model: job.stem,
+	};
+	if (job.source) meta.SourceFile = job.source;
+	if (job.subject) meta.Pose = job.subject;
+	meta.Scale = `${job.mmPerUnit} mm per model unit`;
+	meta.ExportSettings = JSON.stringify({
+		format: s.format,
+		subdivision: s.subdivision,
+		repair: s.repair,
+		wallMm: s.wallMm,
+		supports: s.supports,
+		supportMm: s.supportMm,
+		...(s.format === '3mf' && { colors: s.colors, profile: s.profile }),
+		...(s.format === '3mf-full-spectrum' && { mixes: s.mixes, base: s.base }),
+	});
+	if (supports) meta.Supports = JSON.stringify(supports);
+	return meta;
+}
+
 export function runModelExport(job: ModelExportJob): ModelExportResult {
 	const { settings: s, stem, pose } = job;
-	let meshes = scaleMeshes(job.meshes, job.mmPerUnit);
+	// Decals (painted-on eyes, …) aren't printed: paint them onto the
+	// surface beneath instead, and keep them out of supports / repair.
+	const split = splitDecals(scaleMeshes(job.meshes, job.mmPerUnit));
+	let meshes = split.meshes;
+	const decals = split.decals;
 	let supports: SupportReport | null = null;
 	if (s.supports) {
 		const r = addStructuralSupports(meshes, { radiusMm: s.supportMm });
 		meshes = r.meshes;
 		supports = r.report;
 	}
+	const objectName = `${stem}${pose}${s.subdivision > 0 ? `_sub${s.subdivision}` : ''}`;
+	const metadata = exportMetadata(job, supports);
 	const sub = s.subdivision > 0 ? `_sub${s.subdivision}` : '';
 	const repair = s.repair ? { minThickness: s.wallMm } : false;
 
@@ -185,7 +220,10 @@ export function runModelExport(job: ModelExportJob): ModelExportResult {
 			maxMixes: s.mixes,
 			subdivisionPasses: s.subdivision,
 			sourceAxis: job.sourceAxis,
-			title: `${stem}${pose}`,
+			title: objectName,
+			objectName,
+			metadata,
+			decals,
 			repair,
 		});
 		const n = r.base.length + r.mixes.length;
@@ -204,7 +242,10 @@ export function runModelExport(job: ModelExportJob): ModelExportResult {
 		colorCount: s.colors,
 		subdivisionPasses: s.subdivision,
 		sourceAxis: job.sourceAxis,
-		title: `${stem}${pose}`,
+		title: objectName,
+		objectName,
+		metadata,
+		decals,
 		repair,
 		...(profile && {
 			bedCenter: profile.bedCenter,
