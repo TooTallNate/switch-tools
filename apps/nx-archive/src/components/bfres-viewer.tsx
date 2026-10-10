@@ -1668,6 +1668,407 @@ function bakeVisibleShapes(
   return out
 }
 
+/** Everything the viewer builds from a BFRES before mounting a renderer. */
+export interface LoadedBfres {
+  records: ShapeRecord[]
+  skeletons: BfresSkeleton[]
+  sceneSkeletons: FsklSceneSkeleton[]
+  animations: BfresAnimations
+  textureCache: BntxTextureCache | null
+  materials: BfresMaterial[][]
+}
+
+/**
+ * Parse a BFRES (plus companion texture / animation files and BEA
+ * banks) and build its Three.js shapes in bind pose. Shared by the
+ * viewer and the media library's headless loader.
+ */
+export async function loadBfresShapes(node: Node, root: Node | null): Promise<LoadedBfres> {
+    const blob = await node.blob!()
+    // Run primary extraction + companion search in parallel.
+    // Companion search can be slow on huge archives because
+    // it has to expand every sibling's lazy `getChildren()`
+    // tree, but it only blocks the spinner if the model
+    // itself happens to parse instantly.
+    const [
+      geoms,
+      materials,
+      skeletons,
+      animations,
+      textureCache,
+      companions,
+      beaCompanions,
+    ] = await Promise.all([
+      extractGeometry(blob),
+      extractMaterials(blob),
+      extractSkeletons(blob),
+      extractAnimations(blob),
+      loadEmbeddedBntxTextures(blob),
+      findCompanionBfresBlobs(root, node).catch(
+        (): CompanionBlobs => ({ textures: [], animations: [] }),
+      ),
+      findBeaCompanions(root, node).catch(
+        (): BeaCompanions => ({ textureBanks: [], animations: [] }),
+      ),
+    ])
+    if (geoms.length === 0) {
+      throw new Error(
+        "BFRES has no extractable geometry (no FMDL with triangle shapes).",
+      )
+    }
+
+    // Merge companion textures into the cache (or create a
+    // cache from scratch if the model itself had no embedded
+    // BNTX, which is the common case for BotW-style splits).
+    let mergedTextures = textureCache
+    if (companions.textures.length > 0) {
+      const companionBanks = (
+        await Promise.all(companions.textures.map(loadBntxBankFromBfres))
+      ).filter((b): b is BntxBank => b !== null)
+      if (companionBanks.length > 0) {
+        if (!mergedTextures) {
+          mergedTextures = {
+            banks: companionBanks,
+            decoded: new Map(),
+            textures: new Map(),
+          }
+        } else {
+          mergedTextures.banks.push(...companionBanks)
+        }
+        await ensureAstcDecoder(mergedTextures)
+      }
+    }
+    // Bezel Engine Archive: the model's texture bank is a
+    // standalone `.bntx` elsewhere in the same `.bea`.
+    if (beaCompanions.textureBanks.length > 0) {
+      if (!mergedTextures) {
+        mergedTextures = {
+          banks: beaCompanions.textureBanks,
+          decoded: new Map(),
+          textures: new Map(),
+        }
+      } else {
+        mergedTextures.banks.push(...beaCompanions.textureBanks)
+      }
+      await ensureAstcDecoder(mergedTextures)
+    }
+    // Second-pass: if any albedo bindings still aren't
+    // satisfied, look for shared texture archives in sibling
+    // `.Tex.sbfres` files (BotW Mannequin → `Link.Tex.sbfres`,
+    // etc.). Cheap when nothing's missing; bounded scan when
+    // it is.
+    const sharedBanks = await resolveSharedTextureBanks(
+      root,
+      node,
+      materials,
+      mergedTextures,
+    ).catch(() => [])
+    if (sharedBanks.length > 0) {
+      if (!mergedTextures) {
+        mergedTextures = {
+          banks: sharedBanks,
+          decoded: new Map(),
+          textures: new Map(),
+        }
+      } else {
+        mergedTextures.banks.push(...sharedBanks)
+      }
+      await ensureAstcDecoder(mergedTextures)
+    }
+    // Same idea for animations: append every clip pulled from
+    // companion `*_Animation.*` BFRES files to the model's own
+    // animations list. The viewer drives bones by *name*, so
+    // a clip from a companion file will animate the model's
+    // skeleton just fine as long as the bone names match (they
+    // do for Nintendo first-party titles — the artists use a
+    // single canonical skeleton across all assets for a given
+    // character).
+    let mergedAnimations = animations
+    const companionAnimBlobs = [
+      ...companions.animations,
+      ...beaCompanions.animations,
+    ]
+    if (companionAnimBlobs.length > 0) {
+      const companionAnims = await Promise.all(
+        companionAnimBlobs.map((b) =>
+          extractAnimations(b).catch(
+            (): BfresAnimations => ({
+              skeletal: [],
+              material: [],
+              boneVis: [],
+              shape: [],
+              scene: [],
+            }),
+          ),
+        ),
+      )
+      mergedAnimations = {
+        skeletal: [
+          ...animations.skeletal,
+          ...companionAnims.flatMap((a) => a.skeletal),
+        ],
+        material: [
+          ...animations.material,
+          // Drop companion clips with no texture-pattern tracks
+          // (Bezel `.fmab` files are mostly shader-param anims we
+          // can't play) so they don't flood the dropdown.
+          ...companionAnims.flatMap((a) =>
+            a.material.filter((m) => m.materialAnims.length > 0),
+          ),
+        ],
+        boneVis: [
+          ...animations.boneVis,
+          ...companionAnims.flatMap((a) => a.boneVis),
+        ],
+        shape: [
+          ...animations.shape,
+          ...companionAnims.flatMap((a) => a.shape),
+        ],
+        scene: [
+          ...animations.scene,
+          ...companionAnims.flatMap((a) => a.scene),
+        ],
+      }
+    }
+
+    // Build a Three.js scene-graph skeleton per FMDL — array of
+    // `THREE.Bone`s parented in a hierarchy, plus an `Skeleton`
+    // wrapper carrying the inverse-bind matrices. SkinnedMeshes
+    // bind to one of these so animation drives them all.
+    const sceneSkeletons = skeletons.map(buildSceneSkeleton)
+
+    // Pre-pick a "primary" FMDL for the multi-FMDL attachment
+    // heuristic. The primary FMDL is the one with the most
+    // bones (i.e. an actual rig with a Head bone). Secondary
+    // FMDLs that contain only one identity-pose bone get
+    // mounted on the primary FMDL's `Head` bone if it has one
+    // — this is how Yoshi-style "Pupil" sub-models join the
+    // body, since the BFRES file itself contains no explicit
+    // cross-FMDL link (that lives in the parent SARC/BYAML).
+    const primaryModelIndex = pickPrimaryFmdl(skeletons)
+    const primaryHeadBone =
+      primaryModelIndex >= 0
+        ? findThreeBone(sceneSkeletons[primaryModelIndex]!, "Head")
+        : null
+    const primaryHeadSourceMatrix =
+      primaryModelIndex >= 0
+        ? findBone(skeletons[primaryModelIndex]!, "Head")
+        : null
+
+    const records: ShapeRecord[] = geoms.map((g) => {
+      const geometry = new THREE.BufferGeometry()
+      geometry.setAttribute(
+        "position",
+        new THREE.BufferAttribute(g.positions, 3),
+      )
+      if (g.normals) {
+        geometry.setAttribute(
+          "normal",
+          new THREE.BufferAttribute(g.normals, 3),
+        )
+      }
+      // Bezel Engine materials route albedo through their shader's
+      // attribute/sampler assigns and texture SRTs (and composite
+      // eye/brow layers); everything else uses `_a0` on `_u0`.
+      const bezel = pickBezelAlbedo(
+        g,
+        materials[g.modelIndex]?.[g.materialIndex],
+        mergedTextures,
+      )
+      const uvs = bezel?.uvs ?? g.uvs
+      if (uvs) {
+        geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2))
+      }
+      geometry.setIndex(new THREE.BufferAttribute(g.indices, 1))
+      if (!g.normals) geometry.computeVertexNormals()
+
+      // Pick a material: prefer the resolved albedo texture,
+      // fall back to flat-shaded normal-vis if there isn't one.
+      const albedo =
+        bezel?.texture ?? pickAlbedo(g, materials, mergedTextures)
+      // Many Switch albedo textures (BC3 specifically) carry
+      // meaningful alpha — pupil textures are a clear example,
+      // with ~57% of pixels alpha=0 to make the eye visible
+      // only in a small central region. Without alphaTest those
+      // transparent pixels render as opaque-but-textured, which
+      // produces the "tiled pupil grid" effect we saw on Peach.
+      // alphaTest discards alpha<0.5 fragments in the GPU
+      // before depth-write, also avoiding z-fighting between
+      // the pupil mesh and surrounding eye geometry.
+      const baseColor = bezelBaseColor(
+        materials[g.modelIndex]?.[g.materialIndex],
+      )
+      const material: THREE.Material = albedo
+        ? new THREE.MeshBasicMaterial({
+            map: albedo,
+            side: THREE.DoubleSide,
+            color: baseColor
+              ? new THREE.Color().setRGB(...baseColor, THREE.LinearSRGBColorSpace)
+              : 0xffffff,
+            transparent: true,
+            alphaTest: 0.5,
+          })
+        : baseColor
+          ? new THREE.MeshBasicMaterial({
+              side: THREE.DoubleSide,
+              color: new THREE.Color().setRGB(
+                ...baseColor,
+                THREE.LinearSRGBColorSpace,
+              ),
+            })
+          : new THREE.MeshNormalMaterial({
+            flatShading: false,
+            side: THREE.DoubleSide,
+          })
+
+      // Build either a `SkinnedMesh` (shapes with skin attrs)
+      // or a plain `Mesh` (rigid shapes — typically the Pupil
+      // sub-FMDL).
+      const sceneSkel = sceneSkeletons[g.modelIndex]
+      let mesh: THREE.Mesh | THREE.SkinnedMesh
+      if (g.skinIndices && g.skinWeights && sceneSkel && sceneSkel.bones.length > 0) {
+        // Per-vertex `_i0` is an index into the shape's
+        // `skinBoneIndexList`, which itself stores indices into
+        // the FSKL skeleton. Three.js's `skinIndex` attribute
+        // wants direct skeleton indices, so remap once here.
+        const skinIndex = remapSkinIndices(
+          g.skinIndices,
+          sceneSkel.source.matrixToBoneList,
+        )
+        geometry.setAttribute(
+          "skinIndex",
+          new THREE.Uint16BufferAttribute(skinIndex, 4),
+        )
+        geometry.setAttribute(
+          "skinWeight",
+          new THREE.BufferAttribute(g.skinWeights, 4),
+        )
+        const skinned = new THREE.SkinnedMesh(geometry, material)
+        // Pick the right `THREE.Skeleton` instance to bind
+        // against. The bone array is shared across all
+        // SkinnedMeshes in the same FMDL (so animation drives
+        // them in lockstep), but the *inverse-bind matrices*
+        // depend on what space the shape's vertices live in:
+        //
+        //   - Smooth-skinned shapes (`vertexSkinCount >= 2`)
+        //     have vertices in model bind-pose space; the
+        //     inverse-bind matrices from the FSKL
+        //     (`inv(world_bind)`) are correct, because the
+        //     shader does `world_current * inv(world_bind) * v`
+        //     which is identity in bind pose.
+        //
+        //   - Rigid-skinned shapes (`vertexSkinCount === 1`)
+        //     in BFRES store vertices in *bone-local* space
+        //     (e.g. Yoshi's eye is authored at Y≈0..1.5,
+        //     not Y≈8 where the Head bone lives). For these
+        //     the shader needs `world_current * v_bone_local`
+        //     directly, so the inverse-bind matrix must be
+        //     **identity**. Otherwise the eye lands at bone-
+        //     local origin in bind pose, on the floor.
+        //
+        // Build a separate `THREE.Skeleton` for the rigid
+        // case, sharing the same bones but with identity
+        // inverses, so this override doesn't leak into
+        // smooth-skinned meshes that use the same skeleton.
+        const bindSkel =
+          g.vertexSkinCount === 1
+            ? new THREE.Skeleton(
+                sceneSkel.bones,
+                sceneSkel.bones.map(() => new THREE.Matrix4()),
+              )
+            : sceneSkel.skeleton
+        // CRITICAL: pass an explicit bindMatrix (identity here)
+        // so Three.js's `bind()` does NOT call
+        // `skeleton.calculateInverses()` — that would recompute
+        // the inverse-bind matrices from the current bone
+        // matrixWorlds, throwing away whichever bind matrices
+        // we just chose.
+        skinned.bind(bindSkel, new THREE.Matrix4())
+        // SkinnedMeshes are typically frustum-culled by their
+        // *static* AABB which doesn't account for animation —
+        // disable to avoid pop-out when bones move.
+        skinned.frustumCulled = false
+        mesh = skinned
+      } else {
+        mesh = new THREE.Mesh(geometry, material)
+        // Multi-FMDL Pupil-style shapes: parent the mesh to the
+        // primary FMDL's Head bone so it follows head animation
+        // automatically. Identified by "this FMDL's only bone
+        // is at identity AND we have a primary Head".
+        if (
+          g.modelIndex !== primaryModelIndex &&
+          sceneSkel &&
+          sceneSkel.bones.length === 1 &&
+          primaryHeadBone &&
+          isIdentityishMatrix(sceneSkel.source.bones[0]!.worldMatrix)
+        ) {
+          primaryHeadBone.add(mesh)
+          // Mesh stays at its authored local position; the bone's
+          // animated world matrix carries it.
+        } else {
+          // Fallback: shapes whose authored vertices live in some
+          // bone's local space (e.g. `vertexSkinCount === 0` with
+          // a non-identity boneIndex). Apply a static bone
+          // transform — won't animate, but at least lands at the
+          // bind-pose location.
+          const attach = pickShapeMatrix(
+            g,
+            skeletons,
+            primaryModelIndex,
+            primaryHeadSourceMatrix,
+          )
+          if (attach) {
+            const m = new THREE.Matrix4().fromArray(attach)
+            m.decompose(mesh.position, mesh.quaternion, mesh.scale)
+          }
+        }
+      }
+      mesh.name = g.name
+      // Hidden by default: alternate facial expressions on hidden
+      // bones, and materials drawn only by non-colour passes (e.g.
+      // Bezel fluid-simulation emitters under a player's feet).
+      const modelMaterials = materials[g.modelIndex] ?? []
+      const visible =
+        isShapeBoneVisible(g, skeletons[g.modelIndex]) &&
+        rendersInColorPass(modelMaterials[g.materialIndex], modelMaterials)
+      mesh.visible = visible
+      return {
+        geom: g,
+        mesh,
+        visible,
+        hasAlbedo: !!albedo,
+        bindAlbedo: albedo,
+      }
+    })
+  return {
+    records,
+    skeletons,
+    sceneSkeletons,
+    animations: mergedAnimations,
+    textureCache: mergedTextures,
+    materials,
+  }
+}
+
+/**
+ * Bake a loaded BFRES's visible shapes in bind pose into world-space
+ * {@link ExportMesh}es without a renderer, then free its GPU-side
+ * resources (pixel data stays referenced by the export meshes).
+ */
+export function bakeBfresBindPose(loaded: LoadedBfres): ExportMesh[] {
+  const scene = new THREE.Scene()
+  for (const r of loaded.records) if (!r.mesh.parent) scene.add(r.mesh)
+  for (const ss of loaded.sceneSkeletons) for (const b of ss.roots) if (!b.parent) scene.add(b)
+  const meshes = bakeVisibleShapes(loaded.records, scene)
+  for (const r of loaded.records) {
+    r.mesh.geometry.dispose()
+    const m = r.mesh.material as THREE.Material & { map?: THREE.Texture }
+    m.map?.dispose()
+    m.dispose()
+  }
+  return meshes
+}
+
 /**
  * Props for {@link BfresViewer}. `root` is the archive's root
  * `Node` and is used to discover companion BFRES siblings (BotW-
@@ -1741,373 +2142,14 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
 
     void (async () => {
       try {
-        const blob = await node.blob!()
-        // Run primary extraction + companion search in parallel.
-        // Companion search can be slow on huge archives because
-        // it has to expand every sibling's lazy `getChildren()`
-        // tree, but it only blocks the spinner if the model
-        // itself happens to parse instantly.
-        const [
-          geoms,
-          materials,
-          skeletons,
-          animations,
-          textureCache,
-          companions,
-          beaCompanions,
-        ] = await Promise.all([
-          extractGeometry(blob),
-          extractMaterials(blob),
-          extractSkeletons(blob),
-          extractAnimations(blob),
-          loadEmbeddedBntxTextures(blob),
-          findCompanionBfresBlobs(root, node).catch(
-            (): CompanionBlobs => ({ textures: [], animations: [] }),
-          ),
-          findBeaCompanions(root, node).catch(
-            (): BeaCompanions => ({ textureBanks: [], animations: [] }),
-          ),
-        ])
+        const loaded = await loadBfresShapes(node, root)
         if (cancelled) return
-        if (geoms.length === 0) {
-          setError(
-            new Error(
-              "BFRES has no extractable geometry (no FMDL with triangle shapes).",
-            ),
-          )
-          return
-        }
-
-        // Merge companion textures into the cache (or create a
-        // cache from scratch if the model itself had no embedded
-        // BNTX, which is the common case for BotW-style splits).
-        let mergedTextures = textureCache
-        if (companions.textures.length > 0) {
-          const companionBanks = (
-            await Promise.all(companions.textures.map(loadBntxBankFromBfres))
-          ).filter((b): b is BntxBank => b !== null)
-          if (companionBanks.length > 0) {
-            if (!mergedTextures) {
-              mergedTextures = {
-                banks: companionBanks,
-                decoded: new Map(),
-                textures: new Map(),
-              }
-            } else {
-              mergedTextures.banks.push(...companionBanks)
-            }
-            await ensureAstcDecoder(mergedTextures)
-          }
-        }
-        // Bezel Engine Archive: the model's texture bank is a
-        // standalone `.bntx` elsewhere in the same `.bea`.
-        if (beaCompanions.textureBanks.length > 0) {
-          if (!mergedTextures) {
-            mergedTextures = {
-              banks: beaCompanions.textureBanks,
-              decoded: new Map(),
-              textures: new Map(),
-            }
-          } else {
-            mergedTextures.banks.push(...beaCompanions.textureBanks)
-          }
-          await ensureAstcDecoder(mergedTextures)
-        }
-        // Second-pass: if any albedo bindings still aren't
-        // satisfied, look for shared texture archives in sibling
-        // `.Tex.sbfres` files (BotW Mannequin → `Link.Tex.sbfres`,
-        // etc.). Cheap when nothing's missing; bounded scan when
-        // it is.
-        const sharedBanks = await resolveSharedTextureBanks(
-          root,
-          node,
-          materials,
-          mergedTextures,
-        ).catch(() => [])
-        if (sharedBanks.length > 0) {
-          if (!mergedTextures) {
-            mergedTextures = {
-              banks: sharedBanks,
-              decoded: new Map(),
-              textures: new Map(),
-            }
-          } else {
-            mergedTextures.banks.push(...sharedBanks)
-          }
-          await ensureAstcDecoder(mergedTextures)
-        }
-        // Same idea for animations: append every clip pulled from
-        // companion `*_Animation.*` BFRES files to the model's own
-        // animations list. The viewer drives bones by *name*, so
-        // a clip from a companion file will animate the model's
-        // skeleton just fine as long as the bone names match (they
-        // do for Nintendo first-party titles — the artists use a
-        // single canonical skeleton across all assets for a given
-        // character).
-        let mergedAnimations = animations
-        const companionAnimBlobs = [
-          ...companions.animations,
-          ...beaCompanions.animations,
-        ]
-        if (companionAnimBlobs.length > 0) {
-          const companionAnims = await Promise.all(
-            companionAnimBlobs.map((b) =>
-              extractAnimations(b).catch(
-                (): BfresAnimations => ({
-                  skeletal: [],
-                  material: [],
-                  boneVis: [],
-                  shape: [],
-                  scene: [],
-                }),
-              ),
-            ),
-          )
-          mergedAnimations = {
-            skeletal: [
-              ...animations.skeletal,
-              ...companionAnims.flatMap((a) => a.skeletal),
-            ],
-            material: [
-              ...animations.material,
-              // Drop companion clips with no texture-pattern tracks
-              // (Bezel `.fmab` files are mostly shader-param anims we
-              // can't play) so they don't flood the dropdown.
-              ...companionAnims.flatMap((a) =>
-                a.material.filter((m) => m.materialAnims.length > 0),
-              ),
-            ],
-            boneVis: [
-              ...animations.boneVis,
-              ...companionAnims.flatMap((a) => a.boneVis),
-            ],
-            shape: [
-              ...animations.shape,
-              ...companionAnims.flatMap((a) => a.shape),
-            ],
-            scene: [
-              ...animations.scene,
-              ...companionAnims.flatMap((a) => a.scene),
-            ],
-          }
-        }
-        if (cancelled) return
-
-        skeletonsRef.current = skeletons
-        animationsRef.current = mergedAnimations
-        textureCacheRef.current = mergedTextures
-        materialsRef.current = materials
-
-        // Build a Three.js scene-graph skeleton per FMDL — array of
-        // `THREE.Bone`s parented in a hierarchy, plus an `Skeleton`
-        // wrapper carrying the inverse-bind matrices. SkinnedMeshes
-        // bind to one of these so animation drives them all.
-        const sceneSkeletons = skeletons.map(buildSceneSkeleton)
-        sceneSkeletonsRef.current = sceneSkeletons
-
-        // Pre-pick a "primary" FMDL for the multi-FMDL attachment
-        // heuristic. The primary FMDL is the one with the most
-        // bones (i.e. an actual rig with a Head bone). Secondary
-        // FMDLs that contain only one identity-pose bone get
-        // mounted on the primary FMDL's `Head` bone if it has one
-        // — this is how Yoshi-style "Pupil" sub-models join the
-        // body, since the BFRES file itself contains no explicit
-        // cross-FMDL link (that lives in the parent SARC/BYAML).
-        const primaryModelIndex = pickPrimaryFmdl(skeletons)
-        const primaryHeadBone =
-          primaryModelIndex >= 0
-            ? findThreeBone(sceneSkeletons[primaryModelIndex]!, "Head")
-            : null
-        const primaryHeadSourceMatrix =
-          primaryModelIndex >= 0
-            ? findBone(skeletons[primaryModelIndex]!, "Head")
-            : null
-
-        const records: ShapeRecord[] = geoms.map((g) => {
-          const geometry = new THREE.BufferGeometry()
-          geometry.setAttribute(
-            "position",
-            new THREE.BufferAttribute(g.positions, 3),
-          )
-          if (g.normals) {
-            geometry.setAttribute(
-              "normal",
-              new THREE.BufferAttribute(g.normals, 3),
-            )
-          }
-          // Bezel Engine materials route albedo through their shader's
-          // attribute/sampler assigns and texture SRTs (and composite
-          // eye/brow layers); everything else uses `_a0` on `_u0`.
-          const bezel = pickBezelAlbedo(
-            g,
-            materials[g.modelIndex]?.[g.materialIndex],
-            mergedTextures,
-          )
-          const uvs = bezel?.uvs ?? g.uvs
-          if (uvs) {
-            geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2))
-          }
-          geometry.setIndex(new THREE.BufferAttribute(g.indices, 1))
-          if (!g.normals) geometry.computeVertexNormals()
-
-          // Pick a material: prefer the resolved albedo texture,
-          // fall back to flat-shaded normal-vis if there isn't one.
-          const albedo =
-            bezel?.texture ?? pickAlbedo(g, materials, mergedTextures)
-          // Many Switch albedo textures (BC3 specifically) carry
-          // meaningful alpha — pupil textures are a clear example,
-          // with ~57% of pixels alpha=0 to make the eye visible
-          // only in a small central region. Without alphaTest those
-          // transparent pixels render as opaque-but-textured, which
-          // produces the "tiled pupil grid" effect we saw on Peach.
-          // alphaTest discards alpha<0.5 fragments in the GPU
-          // before depth-write, also avoiding z-fighting between
-          // the pupil mesh and surrounding eye geometry.
-          const baseColor = bezelBaseColor(
-            materials[g.modelIndex]?.[g.materialIndex],
-          )
-          const material: THREE.Material = albedo
-            ? new THREE.MeshBasicMaterial({
-                map: albedo,
-                side: THREE.DoubleSide,
-                color: baseColor
-                  ? new THREE.Color().setRGB(...baseColor, THREE.LinearSRGBColorSpace)
-                  : 0xffffff,
-                transparent: true,
-                alphaTest: 0.5,
-              })
-            : baseColor
-              ? new THREE.MeshBasicMaterial({
-                  side: THREE.DoubleSide,
-                  color: new THREE.Color().setRGB(
-                    ...baseColor,
-                    THREE.LinearSRGBColorSpace,
-                  ),
-                })
-              : new THREE.MeshNormalMaterial({
-                flatShading: false,
-                side: THREE.DoubleSide,
-              })
-
-          // Build either a `SkinnedMesh` (shapes with skin attrs)
-          // or a plain `Mesh` (rigid shapes — typically the Pupil
-          // sub-FMDL).
-          const sceneSkel = sceneSkeletons[g.modelIndex]
-          let mesh: THREE.Mesh | THREE.SkinnedMesh
-          if (g.skinIndices && g.skinWeights && sceneSkel && sceneSkel.bones.length > 0) {
-            // Per-vertex `_i0` is an index into the shape's
-            // `skinBoneIndexList`, which itself stores indices into
-            // the FSKL skeleton. Three.js's `skinIndex` attribute
-            // wants direct skeleton indices, so remap once here.
-            const skinIndex = remapSkinIndices(
-              g.skinIndices,
-              sceneSkel.source.matrixToBoneList,
-            )
-            geometry.setAttribute(
-              "skinIndex",
-              new THREE.Uint16BufferAttribute(skinIndex, 4),
-            )
-            geometry.setAttribute(
-              "skinWeight",
-              new THREE.BufferAttribute(g.skinWeights, 4),
-            )
-            const skinned = new THREE.SkinnedMesh(geometry, material)
-            // Pick the right `THREE.Skeleton` instance to bind
-            // against. The bone array is shared across all
-            // SkinnedMeshes in the same FMDL (so animation drives
-            // them in lockstep), but the *inverse-bind matrices*
-            // depend on what space the shape's vertices live in:
-            //
-            //   - Smooth-skinned shapes (`vertexSkinCount >= 2`)
-            //     have vertices in model bind-pose space; the
-            //     inverse-bind matrices from the FSKL
-            //     (`inv(world_bind)`) are correct, because the
-            //     shader does `world_current * inv(world_bind) * v`
-            //     which is identity in bind pose.
-            //
-            //   - Rigid-skinned shapes (`vertexSkinCount === 1`)
-            //     in BFRES store vertices in *bone-local* space
-            //     (e.g. Yoshi's eye is authored at Y≈0..1.5,
-            //     not Y≈8 where the Head bone lives). For these
-            //     the shader needs `world_current * v_bone_local`
-            //     directly, so the inverse-bind matrix must be
-            //     **identity**. Otherwise the eye lands at bone-
-            //     local origin in bind pose, on the floor.
-            //
-            // Build a separate `THREE.Skeleton` for the rigid
-            // case, sharing the same bones but with identity
-            // inverses, so this override doesn't leak into
-            // smooth-skinned meshes that use the same skeleton.
-            const bindSkel =
-              g.vertexSkinCount === 1
-                ? new THREE.Skeleton(
-                    sceneSkel.bones,
-                    sceneSkel.bones.map(() => new THREE.Matrix4()),
-                  )
-                : sceneSkel.skeleton
-            // CRITICAL: pass an explicit bindMatrix (identity here)
-            // so Three.js's `bind()` does NOT call
-            // `skeleton.calculateInverses()` — that would recompute
-            // the inverse-bind matrices from the current bone
-            // matrixWorlds, throwing away whichever bind matrices
-            // we just chose.
-            skinned.bind(bindSkel, new THREE.Matrix4())
-            // SkinnedMeshes are typically frustum-culled by their
-            // *static* AABB which doesn't account for animation —
-            // disable to avoid pop-out when bones move.
-            skinned.frustumCulled = false
-            mesh = skinned
-          } else {
-            mesh = new THREE.Mesh(geometry, material)
-            // Multi-FMDL Pupil-style shapes: parent the mesh to the
-            // primary FMDL's Head bone so it follows head animation
-            // automatically. Identified by "this FMDL's only bone
-            // is at identity AND we have a primary Head".
-            if (
-              g.modelIndex !== primaryModelIndex &&
-              sceneSkel &&
-              sceneSkel.bones.length === 1 &&
-              primaryHeadBone &&
-              isIdentityishMatrix(sceneSkel.source.bones[0]!.worldMatrix)
-            ) {
-              primaryHeadBone.add(mesh)
-              // Mesh stays at its authored local position; the bone's
-              // animated world matrix carries it.
-            } else {
-              // Fallback: shapes whose authored vertices live in some
-              // bone's local space (e.g. `vertexSkinCount === 0` with
-              // a non-identity boneIndex). Apply a static bone
-              // transform — won't animate, but at least lands at the
-              // bind-pose location.
-              const attach = pickShapeMatrix(
-                g,
-                skeletons,
-                primaryModelIndex,
-                primaryHeadSourceMatrix,
-              )
-              if (attach) {
-                const m = new THREE.Matrix4().fromArray(attach)
-                m.decompose(mesh.position, mesh.quaternion, mesh.scale)
-              }
-            }
-          }
-          mesh.name = g.name
-          // Hidden by default: alternate facial expressions on hidden
-          // bones, and materials drawn only by non-colour passes (e.g.
-          // Bezel fluid-simulation emitters under a player's feet).
-          const modelMaterials = materials[g.modelIndex] ?? []
-          const visible =
-            isShapeBoneVisible(g, skeletons[g.modelIndex]) &&
-            rendersInColorPass(modelMaterials[g.materialIndex], modelMaterials)
-          mesh.visible = visible
-          return {
-            geom: g,
-            mesh,
-            visible,
-            hasAlbedo: !!albedo,
-            bindAlbedo: albedo,
-          }
-        })
+        skeletonsRef.current = loaded.skeletons
+        animationsRef.current = loaded.animations
+        textureCacheRef.current = loaded.textureCache
+        materialsRef.current = loaded.materials
+        sceneSkeletonsRef.current = loaded.sceneSkeletons
+        const records = loaded.records
         setShapes(records)
       } catch (err) {
         if (cancelled) return

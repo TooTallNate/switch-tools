@@ -318,6 +318,8 @@ import {
   GfMessagePreview,
 } from "./gf-previews"
 import { N64ModelViewer } from "./n64-model-viewer"
+import { MeshViewer } from "./mesh-viewer"
+import { loadHaloModelView, type HaloModelRef } from "~/lib/halo"
 import { parseIdFont, type ParsedIdFont } from "@tootallnate/idfont"
 import {
   parseBimage,
@@ -1947,6 +1949,8 @@ function FilePreview({
       return <TileViewerPreview node={node} />
     case "n64-model":
       return <N64ModelPreview node={node} />
+    case "halo-model":
+      return <HaloModelPreview node={node} />
     case "bti-image":
       return <BtiPreview node={node} />
     case "j3d-model":
@@ -5207,11 +5211,11 @@ function UassetPreview({
         )}
 
         {isStaticMesh && uexpBytes && (
-          <UassetStaticMeshSection parsed={v} uexpBytes={uexpBytes} root={root} />
+          <UassetStaticMeshSection parsed={v} uexpBytes={uexpBytes} root={root} scopeId={node.id} />
         )}
 
         {isFont && (
-          <UassetFontSection parsed={v} root={root} onNavigate={onNavigate} />
+          <UassetFontSection parsed={v} root={root} scopeId={node.id} onNavigate={onNavigate} />
         )}
 
         {isFontFace && (
@@ -5238,6 +5242,7 @@ function UassetPreview({
             parsed={v}
             decodedExports={decodedExports}
             root={root}
+            scopeId={node.id}
             onNavigate={onNavigate}
           />
         )}
@@ -5707,14 +5712,16 @@ function UassetPropertiesSection({
   parsed,
   decodedExports,
   root,
+  scopeId,
   onNavigate,
 }: {
   parsed: ParsedUasset
   decodedExports: UExportProperties[]
   root: Node | null
+  scopeId?: string
   onNavigate?: (node: Node) => void
 }) {
-  const resolver = useMemo(() => createAssetResolver(root), [root])
+  const resolver = useMemo(() => createAssetResolver(root, scopeId), [root, scopeId])
   const refCtx = useMemo<ObjectRefContext>(
     () => ({ parsed, resolver, onNavigate }),
     [parsed, resolver, onNavigate],
@@ -5967,10 +5974,13 @@ function UassetStaticMeshSection({
   parsed,
   uexpBytes,
   root,
+  scopeId,
 }: {
   parsed: ParsedUasset
   uexpBytes: Uint8Array
   root: Node | null
+  /** ID of the asset being previewed; pins the `/Game` mount for texture lookups. */
+  scopeId?: string
 }) {
   // 1. Parse the cooked geometry (sync; ~ms even for 50k-vert meshes).
   const meshState = useMemo<
@@ -6010,7 +6020,7 @@ function UassetStaticMeshSection({
   //    for every material slot in parallel. Cache the resolver across
   //    re-renders of this component instance so repeat lookups stay
   //    snappy when the user toggles wireframe / LOD.
-  const resolver = useMemo(() => createAssetResolver(root), [root])
+  const resolver = useMemo(() => createAssetResolver(root, scopeId), [root, scopeId])
   const texturesState = useAsync<Array<DecodedTexture | null>>(async () => {
     if (!meshState.ok) return []
     // Re-read the StaticMesh property block to pull the StaticMaterials
@@ -6203,13 +6213,15 @@ function UassetFontFaceSection({
 function UassetFontSection({
   parsed,
   root,
+  scopeId,
   onNavigate,
 }: {
   parsed: ParsedUasset
   root: Node | null
+  scopeId?: string
   onNavigate?: (node: Node) => void
 }) {
-  const resolver = useMemo(() => createAssetResolver(root), [root])
+  const resolver = useMemo(() => createAssetResolver(root, scopeId), [root, scopeId])
   const fontFaceRefs = useMemo(() => {
     const refs: { objectName: string; packagePath: string | null }[] = []
     for (let i = 0; i < parsed.imports.length; i++) {
@@ -7058,7 +7070,7 @@ function UassetDataTableSection({
   root: Node | null
   onNavigate?: (node: Node) => void
 }) {
-  const resolver = useMemo(() => createAssetResolver(root), [root])
+  const resolver = useMemo(() => createAssetResolver(root, node.id), [root, node.id])
   const refCtx = useMemo<ObjectRefContext>(
     () => ({ parsed, resolver, onNavigate }),
     [parsed, resolver, onNavigate],
@@ -11334,6 +11346,60 @@ function decodeWellKnownUnityClass(
   }
 }
 
+/**
+ * Parse a `unity-object` node's SerializedFile and decode the object
+ * (TypeTree, else the hardcoded well-known-class reader). Shared by the
+ * object preview and the media library's headless loader.
+ */
+export async function decodeUnityObjectNode(
+  node: Node,
+): Promise<{ parsed: ParsedSerializedFile; decoded: UnityDecodedObject }> {
+  const cabBlob = node.meta?.unitySerializedFileBlob as Blob | undefined
+  const targetPathId = node.meta?.unityPathId as string | undefined
+  if (!cabBlob || !targetPathId) {
+    throw new Error("Unity object node missing SerializedFile metadata")
+  }
+  const parsed = await parseSerializedFile(cabBlob)
+  const wantedId = BigInt(targetPathId)
+  const obj = parsed.objects.find((o) => o.pathId === wantedId)
+  if (!obj) {
+    throw new Error(
+      `Unity object pathId=${targetPathId} not found in SerializedFile`,
+    )
+  }
+  const className = (node.meta?.unityClass as string | undefined) ?? ""
+  const ty = parsed.types[obj.typeIndex]
+  let value: unknown = null
+  if (ty?.typeTree) {
+    try {
+      value = await parseUnityObject(obj, ty.typeTree)
+    } catch (e) {
+      // Decoded value is best-effort; the raw bytes are still
+      // available below for inspection.
+      value = { __error: (e as Error).message }
+    }
+  }
+  // Fallback: when TypeTrees are stripped (release builds usually
+  // do this), invoke the hardcoded class-layout reader for the
+  // well-known engine types. The result is shaped the same way
+  // the TypeTree-driven decode would produce so downstream
+  // consumers (UnityObjectClassPreview) don't have to branch.
+  if (!value) {
+    const objBytes = new Uint8Array(await obj.data.arrayBuffer())
+    value = decodeWellKnownUnityClass(
+      className,
+      objBytes,
+      parsed.header.unityVersion,
+    )
+  }
+  const name =
+    value && typeof value === "object" && "m_Name" in value
+      ? String((value as { m_Name?: unknown }).m_Name ?? "") || null
+      : null
+  const decoded: UnityDecodedObject = { obj, value, name }
+  return { parsed, decoded }
+}
+
 function UnityObjectPreview({
   node,
   root,
@@ -11350,50 +11416,7 @@ function UnityObjectPreview({
   const targetPathId = node.meta?.unityPathId as string | undefined
   const cabId = node.meta?.unitySerializedFileNodeId as string | undefined
 
-  const { loading, data, error } = useAsync(async () => {
-    if (!cabBlob || !targetPathId) {
-      throw new Error("Unity object node missing SerializedFile metadata")
-    }
-    const parsed = await parseSerializedFile(cabBlob)
-    const wantedId = BigInt(targetPathId)
-    const obj = parsed.objects.find((o) => o.pathId === wantedId)
-    if (!obj) {
-      throw new Error(
-        `Unity object pathId=${targetPathId} not found in SerializedFile`,
-      )
-    }
-    const className = (node.meta?.unityClass as string | undefined) ?? ""
-    const ty = parsed.types[obj.typeIndex]
-    let value: unknown = null
-    if (ty?.typeTree) {
-      try {
-        value = await parseUnityObject(obj, ty.typeTree)
-      } catch (e) {
-        // Decoded value is best-effort; the raw bytes are still
-        // available below for inspection.
-        value = { __error: (e as Error).message }
-      }
-    }
-    // Fallback: when TypeTrees are stripped (release builds usually
-    // do this), invoke the hardcoded class-layout reader for the
-    // well-known engine types. The result is shaped the same way
-    // the TypeTree-driven decode would produce so downstream
-    // consumers (UnityObjectClassPreview) don't have to branch.
-    if (!value) {
-      const objBytes = new Uint8Array(await obj.data.arrayBuffer())
-      value = decodeWellKnownUnityClass(
-        className,
-        objBytes,
-        parsed.header.unityVersion,
-      )
-    }
-    const name =
-      value && typeof value === "object" && "m_Name" in value
-        ? String((value as { m_Name?: unknown }).m_Name ?? "") || null
-        : null
-    const decoded: UnityDecodedObject = { obj, value, name }
-    return { parsed, decoded }
-  }, [node.id, cabBlob, targetPathId])
+  const { loading, data, error } = useAsync(() => decodeUnityObjectNode(node), [node.id, cabBlob, targetPathId])
 
   if (loading) return <LoadingFiller label="Decoding Unity object…" />
   if (error) return <ErrorFiller error={error} />
@@ -12322,6 +12345,161 @@ interface UnityMeshFile extends UnityFileContext {
  * Texture2D is picked by `pickAlbedoTexture` and decoded via the same
  * path as the Texture2D preview.
  */
+/**
+ * Decode a Unity Mesh with its albedo textures (resolved across CABs)
+ * and, for skinned meshes, its rig + clips. Shared by the mesh preview
+ * and the media library's headless loader.
+ */
+export async function loadUnityMeshData(
+  decoded: UnityDecodedObject,
+  parsed: ParsedSerializedFile,
+  node: Node,
+  root: Node | null,
+  cabId: string | undefined,
+) {
+  const v = decoded.value as Record<string, unknown> | null
+  if (!v || typeof v !== "object" || !("m_VertexData" in v)) {
+    throw new Error(
+      "This Mesh has no TypeTree, so its geometry can't be decoded (stripped release build).",
+    )
+  }
+  let streamData: Uint8Array | undefined
+  const ref = unityMeshStreamRef(v)
+  if (ref) {
+    const externals = await resolveTexture2DExternals(root, cabId)
+    const base = (/([^/\\]+)$/.exec(ref.path)?.[1] ?? "").toLowerCase()
+    const blob = externals.get(base)
+    if (blob) {
+      streamData = new Uint8Array(
+        await blob.slice(ref.offset, ref.offset + ref.size).arrayBuffer(),
+      )
+    }
+  }
+  const geometry = unityMeshToRightHanded(
+    extractUnityMesh(v, parsed.header.unityVersion, streamData),
+  )
+
+  // One context per SerializedFile involved in the lookup: this
+  // CAB, plus any CABs in other bundles that its PPtrs point into
+  // (shared materials / textures in Addressables builds).
+  const fileContexts = new Map<string, Promise<UnityMeshFile | null>>()
+  const makeFile = (cabNodeId: string, p: ParsedSerializedFile): UnityMeshFile => {
+    const cache = new Map<bigint, Promise<Record<string, unknown> | null>>()
+    const file: UnityMeshFile = {
+      key: cabNodeId,
+      parsed: p,
+      objects: p.objects.map((o) => ({
+        classId: o.classId,
+        pathId: o.pathId,
+        value: () => {
+          let v = cache.get(o.pathId)
+          if (!v) {
+            const tree = p.types[o.typeIndex]?.typeTree
+            v = tree
+              ? parseUnityObject(o, tree)
+                  .then((x) => (x && typeof x === "object" ? (x as Record<string, unknown>) : null))
+                  .catch(() => null)
+              : Promise.resolve(null)
+            cache.set(o.pathId, v)
+          }
+          return v
+        },
+      })),
+      resolveExternal: async (fileId) => {
+        const ext = p.externals[fileId - 1]
+        if (!ext || !root) return null
+        const cabName = externalCabName(ext.pathName)
+        let ctx = fileContexts.get(cabName)
+        if (!ctx) {
+          ctx = (async () => {
+            const cab = await findExternalCab(root, cabNodeId, cabName)
+            if (!cab?.blob) return null
+            const parsedExt = await parseSerializedFile(await cab.blob()).catch(() => null)
+            return parsedExt ? makeFile(cab.id, parsedExt) : null
+          })()
+          fileContexts.set(cabName, ctx)
+        }
+        return ctx
+      },
+    }
+    return file
+  }
+  const self = makeFile(cabId ?? node.id, parsed)
+  const resolved = await resolveMeshAlbedoTextures(self, decoded.obj.pathId)
+  const decodedTextures = new Map<unknown, Promise<MeshDecodedTexture | null>>()
+  const decodeTex = (r: ResolvedTexture) => {
+    const tex = r.texture
+    const texFile = r.file as UnityMeshFile
+    let p = decodedTextures.get(tex)
+    if (!p) {
+      p = (async () => {
+        const payload = await resolveTexture2DPayload(tex, root, texFile.key)
+        if (!payload?.length) return null
+        const t = await decodeUnityTexture2D(
+          asNumber(tex.m_Width),
+          asNumber(tex.m_Height),
+          asNumber(tex.m_TextureFormat),
+          payload,
+          texFile.parsed.header.platform,
+        )
+        const settings = tex.m_TextureSettings as Record<string, unknown> | undefined
+        const wrap = (m: unknown) => (asNumber(m) === 1 ? "clamp" : asNumber(m) === 2 ? "mirror" : "repeat")
+        return {
+          packagePath: asString(tex.m_Name),
+          width: t.width,
+          height: t.height,
+          pixels: t.pixels,
+          pixelFormat: UnityTextureFormatName(asNumber(tex.m_TextureFormat)) ?? "",
+          normalReconstructed: false,
+          // Decoded rows are top-down; Unity UVs have V = 0 at the bottom.
+          flipY: true,
+          wrapS: wrap(settings?.m_WrapU),
+          wrapT: wrap(settings?.m_WrapV),
+        } satisfies MeshDecodedTexture
+      })().catch(() => null)
+      decodedTextures.set(tex, p)
+    }
+    return p
+  }
+  const textures = await Promise.all(
+    geometry.subMeshes.map((_, i) => {
+      const tex = resolved.textures[i]
+      return tex ? decodeTex(tex) : Promise.resolve(null)
+    }),
+  )
+  // Skinned meshes: pose with the renderer's bones and the clips in
+  // this file, so characters don't sit in their T-pose bind pose.
+  let animation: UnityMeshAnimation | null = null
+  try {
+    const renderer = geometry.skin
+      ? await findSkinnedMeshRenderer(self.objects, decoded.obj.pathId)
+      : null
+    const rig = renderer ? await buildUnityRig(self, renderer, geometry) : null
+    if (rig) {
+      const clips = (await findRigClips(self, rig)).sort((a, b) =>
+        a.clip.name.localeCompare(b.clip.name),
+      )
+      const most = Math.max(0, ...clips.map((c) => c.bound.length))
+      animation = {
+        player: new UnityPosePlayer(rig, geometry),
+        // Clips driving at least half as many bones as the busiest one
+        // are full-body; the rest (face, hands) are overlays.
+        bodyClips: clips.filter((c) => c.bound.length >= most / 2),
+        overlayClips: clips.filter((c) => c.bound.length < most / 2),
+      }
+    }
+  } catch {
+    animation = null
+  }
+  return {
+    geometry,
+    textures,
+    materialNames: resolved.materialNames,
+    baseColors: geometry.subMeshes.map((_, i) => resolved.baseColors[i] ?? null),
+    animation,
+  }
+}
+
 function UnityMeshPreview({
   decoded,
   parsed,
@@ -12335,149 +12513,10 @@ function UnityMeshPreview({
   root: Node | null
   cabId: string | undefined
 }) {
-  const { loading, data, error } = useAsync(async () => {
-    const v = decoded.value as Record<string, unknown> | null
-    if (!v || typeof v !== "object" || !("m_VertexData" in v)) {
-      throw new Error(
-        "This Mesh has no TypeTree, so its geometry can't be decoded (stripped release build).",
-      )
-    }
-    let streamData: Uint8Array | undefined
-    const ref = unityMeshStreamRef(v)
-    if (ref) {
-      const externals = await resolveTexture2DExternals(root, cabId)
-      const base = (/([^/\\]+)$/.exec(ref.path)?.[1] ?? "").toLowerCase()
-      const blob = externals.get(base)
-      if (blob) {
-        streamData = new Uint8Array(
-          await blob.slice(ref.offset, ref.offset + ref.size).arrayBuffer(),
-        )
-      }
-    }
-    const geometry = unityMeshToRightHanded(
-      extractUnityMesh(v, parsed.header.unityVersion, streamData),
-    )
-
-    // One context per SerializedFile involved in the lookup: this
-    // CAB, plus any CABs in other bundles that its PPtrs point into
-    // (shared materials / textures in Addressables builds).
-    const fileContexts = new Map<string, Promise<UnityMeshFile | null>>()
-    const makeFile = (cabNodeId: string, p: ParsedSerializedFile): UnityMeshFile => {
-      const cache = new Map<bigint, Promise<Record<string, unknown> | null>>()
-      const file: UnityMeshFile = {
-        key: cabNodeId,
-        parsed: p,
-        objects: p.objects.map((o) => ({
-          classId: o.classId,
-          pathId: o.pathId,
-          value: () => {
-            let v = cache.get(o.pathId)
-            if (!v) {
-              const tree = p.types[o.typeIndex]?.typeTree
-              v = tree
-                ? parseUnityObject(o, tree)
-                    .then((x) => (x && typeof x === "object" ? (x as Record<string, unknown>) : null))
-                    .catch(() => null)
-                : Promise.resolve(null)
-              cache.set(o.pathId, v)
-            }
-            return v
-          },
-        })),
-        resolveExternal: async (fileId) => {
-          const ext = p.externals[fileId - 1]
-          if (!ext || !root) return null
-          const cabName = externalCabName(ext.pathName)
-          let ctx = fileContexts.get(cabName)
-          if (!ctx) {
-            ctx = (async () => {
-              const cab = await findExternalCab(root, cabNodeId, cabName)
-              if (!cab?.blob) return null
-              const parsedExt = await parseSerializedFile(await cab.blob()).catch(() => null)
-              return parsedExt ? makeFile(cab.id, parsedExt) : null
-            })()
-            fileContexts.set(cabName, ctx)
-          }
-          return ctx
-        },
-      }
-      return file
-    }
-    const self = makeFile(cabId ?? node.id, parsed)
-    const resolved = await resolveMeshAlbedoTextures(self, decoded.obj.pathId)
-    const decodedTextures = new Map<unknown, Promise<MeshDecodedTexture | null>>()
-    const decodeTex = (r: ResolvedTexture) => {
-      const tex = r.texture
-      const texFile = r.file as UnityMeshFile
-      let p = decodedTextures.get(tex)
-      if (!p) {
-        p = (async () => {
-          const payload = await resolveTexture2DPayload(tex, root, texFile.key)
-          if (!payload?.length) return null
-          const t = await decodeUnityTexture2D(
-            asNumber(tex.m_Width),
-            asNumber(tex.m_Height),
-            asNumber(tex.m_TextureFormat),
-            payload,
-            texFile.parsed.header.platform,
-          )
-          const settings = tex.m_TextureSettings as Record<string, unknown> | undefined
-          const wrap = (m: unknown) => (asNumber(m) === 1 ? "clamp" : asNumber(m) === 2 ? "mirror" : "repeat")
-          return {
-            packagePath: asString(tex.m_Name),
-            width: t.width,
-            height: t.height,
-            pixels: t.pixels,
-            pixelFormat: UnityTextureFormatName(asNumber(tex.m_TextureFormat)) ?? "",
-            normalReconstructed: false,
-            // Decoded rows are top-down; Unity UVs have V = 0 at the bottom.
-            flipY: true,
-            wrapS: wrap(settings?.m_WrapU),
-            wrapT: wrap(settings?.m_WrapV),
-          } satisfies MeshDecodedTexture
-        })().catch(() => null)
-        decodedTextures.set(tex, p)
-      }
-      return p
-    }
-    const textures = await Promise.all(
-      geometry.subMeshes.map((_, i) => {
-        const tex = resolved.textures[i]
-        return tex ? decodeTex(tex) : Promise.resolve(null)
-      }),
-    )
-    // Skinned meshes: pose with the renderer's bones and the clips in
-    // this file, so characters don't sit in their T-pose bind pose.
-    let animation: UnityMeshAnimation | null = null
-    try {
-      const renderer = geometry.skin
-        ? await findSkinnedMeshRenderer(self.objects, decoded.obj.pathId)
-        : null
-      const rig = renderer ? await buildUnityRig(self, renderer, geometry) : null
-      if (rig) {
-        const clips = (await findRigClips(self, rig)).sort((a, b) =>
-          a.clip.name.localeCompare(b.clip.name),
-        )
-        const most = Math.max(0, ...clips.map((c) => c.bound.length))
-        animation = {
-          player: new UnityPosePlayer(rig, geometry),
-          // Clips driving at least half as many bones as the busiest one
-          // are full-body; the rest (face, hands) are overlays.
-          bodyClips: clips.filter((c) => c.bound.length >= most / 2),
-          overlayClips: clips.filter((c) => c.bound.length < most / 2),
-        }
-      }
-    } catch {
-      animation = null
-    }
-    return {
-      geometry,
-      textures,
-      materialNames: resolved.materialNames,
-      baseColors: geometry.subMeshes.map((_, i) => resolved.baseColors[i] ?? null),
-      animation,
-    }
-  }, [decoded.obj.pathId.toString(), cabId])
+  const { loading, data, error } = useAsync(
+    () => loadUnityMeshData(decoded, parsed, node, root, cabId),
+    [decoded.obj.pathId.toString(), cabId],
+  )
 
   if (loading) return <LoadingFiller label="Decoding mesh…" />
   if (error) {
@@ -15094,6 +15133,36 @@ function J3dModelPreview({ node }: { node: Node }) {
     )
   }
   return <J3dModelViewer node={node} view={v} />
+}
+
+function HaloModelPreview({ node }: { node: Node }) {
+  const ref = node.meta?.haloModel as HaloModelRef | undefined
+  const { loading, data, error } = useAsync(async () => {
+    if (!ref) throw new Error("Missing haloModel metadata on this node")
+    return loadHaloModelView(ref)
+  }, [node.id])
+  if (loading) return <LoadingFiller label="Decoding model…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">Halo Model</h2>
+        <p className="text-xs text-muted-foreground">
+          {ref!.path} · {v.vertices.toLocaleString()} vertices ·{" "}
+          {v.triangles.toLocaleString()} triangles · {v.texturedShaders}/
+          {v.shaderCount} shaders textured · drag to orbit, scroll to zoom
+        </p>
+      </div>
+      <div className="flex-1 p-3">
+        <MeshViewer
+          mesh={v.mesh}
+          materialDiffuseTextures={v.textures}
+          baseName={node.name}
+        />
+      </div>
+    </div>
+  )
 }
 
 function N64ModelPreview({ node }: { node: Node }) {

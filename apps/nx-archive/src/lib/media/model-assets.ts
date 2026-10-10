@@ -17,7 +17,12 @@ import { GfbmdlPose, colorUvTransform, groupVisibility, materialValues } from '@
 import { isDummyMch, parseMch } from '@tootallnate/ff8-model';
 import { parseDat } from '@tootallnate/ff8-battle';
 
+import { inferAssetClassName, isUasset, parseStaticMesh, parseUasset, readExportProperties } from '@tootallnate/uasset';
+
 import type { RenderableMesh, RenderableMeshLOD } from '~/components/mesh-viewer';
+import { bakeBfresBindPose, loadBfresShapes } from '~/components/bfres-viewer';
+import { decodeUnityObjectNode, loadUnityMeshData } from '~/components/preview-pane';
+import { defaultClip as defaultUnityClip } from '~/components/unity-mesh-viewer';
 import * as ff8Mch from '~/components/ff8-mch-preview';
 import * as ff8Battle from '~/components/ff8-battle-preview';
 import { adaptMesh as phyreLod, findPhyreTextureNode } from '~/components/phyre-mesh-viewer';
@@ -42,11 +47,26 @@ import {
 	type N64ModelRef,
 	type N64ModelView,
 } from '../preview';
-import type { DecodedTexture } from '../uasset-material-chain';
+import {
+	extractMaterialPathsFromProperties,
+	pickDiffuseTexture,
+	resolveMaterialTextures,
+	type DecodedTexture,
+} from '../uasset-material-chain';
+import { createAssetResolver } from '../uasset-resolver';
+import { loadHaloModelView, type HaloModelRef } from '../halo';
+import { unityMeshDisplayColors } from '../unity-mesh';
+import { findNodeById } from '../unity-external';
 
 export interface ModelAsset {
-	/** One LOD, already posed. */
-	mesh: RenderableMesh;
+	/** One LOD, already posed. Absent when {@link meshes} is set. */
+	mesh?: RenderableMesh;
+	/**
+	 * Pre-baked world-space (Y-up) meshes, for formats that pose through
+	 * their own Three.js scene graph (BFRES GPU skinning). Takes
+	 * precedence over {@link mesh}.
+	 */
+	meshes?: ExportMesh[];
 	/** Per material slot (section `materialIndex`). */
 	textures: (DecodedTexture | null)[];
 	/** Flat colours (sRGB 0–1) for slots without a texture. */
@@ -65,6 +85,7 @@ export const HEADLESS_MODEL_KINDS = new Set([
 	'gfbmdl-model',
 	'hsd-model',
 	'n64-model',
+	'halo-model',
 	'j3d-model',
 	'ff7-hrc',
 	'ff7-battle-skeleton',
@@ -72,6 +93,9 @@ export const HEADLESS_MODEL_KINDS = new Set([
 	'ff8-mch',
 	'ff8-battle-dat',
 	'phyre-mesh',
+	'bfres',
+	'unity-object',
+	'uasset-info',
 ]);
 
 export function canLoadModelHeadless(previewKind: string): boolean {
@@ -265,6 +289,124 @@ async function loadPhyre(node: Node, root: Node | null): Promise<ModelAsset> {
 	return asset(lod, new Array(slots).fill(primary), { texturesFound: [primary ? 1 : 0, refs.length ? 1 : 0] });
 }
 
+async function loadBfres(node: Node, root: Node | null): Promise<ModelAsset> {
+	const loaded = await loadBfresShapes(node, root);
+	const visible = loaded.records.filter((r) => r.visible);
+	const meshes = bakeBfresBindPose(loaded);
+	let triangles = 0;
+	let vertices = 0;
+	for (const m of meshes) {
+		triangles += m.indices.length / 3;
+		vertices += m.positions.length / 3;
+	}
+	return {
+		meshes,
+		textures: [],
+		pose: 'bind',
+		triangles,
+		vertices,
+		texturesFound: [visible.filter((r) => r.hasAlbedo).length, visible.length],
+		animations: loaded.animations.skeletal.length,
+	};
+}
+
+const UNITY_IDLE = ['idle', 'wait', 'stand'];
+
+async function loadUnityMesh(node: Node, root: Node | null): Promise<ModelAsset> {
+	if (node.meta?.unityClass !== 'Mesh') throw new Error('Not a Unity Mesh object');
+	const { parsed, decoded } = await decodeUnityObjectNode(node);
+	const data = await loadUnityMeshData(decoded, parsed, node, root, node.meta?.unitySerializedFileNodeId as string | undefined);
+	const g = data.geometry;
+	const positions = Float32Array.from(g.positions);
+	const normals = g.normals ? Float32Array.from(g.normals) : undefined;
+	let pose: string | undefined;
+	const anim = data.animation;
+	if (anim && anim.bodyClips.length) {
+		// Same default as the viewer: an idle-ish clip, else the first.
+		const clip = anim.bodyClips[Math.max(0, defaultUnityClip(anim.bodyClips, UNITY_IDLE))]!;
+		anim.player.setLayer(0, clip, 0);
+		anim.player.apply(positions, normals ?? null);
+		pose = clip.clip.name;
+	}
+	const display = unityMeshDisplayColors(g.colors, g.vertexCount, data.baseColors);
+	return asset(
+		{
+			numVertices: g.vertexCount,
+			positions,
+			normals,
+			uv: g.uv0 ?? undefined,
+			colors: display.colors,
+			indices: g.indices,
+			sections: g.subMeshes.map((sm, i) => ({ materialIndex: i, firstIndex: sm.firstIndex, numTriangles: sm.indexCount / 3 })),
+		},
+		data.textures,
+		{
+			baseColors: display.baseColors,
+			pose,
+			// Vertex-coloured meshes with no textures at all (e.g. Pokémon
+			// Quest) aren't missing anything.
+			texturesFound:
+				display.colors && !data.textures.some(Boolean)
+					? undefined
+					: [data.textures.filter(Boolean).length, g.subMeshes.length],
+			animations: anim ? anim.bodyClips.length + anim.overlayClips.length : 0,
+		},
+	);
+}
+
+async function loadUeMesh(node: Node, root: Node | null): Promise<ModelAsset> {
+	const bytes = await bytesOf(node);
+	if (!isUasset(bytes)) throw new Error('Not a legacy .uasset (Zen packages are not supported yet)');
+	const parsed = parseUasset(bytes);
+	const cls = inferAssetClassName(parsed);
+	if (cls !== 'StaticMesh') throw new Error(`${cls ?? 'This'} geometry is not supported yet (only StaticMesh)`);
+	const uexpNode = root ? await findNodeById(root, node.id.replace(/\.uasset$/i, '.uexp')) : null;
+	if (!uexpNode?.blob) throw new Error('Missing the .uexp companion with the mesh data');
+	const uexp = await bytesOf(uexpNode);
+	let exportIdx = -1;
+	for (let i = 0; i < parsed.exports.length; i++) {
+		const exp = parsed.exports[i]!;
+		if (exp.classIndex >= 0) continue;
+		const imp = parsed.imports[-exp.classIndex - 1];
+		if (imp && parsed.names[imp.objectName.nameIndex]?.value === 'StaticMesh') {
+			exportIdx = i;
+			break;
+		}
+	}
+	if (exportIdx < 0) throw new Error('No StaticMesh export found');
+	const mesh = parseStaticMesh(parsed, uexp, exportIdx);
+	const lod = mesh.lods[0];
+	if (!lod) throw new Error('StaticMesh has no LODs');
+	let textures: (DecodedTexture | null)[] = [];
+	try {
+		const { properties } = readExportProperties(parsed, uexp, exportIdx);
+		const prop = properties.find((p) => p.name === 'StaticMaterials');
+		if (prop && prop.value.kind === 'array') {
+			const paths = extractMaterialPathsFromProperties(prop.value.values, parsed);
+			const sets = await resolveMaterialTextures(paths, createAssetResolver(root, node.id));
+			textures = sets.map((set) => (set ? pickDiffuseTexture(set) : null));
+		}
+	} catch {
+		// untextured is still a model
+	}
+	const slots = Math.max(0, ...lod.sections.map((s) => s.materialIndex + 1));
+	return asset(
+		{
+			numVertices: lod.numVertices,
+			positions: lod.positions,
+			normals: lod.normals,
+			uv: lod.uvs[0],
+			colors: undefined,
+			indices: lod.indices,
+			sections: lod.sections.map((sec) => ({ materialIndex: sec.materialIndex, firstIndex: sec.firstIndex, numTriangles: sec.numTriangles })),
+		},
+		textures,
+		{ texturesFound: [textures.filter(Boolean).length, slots] },
+		// UE is left-handed Z-up; the viewer rotates −90° about X.
+		'z-up',
+	);
+}
+
 /** Load a model item headlessly. Throws when the format has no headless path. */
 export async function loadModelAsset(node: Node, previewKind: string, root: Node | null): Promise<ModelAsset> {
 	switch (previewKind) {
@@ -277,6 +419,10 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 		case 'n64-model': {
 			const v = await parseN64ModelForView(await node.blob!(), node.meta?.n64Model as N64ModelRef);
 			return asset(n64Lod(v), v.texturedMaterials > 0 ? v.textures : []);
+		}
+		case 'halo-model': {
+			const v = await loadHaloModelView(node.meta?.haloModel as HaloModelRef);
+			return asset(v.mesh.lods[0], v.textures, {}, 'z-up');
 		}
 		case 'j3d-model': {
 			const v = await parseJ3dForView(await node.blob!());
@@ -294,6 +440,12 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 			return loadFf8Battle(node);
 		case 'phyre-mesh':
 			return loadPhyre(node, root);
+		case 'bfres':
+			return loadBfres(node, root);
+		case 'unity-object':
+			return loadUnityMesh(node, root);
+		case 'uasset-info':
+			return loadUeMesh(node, root);
 		default:
 			throw new Error(`No headless loader for ${previewKind}`);
 	}
@@ -326,7 +478,8 @@ function upAxisPositions(positions: Float32Array, upAxis: RenderableMesh['upAxis
  * texture, else flat base colour, else vertex colours.
  */
 export function modelAssetToExportMeshes(a: ModelAsset): ExportMesh[] {
-	const lod = a.mesh.lods[0];
+	if (a.meshes) return a.meshes;
+	const lod = a.mesh?.lods[0];
 	if (!lod || lod.indices.length === 0) return [];
 	const slotCount = Math.max(1, a.textures.length, ...lod.sections.map((s) => s.materialIndex + 1));
 	const materials: ExportMaterial[] = [];
@@ -348,7 +501,7 @@ export function modelAssetToExportMeshes(a: ModelAsset): ExportMesh[] {
 	}
 	return [
 		{
-			positions: upAxisPositions(lod.positions, a.mesh.upAxis),
+			positions: upAxisPositions(lod.positions, a.mesh!.upAxis),
 			indices: lod.indices instanceof Uint32Array ? lod.indices : Uint32Array.from(lod.indices),
 			uvs: lod.uv ?? null,
 			colors: lod.colors ?? null,

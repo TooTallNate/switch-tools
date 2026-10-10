@@ -113,7 +113,7 @@ export interface AssetResolver {
  * walks the tree to discover the project-name → top-level-dir
  * mapping; subsequent lookups hit the cache.
  */
-export function createAssetResolver(root: Node | null): AssetResolver {
+export function createAssetResolver(root: Node | null, scopeId?: string): AssetResolver {
 	if (!root) {
 		return { resolve: async () => null };
 	}
@@ -121,7 +121,11 @@ export function createAssetResolver(root: Node | null): AssetResolver {
 	let mounts: Promise<MountMap> | null = null;
 
 	const getMounts = (): Promise<MountMap> => {
-		if (!mounts) mounts = discoverMounts(root);
+		// When the referencing asset is known, its own path pins the
+		// mounts (`…/<Project>/Content/…` → `/Game`, sibling `Engine/Content`
+		// → `/Engine`): Switch dumps nest the PAK under a RomFS that also
+		// has a `<Project>/Content/Paks/` directory.
+		if (!mounts) mounts = (scopeId && mountsFromScope(scopeId)) ? Promise.resolve(mountsFromScope(scopeId)!) : discoverMounts(root);
 		return mounts;
 	};
 
@@ -174,12 +178,24 @@ interface MountMap {
  * NCA contains a romfs whose pak is the actual UE PAK); we descend
  * one level if needed.
  */
+function mountsFromScope(scopeId: string): MountMap | null {
+	const i = scopeId.lastIndexOf('/Content/');
+	if (i < 0) return null;
+	const game = scopeId.slice(0, i + '/Content'.length);
+	const projectDir = game.slice(0, game.lastIndexOf('/'));
+	const pakRoot = projectDir.slice(0, projectDir.lastIndexOf('/'));
+	const out: MountMap = { Game: game };
+	if (projectDir.endsWith('/Engine')) out['Engine'] = game;
+	else if (pakRoot) out['Engine'] = `${pakRoot}/Engine/Content`;
+	return out;
+}
+
 async function discoverMounts(root: Node): Promise<MountMap> {
 	const out: MountMap = {};
 	const queue: Array<{ node: Node; depth: number }> = [{ node: root, depth: 0 }];
 	while (queue.length > 0) {
 		const { node, depth } = queue.shift()!;
-		if (depth > 3) continue;
+		if (depth > 6) continue;
 		if (!node.getChildren) continue;
 		const kids = node._children ?? (node._children = await node.getChildren());
 		for (const kid of kids) {
@@ -190,9 +206,15 @@ async function discoverMounts(root: Node): Promise<MountMap> {
 				// Project directory candidate: has a `Content/` subdir.
 				const kidKids = kid._children ?? (kid._children = await kid.getChildren());
 				const projContent = kidKids.find((n) => n.name === 'Content' && n.isContainer);
-				if (projContent) {
+				const contentKids = projContent ? (projContent._children ?? (projContent._children = await projContent.getChildren!())) : [];
+				// A RomFS-level `<Project>/Content/` that only holds `Paks/`
+				// is the PAK's location, not its mount: look inside the paks.
+				const paksOnly = contentKids.length > 0 && contentKids.every((n) => n.name === 'Paks' || !n.isContainer || n.name === 'Movies' || n.name === 'CRIWARE');
+				if (projContent && !paksOnly) {
 					out['Game'] = projContent.id;
-				} else if (depth < 2) {
+				} else if (projContent) {
+					for (const k of contentKids) if (k.name === 'Paks') queue.push({ node: k, depth: depth + 1 });
+				} else if (depth < 5) {
 					// Could be an outer container (NSP → NCA → RomFS → PAK).
 					queue.push({ node: kid, depth: depth + 1 });
 				}

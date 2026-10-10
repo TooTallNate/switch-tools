@@ -23,6 +23,7 @@
  */
 
 import { decodeBcn, type BcnFormat } from '@tootallnate/bcn';
+import { deswizzle, pickBlockHeight } from '@tootallnate/bntx';
 import { decodeAstc } from './astc.js';
 
 export interface DecodedMip {
@@ -42,6 +43,112 @@ export interface DecodedMip {
  * silently rendering garbage.
  */
 export async function decodeUeMip(
+	pixelFormat: string,
+	width: number,
+	height: number,
+	bytes: Uint8Array,
+): Promise<DecodedMip> {
+	const linear = await decodeLinearMip(pixelFormat, width, height, bytes);
+	// Switch cooks may store mips in Tegra X1 block-linear layout, and
+	// UE's platform data carries no flag for it. Decode the
+	// deswizzled candidates too and keep whichever is smoothest:
+	// a wrong layout scrambles 4×4 blocks and GOB rows, which shows up
+	// as much larger neighbouring-pixel differences.
+	const blk = blockLayout(pixelFormat);
+	if (!blk || width < 16 || height < 16) return linear;
+	// Own the buffer: the ASTC decoder can return a view into wasm
+	// memory that the next decode overwrites.
+	linear.pixels = linear.pixels.slice();
+	// The block height isn't recorded either (Octopath's 512² DXT5
+	// textures use 8, not the 16 BNTX's heuristic picks), so try each.
+	const heightInBlocks = Math.ceil(height / blk.h);
+	const candidates = [16, 8, 4, 2, 1].filter((bh) => bh <= Math.max(1, pickBlockHeight(heightInBlocks)));
+	const linearScore = roughness(linear.pixels, width, height, blk.w, blk.h);
+	let best: DecodedMip | null = null;
+	let bestScore = Infinity;
+	for (const blockHeight of candidates) {
+		let decoded: DecodedMip;
+		try {
+			const data = deswizzle({
+				width,
+				height,
+				blkWidth: blk.w,
+				blkHeight: blk.h,
+				bytesPerBlock: blk.bytes,
+				data: bytes,
+				blockHeight,
+			});
+			decoded = await decodeLinearMip(pixelFormat, width, height, data);
+			decoded = { ...decoded, pixels: decoded.pixels.slice() };
+		} catch {
+			continue;
+		}
+		const score = roughness(decoded.pixels, width, height, blk.w, blk.h);
+		if (score < bestScore) {
+			best = decoded;
+			bestScore = score;
+		}
+	}
+	// Require a clear win over linear so smooth / flat textures stay put.
+	return best && bestScore < linearScore * 0.75 ? best : linear;
+}
+
+/** Block geometry of a pixel format, for deswizzling. */
+function blockLayout(pixelFormat: string): { w: number; h: number; bytes: number } | null {
+	const astc = /^PF_ASTC_(\d+)x(\d+)$/.exec(pixelFormat);
+	if (astc) return { w: Number(astc[1]), h: Number(astc[2]), bytes: 16 };
+	switch (mapBcnFormat(pixelFormat)) {
+		case 'BC1':
+		case 'BC4':
+			return { w: 4, h: 4, bytes: 8 };
+		case 'BC2':
+		case 'BC3':
+		case 'BC5':
+			return { w: 4, h: 4, bytes: 16 };
+	}
+	switch (pixelFormat) {
+		case 'PF_B8G8R8A8':
+		case 'PF_R8G8B8A8':
+		case 'PF_R8G8B8A8_UINT':
+			return { w: 1, h: 1, bytes: 4 };
+		case 'PF_G8':
+		case 'PF_A8':
+			return { w: 1, h: 1, bytes: 1 };
+		case 'PF_FloatRGBA':
+			return { w: 1, h: 1, bytes: 8 };
+	}
+	return null;
+}
+
+/**
+ * Mean absolute RGBA difference across block edges. Deswizzling moves
+ * whole blocks, so only pixel pairs that straddle a block boundary
+ * tell a correct layout from a scrambled one.
+ */
+function roughness(px: Uint8Array, width: number, height: number, bw: number, bh: number): number {
+	let sum = 0;
+	let n = 0;
+	const stride = width * 4;
+	const diff = (i: number, j: number) =>
+		Math.abs(px[i] - px[j]) + Math.abs(px[i + 1] - px[j + 1]) + Math.abs(px[i + 2] - px[j + 2]) + Math.abs(px[i + 3] - px[j + 3]);
+	// Vertical block edges (x = bw-1 | bw), sampled every other row.
+	for (let x = bw - 1; x + 1 < width; x += bw) {
+		for (let y = 0; y < height; y += 2) {
+			sum += diff(y * stride + x * 4, y * stride + (x + 1) * 4);
+			n++;
+		}
+	}
+	// Horizontal block edges.
+	for (let y = bh - 1; y + 1 < height; y += bh) {
+		for (let x = 0; x < width; x += 2) {
+			sum += diff(y * stride + x * 4, (y + 1) * stride + x * 4);
+			n++;
+		}
+	}
+	return n ? sum / n : 0;
+}
+
+async function decodeLinearMip(
 	pixelFormat: string,
 	width: number,
 	height: number,

@@ -22,11 +22,12 @@ import { parseDds } from '@tootallnate/dds';
 import { findNodeById } from '../unity-external';
 import { decodeAudioBlob } from './audio';
 import { loadThumb, saveThumb, type ThumbRecord } from './cache';
-import { canLoadModelHeadless, loadModelAsset, type ModelAsset } from './model-assets';
+import { canLoadModelHeadless, loadModelAsset, modelAssetToExportMeshes, type ModelAsset } from './model-assets';
+import type { ExportMaterial } from '../mesh-export';
 import type { MediaInfo, MediaItem, MediaKind, MediaStatus } from './types';
 
 /** Bump to regenerate cached thumbnails. */
-export const THUMB_VERSION = 2;
+export const THUMB_VERSION = 5;
 const SIZE = 256;
 
 export interface ThumbResult {
@@ -37,6 +38,8 @@ export interface ThumbResult {
 
 /** Facts reported back to the index after a thumbnail is made. */
 export interface ItemPatch {
+	/** The item turned out not to be media (e.g. a texture-only BFRES): remove it. */
+	drop?: boolean;
 	info?: MediaInfo;
 	status?: MediaStatus;
 	note?: string;
@@ -139,55 +142,82 @@ function wrap(w: string | undefined): THREE.Wrapping {
 	return THREE.RepeatWrapping;
 }
 
-/** Render a posed asset from a front three-quarter view. */
-export async function renderModelThumb(asset: ModelAsset): Promise<Blob> {
-	const lod = asset.mesh.lods[0]!;
-	const geom = new THREE.BufferGeometry();
-	geom.setAttribute('position', new THREE.BufferAttribute(lod.positions, 3));
-	if (lod.uv) geom.setAttribute('uv', new THREE.BufferAttribute(lod.uv, 2));
-	if (lod.colors) geom.setAttribute('color', new THREE.BufferAttribute(lod.colors, 3));
-	geom.setIndex(new THREE.BufferAttribute(lod.indices, 1));
-	for (const s of lod.sections) geom.addGroup(s.firstIndex, s.numTriangles * 3, Math.max(0, s.materialIndex));
-	if (lod.normals) geom.setAttribute('normal', new THREE.BufferAttribute(lod.normals, 3));
-	else geom.computeVertexNormals();
-	geom.computeBoundingSphere();
-
-	const slots = Math.max(1, asset.textures.length, ...lod.sections.map((s) => s.materialIndex + 1));
-	const owned: THREE.Texture[] = [];
-	const materials: THREE.Material[] = [];
-	for (let i = 0; i < slots; i++) {
-		const t = asset.textures[i];
-		const c = asset.baseColors?.[i];
-		if (t) {
-			const tex = new THREE.DataTexture(t.pixels, t.width, t.height, THREE.RGBAFormat, THREE.UnsignedByteType);
-			tex.colorSpace = THREE.SRGBColorSpace;
-			tex.wrapS = wrap(t.wrapS);
-			tex.wrapT = wrap(t.wrapT);
-			tex.flipY = t.flipY ?? true;
-			tex.needsUpdate = true;
-			owned.push(tex);
-			materials.push(new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5 }));
-		} else if (c) {
-			materials.push(new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace), side: THREE.DoubleSide }));
-		} else if (lod.colors) {
-			materials.push(new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
-		} else {
-			materials.push(new THREE.MeshLambertMaterial({ color: 0xbdbdbd, side: THREE.DoubleSide }));
+/** Group consecutive equal `triangleMaterials` into geometry groups. */
+function addMaterialGroups(geom: THREE.BufferGeometry, tris: ArrayLike<number> | null | undefined, count: number): void {
+	if (!tris || tris.length === 0) {
+		geom.addGroup(0, count * 3, 0);
+		return;
+	}
+	let start = 0;
+	for (let t = 1; t <= count; t++) {
+		if (t === count || tris[t] !== tris[start]) {
+			geom.addGroup(start * 3, (t - start) * 3, tris[start] ?? 0);
+			start = t;
 		}
 	}
+}
 
-	const mesh = new THREE.Mesh(geom, materials);
-	if (asset.mesh.upAxis === 'z-up') mesh.rotation.x = -Math.PI / 2;
-	else if (asset.mesh.upAxis === 'y-down') mesh.rotation.x = Math.PI;
+function materialFor(m: ExportMaterial | undefined, hasColors: boolean, owned: THREE.Texture[]): THREE.Material {
+	const t = m?.texture;
+	if (t) {
+		const tex = new THREE.DataTexture(
+			t.pixels instanceof Uint8Array || t.pixels instanceof Uint8ClampedArray ? t.pixels : Uint8Array.from(t.pixels),
+			t.width,
+			t.height,
+			THREE.RGBAFormat,
+			THREE.UnsignedByteType,
+		);
+		tex.colorSpace = THREE.SRGBColorSpace;
+		tex.wrapS = wrap(t.wrapS);
+		tex.wrapT = wrap(t.wrapT);
+		tex.flipY = t.flipY ?? false;
+		tex.needsUpdate = true;
+		owned.push(tex);
+		return new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5 });
+	}
+	if (m?.baseColor) {
+		const [r, g, b] = m.baseColor;
+		return new THREE.MeshLambertMaterial({ color: new THREE.Color().setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace), side: THREE.DoubleSide });
+	}
+	if (m?.useVertexColors && hasColors) return new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
+	return new THREE.MeshLambertMaterial({ color: 0xbdbdbd, side: THREE.DoubleSide });
+}
+
+/**
+ * Render a posed asset from a front three-quarter view. Draws the same
+ * world-space meshes (and colour sources) the exporters receive, so
+ * thumbnails and exports always agree.
+ */
+export async function renderModelThumb(asset: ModelAsset): Promise<Blob> {
 	const scene = new THREE.Scene();
-	scene.add(mesh);
+	const geoms: THREE.BufferGeometry[] = [];
+	const owned: THREE.Texture[] = [];
+	const materials: THREE.Material[] = [];
+	for (const em of modelAssetToExportMeshes(asset)) {
+		const geom = new THREE.BufferGeometry();
+		geom.setAttribute('position', new THREE.BufferAttribute(em.positions, 3));
+		if (em.uvs) geom.setAttribute('uv', new THREE.BufferAttribute(em.uvs, 2));
+		const hasColors = !!em.colors;
+		if (em.colors) geom.setAttribute('color', new THREE.BufferAttribute(em.colors, em.colorStride ?? 3));
+		geom.setIndex(new THREE.BufferAttribute(em.indices, 1));
+		addMaterialGroups(geom, em.triangleMaterials, em.indices.length / 3);
+		geom.computeVertexNormals();
+		geoms.push(geom);
+		const mats = (em.materials?.length ? em.materials : [undefined]).map((m) => materialFor(m, hasColors, owned));
+		materials.push(...mats);
+		scene.add(new THREE.Mesh(geom, mats));
+	}
 	scene.add(new THREE.AmbientLight(0xffffff, 1.6));
 	const dir = new THREE.DirectionalLight(0xffffff, 1.4);
 	dir.position.set(2, 4, 3);
 	scene.add(dir);
 	scene.updateMatrixWorld(true);
 
-	const box = new THREE.Box3().setFromObject(mesh);
+	const box = new THREE.Box3();
+	for (const g of geoms) {
+		g.computeBoundingBox();
+		box.union(g.boundingBox!);
+	}
 	const center = box.getCenter(new THREE.Vector3());
 	const sizeV = box.getSize(new THREE.Vector3());
 	const radius = Math.max(sizeV.length() / 2, 1e-3);
@@ -200,7 +230,7 @@ export async function renderModelThumb(asset: ModelAsset): Promise<Blob> {
 	r.setClearColor(0x000000, 0);
 	r.render(scene, camera);
 	const png = await toPng(r.domElement);
-	geom.dispose();
+	for (const g of geoms) g.dispose();
 	for (const m of materials) m.dispose();
 	for (const t of owned) t.dispose();
 	return png;
@@ -408,6 +438,11 @@ export class ThumbnailService {
 			return { v: THUMB_VERSION, blob: r.png, info: r.info, error: r.partial };
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
+			// Texture / animation-only BFRES files look like models by name.
+			if (/no extractable geometry/i.test(message)) {
+				this.onPatch(item.id, { drop: true });
+				return { v: THUMB_VERSION, error: message };
+			}
 			this.onPatch(item.id, { status: 'error', note: message });
 			return { v: THUMB_VERSION, error: message };
 		}

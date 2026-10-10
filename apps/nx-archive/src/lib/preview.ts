@@ -37,6 +37,7 @@ import {
 	type ParsedBfstm,
 } from '@tootallnate/bfstm';
 import { encodeWav, encodeWavBlob } from '@tootallnate/dsp-adpcm';
+import { decodeXboxAdpcm } from '@tootallnate/halo-map';
 import {
 	isMsAdpcmWav,
 	transcodeMsAdpcmToPcmWav,
@@ -299,6 +300,7 @@ export type PreviewKind =
 	 * routed via `meta.n64Model`.
 	 */
 	| 'n64-model'
+	| 'halo-model'
 	/**
 	 * Nintendo BTI texture (`.bti`) — a bare GX texture header plus
 	 * tiled pixel data, as used all over GameCube/Wii JSystem titles.
@@ -445,6 +447,44 @@ export const VIDEO_MIME: Record<string, string> = {
  * Only inspected for `.wav` inputs — non-WAV containers can't
  * suffer from this issue.
  */
+/**
+ * RIFF/WAVE whose `fmt ` chunk has `wFormatTag` 0x0069 (Xbox ADPCM),
+ * common on original Xbox discs. Walks the chunks because DirectMusic
+ * waves put `guid` / `wavu` chunks before `fmt `.
+ */
+function isXboxAdpcmWav(head: Uint8Array): boolean {
+	const tag = (o: number, s: string) => s.split('').every((c, i) => head[o + i] === c.charCodeAt(0));
+	if (head.length < 12 || !tag(0, 'RIFF') || !tag(8, 'WAVE')) return false;
+	const dv = new DataView(head.buffer, head.byteOffset, head.byteLength);
+	for (let o = 12; o + 10 <= head.length; ) {
+		const size = dv.getUint32(o + 4, true);
+		if (tag(o, 'fmt ')) return dv.getUint16(o + 8, true) === 0x0069;
+		o += 8 + size + (size & 1);
+	}
+	return false;
+}
+
+/** Decode an Xbox ADPCM WAV to PCM16 WAV; null when the chunks are malformed. */
+function transcodeXboxAdpcmWav(bytes: Uint8Array): Blob | null {
+	const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	let channels = 0;
+	let rate = 0;
+	for (let o = 12; o + 8 <= bytes.length; ) {
+		const id = String.fromCharCode(...bytes.subarray(o, o + 4));
+		const size = dv.getUint32(o + 4, true);
+		const body = o + 8;
+		if (id === 'fmt ' && size >= 16) {
+			channels = dv.getUint16(body + 2, true);
+			rate = dv.getUint32(body + 4, true);
+		} else if (id === 'data' && channels) {
+			const data = bytes.subarray(body, Math.min(bytes.length, body + size));
+			return encodeWavBlob(decodeXboxAdpcm(data, channels), rate, channels);
+		}
+		o = body + size + (size & 1);
+	}
+	return null;
+}
+
 export async function prepareAudioBlobForBrowser(
 	blob: Blob,
 	filename: string,
@@ -453,7 +493,10 @@ export async function prepareAudioBlobForBrowser(
 	// Peek at just enough of the header to identify the codec.
 	// The MS-ADPCM check needs the first 22 bytes (RIFF magic +
 	// WAVE + fmt header up to wFormatTag).
-	const head = new Uint8Array(await blob.slice(0, 22).arrayBuffer());
+	const head = new Uint8Array(await blob.slice(0, 256).arrayBuffer());
+	if (isXboxAdpcmWav(head)) {
+		return transcodeXboxAdpcmWav(new Uint8Array(await blob.arrayBuffer())) ?? blob;
+	}
 	if (!isMsAdpcmWav(head)) return blob;
 	// Confirmed MS-ADPCM — pull the full bytes and transcode to
 	// PCM-WAV. Materialising the full file is necessary anyway:
@@ -517,6 +560,7 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.gbRom) return 'gb-rom-info';
 	// A single N64 display list located by the model scanner.
 	if (node.meta?.n64Model) return 'n64-model';
+	if (node.meta?.haloModel) return 'halo-model';
 	// Melee model: the tree tags which archive + joint root to render.
 	if (node.meta?.hsdModel) return 'hsd-model';
 	// Raw pixel data tagged at tree-build time (NES CHR-ROM,

@@ -58,6 +58,7 @@
  */
 
 import { decodeBlock as lz4DecodeBlock } from '@tootallnate/lz4';
+import { decodeLzma } from '@tootallnate/lzma';
 
 // --- Compression type enum (low 6 bits of various `flags` fields) ---
 const COMPRESSION_NONE = 0;
@@ -133,7 +134,7 @@ export async function isUnityFs(blob: Blob): Promise<boolean> {
  * Throws on:
  *   - Non-`UnityFS` magic.
  *   - Unsupported header `version` (only v6+ is implemented).
- *   - Unsupported compression types (LZMA / LZHAM not bundled).
+ *   - Unsupported compression types (LZHAM is not bundled).
  *
  * Lazy node `data` getters throw on first read for unsupported
  * compressions inside individual blocks; the parse itself succeeds
@@ -435,9 +436,9 @@ function decompressBlock(
 			// the encoder differs. Our decoder handles both.
 			return lz4DecodeBlock(compressed, expectedSize);
 		case COMPRESSION_LZMA:
-			throw new Error(
-				`UnityFS: ${context} uses LZMA compression, which is not supported. (Most Switch bundles use LZ4 — try a different file or convert with UnityPy / AssetStudio.)`,
-			);
+			// 5-byte LZMA properties, then the raw stream (no size field —
+			// the size comes from the block table).
+			return decodeLzma(compressed, expectedSize);
 		case COMPRESSION_LZHAM:
 			throw new Error(
 				`UnityFS: ${context} uses LZHAM compression, which is not supported.`,

@@ -204,7 +204,10 @@ export async function scanMedia(root: Node, base: ScanBase, opts: ScanOptions = 
 			containers++;
 			// Containers that are themselves media.
 			if (node.kind === 'bfres' && !BFRES_COMPANION.test(node.name)) {
-				addItem(node, frame, 'model', 'bfres', 'BFRES');
+				const item = addItem(node, frame, 'model', 'bfres', 'BFRES');
+				// The BFRES is its own model container: its embedded /
+				// external texture banks are this model's textures.
+				containerModels.set(node.id, [item.id]);
 			}
 			const reason = skipReason(node);
 			if (reason && !deep && !include?.has(node.id) && !node._children) {
@@ -240,6 +243,10 @@ export async function scanMedia(root: Node, base: ScanBase, opts: ScanOptions = 
 		}
 		if (c.type === 'media') {
 			const item = addItem(node, frame, c.kind, c.previewKind, c.format);
+			if (c.format === 'UE SkeletalMesh') {
+				item.status = 'error';
+				item.note = 'SkeletalMesh geometry is not decoded yet (only StaticMesh)';
+			}
 			if (c.previewKind === 'gfbmdl-model') await noteModelTextures(node, item, textureRefs);
 		} else if (c.type === 'unknown') {
 			await recordUnknown(node, path);

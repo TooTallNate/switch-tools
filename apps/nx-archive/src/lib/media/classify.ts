@@ -20,6 +20,7 @@ const MODEL_KINDS = new Set([
 	'gfbmdl-model',
 	'hsd-model',
 	'n64-model',
+	'halo-model',
 	'j3d-model',
 	'phyre-mesh',
 	'ff7-hrc',
@@ -61,7 +62,7 @@ const IMAGE_KINDS = new Set([
 /** Kinds whose sound is a long-form stream / sequence rather than an effect. */
 const MUSIC_KINDS = new Set(['bfstm-audio', 'midi-audio']);
 
-const MUSIC_PATH = /(^|[\/_.\-])(bgm|music|musics|song|songs|strm|stream|streams|track|bgms|jingle|me_|ost)([\/_.\-0-9]|$)/i;
+const MUSIC_PATH = /(^|[\/_.\-])(bgm|music|musics|song|songs|strm|stream|streams|bgms|jingle|me_|ost)([\/_.\-0-9]|$)/i;
 
 /** Compressed / streamed audio above this size is almost always music. */
 const MUSIC_SIZE_BYTES = 1_500_000;
@@ -86,6 +87,7 @@ function formatFor(node: Node, previewKind: string): string {
 		'ff8-field-scene': 'FF8 field background',
 		'hsd-model': 'HSD model',
 		'n64-model': 'N64 display list',
+		'halo-model': 'Halo model',
 		'ff8-battle-dat': 'FF8 battle model',
 		'ff8-mch': 'FF8 field model',
 		'j3d-model': 'J3D',
@@ -131,15 +133,32 @@ export function classifyNode(node: Node, path: string): Classification {
 	if (VIDEO_KINDS.has(previewKind)) return media('video');
 	if (FONT_KINDS.has(previewKind)) return media('font');
 	if (IMAGE_KINDS.has(previewKind)) return media('image');
-	if (previewKind === 'hex') return { type: 'unknown' };
+	if (previewKind === 'hex') {
+		// Companion payloads read through their primary file (UE export
+		// bodies / bulk data, Unity resource streams) — not gaps.
+		if (/\.(uexp|ubulk|uptnl|ress|resource)$/i.test(node.name)) return { type: 'known', previewKind };
+		return { type: 'unknown' };
+	}
 	return { type: 'known', previewKind };
 }
 
 /** Human title for an item: file name without extension(s) / tree noise. */
 export function titleFor(node: Node, pathNames: string[]): string {
 	let name = node.name;
-	// Unity objects: `<m_Name>.<hint>.bin`.
-	if (node.kind === 'unity-object') name = name.replace(/\.[a-z0-9]+\.bin$/i, '');
+	// Unity objects: `<m_Name>.<hint>.bin`, titled by their source asset
+	// path from the bundle (`assets/fbx/monsters/pm0025/model.fbx` →
+	// `monsters/pm0025/model`) when the bundle names it.
+	if (node.kind === 'unity-object') {
+		name = name.replace(/\.[a-z0-9]+\.bin$/i, '').replace(/ \(\d+\)$/, '');
+		const asset = node.meta?.unityAssetPath;
+		if (typeof asset === 'string' && asset) {
+			const parts = asset.replace(/^assets\//i, '').replace(/\.[^./]+$/, '').split('/');
+			const short = parts.slice(-3).join('/');
+			const base = parts[parts.length - 1] ?? '';
+			return base.toLowerCase() === name.toLowerCase() || !name ? short : `${short} · ${name}`;
+		}
+		return name || node.name;
+	}
 	else name = name.replace(/\.(zs|lz4|szs)$/i, '').replace(/\.[^.\/]+$/, '');
 	// Generic leaf names are meaningless on their own — prefix the parent.
 	if (/^(model|mesh|root|joint\d*|data|main|index|0x[0-9a-f]+)$/i.test(name) || node.meta?.n64Model) {

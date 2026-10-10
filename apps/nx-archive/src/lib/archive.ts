@@ -124,7 +124,7 @@ import {
 	type IoChunkEntry,
 } from '@tootallnate/iostore';
 import {
-	isUpakV11,
+	isUpak,
 	parseUpak,
 	readUpakEntry,
 	type ParsedUpak,
@@ -189,6 +189,9 @@ import {
 	type GcmDisc,
 	type GcmEntry,
 } from '@tootallnate/gcm';
+import { findXdvdfsPartition, parseXiso, type XisoEntry } from '@tootallnate/xiso';
+import { makeHaloMapNode } from './halo';
+import { isMk64Rom, makeMk64KartSpritesNode } from './mk64-karts';
 
 // ----- Node types -----
 
@@ -228,6 +231,7 @@ export type NodeKind =
 	 * handles them transparently.
 	 */
 	| 'square-wd'
+	| 'halo-map'
 	/**
 	 * Sony PhyreEngine binary container (`.phyre`, magic `RYHP`).
 	 * Used by FFX/X-2 HD Remaster (and FFXII TZA) for textures,
@@ -704,6 +708,7 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	vbf: 'VBF', // Virtuos Big File — FFX/X-2 HD Remaster, FFXII TZA
 	wd: 'WD', // Square wave bank — FFXI/X/X-2/Crystal Chronicles
 	'square-wd': 'WD', // alias used by the magic sniffer (returns 'square-wd')
+	'halo-map': 'HALO-MAP', // alias used by the magic sniffer (Halo cache files are `.map`, shared with FF7/FF8)
 	phyre: 'Phyre', // Sony PhyreEngine container — FFX/X-2 HD, FFXII TZA
 	lgp: 'LGP', // Square LGP archive — FF7/FF8 PC
 	sf2: 'SF2', // SoundFont 2 — sample-based MIDI instrument bank
@@ -722,6 +727,7 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	// neutral label and is only routed to the GameCube reader after its magic
 	// is confirmed. See `makeIsoNode`.
 	iso: 'ISO',
+	xiso: 'ISO',
 	z64: 'N64', // Nintendo 64 ROM, big-endian (native)
 	n64: 'N64', // Nintendo 64 ROM, little-endian
 	v64: 'N64', // Nintendo 64 ROM, 16-bit byteswapped
@@ -803,6 +809,7 @@ type SniffedFormat =
 	| 'bimage'
 	| 'vbf'
 	| 'square-wd'
+	| 'halo-map'
 	| 'phyre'
 	| 'lgp'
 	| 'nes'
@@ -841,6 +848,8 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (m4 === 'IVFC') return 'romfs';
 	if (m4 === 'SARC') return 'sarc';
 	if (m4 === 'SRYK') return 'vbf';
+	// Halo: Combat Evolved cache file — `head` stored little-endian.
+	if (m4 === 'daeh') return 'halo-map';
 	if (m4 === 'RYHP') return 'phyre'; // Sony PhyreEngine — LE magic 0x50485952
 	// Square LGP archive — `\0\0SQUARESOFT` at offset 0, used
 	// for FF7/FF8 PC asset packs (music, models, textures).
@@ -1451,6 +1460,15 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		build: (a) => makeDdszNode(a.id, a.name, a.blob, a.ctx),
 	},
 
+	// --- Halo ---
+	{
+		// Sniff-only: `.map` is also FF7/FF8's field format.
+		format: 'HALO-MAP',
+		extensions: [],
+		sniff: ['halo-map'],
+		build: (a) => makeHaloMapNode(a.id, a.name, a.blob),
+	},
+
 	// --- Unity / Unreal / idTech ---
 	{
 		format: 'UnityFS',
@@ -1475,7 +1493,7 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		format: 'UE-PAK',
 		extensions: ['pak'],
 		build: async (a) => {
-			if (await isUpakV11(a.blob)) {
+			if (await isUpak(a.blob)) {
 				return makeUpakNode(a.id, a.name, a.blob, a.ctx);
 			}
 			return genericFileNode(a.id, a.name, a.blob, 'PAK');
@@ -6582,6 +6600,7 @@ async function unitySerializedFileChildren(
 		ext: string;
 	};
 	const entries: Entry[] = [];
+	const assetPaths = await unityContainerPaths(parsed, idToClass);
 	for (const obj of parsed.objects) {
 		const className = idToClass.get(obj.classId) ?? `Class${obj.classId}`;
 		// Pull out `m_Name` if the object has a TypeTree we can decode.
@@ -6709,6 +6728,9 @@ async function unitySerializedFileChildren(
 				// the existing externals walk (which expects the
 				// SerializedFile's tree node, not the inner object).
 				unitySerializedFileNodeId: parentId,
+				// Source asset path from the bundle's `m_Container`
+				// (e.g. `assets/fbx/monsters/pm0025/model.fbx`), when known.
+				unityAssetPath: assetPaths.get(e.obj.pathId.toString()),
 			},
 			// `blob()` returns the raw object bytes (the slice of the
 			// SerializedFile's data section that holds this object's
@@ -6718,6 +6740,55 @@ async function unitySerializedFileChildren(
 			blob: async () => e.obj.data,
 		};
 	});
+}
+
+/**
+ * Map object pathIds to their source asset path via the bundle's
+ * `AssetBundle` object: each `m_Container` entry names an asset path
+ * and covers a run of `m_PreloadTable` (the asset plus its
+ * dependencies — the mesh, materials, textures of a prefab). Objects
+ * keep the first path that claims them. Empty when the file has no
+ * AssetBundle object or no TypeTree for it.
+ */
+async function unityContainerPaths(
+	parsed: ParsedSerializedFile,
+	idToClass: Map<number, string>,
+): Promise<Map<string, string>> {
+	const out = new Map<string, string>();
+	const bundle = parsed.objects.find((o) => idToClass.get(o.classId) === 'AssetBundle');
+	const tree = bundle ? parsed.types[bundle.typeIndex]?.typeTree : undefined;
+	if (!bundle || !tree) return out;
+	try {
+		const v = (await parseUnityObject(bundle, tree)) as Record<string, unknown> | null;
+		const preload = Array.isArray(v?.m_PreloadTable) ? (v!.m_PreloadTable as Record<string, unknown>[]) : [];
+		const container = Array.isArray(v?.m_Container) ? (v!.m_Container as unknown[]) : [];
+		const pathIdOf = (p: unknown): string | null => {
+			if (!p || typeof p !== 'object') return null;
+			const r = p as Record<string, unknown>;
+			if (Number(r.m_FileID ?? 0) !== 0) return null;
+			const id = r.m_PathID;
+			return id === undefined || id === null ? null : String(id);
+		};
+		for (const entry of container) {
+			// TypeTree pairs decode as `[key, value]` or `{ first, second }`.
+			const [key, value] = Array.isArray(entry)
+				? (entry as [unknown, unknown])
+				: [(entry as Record<string, unknown>)?.first, (entry as Record<string, unknown>)?.second];
+			if (typeof key !== 'string' || !value || typeof value !== 'object') continue;
+			const info = value as Record<string, unknown>;
+			const start = Number(info.preloadIndex ?? 0);
+			const size = Number(info.preloadSize ?? 0);
+			for (let i = start; i < start + size && i < preload.length; i++) {
+				const id = pathIdOf(preload[i]);
+				if (id && !out.has(id)) out.set(id, key);
+			}
+			const own = pathIdOf(info.asset);
+			if (own && !out.has(own)) out.set(own, key);
+		}
+	} catch {
+		// naming is best-effort
+	}
+	return out;
 }
 
 /**
@@ -7346,11 +7417,60 @@ function makeGamecubeIsoNode(
 }
 
 /**
+ * An Xbox disc image (XDVDFS): a plain directory tree of file slices.
+ */
+function makeXisoNode(id: string, name: string, blob: Blob, ctx: ArchiveContext, partition: number): Node {
+	return {
+		id,
+		name,
+		kind: 'directory',
+		isContainer: true,
+		size: blob.size,
+		format: partition === 0 ? 'XISO' : 'XISO (redump)',
+		blob: async () => blob,
+		getChildren: async () => {
+			const parsed = await parseXiso(blob, partition);
+			type Dir = { dirs: Map<string, Dir>; files: XisoEntry[] };
+			const root: Dir = { dirs: new Map(), files: [] };
+			for (const e of parsed.entries) {
+				const parts = e.path.split('/');
+				let d = root;
+				for (const p of parts.slice(0, -1)) {
+					let next = d.dirs.get(p);
+					if (!next) d.dirs.set(p, (next = { dirs: new Map(), files: [] }));
+					d = next;
+				}
+				if (e.isDirectory) {
+					if (!d.dirs.has(e.name)) d.dirs.set(e.name, { dirs: new Map(), files: [] });
+				} else {
+					d.files.push(e);
+				}
+			}
+			const toNodes = async (dirId: string, d: Dir): Promise<Node[]> => {
+				const dirs = [...d.dirs.keys()].sort(humanCompare).map((n) => {
+					const childId = `${dirId}/${n}`;
+					const sub = d.dirs.get(n)!;
+					return childDirectoryNodeFor({ id: childId, name: n, getChildren: () => toNodes(childId, sub) });
+				});
+				const files = await Promise.all(
+					d.files
+						.sort((a, b) => humanCompare(a.name, b.name))
+						.map((f) => childNodeFor(`${dirId}/${f.name}`, f.name, blob.slice(f.offset, f.offset + f.size), ctx)),
+				);
+				return [...dirs, ...files];
+			};
+			return toNodes(id, root);
+		},
+	};
+}
+
+/**
  * A `.iso` disc image.
  *
  * The extension is shared by so many unrelated formats — PS2, Wii, PC installers,
  * plain ISO 9660 — that it carries no information on its own. So we check for the
- * GameCube magic (`0xC2339F3D` at 0x1C) and only then treat it as a disc.
+ * GameCube magic (`0xC2339F3D` at 0x1C), then for an Xbox XDVDFS volume, and only
+ * then treat it as a disc.
  *
  * This also transparently covers **NKit** images. NKit shrinks a disc by dropping
  * junk data, and crucially it is not a wrapper: the original header stays at
@@ -7375,7 +7495,11 @@ function makeIsoNode(
 				const head = new Uint8Array(
 					await blob.slice(0, 0x220).arrayBuffer(),
 				);
-				if (!isGcmMagic(head)) return null;
+				if (!isGcmMagic(head)) {
+					// Xbox / Xbox 360 (XDVDFS), extract-xiso or redump layout.
+					const partition = await findXdvdfsPartition(blob);
+					return partition === null ? null : makeXisoNode(id, name, blob, ctx, partition);
+				}
 				const nkit = parseNkitInfo(head);
 				const format = nkit
 					? `GCM (NKit ${nkit.version}, shrunk from ${Math.round(nkit.originalSize / 1048576)} MB)`
@@ -8122,7 +8246,12 @@ function makeN64RomNode(
 					getChildren: n64ModelChildren(childId, decompress),
 				};
 			});
+			// Mario Kart 64 racers are pre-rendered sprites, not models.
+			const kartSprites = isMk64Rom(rom)
+				? makeMk64KartSpritesNode(`${id}/kart sprites`, normalizedOnce, rom)
+				: null;
 			return [
+				...(kartSprites ? [kartSprites] : []),
 				...(soundBanks
 					? [makeSoundBankDirNode(`${id}/audio`, rom, soundBanks)]
 					: []),
@@ -8172,7 +8301,7 @@ async function childNodeFor(
 		// extension freely). Footer-sniff to disambiguate so a
 		// Nintendo PACK that happens to be named `.pak` falls
 		// through to the SARC magic check below.
-		if (await isUpakV11(blob)) return makeUpakNode(id, name, blob, ctx);
+		if (await isUpak(blob)) return makeUpakNode(id, name, blob, ctx);
 		// Fall through.
 	}
 	if (ext === 'bundle' || ext === 'unity3d' || ext === 'ab') {

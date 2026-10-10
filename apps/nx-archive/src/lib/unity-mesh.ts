@@ -348,3 +348,38 @@ export function materialBaseColor(
 	}
 	return null;
 }
+
+/**
+ * Vertex colours for display (RGB, linear — Unity authors them in gamma
+ * space) plus the slot base colours to use alongside them. Meshes whose
+ * vertex colours vary are coloured by them wherever a slot has no
+ * texture: placeholder FBX materials (`lambert1`, often with a black
+ * `_Color`) would otherwise paint the whole model one flat colour.
+ */
+export function unityMeshDisplayColors(
+	colors: Float32Array | null,
+	vertexCount: number,
+	baseColors: readonly ([number, number, number] | null)[] | undefined,
+): { colors: Float32Array | undefined; baseColors: ([number, number, number] | null)[] | undefined } {
+	if (!colors || colors.length < vertexCount * 4) return { colors: undefined, baseColors: baseColors?.slice() };
+	// Uniform colours (all white, say) carry no painting — keep the
+	// material colours then.
+	let varies = false;
+	for (let v = 1; v < vertexCount && !varies; v++) {
+		for (let c = 0; c < 3; c++) {
+			if (Math.abs(colors[v * 4 + c]! - colors[c]!) > 0.02) {
+				varies = true;
+				break;
+			}
+		}
+	}
+	if (!varies) return { colors: undefined, baseColors: baseColors?.slice() };
+	const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+	const rgb = new Float32Array(vertexCount * 3);
+	for (let v = 0; v < vertexCount; v++) {
+		rgb[v * 3] = toLinear(colors[v * 4]!);
+		rgb[v * 3 + 1] = toLinear(colors[v * 4 + 1]!);
+		rgb[v * 3 + 2] = toLinear(colors[v * 4 + 2]!);
+	}
+	return { colors: rgb, baseColors: baseColors?.map(() => null) };
+}

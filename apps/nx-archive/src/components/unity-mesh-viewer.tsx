@@ -16,6 +16,7 @@ import type { Node } from "~/lib/archive"
 import type { DecodedTexture } from "~/lib/uasset-material-chain"
 
 import type { RigClip, UnityPosePlayer } from "~/lib/unity-rig"
+import { unityMeshDisplayColors } from "~/lib/unity-mesh"
 
 import {
   MeshViewer,
@@ -40,9 +41,14 @@ function clipTime(clip: RigClip, frame: number): number {
   return clip.clip.loop ? t % d : Math.min(t, d)
 }
 
-function defaultClip(clips: RigClip[], names: string[]): number {
+export function defaultClip(clips: RigClip[], names: string[]): number {
+  // Exact names first, then names containing them (`idle_motion`, `Wait01`).
   for (const n of names) {
     const i = clips.findIndex((c) => c.clip.name.toLowerCase() === n)
+    if (i >= 0) return i
+  }
+  for (const n of names) {
+    const i = clips.findIndex((c) => c.clip.name.toLowerCase().includes(n))
     if (i >= 0) return i
   }
   return -1
@@ -119,6 +125,10 @@ export function UnityMeshViewer({
   animation?: UnityMeshAnimation | null
 }) {
   const drivers = useMemo(() => (animation ? makeDrivers(animation) : undefined), [animation])
+  const display = useMemo(
+    () => unityMeshDisplayColors(geometry.colors, geometry.vertexCount, baseColors),
+    [geometry, baseColors],
+  )
   const renderable: RenderableMesh = useMemo(() => {
     const triangles = geometry.indices.length / 3
     return {
@@ -129,6 +139,7 @@ export function UnityMeshViewer({
           positions: geometry.positions,
           normals: geometry.normals ?? undefined,
           uv: geometry.uv0 ?? undefined,
+          colors: display.colors,
           indices: geometry.indices,
           sections: geometry.subMeshes.map((sm, i) => ({
             materialIndex: i,
@@ -139,7 +150,7 @@ export function UnityMeshViewer({
         },
       ],
     }
-  }, [geometry])
+  }, [geometry, display])
 
   const infoText = useMemo(() => {
     const parts = [
@@ -157,7 +168,7 @@ export function UnityMeshViewer({
       infoText={infoText}
       baseName={node.name.replace(/\.mesh\.bin$/i, "")}
       materialDiffuseTextures={textures}
-      materialBaseColors={baseColors}
+      materialBaseColors={display.baseColors}
       animationDrivers={drivers}
     />
   )

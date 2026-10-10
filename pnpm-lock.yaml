@@ -382,6 +382,9 @@ importers:
       '@tootallnate/gfpak':
         specifier: workspace:*
         version: link:../../packages/gfpak
+      '@tootallnate/halo-map':
+        specifier: workspace:*
+        version: link:../../packages/halo-map
       '@tootallnate/hca':
         specifier: workspace:*
         version: link:../../packages/hca
@@ -415,6 +418,9 @@ importers:
       '@tootallnate/lz4':
         specifier: workspace:^
         version: link:../../packages/lz4
+      '@tootallnate/lzma':
+        specifier: workspace:*
+        version: link:../../packages/lzma
       '@tootallnate/mio0':
         specifier: workspace:*
         version: link:../../packages/mio0
@@ -541,6 +547,9 @@ importers:
       '@tootallnate/xci':
         specifier: workspace:*
         version: link:../../packages/xci
+      '@tootallnate/xiso':
+        specifier: workspace:*
+        version: link:../../packages/xiso
       '@tootallnate/yay0':
         specifier: workspace:*
         version: link:../../packages/yay0
@@ -1105,6 +1114,16 @@ importers:
         specifier: ^5.3.3
         version: 5.3.3
 
+  packages/halo-map:
+    dependencies:
+      '@tootallnate/bcn':
+        specifier: workspace:*
+        version: link:../bcn
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/hca:
     devDependencies:
       typescript:
@@ -1187,6 +1206,12 @@ importers:
         version: 5.9.3
 
   packages/lz4:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/lzma:
     devDependencies:
       typescript:
         specifier: ^5.3.3
@@ -1542,6 +1567,12 @@ importers:
       '@tootallnate/hfs0':
         specifier: workspace:^
         version: link:../hfs0
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/xiso:
     devDependencies:
       typescript:
         specifier: ^5.3.3

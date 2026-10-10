@@ -41,7 +41,7 @@ function applyPatches(index: MediaIndex, patches: Map<string, ItemPatch>): Media
   if (patches.size === 0) return index
   return {
     ...index,
-    items: index.items.map((it) => {
+    items: index.items.filter((it) => !patches.get(it.id)?.drop).map((it) => {
       const p = patches.get(it.id)
       if (!p) return it
       return {
