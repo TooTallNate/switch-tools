@@ -32,6 +32,7 @@
 import { useMemo } from "react"
 
 import type { Node } from "~/lib/archive"
+import { j3dLod } from "~/lib/media/model-assets"
 import type { J3dModelView } from "~/lib/preview"
 import {
   MeshViewer,
@@ -40,24 +41,10 @@ import {
   type RenderableMeshSection,
 } from "./mesh-viewer"
 
-/** Map a flattened J3D mesh onto the shared mesh shape. */
+/** Shared with the media library's headless loader (`~/lib/media/model-assets`). */
 function adaptMesh(view: J3dModelView): RenderableMeshLOD {
   const { mesh } = view
-  const sections: RenderableMeshSection[] = mesh.sections.map((s) => ({
-    materialIndex: s.materialIndex,
-    firstIndex: s.firstIndex,
-    numTriangles: s.numTriangles,
-  }))
-  return {
-    numVertices: mesh.numVertices,
-    positions: mesh.positions,
-    normals: mesh.normals,
-    colors: mesh.colors,
-    uv: mesh.uv,
-    indices: mesh.indices,
-    sections,
-    label: `${mesh.numVertices.toLocaleString()} verts, ${view.triangleCount.toLocaleString()} tris`,
-  }
+  return { ...j3dLod(view), label: `${mesh.numVertices.toLocaleString()} verts, ${view.triangleCount.toLocaleString()} tris` }
 }
 
 export function J3dModelViewer({

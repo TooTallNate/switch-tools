@@ -68,7 +68,7 @@ import { Separator } from "./ui/separator"
  * and using each TIM's tail (next TIM offset, or modelOffset for
  * the last) as the implicit end.
  */
-function sliceAndDecodeTims(
+export function sliceAndDecodeTims(
 	bytes: Uint8Array,
 	mch: ParsedMch,
 ): (ParsedTim | null)[] {
@@ -110,7 +110,7 @@ interface MeshPiece {
 	localPositions: Float32Array
 }
 
-interface BuiltRig {
+export interface BuiltRig {
 	mesh: RenderableMesh
 	pieces: MeshPiece[]
 	textures: (DecodedTexture | null)[]
@@ -152,7 +152,7 @@ function buildVertexBoneMap(mch: ParsedMch): Int16Array {
  */
 const POS_SCALE = 1 / 2048
 
-function buildRig(mch: ParsedMch, tims: (ParsedTim | null)[]): BuiltRig {
+export function buildRig(mch: ParsedMch, tims: (ParsedTim | null)[]): BuiltRig {
 	const vertexBone = buildVertexBoneMap(mch)
 
 	// First pass — count output triangles.
@@ -363,7 +363,7 @@ function buildRig(mch: ParsedMch, tims: (ParsedTim | null)[]): BuiltRig {
  *     `Euler("ZYX")` with negated components).
  *   - Root translation: X and Y are negated, Z preserved.
  */
-function computeBoneMatrices(
+export function computeBoneMatrices(
 	mch: ParsedMch,
 	rootTranslation: [number, number, number] | null,
 	boneRotations: [number, number, number][] | null,
@@ -425,7 +425,7 @@ function computeBoneMatrices(
  * the rig's typed-array LOD (`geometry === null` — bake before
  * mount).
  */
-function applySkinning(
+export function applySkinning(
 	rig: BuiltRig,
 	matrices: THREE.Matrix4[],
 	geometry: THREE.BufferGeometry | null,

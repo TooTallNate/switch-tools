@@ -24,6 +24,7 @@
 import { useMemo } from "react"
 
 import type { Node } from "~/lib/archive"
+import { hsdLod } from "~/lib/media/model-assets"
 import type { HsdModelView } from "~/lib/preview"
 import {
   MeshViewer,
@@ -31,33 +32,10 @@ import {
   type RenderableMeshLOD,
 } from "./mesh-viewer"
 
+/** Shared with the media library's headless loader (`~/lib/media/model-assets`). */
 function adaptMesh(view: HsdModelView): RenderableMeshLOD {
   const { mesh } = view
-  return {
-    numVertices: mesh.numVertices,
-    positions: mesh.positions,
-    normals: mesh.normals,
-    uv: mesh.uv,
-    indices: mesh.indices,
-    // One section per display object, each carrying the material slot its
-    // MObj/TObj chain resolved to. A section whose chain didn't resolve keeps
-    // materialIndex -1 and renders untextured rather than borrowing a
-    // neighbour's texture.
-    sections: mesh.sections.length
-      ? mesh.sections.map((s) => ({
-          materialIndex: s.materialIndex,
-          firstIndex: s.indexOffset,
-          numTriangles: s.indexCount / 3,
-        }))
-      : [
-          {
-            materialIndex: -1,
-            firstIndex: 0,
-            numTriangles: mesh.indices.length / 3,
-          },
-        ],
-    label: `${mesh.numVertices.toLocaleString()} verts, ${view.triangleCount.toLocaleString()} tris`,
-  }
+  return { ...hsdLod(view), label: `${mesh.numVertices.toLocaleString()} verts, ${view.triangleCount.toLocaleString()} tris` }
 }
 
 export function HsdModelViewer({

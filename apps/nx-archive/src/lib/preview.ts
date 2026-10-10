@@ -470,6 +470,65 @@ export function extOf(name: string): string {
 }
 
 /**
+ * Preview kind for a tree node: `meta` tags / `node.kind` set at
+ * tree-build time first (formats whose names are too generic to route
+ * on), then {@link detectPreviewKind} by name. Shared by the preview
+ * pane and the media library so both classify files identically.
+ */
+export function previewKindForNode(node: Pick<import('./archive').Node, 'name' | 'kind' | 'meta'>): PreviewKind {
+	// FMOD bank samples carry their bank+sample-index in `meta`.
+	if (node.meta?.fmodSampleIndex !== undefined) return 'fmod-sample-audio';
+	// Unity SerializedFiles (the `CAB-…` files inside a UnityFS
+	// bundle) and the per-object children inside them don't have
+	// a meaningful filename pattern that detectPreviewKind would
+	// recognise — they're tagged by `node.kind` upstream in
+	// `archive.ts` instead.
+	// `.thp` files that are really JPEG stills; see `makeThpNode`.
+	if (node.kind === 'jpeg-still') return 'image';
+	if (node.kind === 'unity-asset') return 'unity-asset';
+	if (node.kind === 'unity-object') return 'unity-object';
+	// idTech BFG font metrics + preprocessed textures are sniffed
+	// at tree-build time (`.dat` and `.bimage` extensions are too
+	// generic for `detectPreviewKind` to route safely on name alone).
+	if (node.meta?.idfont) return 'idfont';
+	if (node.meta?.bimage) return 'bimage';
+	// FF7 PC field scenes (inside `flevel.lgp`) are detected at
+	// tree-build time — they have no extension.
+	if (node.meta?.ff7FieldScene) return 'ff7-field-scene';
+	// FF7 PC battle skeleton (`<id>aa` inside `battle.lgp`) —
+	// composite 3D preview.
+	if (node.meta?.ff7BattleSkeleton) return 'ff7-battle-skeleton';
+	// FF7 PC battle animation pack (`<id>da`) — informational
+	// listing of all animations + frame counts.
+	if (node.meta?.ff7BattleAnimPack) return 'ff7-battle-anim-pack';
+	// Extensionless `.p` / `.tex` files under `battle.lgp` —
+	// reuse the existing field-model previews.
+	if (node.meta?.ff7P) return 'ff7-pmesh';
+	if (node.meta?.ff7Tex) return 'ff7-tex';
+	// `.ddsz` (LZ4-wrapped DDS) — the archive dispatcher already
+	// unwrapped the LZ4 layer; we just need to route the now-
+	// raw DDS bytes to the DDS preview.
+	if (node.meta?.ddsz) return 'dds-image';
+	// Bezel `.ftxb` that is a whole BNTX bank (Super Mario Party),
+	// as opposed to the path-stub `.ftxb` of later titles.
+	if (node.meta?.bntxTexture) return 'bntx-image';
+	// GB / GBC ROMs identified by magic sniff (deep logo check)
+	// rather than extension.
+	if (node.meta?.gbRom) return 'gb-rom-info';
+	// A single N64 display list located by the model scanner.
+	if (node.meta?.n64Model) return 'n64-model';
+	// Melee model: the tree tags which archive + joint root to render.
+	if (node.meta?.hsdModel) return 'hsd-model';
+	// Raw pixel data tagged at tree-build time (NES CHR-ROM,
+	// decompressed GBA / N64 blocks) — graphics explorer.
+	if (node.meta?.tileData) return 'tile-viewer';
+	// Game Freak message text: a `.dat` whose header validated
+	// against its size at tree-build time.
+	if (node.meta?.gfMessage) return 'gfmsg-text';
+	return detectPreviewKind(node.name);
+}
+
+/**
  * Bare filenames (no extension) used for NSO0 executable modules
  * inside an ExeFS PFS0. Files with these names get the structured NSO
  * preview by default; any file ending with `.nso` matches too.

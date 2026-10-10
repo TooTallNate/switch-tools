@@ -35,7 +35,7 @@ interface MeshPiece {
 	vertexCount: number
 }
 
-interface BuiltRig {
+export interface BuiltRig {
 	mesh: RenderableMesh
 	pieces: MeshPiece[]
 	textures: (DecodedTexture | null)[]
@@ -43,7 +43,7 @@ interface BuiltRig {
 	dat: ParsedDat
 }
 
-function buildRig(dat: ParsedDat): BuiltRig | null {
+export function buildRig(dat: ParsedDat): BuiltRig | null {
 	if (!dat.skeleton || !dat.geometry) return null
 	const bones = dat.skeleton.bones
 
@@ -275,7 +275,7 @@ function buildRig(dat: ParsedDat): BuiltRig | null {
  *     a frame we use the rest-pose rotations stored in the bone
  *     records themselves.
  */
-function computeBoneMatrices(
+export function computeBoneMatrices(
 	dat: ParsedDat,
 	rootTranslation: [number, number, number] | null,
 	boneRotations: [number, number, number][] | null,
@@ -373,7 +373,7 @@ function applySkinning(
 	geometry.computeBoundingSphere()
 }
 
-function applySkinningToTypedArrays(rig: BuiltRig, matrices: THREE.Matrix4[]): void {
+export function applySkinningToTypedArrays(rig: BuiltRig, matrices: THREE.Matrix4[]): void {
 	const lod = rig.mesh.lods[0]!
 	const posArr = lod.positions
 	const vertsByBone = (rig.mesh as unknown as { _ff8BoneVerts: Map<number, number[]> })

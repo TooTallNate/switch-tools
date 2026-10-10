@@ -47,6 +47,20 @@ import { readHashId, useHashId } from "~/lib/url-hash"
 import type { KeySet } from "@tootallnate/nca"
 import { formatBytes } from "~/lib/utils"
 import { ModelExportScopeContext, type ModelExportScope } from "~/components/model-export-scope"
+import { LibraryView } from "~/components/library/library-view"
+import { useMediaLibrary } from "~/components/library/use-media-library"
+import { directoryIdentity, fileIdentity, persistentCacheFor } from "~/lib/media/cache"
+
+type ViewMode = "library" | "files"
+const VIEW_MODE_KEY = "nx-archive:view-mode"
+
+function loadViewMode(): ViewMode {
+  try {
+    return localStorage.getItem(VIEW_MODE_KEY) === "files" ? "files" : "library"
+  } catch {
+    return "library"
+  }
+}
 
 /**
  * What's currently open in the UI. Either a single file the user
@@ -119,6 +133,21 @@ async function findNodeById(root: Node, target: string): Promise<Node | null> {
 function ArchiveApp() {
   const [opened, setOpened] = useState<Opened | null>(null)
   const [selected, setSelected] = useState<Node | null>(null)
+  // Library (media) vs Files (tree). Library is the default; the
+  // choice is remembered.
+  const [viewMode, setViewModeState] = useState<ViewMode>(loadViewMode)
+  const setViewMode = useCallback((mode: ViewMode) => {
+    setViewModeState(mode)
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, mode)
+    } catch {
+      // private mode — just won't persist
+    }
+  }, [])
+  // Content fingerprint of the opened file: keys the media-library
+  // cache and the archive parsers' persistent cache (IndexedDB).
+  const [fileKey, setFileKey] = useState<string | null>(null)
+  const fileKeyRef = useRef<string | null>(null)
   // 3D exports from the same opened file share one print scale, so
   // models stay proportional to each other (see ~/lib/print-scale).
   const exportScope = useMemo<ModelExportScope | null>(
@@ -210,6 +239,8 @@ function ArchiveApp() {
       requestKeys: () => setKeysOpen(true),
       getOodleDecompressor,
       requestOodle: () => setOodleOpen(true),
+      getPersistentCache: () =>
+        fileKeyRef.current ? persistentCacheFor(fileKeyRef.current) : null,
     }),
     [],
   )
@@ -233,7 +264,12 @@ function ArchiveApp() {
   const handleOpenFile = useCallback(
     async (file: File) => {
       try {
+        // Fingerprint first so expensive container parses can use
+        // their persisted results from the very first expansion.
+        const key = await fileIdentity(file).catch(() => null)
+        fileKeyRef.current = key
         const root = await buildRootNode(file, file.name, ctx)
+        setFileKey(key)
         setOpened({ kind: "file", file, root })
         // Try restoring the selection from `location.hash` (set
         // by a previous session). If the hash matches an
@@ -448,7 +484,13 @@ function ArchiveApp() {
           (s, f) => s + f.file.size,
           0,
         )
+        const key = await directoryIdentity(
+          directory.name,
+          directory.files.map((f) => ({ path: f.relativePath, size: f.file.size })),
+        ).catch(() => null)
+        fileKeyRef.current = key
         const root = await buildDirectoryRootNode(directory, ctx)
+        setFileKey(key)
         setOpened({ kind: "directory", directory, totalSize, root })
         // Mirror the hash-restore behaviour from `handleOpenFile`
         // so directory mounts also rehydrate the previously
@@ -480,6 +522,8 @@ function ArchiveApp() {
   const handleCloseFile = useCallback(() => {
     setOpened(null)
     setSelected(null)
+    setFileKey(null)
+    fileKeyRef.current = null
     // Replace rather than push: we've also discarded the IDB
     // handle below, so a back-button click can't actually
     // restore the file we just closed. Better to leave the URL
@@ -578,6 +622,32 @@ function ArchiveApp() {
     }
   }, [searchState])
 
+  const libraryBase = useMemo(
+    () =>
+      opened
+        ? { fileName: openedDisplayName(opened), fileSize: openedDisplaySize(opened) }
+        : null,
+    [opened],
+  )
+  const library = useMediaLibrary(opened?.root ?? null, fileKey, libraryBase)
+
+  const selectById = useCallback(
+    async (id: string | null) => {
+      if (!opened) return
+      if (!id) return selectNode(opened.root, "push")
+      const node = await findNodeById(opened.root, id)
+      if (node) selectNode(node, "push")
+    },
+    [opened, selectNode],
+  )
+  const showInFiles = useCallback(
+    (id: string) => {
+      setViewMode("files")
+      void selectById(id)
+    },
+    [selectById, setViewMode],
+  )
+
   return (
     <div className="flex h-full min-h-0 flex-col switch-backdrop">
       <AppHeader
@@ -592,6 +662,8 @@ function ArchiveApp() {
         currentFileName={opened ? openedDisplayName(opened) : undefined}
         currentFileSize={opened ? openedDisplaySize(opened) : undefined}
         onPickerError={handlePickerError}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
       />
 
       <main className="flex min-h-0 flex-1 overflow-hidden">
@@ -601,6 +673,18 @@ function ArchiveApp() {
             onDirectory={handleOpenDirectory}
             onPickerError={handlePickerError}
           />
+        ) : viewMode === "library" ? (
+          <ModelExportScopeContext.Provider value={exportScope}>
+            <LibraryView
+              library={library}
+              root={opened.root}
+              selected={selected}
+              scopeKey={exportScope?.key ?? openedDisplayName(opened)}
+              fileName={openedDisplayName(opened)}
+              onSelect={(id) => void selectById(id)}
+              onShowInFiles={showInFiles}
+            />
+          </ModelExportScopeContext.Provider>
         ) : (
           <ResizablePanelGroup
             id={LAYOUT_GROUP_ID}

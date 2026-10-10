@@ -94,7 +94,8 @@ const LEGACY_PREFS_KEY = "nx-archive:3mf-export"
 
 type StoredSettings = Omit<ModelExportSettings, "subdivision">
 
-function loadSettings(): StoredSettings {
+/** Last-used export settings (shared with the library's batch export). */
+export function loadSettings(): StoredSettings {
   const { subdivision: _, ...defaults } = DEFAULT_EXPORT_SETTINGS
   try {
     const raw = localStorage.getItem(PREFS_KEY)

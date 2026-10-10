@@ -79,7 +79,7 @@ interface Props {
  * `materialIndex` from the phyre file so the toolbar / future
  * material-resolve step can correlate back to `PMaterialSet`.
  */
-function adaptMesh(view: PhyreMeshView): RenderableMeshLOD {
+export function adaptMesh(view: PhyreMeshView): RenderableMeshLOD {
   let totalVerts = 0
   let totalIndices = 0
   let hasAnyUVs = false
@@ -143,7 +143,7 @@ function adaptMesh(view: PhyreMeshView): RenderableMeshLOD {
  * So we walk up to `n142/` (two levels: mdl → nvn → n142) and
  * search inside its `tex/nvn/` subdirectory.
  */
-async function findPhyreTextureNode(
+export async function findPhyreTextureNode(
   root: Node,
   modelNode: Node,
   textureStem: string,

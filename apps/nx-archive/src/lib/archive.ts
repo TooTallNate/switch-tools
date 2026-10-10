@@ -48,7 +48,7 @@ import { parseBfsar, extForMagic as bfsarExtForMagic } from '@tootallnate/bfsar'
 import { parseBfwar } from '@tootallnate/bfwar';
 import { parseBfres } from '@tootallnate/bfres';
 import { parseBea, type BeaEntry } from '@tootallnate/bea';
-import { parseGfpak } from '@tootallnate/gfpak';
+import { gfpakEntryInfo, parseGfpak, type GfpakEntryInfo } from '@tootallnate/gfpak';
 import { parseAkpk } from '@tootallnate/wwise-pck';
 import { parseBnk } from '@tootallnate/wwise-bnk';
 import {
@@ -495,6 +495,12 @@ export interface ArchiveContext {
 	getOodleDecompressor?: () => OodleDecompress | null;
 	/** Asks the UI to prompt the user for an `oodle.wasm` blob. */
 	requestOodle?: () => void;
+	/**
+	 * Key/value cache scoped to the currently opened file, persisted
+	 * across sessions (IndexedDB). Containers whose parsing is expensive
+	 * store derived results here; `null` / absent disables caching.
+	 */
+	getPersistentCache?: () => import('./media/cache').PersistentCache | null;
 }
 
 /**
@@ -5280,7 +5286,13 @@ function makeGfpakNode(
 		format: 'GFPAK',
 		blob: async () => blob,
 		getChildren: async () => {
-			const parsed = await parseGfpak(blob, { path: gfpakRomfsPath(id, name) });
+			// Sniffing decompresses every entry, so its results are
+			// cached per opened file (see `~/lib/media/cache`).
+			const cache = ctx.getPersistentCache?.() ?? null;
+			const key = `gfpak:${id}:${blob.size}`;
+			const known = cache ? await cache.get<GfpakEntryInfo[]>(key).catch(() => undefined) : undefined;
+			const parsed = await parseGfpak(blob, { path: gfpakRomfsPath(id, name), known });
+			if (cache && !known) void cache.set(key, gfpakEntryInfo(parsed)).catch(() => {});
 			return gfpakEntriesToNodes(id, parsed.entries, ctx);
 		},
 	};
@@ -5351,7 +5363,11 @@ async function gfpakEntriesToNodes(
 		// Blob, so wrap in a deferred-decompress proxy that materialises
 		// bytes when first read.
 		const lazyBlob = new LazyDecompressBlob(() => e.getData(), e.decompressedSize);
-		dir.files.push(childNodeFor(`${dirId}/${leaf}`, leaf, lazyBlob, ctx));
+		// The pak already sniffed each entry's content; a second sniff
+		// here would decompress the entry just to read 12 bytes.
+		dir.files.push(
+			childNodeFor(`${dirId}/${leaf}`, leaf, lazyBlob, ctx, { skipMagicSniff: e.innerExt !== 'bin' }),
+		);
 	}
 
 	const toNodes = async (dirId: string, d: Dir): Promise<Node[]> => {

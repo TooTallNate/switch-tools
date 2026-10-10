@@ -24,6 +24,7 @@
  */
 import { useMemo } from "react"
 import type { Node } from "~/lib/archive"
+import { n64Lod } from "~/lib/media/model-assets"
 import type { N64ModelView } from "~/lib/preview"
 import {
   MeshViewer,
@@ -32,30 +33,10 @@ import {
   type RenderableMeshSection,
 } from "./mesh-viewer"
 
-/** Map an interpreted display list onto the shared mesh shape. */
+/** Shared with the media library's headless loader (`~/lib/media/model-assets`). */
 function adaptMesh(view: N64ModelView): RenderableMeshLOD {
   const { mesh } = view
-  const sections: RenderableMeshSection[] = mesh.groups.map((g) => ({
-    materialIndex: g.materialIndex,
-    firstIndex: g.firstIndex,
-    numTriangles: g.numTriangles,
-  }))
-  const triangles = mesh.indices.length / 3
-  return {
-    numVertices: mesh.positions.length / 3,
-    positions: mesh.positions,
-    // Only forward normals when the source actually lit its
-    // geometry; otherwise let MeshViewer derive flat-shaded
-    // normals from the faces.
-    normals: mesh.usesLighting ? mesh.normals : undefined,
-    // Conversely, only forward vertex colours for unlit geometry —
-    // for lit geometry those bytes held the normal, not a colour.
-    colors: mesh.usesLighting ? undefined : mesh.colors,
-    uv: mesh.uvs.length > 0 ? mesh.uvs : undefined,
-    indices: mesh.indices,
-    sections,
-    label: `${(mesh.positions.length / 3).toLocaleString()} verts, ${triangles.toLocaleString()} tris`,
-  }
+  return { ...n64Lod(view), label: `${(mesh.positions.length / 3).toLocaleString()} verts, ${(mesh.indices.length / 3).toLocaleString()} tris` }
 }
 
 export function N64ModelViewer({

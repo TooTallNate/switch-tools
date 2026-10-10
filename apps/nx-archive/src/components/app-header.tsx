@@ -3,6 +3,8 @@ import {
   ChevronDownIcon,
   FileIcon,
   FolderIcon,
+  FolderTreeIcon,
+  LibraryBigIcon,
   GithubIcon,
   KeyIcon,
   KeyRoundIcon,
@@ -26,6 +28,7 @@ import {
   TooltipTrigger,
 } from "~/components/ui/tooltip"
 import { ThemeToggle } from "~/components/theme-toggle"
+import { ToggleGroup, ToggleGroupItem } from "~/components/ui/toggle-group"
 import {
   isDirectoryPickerSupported,
   pickDirectoryViaHandle,
@@ -50,6 +53,9 @@ interface AppHeaderProps {
   currentFileName?: string
   currentFileSize?: number
   onPickerError: (err: Error) => void
+  /** Library (media) vs Files (tree) view, shown while a file is open. */
+  viewMode?: "library" | "files"
+  onViewModeChange?: (mode: "library" | "files") => void
 }
 
 export function AppHeader({
@@ -64,6 +70,8 @@ export function AppHeader({
   currentFileName,
   currentFileSize,
   onPickerError,
+  viewMode,
+  onViewModeChange,
 }: AppHeaderProps) {
   const directoryInputRef = useRef<HTMLInputElement>(null)
 
@@ -200,6 +208,27 @@ export function AppHeader({
             <TooltipContent>Close file</TooltipContent>
           </Tooltip>
         </div>
+      )}
+
+      {hasFile && viewMode && onViewModeChange && (
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          spacing={0}
+          value={viewMode}
+          onValueChange={(v) => v && onViewModeChange(v as "library" | "files")}
+          aria-label="View"
+        >
+          <ToggleGroupItem value="library" aria-label="Media library">
+            <LibraryBigIcon />
+            Library
+          </ToggleGroupItem>
+          <ToggleGroupItem value="files" aria-label="File tree">
+            <FolderTreeIcon />
+            Files
+          </ToggleGroupItem>
+        </ToggleGroup>
       )}
 
       <div className="ml-auto flex items-center gap-1.5">
