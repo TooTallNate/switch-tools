@@ -143,6 +143,32 @@ export interface ParseGfpakOptions {
 	path?: string;
 	/** Extra candidate file names to try against the per-folder hashes. */
 	nameHints?: string[];
+	/**
+	 * Previously computed per-entry results (from {@link gfpakEntryInfo}),
+	 * e.g. persisted by an app. When the count matches, sniffing — which
+	 * decompresses every entry — and name recovery are skipped.
+	 */
+	known?: GfpakEntryInfo[];
+}
+
+/** The parts of a {@link GfpakEntry} that sniffing + name recovery compute. */
+export interface GfpakEntryInfo {
+	innerMagic: string | null;
+	innerExt: string;
+	embeddedName: string;
+	fileName: string | null;
+	folderPath: string | null;
+}
+
+/** Extract the cacheable sniff / name results from parsed entries. */
+export function gfpakEntryInfo(parsed: ParsedGfpak): GfpakEntryInfo[] {
+	return parsed.entries.map((e) => ({
+		innerMagic: e.innerMagic,
+		innerExt: e.innerExt,
+		embeddedName: e.embeddedName,
+		fileName: e.fileName,
+		folderPath: e.folderPath,
+	}));
 }
 
 export interface ParsedGfpak {
@@ -319,6 +345,14 @@ export async function parseGfpak(blob: Blob, options: ParseGfpakOptions = {}): P
 	// We do this in one pass so the caller gets nicely-labelled
 	// entries without having to wait for a separate per-file
 	// inspection step.
+	if (options.known && options.known.length === entries.length) {
+		entries.forEach((entry, i) => {
+			Object.assign(entry, options.known![i]);
+			entry.displayName = synthesizeDisplayName(entry);
+		});
+		return { version, fileCount, folderCount, folders, entries };
+	}
+
 	const nameHints = new Set(options.nameHints ?? []);
 	for (const entry of entries) {
 		const sniff = await sniffEntry(blob, entry);

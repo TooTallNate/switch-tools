@@ -3,6 +3,7 @@ import {
 	fnv1a64,
 	GFPAK_MAGIC,
 	GfpakCompression,
+	gfpakEntryInfo,
 	gfpakFolderCandidates,
 	isGfpak,
 	parseGfpak,
@@ -180,6 +181,20 @@ describe('name recovery', () => {
 		expect(hinted.entries[0].fileName).toBe('hinted.bin');
 		const plain = await parseGfpak(new Blob([buf as BlobPart]));
 		expect(plain.entries[0].fileName).toBeNull();
+	});
+});
+
+describe('known entry info', () => {
+	it('skips sniffing when given cached results', async () => {
+		const buf = buildMinimalGfpak(new Uint8Array(16), 1n, 2n);
+		const first = await parseGfpak(new Blob([buf as BlobPart]));
+		const known = gfpakEntryInfo(first).map((e) => ({ ...e, innerExt: 'gfbmdl', fileName: 'cached.gfbmdl' }));
+		const again = await parseGfpak(new Blob([buf as BlobPart]), { known });
+		expect(again.entries[0].innerExt).toBe('gfbmdl');
+		expect(again.entries[0].fileName).toBe('cached.gfbmdl');
+		// A stale cache (wrong count) is ignored.
+		const stale = await parseGfpak(new Blob([buf as BlobPart]), { known: [...known, ...known] });
+		expect(stale.entries[0].fileName).toBeNull();
 	});
 });
 

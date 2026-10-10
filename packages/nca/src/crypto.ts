@@ -114,6 +114,26 @@ export async function aesEcbDecrypt(
 }
 
 /**
+ * Imported CTR keys, cached by the raw key's identity. A section reads
+ * through the same `sectionKey` array for every range, and re-importing
+ * it per read costs a WebCrypto round trip (a thread hop in browsers) —
+ * dominant when reading thousands of small files out of a RomFS.
+ */
+const ctrKeyCache = new WeakMap<Crypto, WeakMap<Uint8Array, Promise<CryptoKey>>>();
+
+function cachedCtrKey(rawKey: Uint8Array, crypto: Crypto): Promise<CryptoKey> {
+	let perCrypto = ctrKeyCache.get(crypto);
+	if (!perCrypto) ctrKeyCache.set(crypto, (perCrypto = new WeakMap()));
+	let key = perCrypto.get(rawKey);
+	if (!key) {
+		key = importAesCtrKey(rawKey, crypto);
+		key.catch(() => perCrypto!.delete(rawKey));
+		perCrypto.set(rawKey, key);
+	}
+	return key;
+}
+
+/**
  * AES-128-CTR encrypt (or decrypt, since CTR is symmetric).
  */
 export async function aesCtrEncrypt(
@@ -122,7 +142,7 @@ export async function aesCtrEncrypt(
 	counter: Uint8Array,
 	crypto: Crypto = globalThis.crypto
 ): Promise<Uint8Array> {
-	const key = await importAesCtrKey(rawKey, crypto);
+	const key = await cachedCtrKey(rawKey, crypto);
 	const result = await crypto.subtle.encrypt(
 		{
 			name: 'AES-CTR',
