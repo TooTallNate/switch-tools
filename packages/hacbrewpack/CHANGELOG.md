@@ -1,5 +1,12 @@
 # @tootallnate/hacbrewpack
 
+## 0.0.4
+
+### Patch Changes
+
+- Updated dependencies [0cc07b5]
+  - @tootallnate/nca@0.1.1
+
 ## 0.0.3
 
 ### Patch Changes

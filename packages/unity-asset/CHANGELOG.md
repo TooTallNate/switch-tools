@@ -1,5 +1,28 @@
 # @tootallnate/unity-asset
 
+## 0.1.1
+
+### Patch Changes
+
+- ff99ae6: 3D preview for Unity `Mesh` objects.
+
+  `@tootallnate/unity-asset` adds `extractUnityMesh`, which decodes a TypeTree-parsed Mesh into positions / normals / UVs / colours / indices / sub-meshes. It handles multi-stream vertex data, both vertex-format enums (2017–2018 and 2019+), inline or `.resS`-streamed vertex bytes (`unityMeshStreamRef`), and 16/32-bit indices. `toRightHanded` converts to Three.js handedness. `ClassId` gains `MeshRenderer`, `MeshFilter` and `SkinnedMeshRenderer`.
+
+  nx-archive renders Mesh objects in the shared 3D viewer, with STL/3MF export. Per-sub-mesh textures are resolved through the `SkinnedMeshRenderer` (or `MeshFilter` + `MeshRenderer`) that draws the mesh. The albedo is picked by conventional property name, or for Shader Graph materials with generated property names, by the texture's own name and colour space.
+
+- 817db87: Skinned Unity meshes are posed and animated in the 3D viewer instead of sitting in their T-pose bind pose.
+
+  `@tootallnate/unity-asset`:
+
+  - `extractUnityMesh` returns skin weights / bone indices (`skin`, from the vertex stream or legacy `m_Skin`) and inverse bind matrices (`bindPoses`).
+  - New `decodeUnityAnimationClip` decodes Mecanim clips: streamed cubic keys, dense samples, constants, and `genericBindings` to Transform position / rotation / scale / Euler tracks.
+  - New `unityPathHash` (CRC32 of the binding path).
+
+  nx-archive builds the bone hierarchy from the mesh's `SkinnedMeshRenderer` Transforms and matches clips by path hash. The mesh is CPU-skinned each frame, so exports capture the pose. There are two layers: full-body clips (opening on `idle`) plus partial overlays such as eye and mouth clips. `MeshViewer` animation drivers can now set a `defaultIndex`.
+
+- Updated dependencies [8f52079]
+  - @tootallnate/bntx@0.0.3
+
 ## 0.1.0
 
 ### Minor Changes

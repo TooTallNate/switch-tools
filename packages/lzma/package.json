@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/lzma",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Small dependency-free LZMA (LZMA1) decoder, for Unity LZMA-compressed asset bundles and `.lzma` streams.",
   "main": "dist/index.js",

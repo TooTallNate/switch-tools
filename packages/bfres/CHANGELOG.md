@@ -1,5 +1,17 @@
 # @tootallnate/bfres
 
+## 0.1.1
+
+### Patch Changes
+
+- 7ec7172: Render eyes on Bezel Engine (Mario Party Superstars) models.
+
+  `@tootallnate/bfres` now exposes each material's shader assign (attribute/sampler routing and shader options) and shader params (with decoded texture SRTs), every UV set on a shape (`uvSets`), and each bone's bind-pose `visible` flag.
+
+  The BFRES viewer uses these for Bezel materials: albedo is sampled through the shader's UV routing and texture SRTs, and eye/brow layers (pupils masked by the eyelid atlas) are baked into the shape's texture, so they also show up in STL/3MF export. Shapes on hidden bones (alternate facial expressions) start hidden.
+
+- c2441b6: `@tootallnate/bfres` now parses each material's render info (`renderInfo`). The BFRES viewer uses it to hide shapes the engine doesn't draw in its colour pass. Bezel Engine players have `forward_plus_fluid` height/velocity quads under their feet and body that only feed the ground-fluid simulation; these rendered as white squares. They're still listed and can be toggled on.
+
 ## 0.1.0
 
 ### Minor Changes

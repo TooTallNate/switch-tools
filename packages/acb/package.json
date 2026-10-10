@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/acb",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser for CRI Middleware's ACB (Audio Cue Bank) format.",
   "main": "dist/index.js",
