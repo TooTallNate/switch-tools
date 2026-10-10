@@ -8,9 +8,11 @@
  * record ready to hand to a renderer (Three.js, raw WebGL, etc.).
  *
  * Scope:
- *   - **UE 4.27 cooked content only.** We hit the post-4.23 inlined-
- *     LOD path (`bInlined=1`) and the 4.25+ index-buffer layout (with
- *     trailing `bShouldExpandTo32Bit`).
+ *   - **UE 4.23+ cooked content** via the inlined-LOD path (`bInlined=1`)
+ *     and the 4.25+ index-buffer layout (trailing `bShouldExpandTo32Bit`).
+ *   - **Older cooked content (UE 4.x before 4.23)**: LOD 0 only, through
+ *     the legacy inline-buffer layout (interleaved tangent/UV stream
+ *     before 4.19). See `readLegacyLod0`.
  *   - **No editor data, no skeletal meshes, no virtual textures.**
  *   - We decode positions, tangents/normals, UVs, indices, and
  *     section ranges for *all* inlined LODs. Streamed LODs (those
@@ -159,8 +161,20 @@ export function parseStaticMeshFromTail(
 	const socketCount = r.i32();
 	r.skip(socketCount * 4);
 
-	// FStaticMeshRenderData
-	const renderData = readRenderData(r);
+	// FStaticMeshRenderData. The modern path (UE 4.23+) is tried first;
+	// older cooked content (e.g. UE 4.18 Switch titles) uses the legacy
+	// per-LOD layout, whose exact field set can't be told apart from the
+	// package version alone — so we try its variants for LOD 0.
+	const renderStart = r.pos;
+	let renderData: RenderData;
+	try {
+		renderData = readRenderData(r);
+		if (renderData.lods.length === 0) throw new StaticMeshParseError('no inlined LODs');
+	} catch (modernErr) {
+		const legacy = readLegacyLod0(tail, renderStart);
+		if (!legacy) throw modernErr;
+		renderData = { bounds: null, lods: [legacy] };
+	}
 
 	// Tail after render-data: occluder data, SpeedTree flag, StaticMaterials.
 	// We don't need any of it for rendering — the preview component already
@@ -246,6 +260,163 @@ function skipDistanceFieldVolume(r: Reader): void {
 	r.boolU32();
 	r.boolU32();
 	r.boolU32();
+}
+
+// ---------------------------------------------------------------------------
+// Legacy (pre-UE 4.23) render data
+// ---------------------------------------------------------------------------
+
+interface LegacyVariant {
+	/** `FStaticMeshSection::bForceOpaque` present (FRenderingObjectVersion). */
+	forceOpaque: boolean;
+	/** 4.19–4.22: tangents and UVs in separate streams; before: interleaved + stride field. */
+	splitVertexStreams: boolean;
+}
+
+const LEGACY_VARIANTS: LegacyVariant[] = [
+	{ forceOpaque: true, splitVertexStreams: true },
+	{ forceOpaque: false, splitVertexStreams: true },
+	{ forceOpaque: true, splitVertexStreams: false },
+	{ forceOpaque: false, splitVertexStreams: false },
+];
+
+/**
+ * Decode LOD 0 of a pre-4.23 `FStaticMeshRenderData` starting at
+ * `start` (the i32 LOD count). Legacy LODs carry their buffers inline
+ * — StripFlags, Sections, MaxDeviation, then position / tangent+UV /
+ * colour / index buffers — with no cooked-out / inlined flags. Returns
+ * the first variant whose result is self-consistent, or `null`.
+ */
+function readLegacyLod0(tail: Uint8Array, start: number): StaticMeshLOD | null {
+	for (const variant of LEGACY_VARIANTS) {
+		try {
+			const r = new Reader(tail);
+			r.pos = start;
+			const numLODs = r.i32();
+			if (numLODs < 1 || numLODs > 8) return null;
+			const strip = r.stripFlags();
+			if (strip.serverStripped || strip.classBit(0x02 /* MinLodData */)) continue;
+			const sectionCount = r.i32();
+			if (sectionCount < 0 || sectionCount > 1024) continue;
+			const sections: StaticMeshSection[] = [];
+			for (let i = 0; i < sectionCount; i++) {
+				sections.push({
+					materialIndex: r.i32(),
+					firstIndex: r.i32(),
+					numTriangles: r.i32(),
+					minVertexIndex: r.i32(),
+					maxVertexIndex: r.i32(),
+					enableCollision: r.boolU32(),
+					castShadow: r.boolU32(),
+					forceOpaque: variant.forceOpaque ? r.boolU32() : false,
+					visibleInRayTracing: false,
+				});
+			}
+			r.f32(); // MaxDeviation
+			const position = readPositionVertexBuffer(r);
+			const vertex = variant.splitVertexStreams ? readStaticMeshVertexBuffer(r) : readLegacyInterleavedVertexBuffer(r);
+			const colors = readColorVertexBuffer(r);
+			const index = readLegacyIndexBuffer(r);
+			if (vertex.numVertices !== position.numVertices) continue;
+			const n = position.numVertices;
+			let ok = sections.length > 0;
+			for (const sec of sections) {
+				if (sec.firstIndex < 0 || sec.firstIndex + sec.numTriangles * 3 > index.indices.length) ok = false;
+			}
+			for (let i = 0; ok && i < index.indices.length; i++) if (index.indices[i]! >= n) ok = false;
+			if (!ok) continue;
+			return {
+				numVertices: n,
+				positions: position.positions,
+				normals: vertex.normals,
+				tangents: vertex.tangents,
+				uvs: vertex.uvs,
+				colors,
+				indices: index.indices,
+				indicesWere32Bit: index.is32Bit,
+				sections,
+			};
+		} catch {
+			// try the next variant
+		}
+	}
+	return null;
+}
+
+/**
+ * Pre-4.19 `FStaticMeshVertexBuffer`: NumTexCoords, Stride, NumVertices,
+ * bUseFullPrecisionUVs, bUseHighPrecisionTangentBasis, then one
+ * bulk-serialised array of interleaved `(TangentX, TangentZ, UV × N)`.
+ */
+function readLegacyInterleavedVertexBuffer(r: Reader): VertexBuffer {
+	r.skipStripFlags();
+	const numTexCoords = r.i32();
+	r.i32(); // Stride
+	const numVertices = r.i32();
+	const fullUVs = r.boolU32();
+	const highTangents = r.boolU32();
+	if (numTexCoords < 1 || numTexCoords > 8) throw new StaticMeshParseError(`implausible numTexCoords=${numTexCoords}`);
+	const eltSize = r.i32();
+	const count = r.i32();
+	const expected = (highTangents ? 16 : 8) + numTexCoords * (fullUVs ? 8 : 4);
+	if (count !== numVertices || eltSize !== expected) {
+		throw new StaticMeshParseError(`legacy vertex buffer mismatch (elt=${eltSize} expected=${expected})`);
+	}
+	const normals = new Float32Array(numVertices * 3);
+	const tangents = new Float32Array(numVertices * 3);
+	const uvs: Float32Array[] = [];
+	for (let t = 0; t < numTexCoords; t++) uvs.push(new Float32Array(numVertices * 2));
+	for (let i = 0; i < numVertices; i++) {
+		if (highTangents) {
+			tangents[i * 3] = decodePacked16(r.u16());
+			tangents[i * 3 + 1] = decodePacked16(r.u16());
+			tangents[i * 3 + 2] = decodePacked16(r.u16());
+			r.u16();
+			normals[i * 3] = decodePacked16(r.u16());
+			normals[i * 3 + 1] = decodePacked16(r.u16());
+			normals[i * 3 + 2] = decodePacked16(r.u16());
+			r.u16();
+		} else {
+			const tx = (r.u32() ^ 0x80808080) >>> 0;
+			const nz = (r.u32() ^ 0x80808080) >>> 0;
+			tangents[i * 3] = decodePackedByte(tx & 0xff);
+			tangents[i * 3 + 1] = decodePackedByte((tx >>> 8) & 0xff);
+			tangents[i * 3 + 2] = decodePackedByte((tx >>> 16) & 0xff);
+			normals[i * 3] = decodePackedByte(nz & 0xff);
+			normals[i * 3 + 1] = decodePackedByte((nz >>> 8) & 0xff);
+			normals[i * 3 + 2] = decodePackedByte((nz >>> 16) & 0xff);
+		}
+		for (let t = 0; t < numTexCoords; t++) {
+			if (fullUVs) {
+				uvs[t]![i * 2] = r.f32();
+				uvs[t]![i * 2 + 1] = r.f32();
+			} else {
+				uvs[t]![i * 2] = halfToFloat(r.u16());
+				uvs[t]![i * 2 + 1] = halfToFloat(r.u16());
+			}
+		}
+	}
+	return { numVertices, numTexCoords, normals, tangents, uvs };
+}
+
+/** Pre-4.25 index buffer: no trailing `bShouldExpandTo32Bit`. */
+function readLegacyIndexBuffer(r: Reader): IndexBuffer {
+	const is32Bit = r.boolU32();
+	const eltSize = r.i32();
+	const byteCount = r.i32();
+	if (eltSize !== 1) throw new StaticMeshParseError(`index buffer element size ${eltSize}`);
+	const stride = is32Bit ? 4 : 2;
+	if (byteCount % stride !== 0 || byteCount < 0) throw new StaticMeshParseError('bad index byte count');
+	const n = byteCount / stride;
+	const indices = new Uint32Array(n);
+	if (is32Bit) {
+		const a = r.u32Array(n);
+		for (let i = 0; i < n; i++) indices[i] = a[i]!;
+	} else {
+		const a = r.u16Array(n);
+		for (let i = 0; i < n; i++) indices[i] = a[i]!;
+	}
+	return { indices, is32Bit };
 }
 
 // ---------------------------------------------------------------------------

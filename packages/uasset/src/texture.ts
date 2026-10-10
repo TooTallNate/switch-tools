@@ -151,6 +151,39 @@ export function parseTexturePlatformData(
 export function parseTexturePlatformDataFromTail(
 	tail: Uint8Array,
 ): ParsedTexturePlatformData {
+	// Field layout varies by engine version with nothing in the data to
+	// say which applies: try the newest first, then older ones.
+	let firstError: unknown;
+	for (const layout of TEXTURE_LAYOUTS) {
+		try {
+			const out = parseTailWithLayout(tail, layout);
+			if (!out.pixelFormat.startsWith('PF_')) throw new TextureParseError(`bad pixel format "${out.pixelFormat}"`);
+			return out;
+		} catch (err) {
+			// A virtual texture parsed cleanly — that's a definite answer.
+			if (err instanceof TextureParseError && /virtual textures/.test(err.message)) throw err;
+			firstError ??= err;
+		}
+	}
+	throw firstError;
+}
+
+interface TextureLayout {
+	/** UE 4.20+: `SkipOffset` is followed by its high 32 bits. */
+	skipOffsetHigh: boolean;
+	/** UE 4.20+: each mip stores a depth after width / height. */
+	mipDepth: boolean;
+	/** UE 4.23+: `bIsVirtual` follows the mips. */
+	isVirtual: boolean;
+}
+
+const TEXTURE_LAYOUTS: TextureLayout[] = [
+	{ skipOffsetHigh: true, mipDepth: true, isVirtual: true },
+	{ skipOffsetHigh: true, mipDepth: true, isVirtual: false },
+	{ skipOffsetHigh: false, mipDepth: false, isVirtual: false },
+];
+
+function parseTailWithLayout(tail: Uint8Array, layout: TextureLayout): ParsedTexturePlatformData {
 	const r = new Reader(tail);
 
 	// UE prefixes its strip-flags section with a variable number of
@@ -183,11 +216,10 @@ export function parseTexturePlatformDataFromTail(
 	// a length-prefixed FString below, so we don't need to look it up
 	// in the name table.
 	r.skip(8);
-	// skipOffset (UE 4.20+ writes a u32 absolute uexp offset where
-	// this platform-data ends; we don't need it for parsing).
+	// skipOffset: absolute uexp offset where this platform-data ends
+	// (we don't need it), plus its high 32 bits since UE 4.20.
 	r.skip(4);
-	// Extra zero u32 introduced in UE 4.20.
-	r.skip(4);
+	if (layout.skipOffsetHigh) r.skip(4);
 
 	const importedWidth = r.u32();
 	const importedHeight = r.u32();
@@ -237,7 +269,10 @@ export function parseTexturePlatformDataFromTail(
 		}
 		const width = r.u32();
 		const height = r.u32();
-		const depth = r.u32();
+		const depth = layout.mipDepth ? r.u32() : 1;
+		if (width === 0 || height === 0 || width > 16384 || height > 16384) {
+			throw new TextureParseError(`Texture platform-data: implausible mip ${i} size ${width}x${height}.`);
+		}
 		mips.push({
 			width,
 			height,
@@ -250,7 +285,7 @@ export function parseTexturePlatformDataFromTail(
 		});
 	}
 
-	const bIsVirtual = r.u32();
+	const bIsVirtual = layout.isVirtual ? r.u32() : 0;
 	if (bIsVirtual !== 0) {
 		throw new TextureParseError(
 			'Texture platform-data: virtual textures are not supported (bIsVirtual=1).',

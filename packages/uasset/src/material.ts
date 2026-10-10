@@ -139,6 +139,9 @@ export function extractMaterialParentIndex(properties: UProperty[]): number {
  *     FGuid                  ExpressionGUID;
  *   }
  *
+ * (UE ≤ 4.18 stores a plain `FName ParameterName` instead of
+ * `ParameterInfo`; both are accepted.)
+ *
  * Returns the inner `ParameterInfo.Name` (string) + the typed
  * ParameterValue payload, or null when the entry shape doesn't match.
  */
@@ -156,6 +159,9 @@ function readParameterValueEntry(
 					parameterName = inner.value.value;
 				}
 			}
+		} else if (sub.name === 'ParameterName' && sub.value.kind === 'name') {
+			// UE ≤ 4.18: a plain name, before `FMaterialParameterInfo`.
+			parameterName = sub.value.value;
 		} else if (sub.name === valueProp) {
 			value = sub.value;
 		}
