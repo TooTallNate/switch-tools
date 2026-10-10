@@ -166,6 +166,71 @@ export function isUpakMagic(bytes: Uint8Array): boolean {
 }
 
 /**
+ * Legacy (UE4) footer layouts, measured from the end of the file:
+ * magic offset within the footer and total footer size per version.
+ *
+ *   v3:     magic, version, index offset, index size, sha1          (44)
+ *   v4–v6:  + encrypted-index flag before the magic                 (45)
+ *   v7:     + 16-byte encryption-key GUID before that               (61)
+ *   v8:     + 4 (8A) or 5 (8B) × 32-byte compression names           (189 / 221)
+ *   v9:     + frozen-index flag before the names                    (222)
+ */
+const LEGACY_FOOTERS: { size: number; magicAt: number; versions: number[]; names: number; encryptedAt: number }[] = [
+	{ size: 44, magicAt: 0, versions: [3], names: 0, encryptedAt: -1 },
+	{ size: 45, magicAt: 1, versions: [4, 5, 6], names: 0, encryptedAt: 0 },
+	{ size: 61, magicAt: 17, versions: [7], names: 0, encryptedAt: 16 },
+	{ size: 189, magicAt: 17, versions: [8], names: 4, encryptedAt: 16 },
+	{ size: 221, magicAt: 17, versions: [8], names: 5, encryptedAt: 16 },
+	{ size: 222, magicAt: 17, versions: [9], names: 5, encryptedAt: 16 },
+];
+
+/** Find a legacy (v3–v9) footer in the last 256 bytes. */
+function findLegacyFooter(tail: Uint8Array, fileSize: number): UpakFooter | null {
+	const view = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
+	for (const f of LEGACY_FOOTERS) {
+		if (tail.length < f.size) continue;
+		const base = tail.length - f.size;
+		const m = base + f.magicAt;
+		if (view.getUint32(m, true) !== PAK_MAGIC) continue;
+		const version = view.getInt32(m + 4, true);
+		if (!f.versions.includes(version)) continue;
+		const indexOffset = readI64Number(view, m + 8);
+		const indexSize = readI64Number(view, m + 16);
+		if (indexOffset < 0 || indexSize <= 0 || indexOffset + indexSize > fileSize) continue;
+		const compressionMethods: string[] = [];
+		if (f.names) {
+			const namesAt = m + 44 + (version === 9 ? 1 : 0);
+			for (let i = 0; i < f.names; i++) {
+				const slice = tail.subarray(namesAt + i * 32, namesAt + (i + 1) * 32);
+				const nul = slice.indexOf(0);
+				const name = new TextDecoder('utf-8').decode(slice.subarray(0, nul >= 0 ? nul : 32));
+				if (name) compressionMethods.push(name);
+			}
+		} else {
+			// Pre-v8 entries carry compression *flags*, mapped to these slots.
+			compressionMethods.push('Zlib', 'Gzip', 'Oodle');
+		}
+		return {
+			encryptedIndex: f.encryptedAt >= 0 && tail[base + f.encryptedAt] !== 0,
+			version,
+			indexOffset,
+			indexSize,
+			indexSha1: tail.slice(m + 24, m + 44),
+			compressionMethods,
+		};
+	}
+	return null;
+}
+
+/** True when `blob` ends in a supported PAK footer (v3–v9 or v11). */
+export async function isUpak(blob: Blob): Promise<boolean> {
+	if (await isUpakV11(blob)) return true;
+	if (blob.size < 44) return false;
+	const tail = new Uint8Array(await blob.slice(Math.max(0, blob.size - 256)).arrayBuffer());
+	return findLegacyFooter(tail, blob.size) !== null;
+}
+
+/**
  * Return true when `blob`'s last 205 bytes parse as a v11 PAK
  * footer. Used by container-detection sniffing in archive.ts.
  */
@@ -198,6 +263,11 @@ export async function isUpakV11(blob: Blob): Promise<boolean> {
  *     yet implemented; v11 always ships one)
  */
 export async function parseUpak(blob: Blob): Promise<ParsedUpak> {
+	if (!(await isUpakV11(blob))) {
+		const tail = new Uint8Array(await blob.slice(Math.max(0, blob.size - 256)).arrayBuffer());
+		const legacy = findLegacyFooter(tail, blob.size);
+		if (legacy) return parseLegacyUpak(blob, legacy);
+	}
 	if (blob.size < FOOTER_SIZE_V11) {
 		throw new Error(
 			`Blob too small for a PAK v11 footer (${blob.size} bytes; need ≥ ${FOOTER_SIZE_V11})`,
@@ -271,6 +341,73 @@ export async function parseUpak(blob: Blob): Promise<ParsedUpak> {
 		mountPoint: index.mountPoint,
 		entries,
 	};
+}
+
+// ---------------------------------------------------------------------------
+// Legacy (v3–v9) index
+// ---------------------------------------------------------------------------
+
+/** First version whose compression-block offsets are relative to the entry. */
+const VERSION_RELATIVE_CHUNK_OFFSETS = 5;
+/** First version whose entries name a compression slot instead of flags. */
+const VERSION_FNAME_COMPRESSION = 8;
+
+/**
+ * UE4 PAK index: mount point, then `numEntries × (FString path,
+ * FPakEntry)`. Each FPakEntry is i64 offset, i64 size, i64
+ * uncompressed size, u32 compression (flags before v8: 1 zlib,
+ * 2 gzip, 4 custom/Oodle; a slot index from v8), sha1[20], then — when
+ * compressed — i32 block count + (i64 start, i64 end) blocks, and a u8
+ * encrypted flag + u32 block size. The same record precedes each file's
+ * data, so the payload starts after it.
+ */
+async function parseLegacyUpak(blob: Blob, footer: UpakFooter): Promise<ParsedUpak> {
+	if (footer.encryptedIndex) {
+		throw new Error('PAK has an encrypted index. AES-encrypted PAKs are not supported yet (need an AES-256 key from the game).');
+	}
+	const bytes = new Uint8Array(await blob.slice(footer.indexOffset, footer.indexOffset + footer.indexSize).arrayBuffer());
+	const r = new Reader(bytes);
+	const mountPoint = r.fstring();
+	const numEntries = r.i32();
+	if (numEntries < 0 || numEntries > 5_000_000) throw new Error(`PAK: implausible entry count ${numEntries}`);
+	const entries: UpakEntry[] = [];
+	const prefix = mountPoint.replace(/^(\.\.\/)+/, '');
+	for (let i = 0; i < numEntries; i++) {
+		const name = r.fstring();
+		const offset = r.i64Number();
+		const compressedSize = r.i64Number();
+		const uncompressedSize = r.i64Number();
+		const rawCompression = footer.version === VERSION_FNAME_COMPRESSION && footer.compressionMethods.length === 4 ? r.bytes(1)[0]! : r.u32();
+		r.bytes(20); // sha1
+		let compressionMethodIndex = 0;
+		if (footer.version >= VERSION_FNAME_COMPRESSION) compressionMethodIndex = rawCompression;
+		else if (rawCompression & 1) compressionMethodIndex = 1; // Zlib
+		else if (rawCompression & 2) compressionMethodIndex = 2; // Gzip
+		else if (rawCompression & 4) compressionMethodIndex = 3; // custom (Oodle)
+		const compressionBlocks: UpakEntry['compressionBlocks'] = [];
+		if (rawCompression !== 0) {
+			const n = r.i32();
+			const relative = footer.version >= VERSION_RELATIVE_CHUNK_OFFSETS;
+			for (let b = 0; b < n; b++) {
+				const start = r.i64Number();
+				const end = r.i64Number();
+				compressionBlocks.push(relative ? { start: offset + start, end: offset + end } : { start, end });
+			}
+		}
+		const encrypted = r.bytes(1)[0] !== 0;
+		const compressionBlockSize = r.u32();
+		entries.push({
+			path: (prefix + name).replace(/^\/+/, ''),
+			offset,
+			uncompressedSize,
+			compressedSize,
+			compressionMethodIndex,
+			encrypted,
+			compressionBlockSize,
+			compressionBlocks,
+		});
+	}
+	return { source: blob, footer, mountPoint, entries };
 }
 
 // ---------------------------------------------------------------------------
