@@ -1,0 +1,27 @@
+{
+  "name": "@tootallnate/iso9660",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Parser for ISO 9660 CD-ROM filesystems over raw (2352-byte) or cooked (2048-byte) sectors, including CD-XA attributes for Form 2, interleaved and CD-DA files.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "iso9660",
+    "cd-rom",
+    "cd-xa",
+    "playstation"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/iso9660"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
