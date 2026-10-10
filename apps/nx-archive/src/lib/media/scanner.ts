@@ -54,6 +54,8 @@ export interface ScanOptions {
 	onProgress?: (visited: number, currentPath: string) => void;
 	/** Read the first bytes of a few unknown files per extension. Default true. */
 	sampleMagic?: boolean;
+	/** Fold identical copies into one item (reads candidate files). Default true. */
+	dedupe?: boolean;
 }
 
 export interface ScanBase {
@@ -125,7 +127,10 @@ export async function scanMedia(root: Node, base: ScanBase, opts: ScanOptions = 
 		set.add(part);
 	};
 
+	/** Item id → node, for the duplicate pass. */
+	const nodes = new Map<string, Node>();
 	const addItem = (node: Node, frame: Frame, kind: MediaKind, previewKind: string, format: string): MediaItem => {
+		nodes.set(node.id, node);
 		const item: MediaItem = {
 			id: node.id,
 			kind,
@@ -253,9 +258,107 @@ export async function scanMedia(root: Node, base: ScanBase, opts: ScanOptions = 
 		}
 	}
 
-	const index = snapshot(!signal?.aborted);
+	let index = snapshot(!signal?.aborted);
+	if (!signal?.aborted && opts.dedupe !== false) {
+		opts.onProgress?.(visited, 'Looking for duplicate files…');
+		index = await foldDuplicates(index, nodes, signal);
+	}
 	opts.onUpdate?.(index);
 	return index;
+}
+
+/** Whole files up to this size are hashed; larger ones by sampled windows. */
+const FULL_HASH_MAX = 4 * 1024 * 1024;
+const WINDOW = 256 * 1024;
+
+/** Stop hashing after this long; whatever was found so far is still folded. */
+const DEDUPE_BUDGET_MS = 20_000;
+
+/**
+ * Content identity of a node. Containers whose leaves are decoded on
+ * demand (Halo bitmaps, XA channels, …) either provide a cheap
+ * `meta.contentKey` or mark the leaf `meta.decoded` so it's never
+ * decoded just to be hashed.
+ */
+async function fingerprint(node: Node): Promise<string | null> {
+	const key = node.meta?.contentKey;
+	if (typeof key === 'string') return `key:${key}`;
+	if (node.meta?.decoded || !node.blob) return null;
+	try {
+		const blob = await node.blob();
+		let bytes: Uint8Array;
+		if (blob.size <= FULL_HASH_MAX) {
+			bytes = new Uint8Array(await blob.arrayBuffer());
+		} else {
+			// Start, middle and end windows (plus the size, below).
+			const mid = Math.floor(blob.size / 2 - WINDOW / 2);
+			const parts = await Promise.all(
+				[0, mid, blob.size - WINDOW].map(async (o) => new Uint8Array(await blob.slice(o, o + WINDOW).arrayBuffer())),
+			);
+			bytes = new Uint8Array(WINDOW * 3);
+			parts.forEach((p, i) => bytes.set(p, i * WINDOW));
+		}
+		const digest = new Uint8Array(await crypto.subtle.digest('SHA-1', bytes as BufferSource));
+		return `${blob.size}:${Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Fold identical copies (same kind, name, format, size and content)
+ * into one item that lists every location. Only top-level items are
+ * considered; parts follow their owner.
+ */
+async function foldDuplicates(index: MediaIndex, nodes: Map<string, Node>, signal?: AbortSignal): Promise<MediaIndex> {
+	const groups = new Map<string, MediaItem[]>();
+	for (const item of index.items) {
+		if (item.partOf) continue;
+		const node = nodes.get(item.id);
+		const key = `${item.kind}|${item.previewKind}|${item.format}|${item.title.toLowerCase()}|${node?.name.toLowerCase() ?? ''}|${item.size ?? ''}`;
+		let g = groups.get(key);
+		if (!g) groups.set(key, (g = []));
+		g.push(item);
+	}
+	const hidden = new Set<string>();
+	const dupes = new Map<string, { id: string; path: string }[]>();
+	let lastYield = Date.now();
+	const deadline = Date.now() + DEDUPE_BUDGET_MS;
+	let partial = false;
+	for (const group of groups.values()) {
+		if (group.length < 2) continue;
+		if (signal?.aborted) break;
+		// Keyed nodes are free; only hashing counts against the budget.
+		const needsHash = group.some((i) => typeof nodes.get(i.id)?.meta?.contentKey !== 'string');
+		if (needsHash && Date.now() > deadline) {
+			partial = true;
+			continue;
+		}
+		const byPrint = new Map<string, MediaItem[]>();
+		for (const item of group) {
+			const node = nodes.get(item.id);
+			const print = node ? await fingerprint(node) : null;
+			if (!print) continue;
+			let list = byPrint.get(print);
+			if (!list) byPrint.set(print, (list = []));
+			list.push(item);
+			if (Date.now() - lastYield > 12) {
+				await new Promise((r) => setTimeout(r, 0));
+				lastYield = Date.now();
+			}
+		}
+		for (const same of byPrint.values()) {
+			if (same.length < 2) continue;
+			const [keep, ...rest] = same;
+			dupes.set(keep.id, rest.map((r) => ({ id: r.id, path: r.path })));
+			for (const r of rest) hidden.add(r.id);
+		}
+	}
+	if (!hidden.size) return partial ? { ...index, stats: { ...index.stats, duplicatesPartial: true } } : index;
+	const items = index.items
+		.filter((i) => !hidden.has(i.id) && !(i.partOf && hidden.has(i.partOf)))
+		.map((i) => (dupes.has(i.id) ? { ...i, duplicates: dupes.get(i.id) } : i));
+	return { ...index, items, stats: { ...index.stats, duplicates: hidden.size, ...(partial && { duplicatesPartial: true }) } };
 }
 
 async function classifyUasset(

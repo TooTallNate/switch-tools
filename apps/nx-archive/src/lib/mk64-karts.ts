@@ -146,6 +146,7 @@ export function makeMk64KartSpritesNode(id: string, romOnce: () => Promise<Uint8
 					isContainer: false,
 					size: COLS * SIZE * ROWS * SIZE * 4,
 					format: `CI8 sprite sheet · ${FRAME_COUNT} frames`,
+					meta: { decoded: true },
 					blob: async () => renderSheet(await romOnce(), c, offsets!),
 				};
 			}),

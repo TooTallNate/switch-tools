@@ -85,7 +85,9 @@ function mediaLeaves(map: HaloMap, load: () => Promise<HaloMap>, mapBlob: Blob):
 					isContainer: false,
 					size: b.width * b.height * 4,
 					format: `${b.format.toUpperCase()} ${b.type}`,
-					meta: { haloTag: tag.path, haloBitmap: index },
+					// Maps embed shared tags (same path) in full: key by path so the
+					// library folds them without decoding.
+					meta: { haloTag: tag.path, haloBitmap: index, contentKey: `halo-bitm:${tag.path}:${index}:${b.width}x${b.height}:${b.format}` },
 					blob: async () => {
 						const m = await load();
 						const bm = parseBitmapTag(m, m.tags[tagIndex])[index];
@@ -112,7 +114,7 @@ function mediaLeaves(map: HaloMap, load: () => Promise<HaloMap>, mapBlob: Blob):
 					// Xbox ADPCM is 36 bytes → 65 samples (130 bytes) per channel block.
 					size: 44 + Math.round((encoded / 36) * 130),
 					format: `${clip.format.toUpperCase()} ${sound.channels === 2 ? 'stereo' : 'mono'} ${sound.sampleRate} Hz`,
-					meta: { haloTag: tag.path, haloSoundClass: sound.soundClass },
+					meta: { haloTag: tag.path, haloSoundClass: sound.soundClass, contentKey: `halo-snd:${tag.path}:${clipIndex}:${encoded}` },
 					blob: async () => {
 						const m = await load();
 						const s = parseSoundTag(m, m.tags[tagIndex])!;
@@ -131,7 +133,7 @@ function mediaLeaves(map: HaloMap, load: () => Promise<HaloMap>, mapBlob: Blob):
 				kind: 'file',
 				isContainer: false,
 				format: `Halo model · ${tris.toLocaleString()} tris`,
-				meta: { haloModel: ref, haloTag: tag.path },
+				meta: { haloModel: ref, haloTag: tag.path, contentKey: `halo-mode:${tag.path}:${tris}` },
 				// Geometry is decoded from the map; the blob is the map itself.
 				blob: async () => mapBlob,
 			});

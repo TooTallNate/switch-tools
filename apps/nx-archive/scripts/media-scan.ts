@@ -63,7 +63,7 @@ if (process.stderr.isTTY) process.stderr.write('\r\x1b[2K');
 const s = summarize(index);
 console.error(
 	`${name}: ${MEDIA_KINDS.map((k) => `${s.counts[k]} ${MEDIA_KIND_LABEL[k].toLowerCase()}`).join(', ')}; ` +
-		`${s.parts} merged parts; ${s.unknownFiles} unrecognized files; ${index.errors.length} container errors ` +
+		`${s.parts} merged parts; ${index.stats.duplicates ?? 0} duplicates folded; ${s.unknownFiles} unrecognized files; ${index.errors.length} container errors ` +
 		`(${(index.stats.durationMs / 1000).toFixed(1)} s)`,
 );
 

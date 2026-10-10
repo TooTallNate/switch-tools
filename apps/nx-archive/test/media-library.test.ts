@@ -135,3 +135,51 @@ describe('scanMedia', () => {
     expect(md).toContain('huge.ncz')
   })
 })
+
+describe('duplicate folding', () => {
+  const png = (fill: number) => new Uint8Array(200).fill(fill)
+  const tree = () =>
+    dir('', 'game.bin', (id) => [
+      dir(id, 'Disc 1', (d) => [file(d, 'logo.png', { bytes: png(1) }), file(d, 'title.png', { bytes: png(2) })]),
+      dir(id, 'Disc 2', (d) => [file(d, 'logo.png', { bytes: png(1) }), file(d, 'title.png', { bytes: png(3) })]),
+      dir(id, 'Disc 3', (d) => [file(d, 'logo.png', { bytes: png(1) })]),
+    ])
+
+  it('folds identical copies into one item listing every location', async () => {
+    const index = await scanMedia(tree(), base)
+    const logos = index.items.filter((i) => i.title === 'logo')
+    expect(logos).toHaveLength(1)
+    expect(logos[0]!.path).toBe('Disc 1/logo.png')
+    expect(logos[0]!.duplicates?.map((d) => d.path)).toEqual(['Disc 2/logo.png', 'Disc 3/logo.png'])
+    expect(index.stats.duplicates).toBe(2)
+  })
+
+  it('keeps files with the same name but different content apart', async () => {
+    const index = await scanMedia(tree(), base)
+    expect(index.items.filter((i) => i.title === 'title')).toHaveLength(2)
+  })
+
+  it('uses content keys instead of reading decoded files', async () => {
+    let reads = 0
+    const keyed = (d: string, key: string) =>
+      file(d, 'boom.wav', {
+        meta: { contentKey: key },
+        blob: async () => {
+          reads++
+          return new Blob([png(9) as BlobPart])
+        },
+      })
+    const root = dir('', 'game.bin', (id) => [
+      dir(id, 'a.map', (d) => [keyed(d, 'snd:boom')]),
+      dir(id, 'b.map', (d) => [keyed(d, 'snd:boom')]),
+    ])
+    const index = await scanMedia(root, base)
+    expect(index.items.filter((i) => i.title === 'boom')).toHaveLength(1)
+    expect(reads).toBe(0)
+  })
+
+  it('can be turned off', async () => {
+    const index = await scanMedia(tree(), base, { dedupe: false })
+    expect(index.items.filter((i) => i.title === 'logo')).toHaveLength(3)
+  })
+})

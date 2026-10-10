@@ -160,6 +160,14 @@ function MediaCard({
             {item.info.animations} anims
           </span>
         ) : null}
+        {item.duplicates?.length ? (
+          <span
+            className="absolute top-1.5 left-1.5 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white"
+            title={`The same file appears in ${item.duplicates.length + 1} places`}
+          >
+            ×{item.duplicates.length + 1}
+          </span>
+        ) : null}
       </div>
       <div className="flex min-w-0 flex-col gap-0.5 p-2">
         <div className="flex min-w-0 items-center gap-1.5">
@@ -270,6 +278,22 @@ function DetailPanel({
           <div className="truncate font-mono text-[10px] text-muted-foreground" title={item?.path ?? node.id}>
             {item?.path ?? node.id}
           </div>
+          {item?.duplicates?.length ? (
+            <div className="mt-0.5 max-h-20 overflow-auto font-mono text-[10px] text-muted-foreground">
+              <span className="font-sans">Identical copies at:</span>
+              {item.duplicates.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  className="block max-w-full truncate text-left hover:text-foreground hover:underline"
+                  title={d.path}
+                  onClick={() => onShowInFiles(d.id)}
+                >
+                  {d.path}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {item && (
             <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
               <Badge variant="secondary">{MEDIA_KIND_LABEL[item.kind]}</Badge>

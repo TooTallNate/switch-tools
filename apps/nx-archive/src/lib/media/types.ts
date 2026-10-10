@@ -45,6 +45,12 @@ export interface MediaItem {
 	note?: string;
 	/** Facts learned while scanning or generating thumbnails. */
 	info?: MediaInfo;
+	/**
+	 * Other places the same file appears (identical content, e.g. the
+	 * same model on each disc of a multi-disc game). Those copies are
+	 * folded into this item instead of being listed separately.
+	 */
+	duplicates?: { id: string; path: string }[];
 }
 
 export interface MediaInfo {
@@ -83,6 +89,10 @@ export interface ScanStats {
 	containers: number;
 	leaves: number;
 	durationMs: number;
+	/** Identical copies folded into another item (see `MediaItem.duplicates`). */
+	duplicates?: number;
+	/** The duplicate pass ran out of time; some copies may still be listed separately. */
+	duplicatesPartial?: boolean;
 }
 
 /** Everything the library knows about one opened file — what gets cached. */
@@ -107,4 +117,4 @@ export interface MediaIndex {
 }
 
 /** Bump when classification changes so cached indexes rebuild. */
-export const MEDIA_INDEX_VERSION = 1;
+export const MEDIA_INDEX_VERSION = 2;

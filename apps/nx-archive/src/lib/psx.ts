@@ -140,7 +140,8 @@ function xaFolderNode(id: string, name: string, reader: SectorReader, entry: Iso
 					isContainer: false,
 					size: WAV_HEADER + st.sampleFrames * st.channels * 2,
 					format: `XA ADPCM ${st.channels === 2 ? 'stereo' : 'mono'} ${st.sampleRate} Hz`,
-					meta: { xaFile: st.file, xaChannel: st.channel },
+					// Decoded from the whole file on demand: don't hash it for dedupe.
+					meta: { xaFile: st.file, xaChannel: st.channel, decoded: true },
 					blob: async () => {
 						const pcm = decodeXaStream(await raw(), st.file, st.channel);
 						return new Blob([pcm16ToWav(pcm.samples, pcm.channels, pcm.sampleRate) as BlobPart], { type: 'audio/wav' });

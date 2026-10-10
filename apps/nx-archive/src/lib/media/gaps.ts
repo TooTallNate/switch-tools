@@ -74,6 +74,9 @@ export function gapReportMarkdown(index: MediaIndex, opts: { maxRows?: number } 
 	lines.push('|---|---|');
 	for (const k of MEDIA_KINDS) lines.push(`| ${MEDIA_KIND_LABEL[k]} | ${s.counts[k].toLocaleString()} |`);
 	lines.push(`| (merged parts: textures, mesh pieces) | ${s.parts.toLocaleString()} |`);
+	if (index.stats.duplicates) {
+		lines.push(`| (identical copies folded together${index.stats.duplicatesPartial ? ', partial' : ''}) | ${index.stats.duplicates.toLocaleString()} |`);
+	}
 	lines.push('');
 
 	lines.push('## Gaps');
