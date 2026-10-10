@@ -320,6 +320,7 @@ import {
 import { N64ModelViewer } from "./n64-model-viewer"
 import { MeshViewer } from "./mesh-viewer"
 import { loadHaloModelView, type HaloModelRef } from "~/lib/halo"
+import { loadFf7PsxModelView } from "~/lib/ff7-psx"
 import { strFrameSource } from "~/lib/psx-str-source"
 import { decodeTim } from "@tootallnate/psx-tim"
 import { encodePng } from "~/lib/png"
@@ -1958,6 +1959,8 @@ function FilePreview({
       return <N64ModelPreview node={node} />
     case "halo-model":
       return <HaloModelPreview node={node} />
+    case "ff7-psx-model":
+      return <Ff7PsxModelPreview node={node} />
     case "bti-image":
       return <BtiPreview node={node} />
     case "j3d-model":
@@ -15183,6 +15186,31 @@ function J3dModelPreview({ node }: { node: Node }) {
     )
   }
   return <J3dModelViewer node={node} view={v} />
+}
+
+function Ff7PsxModelPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(() => loadFf7PsxModelView(node), [node.id])
+  if (loading) return <LoadingFiller label="Decoding model…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const battle = node.meta?.ff7PsxModel === "battle"
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">
+          Final Fantasy VII {battle ? "battle" : "field"} model
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          {v.vertices.toLocaleString()} vertices · {v.triangles.toLocaleString()} triangles · {v.bones} bones
+          {v.textures.filter(Boolean).length ? ` · ${v.textures.filter(Boolean).length} texture palette(s)` : " · vertex-coloured"}
+          {" · first animation, frame 0 · drag to orbit, scroll to zoom"}
+        </p>
+      </div>
+      <div className="flex-1 p-3">
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name} />
+      </div>
+    </div>
+  )
 }
 
 function HaloModelPreview({ node }: { node: Node }) {

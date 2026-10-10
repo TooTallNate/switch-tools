@@ -29,6 +29,7 @@ import {
 import { parsePbp, type CdTrack, type ParsedPbp } from '@tootallnate/pbp';
 import { decodeXaStream, hasStrVideo, isCookedStr, pcm16ToWav, scanXaStreams } from '@tootallnate/psx-str';
 import type { Node } from './archive';
+import { detectFf7PsxModel } from './ff7-psx';
 
 /** Builds a child node the normal way (injected by archive.ts). */
 export type ChildFor = (id: string, name: string, blob: Blob) => Promise<Node>;
@@ -207,6 +208,22 @@ async function fileNode(id: string, reader: SectorReader, entry: IsoEntry, child
 			meta: { psxStr: true },
 			blob: async () => materialize(blob),
 		};
+	}
+	// Final Fantasy VII battle / field models (recognised by parsing them).
+	if (/\.(lzs|bcx)$/i.test(entry.name) && size <= 2 * 1024 * 1024) {
+		const kind = detectFf7PsxModel(entry.name, await blob.read());
+		if (kind) {
+			return {
+				id: childId,
+				name: entry.name,
+				kind: 'file',
+				isContainer: false,
+				size,
+				format: kind === 'battle' ? 'FF7 battle model' : 'FF7 field model',
+				meta: { ff7PsxModel: kind },
+				blob: async () => materialize(blob),
+			};
+		}
 	}
 	const node = await childFor(childId, entry.name, blob);
 	// Leaves hand their blob to browser APIs, which can't read the facade.

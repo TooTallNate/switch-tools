@@ -58,6 +58,7 @@
     "@tootallnate/ff7-battle": "workspace:*",
     "@tootallnate/ff7-flevel": "workspace:*",
     "@tootallnate/ff7-pc-model": "workspace:*",
+    "@tootallnate/ff7-psx-model": "workspace:*",
     "@tootallnate/ff7-scene": "workspace:*",
     "@tootallnate/ff7-world": "workspace:*",
     "@tootallnate/ff8-battle": "workspace:*",

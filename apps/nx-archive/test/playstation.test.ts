@@ -122,3 +122,15 @@ describe('PlayStation discs', () => {
     expect(cdda.length).toBe(44 + 2 * RAW)
   })
 })
+
+describe('Final Fantasy VII PSX models', () => {
+  it('only claims .LZS / .BCX files that parse as FF7 models', async () => {
+    const { detectFf7PsxModel } = await import('~/lib/ff7-psx')
+    // An LZSS-stored stream (all literals) of zeros: not a model.
+    const junk = new Uint8Array(4 + 9 * 8)
+    new DataView(junk.buffer).setUint32(0, 9 * 8, true)
+    for (let i = 0; i < 8; i++) junk[4 + i * 9] = 0xff
+    expect(detectFf7PsxModel('STAGE00.LZS', junk)).toBeNull()
+    expect(detectFf7PsxModel('readme.txt', junk)).toBeNull()
+  })
+})

@@ -55,6 +55,7 @@ import {
 } from '../uasset-material-chain';
 import { createAssetResolver } from '../uasset-resolver';
 import { loadHaloModelView, type HaloModelRef } from '../halo';
+import { loadFf7PsxModelView } from '../ff7-psx';
 import { unityMeshDisplayColors } from '../unity-mesh';
 import { findNodeById } from '../unity-external';
 
@@ -86,6 +87,7 @@ export const HEADLESS_MODEL_KINDS = new Set([
 	'hsd-model',
 	'n64-model',
 	'halo-model',
+	'ff7-psx-model',
 	'j3d-model',
 	'ff7-hrc',
 	'ff7-battle-skeleton',
@@ -419,6 +421,10 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 		case 'n64-model': {
 			const v = await parseN64ModelForView(await node.blob!(), node.meta?.n64Model as N64ModelRef);
 			return asset(n64Lod(v), v.texturedMaterials > 0 ? v.textures : []);
+		}
+		case 'ff7-psx-model': {
+			const v = await loadFf7PsxModelView(node);
+			return asset(v.mesh.lods[0], v.textures);
 		}
 		case 'halo-model': {
 			const v = await loadHaloModelView(node.meta?.haloModel as HaloModelRef);

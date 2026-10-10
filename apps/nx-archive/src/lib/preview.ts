@@ -303,6 +303,7 @@ export type PreviewKind =
 	| 'halo-model'
 	| 'psx-str'
 	| 'psx-tim'
+	| 'ff7-psx-model'
 	/**
 	 * Nintendo BTI texture (`.bti`) — a bare GX texture header plus
 	 * tiled pixel data, as used all over GameCube/Wii JSystem titles.
@@ -564,6 +565,7 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.n64Model) return 'n64-model';
 	if (node.meta?.haloModel) return 'halo-model';
 	if (node.meta?.psxStr) return 'psx-str';
+	if (node.meta?.ff7PsxModel) return 'ff7-psx-model';
 	// Melee model: the tree tags which archive + joint root to render.
 	if (node.meta?.hsdModel) return 'hsd-model';
 	// Raw pixel data tagged at tree-build time (NES CHR-ROM,
