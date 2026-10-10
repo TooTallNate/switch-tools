@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/xiso",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Parser for Xbox / Xbox 360 XDVDFS disc images (.iso / .xiso), both extract-xiso and full redump layouts.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/xiso"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
