@@ -1,0 +1,32 @@
+{
+  "name": "@tootallnate/ff7-psx-model",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Decoders for Final Fantasy VII PlayStation 3D models: battle models (.LZS) and field characters (.BCX / .BSX), posed and triangulated with textures.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "ff7",
+    "final-fantasy-vii",
+    "playstation",
+    "psx",
+    "model"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/ff7-psx-model"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@tootallnate/ff7-flevel": "workspace:*",
+    "@tootallnate/psx-tim": "workspace:*"
+  }
+}

@@ -34,10 +34,12 @@ function color1555(v: number, out: Uint8Array, o: number): void {
 	out[o + 3] = v === 0 ? 0 : 255;
 }
 
-interface TimLayout {
+export interface TimLayout {
 	bpp: 4 | 8 | 16 | 24;
-	clut: { offset: number; width: number; height: number } | null;
-	image: { offset: number; width: number; height: number };
+	/** CLUT block: data offset, VRAM position and size (in 16-bit entries). */
+	clut: { offset: number; x: number; y: number; width: number; height: number } | null;
+	/** Image block: data offset, VRAM position and size (width in 16-bit units). */
+	image: { offset: number; x: number; y: number; width: number; height: number };
 	byteLength: number;
 }
 
@@ -61,7 +63,7 @@ export function timLayout(bytes: Uint8Array, offset = 0): TimLayout | null {
 		const w = dv.getUint16(p + 8, true);
 		const h = dv.getUint16(p + 10, true);
 		if (!w || !h || len !== 12 + w * h * 2 || w > 1024 || h > 512) return null;
-		clut = { offset: p + 12, width: w, height: h };
+		clut = { offset: p + 12, x: dv.getUint16(p + 4, true), y: dv.getUint16(p + 6, true), width: w, height: h };
 		p += len;
 	}
 	if (p + 12 > bytes.length) return null;
@@ -70,11 +72,16 @@ export function timLayout(bytes: Uint8Array, offset = 0): TimLayout | null {
 	const h = dv.getUint16(p + 10, true);
 	if (!w || !h || w > 1024 || h > 512 || len !== 12 + w * h * 2) return null;
 	if (p + len > bytes.length) return null;
-	return { bpp, clut, image: { offset: p + 12, width: w, height: h }, byteLength: p + len - offset };
+	return {
+		bpp,
+		clut,
+		image: { offset: p + 12, x: dv.getUint16(p + 4, true), y: dv.getUint16(p + 6, true), width: w, height: h },
+		byteLength: p + len - offset,
+	};
 }
 
 /** Pixel width of an image block `w` 16-bit units wide. */
-function pixelWidth(bpp: number, w: number): number {
+export function pixelWidth(bpp: number, w: number): number {
 	return bpp === 4 ? w * 4 : bpp === 8 ? w * 2 : bpp === 16 ? w : Math.floor((w * 2) / 3);
 }
 
