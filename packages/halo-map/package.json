@@ -1,0 +1,31 @@
+{
+  "name": "@tootallnate/halo-map",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Parser for Halo: Combat Evolved cache files (.map): tag index, bitmaps, sounds and models.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "halo",
+    "xbox",
+    "cache",
+    "map",
+    "bitmap"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/halo-map"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@tootallnate/bcn": "workspace:*"
+  }
+}
