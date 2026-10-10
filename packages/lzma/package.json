@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/lzma",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Small dependency-free LZMA (LZMA1) decoder, for Unity LZMA-compressed asset bundles and `.lzma` streams.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/lzma"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
