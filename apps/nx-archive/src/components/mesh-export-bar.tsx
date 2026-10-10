@@ -13,7 +13,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { DownloadIcon, InfoIcon, RotateCcwIcon, TriangleAlertIcon } from "lucide-react"
 import { toast } from "sonner"
 
-import { Alert, AlertDescription } from "~/components/ui/alert"
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "~/components/ui/alert"
 import { Button } from "~/components/ui/button"
 import {
   Dialog,
@@ -46,13 +46,14 @@ import {
 import { Spinner } from "~/components/ui/spinner"
 import { Switch } from "~/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "~/components/ui/toggle-group"
-import { mixLabel } from "~/lib/full-spectrum"
+import { analyzeGamut, mixLabel, type GamutReport } from "~/lib/full-spectrum"
 import { SLICER_PROFILES, slicerProfile } from "~/lib/slicer-profile"
 import { sanitizeStem, triggerDownload, type ExportMesh } from "~/lib/mesh-export"
-import { rgbToHex, type Rgb } from "~/lib/mesh-export-3mf"
+import { rgbToHex, surfaceColorBins, type ColorBin, type Rgb } from "~/lib/mesh-export-3mf"
 import { repairChangedAnything, type RepairSummary } from "~/lib/mesh-repair"
 import {
   DEFAULT_EXPORT_SETTINGS,
+  baseFilaments,
   printSize,
   runModelExport,
   targetProfile,
@@ -164,6 +165,63 @@ function describeSubject(baseName: string | undefined, pose: string): string {
   if (pose === "_bind") return `${name} · bind pose`
   const m = /^_(.+)_f0*(\d+)$/.exec(pose)
   return m ? `${name} · ${m[1]!.replace(/_/g, " ")}, frame ${m[2]}` : `${name} · ${pose.replace(/^_/, "")}`
+}
+
+const pct = (f: number) => `${Math.round(f * 100)}%`
+
+/**
+ * Full Spectrum gamut warning: near-black / near-white areas the loaded
+ * filaments can't mix, with a one-click toolhead swap when it helps.
+ */
+function GamutAlert({
+  report,
+  base,
+  onSwap,
+}: {
+  report: GamutReport | null
+  base: readonly string[]
+  onSwap: (toolhead: number, hex: string) => void
+}) {
+  if (!report) return null
+  const { dark, light, other } = report.unreachable
+  const parts: string[] = []
+  if (dark >= 0.03) parts.push(`${pct(dark)} dark`)
+  if (light >= 0.03) parts.push(`${pct(light)} light`)
+  if (other >= 0.1) parts.push(`${pct(other)} saturated`)
+  if (parts.length === 0 && !report.suggestion) return null
+  const s = report.suggestion
+  const filaments = baseFilaments(base)
+  const current = s ? filaments[s.toolhead]! : null
+  // Only explain the dark limit when no loaded filament is dark itself.
+  const hasDark = filaments.some((f) => 0.2126 * f.rgb[0] + 0.7152 * f.rgb[1] + 0.0722 * f.rgb[2] < 70)
+  return (
+    <Alert>
+      <TriangleAlertIcon />
+      <AlertTitle>Some colors are out of reach</AlertTitle>
+      <AlertDescription>
+        {parts.length > 0 && (
+          <p>
+            About {parts.join(", ").replace(/, ([^,]*)$/, " and $1")} colors of this model
+            can't be matched closely by these filaments or their mixes
+            {dark >= 0.03 && !hasDark && " (the darkest possible mix is a mid purple)"}.
+          </p>
+        )}
+        {s && current && (
+          <p>
+            Swapping toolhead {s.toolhead + 1} ({current.name}) for {s.filament.name} brings the
+            colors {pct(s.improvement)} closer.
+          </p>
+        )}
+      </AlertDescription>
+      {s && (
+        <AlertAction>
+          <Button size="xs" variant="outline" onClick={() => onSwap(s.toolhead, rgbToHex(s.filament.rgb))}>
+            Use {s.filament.name}
+          </Button>
+        </AlertAction>
+      )}
+    </Alert>
+  )
 }
 
 function Swatch({ rgb }: { rgb: Rgb }) {
@@ -300,11 +358,22 @@ export function MeshExportBar({
   const [sizeUnits, setSizeUnits] = useState<[number, number, number] | null>(null)
   const [scale, setScale] = useState(1)
   const [scaleSaved, setScaleSaved] = useState(false)
+  const [bins, setBins] = useState<ColorBin[] | null>(null)
+  const gamut = useMemo(
+    () =>
+      bins && settings.format === "3mf-full-spectrum"
+        ? analyzeGamut(bins, baseFilaments(settings.base))
+        : null,
+    [bins, settings.format, settings.base],
+  )
 
   const openDialog = () => {
     const meshes = bake()
     const size = meshes && meshes.length ? printSize(meshes, sourceAxis) : null
     setSizeUnits(size)
+    // Surface colours for the Full Spectrum gamut check (cheap: no
+    // welding / repair / painting).
+    setBins(meshes && meshes.length ? surfaceColorBins(meshes, 20_000) : null)
     const stored = loadPrintScale(scope.key)
     setScaleSaved(stored !== null)
     setScale(stored ?? (size ? defaultPrintScale(size) : 1))
@@ -597,6 +666,15 @@ export function MeshExportBar({
                       Fewer are used when more wouldn't improve the colors.
                     </FieldDescription>
                   </Field>
+                  <GamutAlert
+                    report={gamut}
+                    base={settings.base}
+                    onSwap={(toolhead, hex) => {
+                      const base = settings.base.slice()
+                      base[toolhead] = hex
+                      update({ base })
+                    }}
+                  />
                   <Alert>
                     <InfoIcon />
                     <AlertDescription>

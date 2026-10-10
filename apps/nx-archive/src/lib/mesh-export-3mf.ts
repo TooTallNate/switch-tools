@@ -581,6 +581,110 @@ function sampleSource(src: TriSource, s: number, t: number, out: Uint8Array): bo
 	return true;
 }
 
+const IDENTITY_BARY = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+
+/**
+ * Colour source of source triangle `st` of `inp`, for an output
+ * triangle whose corners sit at barycentric `bary[bo … bo + 8]` within
+ * it (identity = the source triangle itself).
+ */
+function triSourceOf(inp: ExportMesh, st: number, bary: ArrayLike<number> = IDENTITY_BARY, bo = 0): TriSource {
+	const materials: ExportMaterial[] = inp.materials?.length ? inp.materials : [{ texture: null }];
+	const mat = materials[inp.triangleMaterials?.[st] ?? 0] ?? materials[0]!;
+	const uvs = inp.uvs;
+	const colors = inp.colors;
+	const cStride = inp.colorStride ?? 3;
+	const idx = inp.indices;
+	const i0 = idx[st * 3]!, i1 = idx[st * 3 + 1]!, i2 = idx[st * 3 + 2]!;
+	const src: TriSource = {
+		kind: KIND_FLAT,
+		texture: null,
+		flat: mat.baseColor ?? DEFAULT_BASE,
+		attr: new Float64Array(0),
+		linear: (inp.colorSpace ?? 'linear') === 'linear',
+	};
+	if (mat.texture && uvs) {
+		src.kind = KIND_TEXTURE;
+		src.texture = mat.texture;
+		src.attr = new Float64Array(6);
+		for (let k = 0; k < 3; k++) {
+			const w0 = bary[bo + k * 3]!, w1 = bary[bo + k * 3 + 1]!, w2 = bary[bo + k * 3 + 2]!;
+			src.attr[k * 2] = w0 * uvs[i0 * 2]! + w1 * uvs[i1 * 2]! + w2 * uvs[i2 * 2]!;
+			src.attr[k * 2 + 1] = w0 * uvs[i0 * 2 + 1]! + w1 * uvs[i1 * 2 + 1]! + w2 * uvs[i2 * 2 + 1]!;
+		}
+	} else if (mat.useVertexColors && colors) {
+		src.kind = KIND_VCOLOR;
+		src.attr = new Float64Array(9);
+		for (let k = 0; k < 3; k++) {
+			const w0 = bary[bo + k * 3]!, w1 = bary[bo + k * 3 + 1]!, w2 = bary[bo + k * 3 + 2]!;
+			for (let ch = 0; ch < 3; ch++) {
+				src.attr[k * 3 + ch] =
+					w0 * colors[i0 * cStride + ch]! + w1 * colors[i1 * cStride + ch]! + w2 * colors[i2 * cStride + ch]!;
+			}
+		}
+	}
+	return src;
+}
+
+/**
+ * Area-weighted colours of the meshes' surfaces as displayed (texture,
+ * vertex colour or flat colour per material slot), as non-empty
+ * 15-bit histogram bins. Alpha-cutout texels are skipped, as in the
+ * export. Cheap enough to run interactively: no welding, repair or
+ * paint trees.
+ */
+export function surfaceColorBins(meshes: readonly ExportMesh[], samples = 50_000): ColorBin[] {
+	const tris: { mesh: ExportMesh; t: number; area: number }[] = [];
+	let total = 0;
+	for (const m of meshes) {
+		const p = m.positions, idx = m.indices;
+		for (let t = 0; t < idx.length / 3; t++) {
+			const a = idx[t * 3]! * 3, b = idx[t * 3 + 1]! * 3, c = idx[t * 3 + 2]! * 3;
+			const e1x = p[b]! - p[a]!, e1y = p[b + 1]! - p[a + 1]!, e1z = p[b + 2]! - p[a + 2]!;
+			const e2x = p[c]! - p[a]!, e2y = p[c + 1]! - p[a + 1]!, e2z = p[c + 2]! - p[a + 2]!;
+			const area = 0.5 * Math.hypot(e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x);
+			if (!(area > 0)) continue;
+			tris.push({ mesh: m, t, area });
+			total += area;
+		}
+	}
+	const hist = new Float64Array(BIN_COUNT * 4);
+	const add = (r: number, g: number, b: number, w: number) => {
+		const o = binKey(r, g, b) * 4;
+		hist[o] = hist[o]! + r * w;
+		hist[o + 1] = hist[o + 1]! + g * w;
+		hist[o + 2] = hist[o + 2]! + b * w;
+		hist[o + 3] = hist[o + 3]! + w;
+	};
+	const rand = mulberry32(0x5eed);
+	const rgb = new Uint8Array(3);
+	let carry = 0;
+	for (const { mesh, t, area } of tris) {
+		const src = triSourceOf(mesh, t);
+		const want = (area / total) * samples;
+		if (src.kind === KIND_FLAT) {
+			add(src.flat[0], src.flat[1], src.flat[2], want);
+			continue;
+		}
+		carry += want;
+		while (carry >= 1) {
+			carry -= 1;
+			let r1 = rand(), r2 = rand();
+			if (r1 + r2 > 1) {
+				r1 = 1 - r1;
+				r2 = 1 - r2;
+			}
+			if (sampleSource(src, r1, r2, rgb)) add(rgb[0]!, rgb[1]!, rgb[2]!, 1);
+		}
+	}
+	const bins: ColorBin[] = [];
+	for (let i = 0; i < BIN_COUNT; i++) {
+		const w = hist[i * 4 + 3]!;
+		if (w > 0) bins.push({ rgb: [Math.round(hist[i * 4]! / w), Math.round(hist[i * 4 + 1]! / w), Math.round(hist[i * 4 + 2]! / w)], weight: w });
+	}
+	return bins;
+}
+
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
@@ -632,15 +736,6 @@ export function buildPainted3MF(
 			positions[o + 2] = flipToZUp ? y : z;
 		}
 		const inp = s.input;
-		const materials: ExportMaterial[] = inp.materials?.length
-			? inp.materials
-			: [{ texture: null }];
-		const triMats = inp.triangleMaterials;
-		const uvs = inp.uvs;
-		const colors = inp.colors;
-		const cStride = inp.colorStride ?? 3;
-		const linear = (inp.colorSpace ?? 'linear') === 'linear';
-		const srcIdx = inp.indices;
 		const idx = s.mesh.indices;
 		for (let t = 0; t < idx.length / 3; t++) {
 			const a = vBase + idx[t * 3]!;
@@ -664,40 +759,7 @@ export function buildPainted3MF(
 			tris.push(a, b, c);
 
 			const st = s.src[t]!;
-			const mat = materials[triMats?.[st] ?? 0] ?? materials[0]!;
-			const i0 = srcIdx[st * 3]!, i1 = srcIdx[st * 3 + 1]!, i2 = srcIdx[st * 3 + 2]!;
-			const bo = t * 9;
-			const src: TriSource = {
-				kind: KIND_FLAT,
-				texture: null,
-				flat: mat.baseColor ?? DEFAULT_BASE,
-				attr: new Float64Array(0),
-				linear,
-			};
-			if (mat.texture && uvs) {
-				src.kind = KIND_TEXTURE;
-				src.texture = mat.texture;
-				src.attr = new Float64Array(6);
-				for (let k = 0; k < 3; k++) {
-					const w0 = s.bary[bo + k * 3]!, w1 = s.bary[bo + k * 3 + 1]!, w2 = s.bary[bo + k * 3 + 2]!;
-					src.attr[k * 2] = w0 * uvs[i0 * 2]! + w1 * uvs[i1 * 2]! + w2 * uvs[i2 * 2]!;
-					src.attr[k * 2 + 1] =
-						w0 * uvs[i0 * 2 + 1]! + w1 * uvs[i1 * 2 + 1]! + w2 * uvs[i2 * 2 + 1]!;
-				}
-			} else if (mat.useVertexColors && colors) {
-				src.kind = KIND_VCOLOR;
-				src.attr = new Float64Array(9);
-				for (let k = 0; k < 3; k++) {
-					const w0 = s.bary[bo + k * 3]!, w1 = s.bary[bo + k * 3 + 1]!, w2 = s.bary[bo + k * 3 + 2]!;
-					for (let ch = 0; ch < 3; ch++) {
-						src.attr[k * 3 + ch] =
-							w0 * colors[i0 * cStride + ch]! +
-							w1 * colors[i1 * cStride + ch]! +
-							w2 * colors[i2 * cStride + ch]!;
-					}
-				}
-			}
-			sources.push(src);
+			sources.push(triSourceOf(inp, st, s.bary, t * 9));
 		}
 		vBase += p.length / 3;
 	}

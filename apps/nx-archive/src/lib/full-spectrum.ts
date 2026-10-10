@@ -129,6 +129,112 @@ export function mixCandidates(
 	return out;
 }
 
+// ---------------------------------------------------------------------------
+// Gamut check
+// ---------------------------------------------------------------------------
+
+/** Plain black / white filaments offered as swaps for one toolhead. */
+export const BLACK_FILAMENT: PhysicalFilament = { name: 'Black', rgb: [0, 0, 0] };
+export const WHITE_FILAMENT: PhysicalFilament = { name: 'White', rgb: [0xff, 0xff, 0xff] };
+
+/** CIE76 ΔE beyond which a colour counts as out of reach. */
+const UNREACHABLE_DE = 20;
+
+export interface GamutReport {
+	/** Area-weighted mean ΔE from the surface to the nearest reachable colour. */
+	meanError: number;
+	/** Area fractions (0–1) more than ΔE 20 from anything reachable. */
+	unreachable: { dark: number; light: number; other: number };
+	/** Best single-toolhead swap to black / white, when it clearly helps. */
+	suggestion: {
+		/** 0-based toolhead index. */
+		toolhead: number;
+		filament: PhysicalFilament;
+		meanError: number;
+		/** Relative reduction of `meanError` (0–1). */
+		improvement: number;
+	} | null;
+}
+
+function labOf(c: Rgb): [number, number, number] {
+	const o = new Float64Array(3);
+	rgbToLab(c[0], c[1], c[2], o, 0);
+	return [o[0]!, o[1]!, o[2]!];
+}
+
+/** Mean ΔE and per-bin nearest distances against the reachable colours. */
+function gamutError(binLab: Float64Array, weights: Float64Array, base: readonly Rgb[], percents: readonly number[]) {
+	const reach = [...base, ...mixCandidates(base, percents).map((m) => m.rgb)].map(labOf);
+	const n = weights.length;
+	const dist = new Float64Array(n);
+	let sum = 0, wsum = 0;
+	for (let i = 0; i < n; i++) {
+		let best = Infinity;
+		for (const r of reach) {
+			const dl = binLab[i * 3]! - r[0], da = binLab[i * 3 + 1]! - r[1], db = binLab[i * 3 + 2]! - r[2];
+			const d = dl * dl + da * da + db * db;
+			if (d < best) best = d;
+		}
+		dist[i] = Math.sqrt(best);
+		sum += dist[i]! * weights[i]!;
+		wsum += weights[i]!;
+	}
+	return { mean: wsum > 0 ? sum / wsum : 0, dist, wsum };
+}
+
+/**
+ * How well can these physical filaments (plus their layer mixes)
+ * reproduce the model's colours? Flags near-black / near-white areas
+ * that no mix reaches — the Full Spectrum bundle's darkest mix is a
+ * mid purple (L* ≈ 45) and its lightest colour is yellow — and
+ * suggests swapping one toolhead for black or white when that clearly
+ * lowers the error.
+ */
+export function analyzeGamut(
+	bins: readonly ColorBin[],
+	base: readonly PhysicalFilament[],
+	percents: readonly number[] = DEFAULT_MIX_PERCENTS,
+): GamutReport {
+	const n = bins.length;
+	const binLab = new Float64Array(n * 3);
+	const weights = new Float64Array(n);
+	bins.forEach((b, i) => {
+		rgbToLab(b.rgb[0], b.rgb[1], b.rgb[2], binLab, i * 3);
+		weights[i] = b.weight;
+	});
+	const baseRgb = base.map((f) => f.rgb);
+	const cur = gamutError(binLab, weights, baseRgb, percents);
+
+	const unreachable = { dark: 0, light: 0, other: 0 };
+	for (let i = 0; i < n; i++) {
+		if (cur.dist[i]! <= UNREACHABLE_DE) continue;
+		const L = binLab[i * 3]!;
+		const chroma = Math.hypot(binLab[i * 3 + 1]!, binLab[i * 3 + 2]!);
+		const share = weights[i]! / (cur.wsum || 1);
+		if (L < 30) unreachable.dark += share;
+		else if (L > 80 && chroma < 20) unreachable.light += share;
+		else unreachable.other += share;
+	}
+
+	let suggestion: GamutReport['suggestion'] = null;
+	if (unreachable.dark + unreachable.light >= 0.03) {
+		for (const filament of [BLACK_FILAMENT, WHITE_FILAMENT]) {
+			for (let t = 0; t < base.length; t++) {
+				if (rgbToHex(baseRgb[t]!) === rgbToHex(filament.rgb)) continue;
+				const swapped = baseRgb.slice();
+				swapped[t] = filament.rgb;
+				const e = gamutError(binLab, weights, swapped, percents).mean;
+				if (!suggestion || e < suggestion.meanError) {
+					suggestion = { toolhead: t, filament, meanError: e, improvement: 1 - e / (cur.mean || 1) };
+				}
+			}
+		}
+		// Only worth suggesting when it's a clear win.
+		if (suggestion && suggestion.improvement < 0.15) suggestion = null;
+	}
+	return { meanError: cur.mean, unreachable, suggestion };
+}
+
 /**
  * Pick up to `maxMixes` mixes that best reproduce the surface colours.
  * Physical filaments are always available; mixes are added greedily by

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   FULL_SPECTRUM_BUNDLE,
+  analyzeGamut,
   buildFullSpectrum3MF,
   chooseMixes,
   mixCandidates,
@@ -11,7 +12,7 @@ import {
   pairLayerRatios,
 } from '~/lib/full-spectrum'
 import type { ExportMesh } from '~/lib/mesh-export'
-import { encodePaintLeaf } from '~/lib/mesh-export-3mf'
+import { encodePaintLeaf, surfaceColorBins } from '~/lib/mesh-export-3mf'
 
 const base = FULL_SPECTRUM_BUNDLE.map((f) => f.rgb)
 
@@ -124,5 +125,52 @@ describe('buildFullSpectrum3MF', () => {
     const states = [...model.matchAll(/paint_color="([0-9A-F]+)"/g)].map((m) => m[1]!)
     // Only "", "4", "8", "0C", "1C" (filaments 1–4) may appear.
     for (const s of states) expect(s.replace(/[48]|0C|1C|3/g, '')).toBe('')
+  })
+})
+
+describe('analyzeGamut', () => {
+  const bundle = FULL_SPECTRUM_BUNDLE
+
+  it('passes models the bundle can mix', () => {
+    const green = mixPreviewColor(base, 1, 3, 50)
+    const r = analyzeGamut([{ rgb: green, weight: 1 }, { rgb: base[1]!, weight: 1 }], bundle)
+    expect(r.unreachable.dark + r.unreachable.light + r.unreachable.other).toBe(0)
+    expect(r.suggestion).toBeNull()
+  })
+
+  it('flags near-black areas and suggests a black toolhead', () => {
+    // A colourful model with dark areas: it needs C, M and Y, so Gray
+    // is the toolhead it loses least by replacing.
+    const r = analyzeGamut(
+      [{ rgb: [20, 20, 20], weight: 3 }, { rgb: base[0]!, weight: 3 }, { rgb: base[1]!, weight: 2 }, { rgb: base[2]!, weight: 2 }],
+      bundle,
+    )
+    expect(r.unreachable.dark).toBeCloseTo(0.3)
+    expect(r.suggestion?.filament.name).toBe('Black')
+    expect(r.suggestion?.toolhead).toBe(3)
+    expect(r.suggestion!.improvement).toBeGreaterThan(0.5)
+  })
+
+  it('flags near-white areas and suggests white', () => {
+    const r = analyzeGamut([{ rgb: [250, 250, 250], weight: 1 }, { rgb: base[0]!, weight: 3 }], bundle)
+    expect(r.unreachable.light).toBeCloseTo(0.25)
+    expect(r.suggestion?.filament.name).toBe('White')
+  })
+})
+
+describe('surfaceColorBins', () => {
+  it('samples textures area-weighted', () => {
+    // Quad: left half red, right half blue (2×1 texture).
+    const m: ExportMesh = {
+      positions: new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]),
+      indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+      uvs: new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]),
+      materials: [{ texture: { pixels: new Uint8Array([255, 0, 0, 255, 0, 0, 255, 255]), width: 2, height: 1, wrapS: 'clamp', wrapT: 'clamp' } }],
+    }
+    const bins = surfaceColorBins([m], 10_000)
+    const total = bins.reduce((s, b) => s + b.weight, 0)
+    const red = bins.filter((b) => b.rgb[0] > 200).reduce((s, b) => s + b.weight, 0)
+    expect(red / total).toBeGreaterThan(0.45)
+    expect(red / total).toBeLessThan(0.55)
   })
 })
