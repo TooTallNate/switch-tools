@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
+	fnv1a64,
 	GFPAK_MAGIC,
 	GfpakCompression,
+	gfpakFolderCandidates,
 	isGfpak,
 	parseGfpak,
 } from '../src/index.js';
@@ -123,6 +125,61 @@ describe('parseGfpak', () => {
 
 	it('throws on too-small blob', async () => {
 		await expect(parseGfpak(new Blob([]))).rejects.toThrow(/too small/);
+	});
+});
+
+describe('name recovery', () => {
+	/** A BNTX-magic payload whose embedded name (at `0x10 + u32`) is `name`. */
+	function bntxWithName(name: string): Uint8Array {
+		const b = new Uint8Array(0x40);
+		b.set([0x42, 0x4e, 0x54, 0x58]);
+		new DataView(b.buffer).setUint32(0x10, 0x20, true);
+		b.set(new TextEncoder().encode(name), 0x20);
+		return b;
+	}
+
+	it("hashes with Game Freak's FNV-1a-64 (non-standard offset basis)", () => {
+		expect(fnv1a64('')).toBe(0xcbf29ce484222645n);
+		expect(fnv1a64('a')).toBe(0xaf66bc4c8606cf2cn);
+	});
+
+	it('derives folder candidates from the pak path', () => {
+		const c = gfpakFolderCandidates('/bin/archive/pokemon/pm0025_00.gfpak');
+		expect(c).toContain('bin/pokemon/pm0025_00/');
+		expect(c).toContain('bin/pokemon/pm0025_00/mdl/');
+		expect(c).toContain('bin/pokemon/pm0025_00/anm/');
+	});
+
+	it('recovers file and folder names whose hashes match', async () => {
+		const buf = buildMinimalGfpak(
+			bntxWithName('pm0025_00_Eye_col'),
+			fnv1a64('pm0025_00_Eye_col.bntx'),
+			fnv1a64('bin/pokemon/pm0025_00/mdl/'),
+		);
+		const parsed = await parseGfpak(new Blob([buf as BlobPart]), {
+			path: 'bin/archive/pokemon/pm0025_00.gfpak',
+		});
+		const e = parsed.entries[0];
+		expect(e.fileName).toBe('pm0025_00_Eye_col.bntx');
+		expect(e.folderPath).toBe('bin/pokemon/pm0025_00/mdl/');
+		expect(e.displayName).toBe('bin/pokemon/pm0025_00/mdl/pm0025_00_Eye_col.bntx');
+	});
+
+	it('tries the pak stem and its prefixes as model names', async () => {
+		const buf = buildMinimalGfpak(new Uint8Array(16), fnv1a64('tr0001_00.gfbmdl'), 1n);
+		const parsed = await parseGfpak(new Blob([buf as BlobPart]), {
+			path: 'bin/archive/chara/data/tr/tr0001_00_hero.gfpak',
+		});
+		expect(parsed.entries[0].fileName).toBe('tr0001_00.gfbmdl');
+		expect(parsed.entries[0].folderPath).toBeNull();
+	});
+
+	it('uses caller hints and leaves unknown hashes unnamed', async () => {
+		const buf = buildMinimalGfpak(new Uint8Array(16), fnv1a64('hinted.bin'), 1n);
+		const hinted = await parseGfpak(new Blob([buf as BlobPart]), { nameHints: ['hinted.bin'] });
+		expect(hinted.entries[0].fileName).toBe('hinted.bin');
+		const plain = await parseGfpak(new Blob([buf as BlobPart]));
+		expect(plain.entries[0].fileName).toBeNull();
 	});
 });
 

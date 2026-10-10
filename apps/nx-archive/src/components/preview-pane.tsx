@@ -307,6 +307,15 @@ import {
 } from "~/lib/thp-encode"
 import { HsdModelViewer } from "./hsd-model-viewer"
 import { J3dModelViewer } from "./j3d-model-viewer"
+import {
+  AhtbPreview,
+  BflanPreview,
+  BflytPreview,
+  GfbanmInfoPreview,
+  GfbanmcfgPreview,
+  GfbmdlModelPreview,
+  GfMessagePreview,
+} from "./gf-previews"
 import { N64ModelViewer } from "./n64-model-viewer"
 import { parseIdFont, type ParsedIdFont } from "@tootallnate/idfont"
 import {
@@ -456,6 +465,9 @@ function PreviewContent({
       // Raw pixel data tagged at tree-build time (NES CHR-ROM,
       // decompressed GBA / N64 blocks) — graphics explorer.
       if (node.meta?.tileData) return "tile-viewer"
+      // Game Freak message text: a `.dat` whose header validated
+      // against its size at tree-build time.
+      if (node.meta?.gfMessage) return "gfmsg-text"
       return detectPreviewKind(node.name)
     },
     [isFile, node.name, node.meta, node.kind],
@@ -1993,6 +2005,20 @@ function FilePreview({
       return <ThpPreview node={node} />
     case "hsd-model":
       return <HsdModelPreview node={node} />
+    case "gfbmdl-model":
+      return <GfbmdlModelPreview node={node} root={root} />
+    case "gfbanm-info":
+      return <GfbanmInfoPreview node={node} />
+    case "gfbanmcfg-info":
+      return <GfbanmcfgPreview node={node} />
+    case "gfmsg-text":
+      return <GfMessagePreview node={node} root={root} />
+    case "ahtb-table":
+      return <AhtbPreview node={node} />
+    case "bflyt-info":
+      return <BflytPreview node={node} />
+    case "bflan-info":
+      return <BflanPreview node={node} />
     case "hex":
     default:
       return <HexPreview node={node} />
@@ -14406,9 +14432,11 @@ function ByamlPreview({ node }: { node: Node }) {
 // checkerboard background so transparent areas are visually obvious.
 
 function BntxPreview({ node }: { node: Node }) {
+  const [textureIndex, setTextureIndex] = useState(0)
+  useEffect(() => setTextureIndex(0), [node.id])
   const { loading, data, error } = useAsync(async () => {
-    return parseBntxForView(await node.blob!())
-  }, [node.id])
+    return parseBntxForView(await node.blob!(), textureIndex)
+  }, [node.id, textureIndex])
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   // Keep a separate object URL for the "Save as PNG" download link.
   const [pngUrl, setPngUrl] = useState<string | null>(null)
@@ -14443,6 +14471,24 @@ function BntxPreview({ node }: { node: Node }) {
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-5 p-5">
         <SectionHeader title="BNTX — Binary NinTeXture" />
+        {v.parsed.textures.length > 1 && (
+          <label className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground">
+              Texture ({v.index + 1} of {v.parsed.textures.length})
+            </span>
+            <select
+              className="h-8 max-w-md rounded-md border bg-background px-2 text-sm"
+              value={v.index}
+              onChange={(e) => setTextureIndex(Number(e.target.value))}
+            >
+              {v.parsed.textures.map((t, i) => (
+                <option key={i} value={i}>
+                  {t.name || `texture ${i}`} — {t.width}×{t.height} {t.formatInfo.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <BntxImageSection canvasRef={canvasRef} view={v} pngUrl={pngUrl} />
         <KvBlock title="Texture">
           <KvRow k="Name" v={v.texture.name || "(unnamed)"} />
@@ -15143,7 +15189,7 @@ function N64ModelPreview({ node }: { node: Node }) {
 
 // -------- Layout helpers --------
 
-function SectionHeader({ title }: { title: string }) {
+export function SectionHeader({ title }: { title: string }) {
   return (
     <div>
       <h2 className="font-heading text-base font-medium">{title}</h2>
@@ -15152,7 +15198,7 @@ function SectionHeader({ title }: { title: string }) {
   )
 }
 
-function KvBlock({
+export function KvBlock({
   title,
   children,
 }: {
@@ -15169,7 +15215,7 @@ function KvBlock({
   )
 }
 
-function KvRow({
+export function KvRow({
   k,
   v,
   hint,

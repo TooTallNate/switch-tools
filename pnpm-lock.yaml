@@ -256,6 +256,9 @@ importers:
       '@tootallnate/bffnt':
         specifier: workspace:*
         version: link:../../packages/bffnt
+      '@tootallnate/bflyt':
+        specifier: workspace:*
+        version: link:../../packages/bflyt
       '@tootallnate/bfres':
         specifier: workspace:*
         version: link:../../packages/bfres
@@ -370,6 +373,12 @@ importers:
       '@tootallnate/gcm':
         specifier: workspace:*
         version: link:../../packages/gcm
+      '@tootallnate/gfbmdl':
+        specifier: workspace:*
+        version: link:../../packages/gfbmdl
+      '@tootallnate/gfmsg':
+        specifier: workspace:*
+        version: link:../../packages/gfmsg
       '@tootallnate/gfpak':
         specifier: workspace:*
         version: link:../../packages/gfpak
@@ -745,6 +754,12 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/bflyt:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/bfres:
     devDependencies:
       typescript:
@@ -1049,8 +1064,23 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/gfbmdl:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/gfmsg:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/gfpak:
     dependencies:
+      '@tootallnate/gfbmdl':
+        specifier: workspace:*
+        version: link:../gfbmdl
       '@tootallnate/lz4':
         specifier: workspace:*
         version: link:../lz4
@@ -7349,8 +7379,8 @@ packages:
   spdx-license-ids@3.0.13:
     resolution: {integrity: sha512-XkD+zwiqXHikFZm4AX/7JSCXA98U5Db4AFd5XUg/+9UNtnH75+Z9KxtpYiJZx36mUDVOwH83pl7yvCer6ewM3w==}
 
-  spessasynth_core@4.3.15:
-    resolution: {integrity: sha512-EPHogsIWtq0505vQlei6rjcWzRjwtCM1Q/WLmrPgpfoLWJelsW0jhd59HjGYw4CmptWQDGhJlgh/R6RsJGMCHA==}
+  spessasynth_core@4.3.22:
+    resolution: {integrity: sha512-qP6NkcZLmTLIs9fCUh2IhZRkd3Junwu8ppD4K0l/0R+Lo4P48d4Rbe8YQ8RlEYyRKFz8HcPM75sXYVQLAb7k4A==}
 
   spessasynth_core@4.3.3:
     resolution: {integrity: sha512-WhdL1/rKP3QDJHq9/W7ayLqcvEMSciTalAYJUPp1QXRzGUBJnIOC0hvCf1QpPIMw4ie9BfOY3rZ5SuRY82iv2A==}
@@ -7379,6 +7409,9 @@ packages:
   statuses@2.0.2:
     resolution: {integrity: sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw==}
     engines: {node: '>= 0.8'}
+
+  stb-vorbis@0.0.6:
+    resolution: {integrity: sha512-CyvjJEGROIdnuZknwFvdOfMIO1ssUxO2OawsXCR3IlbJ8z2IMBjDe8FDxFJqBfLgf1ZOdqvoHAYx3Xk8q9rbbg==}
 
   std-env@3.10.0:
     resolution: {integrity: sha512-5GS12FdOZNliM5mAOxFRg7Ir0pWz8MdpYm6AY6VPkGpbA7ZzmbzNcBJQ0GPvvyWgcY7QAhCgf9Uy89I03faLkg==}
@@ -14530,13 +14563,15 @@ snapshots:
 
   spdx-license-ids@3.0.13: {}
 
-  spessasynth_core@4.3.15: {}
+  spessasynth_core@4.3.22:
+    dependencies:
+      stb-vorbis: 0.0.6
 
   spessasynth_core@4.3.3: {}
 
   spessasynth_lib@4.3.3:
     dependencies:
-      spessasynth_core: 4.3.15
+      spessasynth_core: 4.3.22
 
   split2@4.2.0: {}
 
@@ -14551,6 +14586,8 @@ snapshots:
   statuses@2.0.1: {}
 
   statuses@2.0.2: {}
+
+  stb-vorbis@0.0.6: {}
 
   std-env@3.10.0: {}
 

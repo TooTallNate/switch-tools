@@ -1,8 +1,8 @@
 {
-  "name": "@tootallnate/gfpak",
-  "version": "0.0.2",
+  "name": "@tootallnate/gfbmdl",
+  "version": "0.0.0",
   "type": "module",
-  "description": "Parser for Game Freak's GFLXPACK (.gfpak) Switch game-asset archive.",
+  "description": "Parser for Game Freak's GFLX FlatBuffers model (.gfbmdl), animation (.gfbanm) and animation-config (.gfbanmcfg) formats, as used by Pokémon: Let's Go, Pikachu! / Eevee!.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -14,11 +14,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/TooTallNate/switch-tools",
-    "directory": "packages/gfpak"
-  },
-  "dependencies": {
-    "@tootallnate/lz4": "workspace:*",
-    "@tootallnate/gfbmdl": "workspace:*"
+    "directory": "packages/gfbmdl"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

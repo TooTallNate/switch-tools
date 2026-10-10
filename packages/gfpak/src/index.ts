@@ -52,6 +52,7 @@
  */
 
 import { decodeBlock as decodeLz4Block } from '@tootallnate/lz4';
+import { parseGfbanmcfg, parseGfbmdl, sniffGflx } from '@tootallnate/gfbmdl';
 
 export const GFPAK_MAGIC = 'GFLXPACK';
 
@@ -120,6 +121,28 @@ export interface GfpakEntry {
 	 * isn't recoverable.
 	 */
 	displayName: string;
+	/**
+	 * Recovered original file name (e.g. `pm0025_00_ba01_jump01.gfbanm`),
+	 * or `null` when no candidate hashed to {@link fileHash}. See
+	 * {@link resolveGfpakNames}.
+	 */
+	fileName: string | null;
+	/**
+	 * Recovered folder path (e.g. `bin/pokemon/pm0025_00/anm/`), or
+	 * `null` when no candidate hashed to {@link folderHash}.
+	 */
+	folderPath: string | null;
+}
+
+export interface ParseGfpakOptions {
+	/**
+	 * Path of the `.gfpak` inside its RomFS (e.g.
+	 * `/bin/archive/pokemon/pm0025_00.gfpak`). Used to guess file and
+	 * folder names for hash recovery.
+	 */
+	path?: string;
+	/** Extra candidate file names to try against the per-folder hashes. */
+	nameHints?: string[];
 }
 
 export interface ParsedGfpak {
@@ -150,7 +173,7 @@ export async function isGfpak(blob: Blob): Promise<boolean> {
  * the user actually tries to read an entry — listing the archive
  * works regardless.
  */
-export async function parseGfpak(blob: Blob): Promise<ParsedGfpak> {
+export async function parseGfpak(blob: Blob, options: ParseGfpakOptions = {}): Promise<ParsedGfpak> {
 	if (blob.size < HEADER_SIZE) {
 		throw new Error(
 			`Blob too small to be a GFPAK (${blob.size} bytes, need at least ${HEADER_SIZE})`,
@@ -278,6 +301,8 @@ export async function parseGfpak(blob: Blob): Promise<ParsedGfpak> {
 			compressedSize,
 			dataOffset,
 			displayName: '',
+			fileName: null,
+			folderPath: null,
 			getData: async () =>
 				decompressEntry(
 					blob,
@@ -294,15 +319,124 @@ export async function parseGfpak(blob: Blob): Promise<ParsedGfpak> {
 	// We do this in one pass so the caller gets nicely-labelled
 	// entries without having to wait for a separate per-file
 	// inspection step.
+	const nameHints = new Set(options.nameHints ?? []);
 	for (const entry of entries) {
 		const sniff = await sniffEntry(blob, entry);
 		entry.innerMagic = sniff.magic;
 		entry.innerExt = sniff.ext;
 		entry.embeddedName = sniff.embeddedName;
-		entry.displayName = synthesizeDisplayName(entry);
+		for (const n of sniff.referencedNames) nameHints.add(n);
 	}
 
-	return { version, fileCount, folderCount, folders, entries };
+	const parsed: ParsedGfpak = { version, fileCount, folderCount, folders, entries };
+	resolveGfpakNames(parsed, { path: options.path, nameHints: [...nameHints] });
+	for (const entry of entries) entry.displayName = synthesizeDisplayName(entry);
+	return parsed;
+}
+
+// ----- Name recovery -----
+
+const FNV64_OFFSET = 0xcbf29ce484222645n;
+const FNV64_PRIME = 0x100000001b3n;
+const U64 = 0xffffffffffffffffn;
+const utf8 = new TextEncoder();
+
+/**
+ * 64-bit FNV-1a of a string's UTF-8 bytes, as Game Freak computes it:
+ * standard prime, but offset basis `0xCBF29CE484222645` (the standard
+ * basis is `…2325`).
+ */
+export function fnv1a64(s: string): bigint {
+	let h = FNV64_OFFSET;
+	for (const b of utf8.encode(s)) {
+		h ^= BigInt(b);
+		h = (h * FNV64_PRIME) & U64;
+	}
+	return h;
+}
+
+const FOLDER_SUFFIXES = ['', 'anm/', 'mdl/', 'tex/', 'model/', 'texture/', 'anim/', 'shader/', 'eff/', 'col/', 'cam/', 'light/'];
+
+/**
+ * Candidate folder paths for a pak at RomFS `path`. Game Freak stores
+ * `bin/archive/<rel>.gfpak` contents under folders like
+ * `bin/<rel>/`, `bin/<rel>/mdl/`, `bin/<rel>/anm/` (and battle / field
+ * variants); these recover ~91% of Let's Go's folder hashes.
+ */
+export function gfpakFolderCandidates(path: string): string[] {
+	const clean = path.replace(/^\/+/, '');
+	const rel = clean.replace(/^(bin\/)?archive\//, '').replace(/\.gfpak$/i, '');
+	const parts = rel.split('/');
+	const stem = parts[parts.length - 1];
+	const dir = parts.slice(0, -1).join('/');
+	const d = dir ? `${dir}/` : '';
+	const bases = new Set([
+		`bin/${rel}/`,
+		`bin/${d}`,
+		`bin/${d}${stem}/`,
+		`bin/${rel.replace(/_col$/, '')}/`,
+		`bin/${d}data/${stem}/`,
+		`bin/${d}model/${stem}/`,
+		`bin/${d}model/`,
+		`bin/${rel}/model/`,
+		`bin/battle/${rel}/`,
+		`bin/battle/${d}`,
+		`bin/battle/${d}${stem}/`,
+		`bin/field/${rel}/`,
+		`bin/field/model/${stem}/`,
+		`bin/field/${d}`,
+	]);
+	const out: string[] = [];
+	for (const b of bases) for (const s of FOLDER_SUFFIXES) out.push(b + s);
+	return out;
+}
+
+/**
+ * Fill in {@link GfpakEntry.fileName} / {@link GfpakEntry.folderPath}
+ * by hashing candidate names. GFPAK stores FNV-1a-64 of each bare
+ * file name (per folder) and of each folder path, so any correct
+ * guess is verifiable. Candidates: BNTX embedded names + `.bntx`, the
+ * pak stem as `.gfbmdl` / `_rare.gfbmdl`, every file named by a
+ * `.gfbanmcfg` in the pak, `<material>.bnsh_vsh` / `.bnsh_fsh` for
+ * every model material, plus caller hints.
+ */
+export function resolveGfpakNames(
+	parsed: ParsedGfpak,
+	options: { path?: string; nameHints?: string[] } = {},
+): void {
+	const byHash = new Map<bigint, string>();
+	const add = (n: string) => {
+		if (n) byHash.set(fnv1a64(n), n);
+	};
+	for (const n of options.nameHints ?? []) add(n);
+	const stem = options.path?.split('/').pop()?.replace(/\.gfpak$/i, '');
+	if (stem) {
+		const base = stem.replace(/_col$/, '');
+		// Every `_`-prefix too: `tr0001_00_hero.gfpak` holds `tr0001_00.gfbmdl`.
+		const segs = base.split('_');
+		const prefixes = segs.map((_, i) => segs.slice(0, i + 1).join('_'));
+		for (const s of new Set([stem, base, ...prefixes, ...prefixes.map((p) => `${p}_rare`)])) {
+			for (const ext of ['gfbmdl', 'gfbanmcfg', 'gfbanm', 'gfbpokecfg', 'gfbcol', 'ptcl', 'bntx']) add(`${s}.${ext}`);
+		}
+	}
+	for (const e of parsed.entries) {
+		if (e.embeddedName) {
+			add(`${e.embeddedName}.${e.innerExt}`);
+			if (e.innerExt === 'bnsh') {
+				add(`${e.embeddedName}.bnsh_vsh`);
+				add(`${e.embeddedName}.bnsh_fsh`);
+			}
+		}
+	}
+	for (const e of parsed.entries) {
+		const n = byHash.get(e.fileHash);
+		if (n) e.fileName = n;
+	}
+	if (options.path) {
+		const folders = new Map<bigint, string>();
+		for (const c of gfpakFolderCandidates(options.path)) folders.set(fnv1a64(c), c);
+		for (const e of parsed.entries) e.folderPath = folders.get(e.folderHash) ?? null;
+	}
 }
 
 /**
@@ -338,6 +472,10 @@ function extForMagic(magic: string | null): string {
 			return 'ptcl';
 		case 'AAMP':
 			return 'aamp';
+		case 'gfbmdl':
+		case 'gfbanm':
+		case 'gfbanmcfg':
+			return magic;
 		default:
 			return 'bin';
 	}
@@ -347,7 +485,12 @@ interface SniffResult {
 	magic: string | null;
 	ext: string;
 	embeddedName: string;
+	/** File names referenced by this entry (gfbanmcfg animation files). */
+	referencedNames: string[];
 }
+
+/** Largest uncompressed entry we'll read whole just to sniff it. */
+const MAX_FULL_SNIFF = 64 * 1024 * 1024;
 
 const FORMATS_WITH_EMBEDDED_NAME = new Set([
 	'BNTX',
@@ -357,9 +500,9 @@ const FORMATS_WITH_EMBEDDED_NAME = new Set([
 ]);
 
 async function sniffEntry(blob: Blob, entry: GfpakEntry): Promise<SniffResult> {
-	if (entry.decompressedSize < 4) {
-		return { magic: null, ext: 'bin', embeddedName: '' };
-	}
+	const none: SniffResult = { magic: null, ext: 'bin', embeddedName: '', referencedNames: [] };
+	if (entry.decompressedSize < 4) return none;
+	let full: Uint8Array | null = null;
 	// For uncompressed entries we can sniff directly from the source
 	// Blob without decompressing. For compressed entries we have to
 	// decompress at least the first few hundred bytes — but since
@@ -379,14 +522,14 @@ async function sniffEntry(blob: Blob, entry: GfpakEntry): Promise<SniffResult> {
 		// smarter strategy, but in practice GFPAK entries
 		// max out around a few MB.
 		try {
-			const full = await readDecompressedAsBytes(blob, entry);
+			full = await readDecompressedAsBytes(blob, entry);
 			head = full.subarray(0, Math.min(4096, full.length));
 		} catch {
-			return { magic: null, ext: 'bin', embeddedName: '' };
+			return none;
 		}
 	} else {
 		// Zlib / Oodle — we can't sniff without a decompressor.
-		return { magic: null, ext: 'bin', embeddedName: '' };
+		return none;
 	}
 	const magic4 = new TextDecoder('ascii').decode(head.subarray(0, 4));
 	let magic: string | null;
@@ -394,6 +537,34 @@ async function sniffEntry(blob: Blob, entry: GfpakEntry): Promise<SniffResult> {
 	else if (head[0] === 0x42 && head[1] === 0x59) magic = 'BY';
 	else if (/^[A-Z][A-Za-z0-9 ]{3}$/.test(magic4)) magic = magic4;
 	else magic = null;
+	const referencedNames: string[] = [];
+	if (!magic) {
+		// Magic-less Game Freak FlatBuffers (models / animations).
+		if (!full && entry.compression === GfpakCompression.None && entry.decompressedSize <= MAX_FULL_SNIFF) {
+			full =
+				entry.decompressedSize <= head.length
+					? head
+					: new Uint8Array(
+							await blob.slice(entry.dataOffset, entry.dataOffset + entry.decompressedSize).arrayBuffer(),
+						);
+		}
+		const kind = full ? sniffGflx(full) : null;
+		if (kind) {
+			magic = kind;
+			try {
+				if (kind === 'gfbanmcfg') {
+					for (const a of parseGfbanmcfg(full!).animations) if (a.file) referencedNames.push(a.file);
+				} else if (kind === 'gfbmdl') {
+					// Each material's shader binaries are `<material>.bnsh_vsh` / `.bnsh_fsh`.
+					for (const m of parseGfbmdl(full!).materialNames) {
+						referencedNames.push(`${m}.bnsh_vsh`, `${m}.bnsh_fsh`);
+					}
+				}
+			} catch {
+				// names are best-effort
+			}
+		}
+	}
 	const ext = extForMagic(magic);
 	let embeddedName = '';
 	if (magic && FORMATS_WITH_EMBEDDED_NAME.has(magic) && head.length >= 0x14) {
@@ -412,7 +583,7 @@ async function sniffEntry(blob: Blob, entry: GfpakEntry): Promise<SniffResult> {
 			);
 		}
 	}
-	return { magic, ext, embeddedName };
+	return { magic, ext, embeddedName, referencedNames };
 }
 
 async function decompressEntry(
@@ -464,10 +635,12 @@ async function readDecompressedAsBytes(
 }
 
 function synthesizeDisplayName(entry: GfpakEntry): string {
-	const folderHex = entry.folderHash
-		? `0x${entry.folderHash.toString(16).padStart(16, '0')}`
-		: 'unknown';
+	const folder =
+		entry.folderPath ??
+		(entry.folderHash ? `0x${entry.folderHash.toString(16).padStart(16, '0')}/` : 'unknown/');
 	const fileHex = `0x${entry.pathHash.toString(16).padStart(16, '0')}`;
-	const name = entry.embeddedName ? `${entry.embeddedName}.${entry.innerExt}` : `${fileHex}.${entry.innerExt}`;
-	return `${folderHex}/${name}`;
+	const name =
+		entry.fileName ??
+		(entry.embeddedName ? `${entry.embeddedName}.${entry.innerExt}` : `${fileHex}.${entry.innerExt}`);
+	return `${folder}${name}`;
 }

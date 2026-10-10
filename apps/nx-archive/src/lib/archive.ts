@@ -162,6 +162,7 @@ import {
 	type HsdArchive,
 	type HsdImage,
 } from '@tootallnate/hsd';
+import { isGfMessageHeader } from '@tootallnate/gfmsg';
 import { decodeSsmSound, parseSsm, parseSem } from '@tootallnate/ssm';
 import {
 	decodeWsysPcm8,
@@ -675,6 +676,11 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	gfbmdl: 'GFBMDL', // Game Freak model
 	gfbanm: 'GFBANM', // Game Freak skeletal animation
 	gfbanmcfg: 'GFBANMCFG', // Game Freak animation config
+	tbl: 'AHTB', // Game Freak label hash table (message labels, flags, zones)
+	bflyt: 'BFLYT', // NintendoWare layout
+	bflan: 'BFLAN', // NintendoWare layout animation
+	flyt: 'FLYT', // NintendoWare layout (XML source)
+	flan: 'FLAN', // NintendoWare layout animation (XML source)
 	bfbnk: 'BFBNK', // Instrument bank
 	bfseq: 'BFSEQ', // Sequence (MIDI-like)
 	bfgrp: 'BFGRP', // Group sub-archive
@@ -3331,6 +3337,11 @@ async function makeHsdNode(id: string, name: string, blob: Blob): Promise<Node> 
 		await blob.slice(0, Math.min(blob.size, 0x20)).arrayBuffer(),
 	);
 	if (!isHsdHeader(head, blob.size)) {
+		// Game Freak message text (`bin/message/<lang>/*.dat`): its
+		// header self-validates against the file size the same way.
+		if (isGfMessageHeader(head, blob.size)) {
+			return { ...genericFileNode(id, name, blob, 'GF-Text'), meta: { gfMessage: true } };
+		}
 		// Not an archive: leave it exactly as it was before this entry existed.
 		return genericFileNode(id, name, blob, detectFormat(name) || 'BIN');
 	}
@@ -5269,26 +5280,90 @@ function makeGfpakNode(
 		format: 'GFPAK',
 		blob: async () => blob,
 		getChildren: async () => {
-			const parsed = await parseGfpak(blob);
-			const used = new Set<string>();
-			return Promise.all(
-				parsed.entries.map(async (e): Promise<Node> => {
-					const baseName =
-						e.embeddedName ||
-						`0x${e.pathHash.toString(16).padStart(16, '0')}`;
-					let leaf = `${baseName}.${e.innerExt}`;
-					if (used.has(leaf)) leaf = `${baseName}_${e.index}.${e.innerExt}`;
-					used.add(leaf);
-					const childId = `${id}/${leaf}`;
-					// Lazy: only call `getData()` on demand. childNodeFor
-					// expects a Blob, so wrap in a deferred-decompress
-					// proxy that materialises bytes when first read.
-					const lazyBlob = new LazyDecompressBlob(() => e.getData());
-					return childNodeFor(childId, leaf, lazyBlob, ctx);
-				}),
-			);
+			const parsed = await parseGfpak(blob, { path: gfpakRomfsPath(id, name) });
+			return gfpakEntriesToNodes(id, parsed.entries, ctx);
 		},
 	};
+}
+
+/**
+ * Best-effort RomFS path of a `.gfpak` node from its tree id, e.g.
+ * `bin/archive/pokemon/pm0025_00.gfpak`. Used only to guess folder
+ * names for FNV hash recovery, so a wrong guess just leaves hashes.
+ */
+function gfpakRomfsPath(id: string, name: string): string {
+	const m = /(?:^|\/)(bin\/[^]*)$/.exec(id);
+	if (m) return m[1];
+	const a = /(?:^|\/)(archive\/[^]*)$/.exec(id);
+	return a ? `bin/${a[1]}` : name;
+}
+
+/**
+ * Lay GFPAK entries out as a directory tree. Folder paths recovered by
+ * `parseGfpak` (`bin/pokemon/pm0025_00/anm/`) are shown relative to
+ * their common prefix, so a Pokémon pak opens onto `anm/` + `mdl/`;
+ * unrecovered folders appear as `0x<hash>/`. Entries whose name wasn't
+ * recovered keep the embedded-name / hash fallback.
+ */
+async function gfpakEntriesToNodes(
+	id: string,
+	entries: import('@tootallnate/gfpak').GfpakEntry[],
+	ctx: ArchiveContext,
+): Promise<Node[]> {
+	const folderOf = (e: (typeof entries)[number]) =>
+		e.folderPath ?? `0x${e.folderHash.toString(16).padStart(16, '0')}/`;
+	const folders = [...new Set(entries.map(folderOf))];
+	// Common prefix (whole path segments) of the recovered folders.
+	let prefix = '';
+	const known = folders.filter((f) => !f.startsWith('0x'));
+	if (known.length > 0) {
+		prefix = known[0];
+		for (const f of known) {
+			while (prefix && !f.startsWith(prefix)) {
+				prefix = prefix.slice(0, prefix.slice(0, -1).lastIndexOf('/') + 1);
+			}
+		}
+	}
+	const flat = folders.length <= 1;
+
+	type Dir = { dirs: Map<string, Dir>; files: Promise<Node>[] };
+	const root: Dir = { dirs: new Map(), files: [] };
+	const used = new Set<string>();
+	for (const e of entries) {
+		const rel = flat ? '' : folderOf(e).startsWith(prefix) ? folderOf(e).slice(prefix.length) : folderOf(e);
+		const parts = rel.split('/').filter(Boolean);
+		let dir = root;
+		let dirId = id;
+		for (const p of parts) {
+			dirId = `${dirId}/${p}`;
+			let next = dir.dirs.get(p);
+			if (!next) {
+				next = { dirs: new Map(), files: [] };
+				dir.dirs.set(p, next);
+			}
+			dir = next;
+		}
+		const baseName = e.embeddedName || `0x${e.pathHash.toString(16).padStart(16, '0')}`;
+		let leaf = e.fileName ?? `${baseName}.${e.innerExt}`;
+		if (used.has(`${dirId}/${leaf}`)) leaf = `${baseName}_${e.index}.${e.innerExt}`;
+		used.add(`${dirId}/${leaf}`);
+		// Lazy: only call `getData()` on demand. childNodeFor expects a
+		// Blob, so wrap in a deferred-decompress proxy that materialises
+		// bytes when first read.
+		const lazyBlob = new LazyDecompressBlob(() => e.getData(), e.decompressedSize);
+		dir.files.push(childNodeFor(`${dirId}/${leaf}`, leaf, lazyBlob, ctx));
+	}
+
+	const toNodes = async (dirId: string, d: Dir): Promise<Node[]> => {
+		const dirNodes = [...d.dirs.keys()].sort(humanCompare).map((n) => {
+			const childId = `${dirId}/${n}`;
+			const sub = d.dirs.get(n)!;
+			return childDirectoryNodeFor({ id: childId, name: n, getChildren: () => toNodes(childId, sub) });
+		});
+		const files = (await Promise.all(d.files)).sort((a, b) => humanCompare(a.name, b.name));
+		return [...dirNodes, ...files];
+	};
+	return toNodes(id, root);
 }
 
 // ----- Wwise (.pck AKPK / .bnk SoundBank) -----
@@ -5487,14 +5562,14 @@ function makeFmodBankNode(
 class LazyDecompressBlob extends Blob {
 	private _decoder: () => Promise<Blob>;
 	private _cached: Promise<ArrayBuffer> | null = null;
-	// We declare a fake "size" up front since callers (the
-	// preview pane, the file tree) read `size` synchronously to
-	// label entries. We surface 0 — the entry's true size becomes
-	// known only after decompression. Most Game Freak GFPAKs are
-	// already opaque enough that this is fine UX.
-	constructor(decoder: () => Promise<Blob>) {
+	// Callers (the preview pane, the file tree) read `size`
+	// synchronously to label entries, so callers that know the
+	// decompressed size up front (GFPAK's file-info table) pass it in;
+	// otherwise it reads 0 until decompressed.
+	constructor(decoder: () => Promise<Blob>, size?: number) {
 		super([]);
 		this._decoder = decoder;
+		if (size !== undefined) Object.defineProperty(this, 'size', { value: size });
 	}
 	override async arrayBuffer(): Promise<ArrayBuffer> {
 		if (!this._cached) {

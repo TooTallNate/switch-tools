@@ -320,6 +320,20 @@ export type PreviewKind =
 	 * `meta.hsdModel`.
 	 */
 	| 'hsd-model'
+	/** Game Freak GFBMDL model (Pokémon: Let's Go) — rendered in the mesh viewer. */
+	| 'gfbmdl-model'
+	/** Game Freak GFBANM animation — track summary. */
+	| 'gfbanm-info'
+	/** Game Freak GFBANMCFG — animation state → file table. */
+	| 'gfbanmcfg-info'
+	/** Game Freak message text (`.dat`, routed via `meta.gfMessage`). */
+	| 'gfmsg-text'
+	/** Game Freak AHTB label hash table (`.tbl`). */
+	| 'ahtb-table'
+	/** NintendoWare layout (`.bflyt`) — pane tree, textures, materials. */
+	| 'bflyt-info'
+	/** NintendoWare layout animation (`.bflan`). */
+	| 'bflan-info'
 	| 'hex';
 
 export const TEXT_EXTS = new Set([
@@ -368,7 +382,9 @@ export const JSON_EXTS = new Set([
 ]);
 export const YAML_EXTS = new Set(['yml', 'yaml']);
 export const HTML_EXTS = new Set(['html', 'htm', 'xhtml']);
-export const XML_EXTS = new Set(['xml', 'svg', 'plist']);
+// `.flyt` / `.flan` / `.fcpx`: NintendoWare LayoutEditor XML sources,
+// shipped next to their binaries in some titles (Pokémon: Let's Go).
+export const XML_EXTS = new Set(['xml', 'svg', 'plist', 'flyt', 'flan', 'fcpx']);
 export const IMAGE_EXTS = new Set([
 	'png',
 	'jpg',
@@ -588,6 +604,14 @@ export function detectPreviewKind(name: string): PreviewKind {
 	// J3D models. `.bdl` additionally carries a baked display list
 	// (MDL3) that we ignore — the geometry chunks are identical.
 	if (lower.endsWith('.bmd') || lower.endsWith('.bdl')) return 'j3d-model';
+	// Game Freak GFLX FlatBuffers (Let's Go). Unnamed GFPAK entries get
+	// these extensions from the structural sniff in `@tootallnate/gfpak`.
+	if (lower.endsWith('.gfbmdl')) return 'gfbmdl-model';
+	if (lower.endsWith('.gfbanm')) return 'gfbanm-info';
+	if (lower.endsWith('.gfbanmcfg')) return 'gfbanmcfg-info';
+	if (lower.endsWith('.tbl')) return 'ahtb-table';
+	if (lower.endsWith('.bflyt')) return 'bflyt-info';
+	if (lower.endsWith('.bflan')) return 'bflan-info';
 	if (lower.endsWith('.dds.phyre')) return 'phyre-image';
 	if (lower.endsWith('.dae.phyre')) return 'phyre-mesh';
 	if (lower.endsWith('.usm')) return 'usm-video';
@@ -2208,19 +2232,23 @@ void encodeWav;
 
 export interface BntxView {
 	parsed: ParsedBntx;
-	/** The texture currently being previewed (always `parsed.textures[0]` here). */
+	/** The texture currently being previewed (`parsed.textures[index]`). */
 	texture: BntxTexture;
+	/** Index of {@link texture} within the bank. */
+	index: number;
 	/** Decoded RGBA8 pixels (row-major, top-left origin). */
 	pixels: Uint8Array;
 }
 
-export async function parseBntxForView(blob: Blob): Promise<BntxView> {
+export async function parseBntxForView(blob: Blob, index = 0): Promise<BntxView> {
 	const bytes = new Uint8Array(await blob.arrayBuffer());
 	const parsed = parseBntx(bytes);
 	if (parsed.textureCount === 0) {
 		throw new Error('BNTX has no textures');
 	}
-	const texture = parsed.textures[0];
+	// Banks (e.g. a layout's `__Combined.bntx`) hold many textures.
+	const i = Math.max(0, Math.min(parsed.textures.length - 1, index));
+	const texture = parsed.textures[i];
 	// If the texture is ASTC, lazy-load the ASTC WASM decoder before
 	// decoding. BCn-only textures skip the load entirely (lazy import
 	// inside `getAstcBlockDecoder` is gated by the `isAstc` check).
@@ -2228,7 +2256,7 @@ export async function parseBntxForView(blob: Blob): Promise<BntxView> {
 		? await getAstcBlockDecoder()
 		: undefined;
 	const decoded = decodeBntxLayer(bytes, texture, 0, { astcDecoder });
-	return { parsed, texture, pixels: decoded.pixels };
+	return { parsed, texture, index: i, pixels: decoded.pixels };
 }
 
 // ----- PhyreEngine texture preview -----
