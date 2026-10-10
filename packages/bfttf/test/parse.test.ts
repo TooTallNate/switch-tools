@@ -11,26 +11,34 @@ import {
  *
  * Wire layout:
  *   bytes 0..3 = scrambledMagic (LE u32 tag identifying the variant)
- *   bytes 4..7 = totalFileSize XOR'd against the body key (BE u32)
+ *   bytes 4..7 = payload length XOR'd against the body key (BE u32)
  *   bytes 8..  = payload, each 4-byte chunk XOR'd against the body key
  *                with BE u32 read/write semantics.
  *
- * `scrambledMagic = BFTTF_MAGIC ^ OBFUSCATION_KEY` for the system-font
- * variant (which is what {@link BFTTF_MAGIC} and {@link OBFUSCATION_KEY}
- * are wired up for). Other variants would use different tag / key pairs.
+ * `scrambledMagic = BFTTF_MAGIC ^ bswap(key)`, i.e. the first word
+ * decrypts (BE) to the byte-swapped magic.
  */
+function bswap32(v: number): number {
+	return (
+		(((v & 0xff000000) >>> 24) |
+			((v & 0x00ff0000) >>> 8) |
+			((v & 0x0000ff00) << 8) |
+			((v & 0x000000ff) << 24)) >>>
+		0
+	);
+}
+
 function makeBfttf(
 	payload: Uint8Array,
-	scrambledMagic: number = (BFTTF_MAGIC ^ OBFUSCATION_KEY) >>> 0,
+	scrambledMagic: number = 0x1e1af836,
 	key: number = OBFUSCATION_KEY,
 ): Uint8Array {
 	const out = new Uint8Array(8 + payload.length);
 	const view = new DataView(out.buffer);
-	const totalSize = out.length;
 	// Tag (LE)
 	view.setUint32(0, scrambledMagic, true);
 	// Size (BE), XOR'd
-	view.setUint32(4, (totalSize ^ key) >>> 0, false);
+	view.setUint32(4, (payload.length ^ key) >>> 0, false);
 	// Body: BE u32 reads, XOR, BE u32 writes
 	const aligned = payload.length - (payload.length % 4);
 	for (let i = 0; i < aligned; i += 4) {
@@ -74,6 +82,19 @@ function makeTinyOtf(): Uint8Array {
 	return out;
 }
 
+describe('keys', () => {
+	it('every known tag decrypts to BFTTF_MAGIC with its key', () => {
+		const pairs: [number, number][] = [
+			[0x1e1af836, OBFUSCATION_KEY],
+			[0x1a879bd9, 0xa6018502],
+			[0xc1de68f3, 0x8cf2dcd9],
+		];
+		for (const [tag, key] of pairs) {
+			expect((tag ^ bswap32(key)) >>> 0).toBe(BFTTF_MAGIC);
+		}
+	});
+});
+
 describe('isBfttf', () => {
 	it('recognises a system-key BFTTF by its tag', async () => {
 		const bfttf = makeBfttf(makeTinyTtf());
@@ -87,7 +108,7 @@ describe('isBfttf', () => {
 	});
 
 	it("recognises the third-party variant by its tag", async () => {
-		const bfttf = makeBfttf(makeTinyTtf(), 0xc1de68f3, 0x8cf1c8d9);
+		const bfttf = makeBfttf(makeTinyTtf(), 0xc1de68f3, 0x8cf2dcd9);
 		expect(await isBfttf(new Blob([bfttf as BlobPart]))).toBe(true);
 	});
 
@@ -132,6 +153,35 @@ describe('parseBfttf', () => {
 		expect(parsed.format).toBe('unknown');
 		expect(parsed.font.type).toBe('application/octet-stream');
 		expect(parsed.size).toBe(junk.length);
+	});
+
+	it("decodes real system-variant header bytes (Pokémon Let's Go beluga_font.BFOTF)", async () => {
+		// First 20 bytes of beluga_font.BFOTF (2564 bytes total), padded
+		// out to the real length so the size field checks out.
+		const head = [
+			0x36, 0xf8, 0x1a, 0x1e, 0x49, 0x62, 0x11, 0xfa, 0x06, 0x36, 0x4c, 0x49,
+			0x49, 0x68, 0x18, 0x86, 0x49, 0x61, 0x18, 0x26,
+		];
+		const wire = new Uint8Array(2564);
+		wire.set(head);
+		const parsed = await parseBfttf(new Blob([wire as BlobPart]));
+		expect(parsed.format).toBe('otf');
+		expect(parsed.headerSizeOk).toBe(true);
+		const got = new Uint8Array(await parsed.font.arrayBuffer());
+		// "OTTO", numTables = 10, searchRange = 0x80, entrySelector = 3
+		expect(Array.from(got.slice(0, 10))).toEqual([
+			0x4f, 0x54, 0x54, 0x4f, 0x00, 0x0a, 0x00, 0x80, 0x00, 0x03,
+		]);
+	});
+
+	it('accepts an uncatalogued tag when the derived key yields a valid sfnt', async () => {
+		const key = 0x12345678;
+		const tag = (BFTTF_MAGIC ^ bswap32(key)) >>> 0;
+		const wire = makeBfttf(makeTinyOtf(), tag, key);
+		expect(await isBfttf(new Blob([wire as BlobPart]))).toBe(true);
+		const parsed = await parseBfttf(new Blob([wire as BlobPart]));
+		expect(parsed.format).toBe('otf');
+		expect(parsed.headerSizeOk).toBe(true);
 	});
 
 	it('throws on a blob that is too small for a header', async () => {
