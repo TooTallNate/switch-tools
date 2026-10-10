@@ -318,9 +318,11 @@ import {
   GfMessagePreview,
 } from "./gf-previews"
 import { N64ModelViewer } from "./n64-model-viewer"
-import { MeshViewer } from "./mesh-viewer"
+import { MeshViewer, type MeshViewerAnimationDriver } from "./mesh-viewer"
+import type * as THREE from "three"
 import { loadHaloModelView, type HaloModelRef } from "~/lib/halo"
 import { loadFf7PsxModelView } from "~/lib/ff7-psx"
+import { applyPose } from "@tootallnate/ff7-psx-model"
 import { strFrameSource } from "~/lib/psx-str-source"
 import { decodeTim } from "@tootallnate/psx-tim"
 import { encodePng } from "~/lib/png"
@@ -1960,7 +1962,7 @@ function FilePreview({
     case "halo-model":
       return <HaloModelPreview node={node} />
     case "ff7-psx-model":
-      return <Ff7PsxModelPreview node={node} />
+      return <Ff7PsxModelPreview node={node} root={root} />
     case "bti-image":
       return <BtiPreview node={node} />
     case "j3d-model":
@@ -15188,8 +15190,30 @@ function J3dModelPreview({ node }: { node: Node }) {
   return <J3dModelViewer node={node} view={v} />
 }
 
-function Ff7PsxModelPreview({ node }: { node: Node }) {
-  const { loading, data, error } = useAsync(() => loadFf7PsxModelView(node), [node.id])
+function Ff7PsxModelPreview({ node, root }: { node: Node; root: Node | null }) {
+  const { loading, data, error } = useAsync(() => loadFf7PsxModelView(node, root), [node.id])
+  // Rigid skinning on the CPU: re-pose every vertex from its bone-local
+  // position whenever the scrubber moves.
+  const drivers = useMemo((): MeshViewerAnimationDriver[] => {
+    if (!data || !data.animator.clips.length) return []
+    const { animator, mesh_ } = data
+    return [
+      {
+        category: "Animation",
+        // FF7 PSX: field animations run at 30 fps, battle animations at 15.
+        animations: animator.clips.map((c) => ({ name: c.name, frameCount: c.frames, loop: true, fps: data.kind === "field" ? 30 : 15 })),
+        defaultIndex: 0,
+        sample: (index, frame, { geometry }) => {
+          const attr = geometry?.getAttribute("position") as THREE.BufferAttribute | undefined
+          if (!attr || attr.count * 3 !== mesh_.skin.local.length) return
+          applyPose(mesh_, animator.pose(index < 0 ? 0 : index, index < 0 ? 0 : frame), attr.array as Float32Array)
+          attr.needsUpdate = true
+          geometry!.computeVertexNormals()
+          geometry!.computeBoundingSphere()
+        },
+      },
+    ]
+  }, [data])
   if (loading) return <LoadingFiller label="Decoding model…" />
   if (error) return <ErrorFiller error={error} />
   const v = data!
@@ -15203,11 +15227,13 @@ function Ff7PsxModelPreview({ node }: { node: Node }) {
         <p className="text-xs text-muted-foreground">
           {v.vertices.toLocaleString()} vertices · {v.triangles.toLocaleString()} triangles · {v.bones} bones
           {v.textures.filter(Boolean).length ? ` · ${v.textures.filter(Boolean).length} texture palette(s)` : " · vertex-coloured"}
-          {" · first animation, frame 0 · drag to orbit, scroll to zoom"}
+          {data!.animator.clips.length ? ` · ${data!.animator.clips.length} animations` : ""}
+          {data!.kind === "field" && !data!.faces ? " · no FIELD.TDB next to it, so no face textures" : ""}
+          {" · drag to orbit, scroll to zoom"}
         </p>
       </div>
       <div className="flex-1 p-3">
-        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name} />
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name} animationDrivers={drivers} />
       </div>
     </div>
   )

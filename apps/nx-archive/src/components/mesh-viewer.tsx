@@ -142,6 +142,8 @@ export interface MeshViewerAnimation {
   /** Optional category label (e.g. "skeletal", "material"). Used when multiple drivers coexist. */
   category?: string
   loop?: boolean
+  /** Playback rate in frames per second (default 60). */
+  fps?: number
 }
 
 /**
@@ -704,9 +706,21 @@ export function MeshViewer({
       const now = performance.now()
       const dt = (now - lastTime) / 1000
       lastTime = now
-      // 60 fps clip playback; clamp to drivers' loop flag.
+      // Clip playback at the first selected clip's rate (default 60 fps);
+      // clamp to drivers' loop flag.
+      let fps = 60
+      for (let d = 0; d < driversRef.current.length; d++) {
+        const idx = selectedAnimsRef.current[d] ?? -1
+        const clip = idx >= 0 ? driversRef.current[d]!.animations[idx] : undefined
+        if (clip?.fps) {
+          fps = clip.fps
+          break
+        }
+      }
       setFrame((f) => {
-        let next = f + dt * 60
+        let next = f + dt * fps
+        // Single-frame clips (a static pose) stay on frame 0.
+        if (scrubMax === 0) next = 0
         if (scrubMax > 0) {
           const looped = next > scrubMax
           if (looped) {

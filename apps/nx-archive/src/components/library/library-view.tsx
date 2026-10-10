@@ -555,7 +555,9 @@ export function LibraryView({
 
   const itemsById = useMemo(() => new Map((index?.items ?? []).map((i) => [i.id, i])), [index])
   const selectedItem = selected ? itemsById.get(selected.id) ?? null : null
-  const showDetail = !!selected && selected.id !== root.id
+  // The root is normally the opened archive, but a standalone media file
+  // (e.g. a lone model) is itself the library's only item.
+  const showDetail = !!selected && (selected.id !== root.id || !root.isContainer)
   const gapCount = index ? index.unknown.length + index.errors.length + index.skipped.length + counts.issues : 0
   const exportCount = useMemo(() => exportableModels(filtered).length, [filtered])
 

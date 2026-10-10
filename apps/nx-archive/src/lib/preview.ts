@@ -710,6 +710,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.mth')) return 'mth-video';
 	if (lower.endsWith('.bti')) return 'bti-image';
 	if (lower.endsWith('.tim')) return 'psx-tim';
+	if (lower.endsWith('.bcx')) return 'ff7-psx-model';
 	// J3D models. `.bdl` additionally carries a baked display list
 	// (MDL3) that we ignore — the geometry chunks are identical.
 	if (lower.endsWith('.bmd') || lower.endsWith('.bdl')) return 'j3d-model';

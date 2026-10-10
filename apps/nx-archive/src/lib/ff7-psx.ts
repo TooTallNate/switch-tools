@@ -5,7 +5,19 @@
  * are recognised by parsing them, so other games' `.LZS` files are
  * left alone.
  */
-import { buildBattleMesh, buildFieldMesh, decompressLzs, parseBattleModel, parseBcx, type PsxMesh } from '@tootallnate/ff7-psx-model';
+import {
+	BattleAnimator,
+	buildBattleMesh,
+	buildFieldMesh,
+	decompressLzs,
+	FIELD_CHARACTER_FACES,
+	FieldAnimator,
+	parseBattleModel,
+	parseBcx,
+	type PsxAnimator,
+	type PsxMesh,
+} from '@tootallnate/ff7-psx-model';
+import { findNodeById } from './unity-external';
 import type { RenderableMesh, RenderableMeshLOD } from '~/components/mesh-viewer';
 import type { Node } from './archive';
 import type { DecodedTexture } from './uasset-material-chain';
@@ -36,9 +48,39 @@ export function detectFf7PsxModel(name: string, bytes: Uint8Array): Ff7PsxModelK
 	}
 }
 
-export function buildFf7PsxMesh(kind: Ff7PsxModelKind, compressed: Uint8Array): PsxMesh {
+/** Kind of a model node: from the disc probe, or `.BCX` by name for standalone files. */
+export function ff7PsxModelKind(node: Pick<Node, 'name' | 'meta'>): Ff7PsxModelKind | null {
+	const kind = node.meta?.ff7PsxModel as Ff7PsxModelKind | undefined;
+	if (kind) return kind;
+	return /\.bcx$/i.test(node.name) ? 'field' : null;
+}
+
+/** The FIELD.TDB face bank next to a field model, decompressed (null when absent). */
+async function siblingTdb(node: Node, root: Node | null): Promise<Uint8Array | null> {
+	if (!root) return null;
+	const slash = node.id.lastIndexOf('/');
+	if (slash < 0) return null;
+	const tdb = await findNodeById(root, `${node.id.slice(0, slash)}/FIELD.TDB`).catch(() => null);
+	if (!tdb?.blob) return null;
+	try {
+		return decompressLzs(new Uint8Array(await (await tdb.blob()).arrayBuffer()));
+	} catch {
+		return null;
+	}
+}
+
+export function buildFf7PsxMesh(
+	kind: Ff7PsxModelKind,
+	compressed: Uint8Array,
+	face?: { tdb: Uint8Array; face: number },
+): { mesh: PsxMesh; animator: PsxAnimator } {
 	const raw = decompressLzs(compressed);
-	return kind === 'field' ? buildFieldMesh(raw, parseBcx(raw)) : buildBattleMesh(raw);
+	if (kind === 'field') {
+		const model = parseBcx(raw);
+		return { mesh: buildFieldMesh(raw, model, face), animator: new FieldAnimator(raw, model) };
+	}
+	const model = parseBattleModel(raw);
+	return { mesh: buildBattleMesh(raw, model), animator: new BattleAnimator(raw, model) };
 }
 
 const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -49,13 +91,21 @@ export interface Ff7PsxModelView {
 	triangles: number;
 	vertices: number;
 	bones: number;
+	kind: Ff7PsxModelKind;
+	mesh_: PsxMesh;
+	animator: PsxAnimator;
+	/** True when the face textures (FIELD.TDB) were applied. */
+	faces: boolean;
 }
 
 /** Decode a model leaf for {@link MeshViewer} / the library. */
-export async function loadFf7PsxModelView(node: Node): Promise<Ff7PsxModelView> {
-	const kind = node.meta?.ff7PsxModel as Ff7PsxModelKind;
+export async function loadFf7PsxModelView(node: Node, root: Node | null = null): Promise<Ff7PsxModelView> {
+	const kind = ff7PsxModelKind(node);
+	if (!kind) throw new Error('Not an FF7 PSX model');
 	const bytes = new Uint8Array(await (await node.blob!()).arrayBuffer());
-	const m = buildFf7PsxMesh(kind, bytes);
+	const faceId = FIELD_CHARACTER_FACES[node.name.replace(/\.[^.]+$/, '').toUpperCase()];
+	const tdb = kind === 'field' && faceId !== undefined ? await siblingTdb(node, root) : null;
+	const { mesh: m, animator } = buildFf7PsxMesh(kind, bytes, tdb ? { tdb, face: faceId } : undefined);
 	if (!m.indices.length) throw new Error('Model has no polygons');
 	const untextured = m.textures.length;
 	const textures: (DecodedTexture | null)[] = m.textures.map((t, i) => ({
@@ -90,5 +140,9 @@ export async function loadFf7PsxModelView(node: Node): Promise<Ff7PsxModelView> 
 		triangles: m.indices.length / 3,
 		vertices: m.positions.length / 3,
 		bones: m.bones,
+		kind,
+		mesh_: m,
+		animator,
+		faces: !!tdb,
 	};
 }

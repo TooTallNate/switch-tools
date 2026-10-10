@@ -51,6 +51,7 @@ import { SLICER_PROFILES, slicerProfile } from "~/lib/slicer-profile"
 import { sanitizeStem, triggerDownload, type ExportMesh } from "~/lib/mesh-export"
 import { rgbToHex, surfaceColorBins, type ColorBin, type Rgb } from "~/lib/mesh-export-3mf"
 import { repairChangedAnything, type RepairSummary } from "~/lib/mesh-repair"
+import { planSupports, type SupportReport } from "~/lib/mesh-supports"
 import {
   DEFAULT_EXPORT_SETTINGS,
   baseFilaments,
@@ -60,6 +61,7 @@ import {
   type ExportFormat,
   type ModelExportResult,
   type ModelExportSettings,
+  scaleMeshes,
 } from "~/lib/model-export"
 import { DEFAULT_TARGET_MM, defaultPrintScale, loadPrintScale, savePrintScale } from "~/lib/print-scale"
 
@@ -277,9 +279,23 @@ function NumberInput({
   )
 }
 
+/** One-line summary of what the support pass found / will do. */
+function describeSupports(r: SupportReport): string {
+  if (r.skipped) return `Too many separate parts (${r.parts}) to analyse; no struts added.`
+  if (!r.struts) return "Every part is attached to the rest; nothing to add."
+  const bits = []
+  if (r.floating) bits.push(`${r.floating} floating part${r.floating === 1 ? "" : "s"}`)
+  if (r.weak) bits.push(`${r.weak} barely attached part${r.weak === 1 ? "" : "s"}`)
+  return `${bits.join(" and ")}: ${r.struts} strut${r.struts === 1 ? "" : "s"} will join ${r.struts === 1 ? "it" : "them"} to the model.`
+}
+
 function successToast(result: ModelExportResult): { title: string; description: ReactNode; duration: number } {
-  const repairLine =
-    result.repair && repairChangedAnything(result.repair) ? <span>{describeRepair(result.repair)}</span> : null
+  const repairText =
+    result.repair && repairChangedAnything(result.repair) ? describeRepair(result.repair) : ""
+  const supportText = result.supports?.struts
+    ? ` Added ${result.supports.struts} support strut${result.supports.struts === 1 ? "" : "s"}.`
+    : ""
+  const repairLine = repairText || supportText ? <span>{(repairText + supportText).trim()}</span> : null
   if (result.fullSpectrum) {
     const { base, mixes } = result.fullSpectrum
     return {
@@ -360,6 +376,16 @@ export function MeshExportBar({
   const [scale, setScale] = useState(1)
   const [scaleSaved, setScaleSaved] = useState(false)
   const [bins, setBins] = useState<ColorBin[] | null>(null)
+  const [baked, setBaked] = useState<ExportMesh[] | null>(null)
+  // What the support pass would do at the current scale / strut size.
+  const supportPlan = useMemo(() => {
+    if (!baked || !baked.length) return null
+    try {
+      return planSupports(scaleMeshes(baked, scale), { radiusMm: settings.supportMm }).report
+    } catch {
+      return null
+    }
+  }, [baked, scale, settings.supportMm])
   const gamut = useMemo(
     () =>
       bins && settings.format === "3mf-full-spectrum"
@@ -372,6 +398,7 @@ export function MeshExportBar({
     const meshes = bake()
     const size = meshes && meshes.length ? printSize(meshes, sourceAxis) : null
     setSizeUnits(size)
+    setBaked(meshes && meshes.length ? meshes : null)
     // Surface colours for the Full Spectrum gamut check (cheap: no
     // welding / repair / painting).
     setBins(meshes && meshes.length ? surfaceColorBins(meshes, 20_000) : null)
@@ -533,6 +560,34 @@ export function MeshExportBar({
                     onCheckedChange={(repair) => update({ repair })}
                   />
                 </Field>
+                <Field orientation="horizontal">
+                  <FieldContent>
+                    <FieldLabel htmlFor="export-supports">Connect loose parts</FieldLabel>
+                    <FieldDescription>
+                      Add struts between parts that float free or only touch at an edge (a flame
+                      past a tail tip, hair spikes, limbs at their joints) so the print holds
+                      together.
+                      {supportPlan && <> {describeSupports(supportPlan)}</>}
+                    </FieldDescription>
+                  </FieldContent>
+                  <Switch
+                    id="export-supports"
+                    checked={settings.supports}
+                    onCheckedChange={(supports) => update({ supports })}
+                  />
+                </Field>
+                <FieldGroup className="grid grid-cols-2 gap-3">
+                  <Field data-disabled={!settings.supports || undefined}>
+                    <FieldLabel htmlFor="export-support-size">Strut radius</FieldLabel>
+                    <NumberInput
+                      id="export-support-size"
+                      value={settings.supportMm}
+                      unit="mm"
+                      format={fmtMm}
+                      onCommit={(supportMm) => update({ supportMm })}
+                    />
+                  </Field>
+                </FieldGroup>
                 <FieldGroup className="grid grid-cols-2 gap-3">
                   <Field data-disabled={!settings.repair || undefined}>
                     <FieldLabel htmlFor="export-wall">Thickness for open surfaces</FieldLabel>

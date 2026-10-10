@@ -423,8 +423,8 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 			return asset(n64Lod(v), v.texturedMaterials > 0 ? v.textures : []);
 		}
 		case 'ff7-psx-model': {
-			const v = await loadFf7PsxModelView(node);
-			return asset(v.mesh.lods[0], v.textures);
+			const v = await loadFf7PsxModelView(node, root);
+			return asset(v.mesh.lods[0], v.textures, { animations: v.animator.clips.length });
 		}
 		case 'halo-model': {
 			const v = await loadHaloModelView(node.meta?.haloModel as HaloModelRef);

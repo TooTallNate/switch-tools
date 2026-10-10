@@ -23,6 +23,7 @@ import {
 import { buildPainted3MF, rgbToHex, type Rgb } from './mesh-export-3mf';
 import { repairForPrinting, summarizeRepairs, type RepairReport, type RepairSummary } from './mesh-repair';
 import { SNAPMAKER_U1, projectSettingsConfig, slicerProfile, type SlicerProfile } from './slicer-profile';
+import { addStructuralSupports, type SupportReport } from './mesh-supports';
 
 export type ExportFormat = 'stl' | '3mf' | '3mf-full-spectrum';
 
@@ -34,6 +35,10 @@ export interface ModelExportSettings {
 	repair: boolean;
 	/** Wall thickness for thickened open surfaces, in mm. */
 	wallMm: number;
+	/** Strut floating / barely attached parts to the rest (see `mesh-supports.ts`). */
+	supports: boolean;
+	/** Strut radius, in mm. */
+	supportMm: number;
 	/** Standard 3MF: filament count. */
 	colors: number;
 	/** Full Spectrum: maximum mixed filaments. */
@@ -53,6 +58,8 @@ export const DEFAULT_EXPORT_SETTINGS: ModelExportSettings = {
 	subdivision: 0,
 	repair: true,
 	wallMm: 1.2,
+	supports: true,
+	supportMm: 1.2,
 	colors: 4,
 	mixes: 12,
 	base: FULL_SPECTRUM_BUNDLE.map((f) => rgbToHex(f.rgb)),
@@ -129,6 +136,8 @@ export interface ModelExportResult {
 	fileName: string;
 	mimeType: string;
 	repair: RepairSummary | null;
+	/** Struts added for floating / weakly attached parts. */
+	supports: SupportReport | null;
 	/** Standard 3MF palette (filament i + 1). */
 	palette?: Rgb[];
 	/** Profile whose presets + filament colours were embedded, if any. */
@@ -139,7 +148,13 @@ export interface ModelExportResult {
 
 export function runModelExport(job: ModelExportJob): ModelExportResult {
 	const { settings: s, stem, pose } = job;
-	const meshes = scaleMeshes(job.meshes, job.mmPerUnit);
+	let meshes = scaleMeshes(job.meshes, job.mmPerUnit);
+	let supports: SupportReport | null = null;
+	if (s.supports) {
+		const r = addStructuralSupports(meshes, { radiusMm: s.supportMm });
+		meshes = r.meshes;
+		supports = r.report;
+	}
 	const sub = s.subdivision > 0 ? `_sub${s.subdivision}` : '';
 	const repair = s.repair ? { minThickness: s.wallMm } : false;
 
@@ -160,6 +175,7 @@ export function runModelExport(job: ModelExportJob): ModelExportResult {
 			fileName: `${stem}${pose}${sub}.stl`,
 			mimeType: 'model/stl',
 			repair: repair ? summarizeRepairs(reports) : null,
+			supports,
 		};
 	}
 
@@ -178,6 +194,7 @@ export function runModelExport(job: ModelExportJob): ModelExportResult {
 			fileName: `${stem}${pose}${sub}_fs${n}.3mf`,
 			mimeType: 'model/3mf',
 			repair: r.repair,
+			supports,
 			fullSpectrum: { base: r.base, mixes: r.mixes },
 		};
 	}
@@ -202,6 +219,7 @@ export function runModelExport(job: ModelExportJob): ModelExportResult {
 		fileName: `${stem}${pose}${sub}_${r.palette.length}c.3mf`,
 		mimeType: 'model/3mf',
 		repair: r.repair,
+		supports,
 		palette: r.palette,
 		profile: profile ?? undefined,
 	};
