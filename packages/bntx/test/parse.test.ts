@@ -7,6 +7,7 @@ import {
 } from '../src/index.js';
 import { formatInfo } from '../src/format.js';
 import { decodeBC1, decodeBC4 } from '../src/decode-bc.js';
+import { decodeBC7 } from '../src/decode-bc7.js';
 import { decodeRgba8, decodeR8 } from '../src/decode-uncompressed.js';
 
 describe('isBntx', () => {
@@ -114,6 +115,20 @@ describe('decodeBC4', () => {
 			expect(out[i * 4 + 2]).toBe(255);
 			expect(out[i * 4 + 3]).toBe(0);
 		}
+	});
+});
+
+describe('decodeBC7', () => {
+	it('detects the mode from byte 0 even when the low word is large', () => {
+		// Mode 6 (bit 6 set) with every other low-word bit set. `Number()` of
+		// that 64-bit word rounds away the low byte, which used to make the
+		// block decode as "reserved" (transparent black).
+		const block = new Uint8Array(16);
+		new DataView(block.buffer).setBigUint64(0, 0xffffffffffffffc0n, true);
+		const out = decodeBC7(block, 4, 4);
+		// Endpoint 0 is all-ones with p-bit 1 → white, opaque; indices (high
+		// word) are zero, so pixel 0 is endpoint 0.
+		expect(Array.from(out.subarray(0, 4))).toEqual([255, 255, 255, 255]);
 	});
 });
 

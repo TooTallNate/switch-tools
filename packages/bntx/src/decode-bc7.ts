@@ -196,10 +196,13 @@ function decodeBlock(src: Uint8Array, off: number, out: Uint8Array, outOff: numb
 	const lo = dv.getBigUint64(0, true);
 	const hi = dv.getBigUint64(8, true);
 	// Mode = position of lowest set bit in byte 0 (0..7). If none,
-	// the block is reserved and renders as transparent black.
+	// the block is reserved and renders as transparent black. Read the
+	// byte directly: `Number(lo)` rounds a 64-bit value to 53 bits of
+	// mantissa, which destroys exactly these low bits for most blocks.
+	const modeByte = src[off];
 	let mode = -1;
 	for (let i = 0; i < 8; i++) {
-		if ((Number(lo) >> i) & 1) {
+		if ((modeByte >> i) & 1) {
 			mode = i;
 			break;
 		}
