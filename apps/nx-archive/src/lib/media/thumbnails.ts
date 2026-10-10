@@ -19,6 +19,9 @@ import {
 	parsePhyreForView,
 } from '../preview';
 import { parseDds } from '@tootallnate/dds';
+import { mdecFrameToRgba, StrDecoder } from '@tootallnate/psx-str';
+import { decodeTim } from '@tootallnate/psx-tim';
+import { strRawBytes } from '../psx-str-source';
 import { findNodeById } from '../unity-external';
 import { decodeAudioBlob } from './audio';
 import { loadThumb, saveThumb, type ThumbRecord } from './cache';
@@ -111,6 +114,11 @@ async function decodeImage(node: Node, previewKind: string): Promise<(Rgba & { c
 		case 'phyre-image': {
 			const v = await parsePhyreForView(blob);
 			return { width: v.texture.width, height: v.texture.height, pixels: v.pixels };
+		}
+		case 'psx-tim': {
+			const t = decodeTim(new Uint8Array(await blob.arrayBuffer()));
+			if (!t) throw new Error('Not a valid TIM image');
+			return { width: t.width, height: t.height, pixels: t.pixels, count: t.paletteCount > 1 ? t.paletteCount : undefined };
 		}
 		case 'ff7-tex': {
 			const v = await parseFf7TexForView(blob);
@@ -488,6 +496,21 @@ export class ThumbnailService {
 				return { png: r.png };
 			}
 			case 'video': {
+				if (item.previewKind === 'psx-str') {
+					// A frame a third of the way in: STR openings usually fade in from black.
+					const dec = new StrDecoder(strRawBytes(new Uint8Array(await (await node.blob!()).arrayBuffer())));
+					const { frameCount, fps, width, height } = dec.info;
+					const target = Math.min(Math.floor(frameCount / 3), 90);
+					let frame = null;
+					for (let i = 0; i <= target; i++) {
+						const f = dec.nextFrame();
+						if (!f) break;
+						frame = f;
+					}
+					if (!frame) throw new Error('No decodable STR frames');
+					const png = await rgbaThumb({ width: frame.width, height: frame.height, pixels: mdecFrameToRgba(frame) });
+					return { png, info: { durationSec: frameCount / fps, width, height } };
+				}
 				if (item.previewKind !== 'video') return {};
 				const r = await videoThumb(await node.blob!());
 				return { png: r.png, info: { durationSec: r.durationSec, width: r.width, height: r.height } };

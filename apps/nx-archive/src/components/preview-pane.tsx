@@ -320,6 +320,9 @@ import {
 import { N64ModelViewer } from "./n64-model-viewer"
 import { MeshViewer } from "./mesh-viewer"
 import { loadHaloModelView, type HaloModelRef } from "~/lib/halo"
+import { strFrameSource } from "~/lib/psx-str-source"
+import { decodeTim } from "@tootallnate/psx-tim"
+import { encodePng } from "~/lib/png"
 import { parseIdFont, type ParsedIdFont } from "@tootallnate/idfont"
 import {
   parseBimage,
@@ -1930,6 +1933,10 @@ function FilePreview({
       return <BimagePreview node={node} />
     case "bink2-video":
       return <BinkPreview node={node} format="bink2" />
+    case "psx-str":
+      return <BinkPreview node={node} format="psx-str" />
+    case "psx-tim":
+      return <PsxTimPreview node={node} />
 
     case "unity-asset":
       return <UnityAssetPreview node={node} root={root} />
@@ -9673,7 +9680,8 @@ function BinkPreview({
   format,
 }: {
   node: Node
-  format: "bink1" | "bink2"
+  /** `psx-str` decodes PlayStation STR movies in TypeScript, same pipeline. */
+  format: "bink1" | "bink2" | "psx-str"
 }) {
   const [state, setState] = useState<BinkPreviewState>({ kind: "loading" })
   // Track active URLs so we can revoke them on unmount / reset.
@@ -9716,8 +9724,9 @@ function BinkPreview({
         if (cancelled) return
 
         handle = streamBinkToMp4({
-          format,
+          format: format === "psx-str" ? "bink1" : format,
           binkBytes,
+          source: format === "psx-str" ? async () => strFrameSource(binkBytes) : undefined,
           signal: aborter.signal,
           onProgress: (progress) => {
             if (cancelled) return
@@ -9779,8 +9788,8 @@ function BinkPreview({
   const info = state.info
   const progress = state.progress
   const pct = progress ? Math.round((progress.frame / progress.total) * 100) : 0
-  const label = format === "bink2" ? "Bink 2" : "Bink 1"
-  const downloadName = node.name.replace(/\.(bk2|bik|bk1)$/i, "") + ".mp4"
+  const label = format === "bink2" ? "Bink 2" : format === "psx-str" ? "PlayStation STR" : "Bink 1"
+  const downloadName = node.name.replace(/\.(bk2|bik|bk1|str)$/i, "") + ".mp4"
   const isLoading = state.kind === "loading"
   const isEncoding = state.kind === "streaming"
   const durationMs = info ? Math.round(info.durationUs / 1000) : undefined
@@ -15014,6 +15023,47 @@ function JpegVideoPreview({ node, spec }: { node: Node; spec: JpegVideoSpec }) {
  * the texture on this hardware rather than in the material, so it's
  * genuinely part of the file's meaning.
  */
+function PsxTimPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    const bytes = new Uint8Array(await (await node.blob!()).arrayBuffer())
+    const first = decodeTim(bytes)
+    if (!first) throw new Error("Not a valid TIM image")
+    const palettes = Math.min(first.paletteCount, 16)
+    const images = [first]
+    for (let i = 1; i < palettes; i++) images.push(decodeTim(bytes, 0, i)!)
+    const urls = await Promise.all(
+      images.map(async (t) => URL.createObjectURL(new Blob([(await encodePng(t.width, t.height, t.pixels)) as BlobPart], { type: "image/png" }))),
+    )
+    return { tim: first, urls }
+  }, [node.id])
+  useEffect(() => () => data?.urls.forEach((u) => URL.revokeObjectURL(u)), [data])
+  if (loading) return <LoadingFiller label="Decoding TIM image…" />
+  if (error) return <ErrorFiller error={error} />
+  const { tim, urls } = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title="TIM — PlayStation image" />
+        <p className="text-xs text-muted-foreground">
+          {tim.width}×{tim.height} · {tim.bpp} bpp
+          {tim.paletteCount > 1 ? ` · ${tim.paletteCount} palettes${tim.paletteCount > urls.length ? ` (first ${urls.length} shown)` : ""}` : ""}
+        </p>
+        <div className="flex flex-wrap gap-3">
+          {urls.map((url, i) => (
+            <img
+              key={url}
+              src={url}
+              alt={`${node.name} palette ${i}`}
+              className="rounded-md border"
+              style={{ imageRendering: "pixelated", width: Math.max(tim.width, 128), background: "repeating-conic-gradient(#8882 0 25%, transparent 0 50%) 0 0 / 16px 16px" }}
+            />
+          ))}
+        </div>
+      </div>
+    </ScrollArea>
+  )
+}
+
 function BtiPreview({ node }: { node: Node }) {
   const { loading, data, error } = useAsync(async () => {
     return parseBtiForView(await node.blob!())

@@ -112,6 +112,25 @@ export interface BinkEncodeOptions {
 	onProgress?: (p: BinkEncodeProgress) => void
 	/** Aborts decoding mid-flight when fired. */
 	signal?: AbortSignal
+	/**
+	 * Decode with this frame source instead of FFmpeg's Bink
+	 * decoders (`format` / `binkBytes` are then ignored). Used for
+	 * codecs decoded in TypeScript, such as PlayStation STR.
+	 */
+	source?: () => Promise<VideoFrameSource>
+}
+
+/**
+ * A decoder the streaming encoder can pull from: the subset of
+ * {@link Ffmpeg} it uses.
+ */
+export interface VideoFrameSource {
+	info: FfmpegInfo
+	/** Next YUV 4:2:0 frame, or null at the end. */
+	decodeFrame(): FfmpegFrame | null
+	/** Interleaved float audio decoded since the last call. */
+	drainAudio(track: number): { samples: Float32Array; sampleFrames: number } | null
+	dispose(): void
 }
 
 /**
@@ -646,6 +665,33 @@ export function streamBinkToMp4(options: BinkEncodeOptions): BinkStreamHandle {
 	}
 }
 
+/** Load the Bink decoders and open `binkBytes`. */
+async function openBink(format: BinkVideoFormat, binkBytes: Uint8Array): Promise<VideoFrameSource> {
+	// Load shared modules + format-specific video codec in parallel.
+	const [shared, videoModule] = await Promise.all([
+		getSharedModules(),
+		format === 'bink2' ? getBink2VideoModule() : getBinkVideoModule(),
+	])
+	const ff = await Ffmpeg.create({
+		wasm: shared.baseModule,
+		extensions: [
+			{ name: 'bink-demuxer', wasm: shared.demuxerModule },
+			{
+				name: format === 'bink2' ? 'bink2-video' : 'bink-video',
+				wasm: videoModule,
+			},
+			{ name: 'bink-audio', wasm: shared.binkAudioModule },
+		],
+	})
+	try {
+		await ff.open(binkBytes)
+	} catch (err) {
+		ff.dispose()
+		throw err
+	}
+	return ff
+}
+
 /**
  * Inner pipeline. Split out from `streamBinkToMp4` so the latter can
  * stay short and the heavy logic lives in an async function with
@@ -690,31 +736,15 @@ async function runStreamingEncode(
 		}, SOURCE_OPEN_TIMEOUT_MS)
 	})
 
-	// Load shared modules + format-specific video codec in parallel.
-	const [shared, videoModule] = await Promise.all([
-		getSharedModules(),
-		format === 'bink2' ? getBink2VideoModule() : getBinkVideoModule(),
-	])
+	const ff: VideoFrameSource = options.source
+		? await options.source()
+		: await openBink(format, binkBytes)
 	signal?.throwIfAborted()
-
-	const ff = await Ffmpeg.create({
-		wasm: shared.baseModule,
-		extensions: [
-			{ name: 'bink-demuxer', wasm: shared.demuxerModule },
-			{
-				name: format === 'bink2' ? 'bink2-video' : 'bink-video',
-				wasm: videoModule,
-			},
-			{ name: 'bink-audio', wasm: shared.binkAudioModule },
-		],
-	})
 
 	let videoQueue: ReturnType<typeof createSourceBufferQueue> | null = null
 	let cleanupAttached = false
 
 	try {
-		await ff.open(binkBytes)
-		signal?.throwIfAborted()
 		const ffInfo: FfmpegInfo = ff.info
 		const fps = ffInfo.fpsDen > 0 ? ffInfo.fpsNum / ffInfo.fpsDen : 30
 		const frameDurUs = Math.round(1_000_000 / fps)

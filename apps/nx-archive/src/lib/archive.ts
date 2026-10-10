@@ -191,6 +191,8 @@ import {
 } from '@tootallnate/gcm';
 import { findXdvdfsPartition, parseXiso, type XisoEntry } from '@tootallnate/xiso';
 import { makeHaloMapNode } from './halo';
+import { makeCdImageNode, makePbpNode } from './psx';
+import { blobSectorReader, detectIsoImage, hasSync, RAW_SECTOR_SIZE } from '@tootallnate/iso9660';
 import { isMk64Rom, makeMk64KartSpritesNode } from './mk64-karts';
 
 // ----- Node types -----
@@ -232,6 +234,9 @@ export type NodeKind =
 	 */
 	| 'square-wd'
 	| 'halo-map'
+	| 'pbp'
+	| 'cd-image'
+	| 'psx-xa'
 	/**
 	 * Sony PhyreEngine binary container (`.phyre`, magic `RYHP`).
 	 * Used by FFX/X-2 HD Remaster (and FFXII TZA) for textures,
@@ -708,6 +713,8 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	vbf: 'VBF', // Virtuos Big File — FFX/X-2 HD Remaster, FFXII TZA
 	wd: 'WD', // Square wave bank — FFXI/X/X-2/Crystal Chronicles
 	'square-wd': 'WD', // alias used by the magic sniffer (returns 'square-wd')
+	pbp: 'PBP',
+	'cd-raw': 'CD-BIN', // alias used by the magic sniffer (raw 2352-byte CD sectors)
 	'halo-map': 'HALO-MAP', // alias used by the magic sniffer (Halo cache files are `.map`, shared with FF7/FF8)
 	phyre: 'Phyre', // Sony PhyreEngine container — FFX/X-2 HD, FFXII TZA
 	lgp: 'LGP', // Square LGP archive — FF7/FF8 PC
@@ -810,6 +817,8 @@ type SniffedFormat =
 	| 'vbf'
 	| 'square-wd'
 	| 'halo-map'
+	| 'pbp'
+	| 'cd-raw'
 	| 'phyre'
 	| 'lgp'
 	| 'nes'
@@ -850,6 +859,10 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (m4 === 'SRYK') return 'vbf';
 	// Halo: Combat Evolved cache file — `head` stored little-endian.
 	if (m4 === 'daeh') return 'halo-map';
+	// PSP EBOOT.PBP (PlayStation conversions carry a CD image).
+	if (m4 === '\0PBP') return 'pbp';
+	// Raw CD image: the 12-byte sector sync pattern.
+	if (head.length >= 12 && hasSync(head)) return 'cd-raw';
 	if (m4 === 'RYHP') return 'phyre'; // Sony PhyreEngine — LE magic 0x50485952
 	// Square LGP archive — `\0\0SQUARESOFT` at offset 0, used
 	// for FF7/FF8 PC asset packs (music, models, textures).
@@ -1458,6 +1471,25 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		format: 'DDSZ',
 		extensions: ['ddsz'],
 		build: (a) => makeDdszNode(a.id, a.name, a.blob, a.ctx),
+	},
+
+	// --- PlayStation / CD-ROM ---
+	{
+		format: 'PBP',
+		extensions: ['pbp'],
+		sniff: ['pbp'],
+		build: (a) => makePbpNode(a.id, a.name, a.blob, (id, name, blob) => childNodeFor(id, name, blob, a.ctx)),
+	},
+	{
+		// Sniff-only: `.bin` is used by every platform.
+		format: 'CD-BIN',
+		extensions: [],
+		sniff: ['cd-raw'],
+		build: async (a) => {
+			const sectorSize = await detectIsoImage(a.blob);
+			if (sectorSize !== RAW_SECTOR_SIZE) return genericFileNode(a.id, a.name, a.blob, 'BIN');
+			return makeCdImageNode(a.id, a.name, a.blob, blobSectorReader(a.blob, sectorSize), (id, name, blob) => childNodeFor(id, name, blob, a.ctx));
+		},
 	},
 
 	// --- Halo ---
@@ -7498,7 +7530,11 @@ function makeIsoNode(
 				if (!isGcmMagic(head)) {
 					// Xbox / Xbox 360 (XDVDFS), extract-xiso or redump layout.
 					const partition = await findXdvdfsPartition(blob);
-					return partition === null ? null : makeXisoNode(id, name, blob, ctx, partition);
+					if (partition !== null) return makeXisoNode(id, name, blob, ctx, partition);
+					// ISO 9660 (PlayStation and PC CDs), cooked or raw sectors.
+					const sectorSize = await detectIsoImage(blob);
+					if (sectorSize === null) return null;
+					return makeCdImageNode(id, name, blob, blobSectorReader(blob, sectorSize), (cid, cname, cblob) => childNodeFor(cid, cname, cblob, ctx));
 				}
 				const nkit = parseNkitInfo(head);
 				const format = nkit

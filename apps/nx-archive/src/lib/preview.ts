@@ -301,6 +301,8 @@ export type PreviewKind =
 	 */
 	| 'n64-model'
 	| 'halo-model'
+	| 'psx-str'
+	| 'psx-tim'
 	/**
 	 * Nintendo BTI texture (`.bti`) — a bare GX texture header plus
 	 * tiled pixel data, as used all over GameCube/Wii JSystem titles.
@@ -561,6 +563,7 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	// A single N64 display list located by the model scanner.
 	if (node.meta?.n64Model) return 'n64-model';
 	if (node.meta?.haloModel) return 'halo-model';
+	if (node.meta?.psxStr) return 'psx-str';
 	// Melee model: the tree tags which archive + joint root to render.
 	if (node.meta?.hsdModel) return 'hsd-model';
 	// Raw pixel data tagged at tree-build time (NES CHR-ROM,
@@ -704,6 +707,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.thp')) return 'thp-video';
 	if (lower.endsWith('.mth')) return 'mth-video';
 	if (lower.endsWith('.bti')) return 'bti-image';
+	if (lower.endsWith('.tim')) return 'psx-tim';
 	// J3D models. `.bdl` additionally carries a baked display list
 	// (MDL3) that we ignore — the geometry chunks are identical.
 	if (lower.endsWith('.bmd') || lower.endsWith('.bdl')) return 'j3d-model';

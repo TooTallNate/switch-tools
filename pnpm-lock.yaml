@@ -406,6 +406,9 @@ importers:
       '@tootallnate/iostore':
         specifier: workspace:*
         version: link:../../packages/iostore
+      '@tootallnate/iso9660':
+        specifier: workspace:*
+        version: link:../../packages/iso9660
       '@tootallnate/j3d':
         specifier: workspace:*
         version: link:../../packages/j3d
@@ -469,6 +472,9 @@ importers:
       '@tootallnate/oodle-wasm':
         specifier: workspace:*
         version: link:../../packages/oodle-wasm
+      '@tootallnate/pbp':
+        specifier: workspace:*
+        version: link:../../packages/pbp
       '@tootallnate/pfs0':
         specifier: workspace:*
         version: link:../../packages/pfs0
@@ -478,6 +484,12 @@ importers:
       '@tootallnate/ps-adpcm':
         specifier: workspace:*
         version: link:../../packages/ps-adpcm
+      '@tootallnate/psx-str':
+        specifier: workspace:*
+        version: link:../../packages/psx-str
+      '@tootallnate/psx-tim':
+        specifier: workspace:*
+        version: link:../../packages/psx-tim
       '@tootallnate/rarc':
         specifier: workspace:*
         version: link:../../packages/rarc
@@ -1177,6 +1189,12 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
+  packages/iso9660:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/ivfc:
     devDependencies:
       typescript:
@@ -1357,6 +1375,16 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
 
+  packages/pbp:
+    dependencies:
+      '@tootallnate/iso9660':
+        specifier: workspace:*
+        version: link:../iso9660
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/pfs0:
     dependencies:
       '@nx.js/util':
@@ -1378,6 +1406,18 @@ importers:
         version: 5.9.3
 
   packages/ps-adpcm:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/psx-str:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/psx-tim:
     devDependencies:
       typescript:
         specifier: ^5.3.3

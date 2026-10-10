@@ -43,12 +43,13 @@ const AUDIO_KINDS = new Set([
 	'midi-audio',
 ]);
 
-const VIDEO_KINDS = new Set(['video', 'usm-video', 'bink1-video', 'bink2-video', 'thp-video', 'mth-video']);
+const VIDEO_KINDS = new Set(['video', 'usm-video', 'bink1-video', 'bink2-video', 'thp-video', 'mth-video', 'psx-str']);
 
 const FONT_KINDS = new Set(['bfttf-info', 'font-info', 'bffnt-info', 'bmfont-info', 'spritefont-info', 'idfont']);
 
 const IMAGE_KINDS = new Set([
 	'image',
+	'psx-tim',
 	'dds-image',
 	'bntx-image',
 	'phyre-image',
@@ -88,6 +89,8 @@ function formatFor(node: Node, previewKind: string): string {
 		'hsd-model': 'HSD model',
 		'n64-model': 'N64 display list',
 		'halo-model': 'Halo model',
+		'psx-str': 'PlayStation STR',
+		'psx-tim': 'PlayStation TIM',
 		'ff8-battle-dat': 'FF8 battle model',
 		'ff8-mch': 'FF8 field model',
 		'j3d-model': 'J3D',
@@ -137,6 +140,8 @@ export function classifyNode(node: Node, path: string): Classification {
 		// Companion payloads read through their primary file (UE export
 		// bodies / bulk data, Unity resource streams) — not gaps.
 		if (/\.(uexp|ubulk|uptnl|ress|resource)$/i.test(node.name)) return { type: 'known', previewKind };
+		// PlayStation / PSP system files: boot config, executables, PARAM.SFO.
+		if (/^(system\.cnf|param\.sfo|data\.psp|[a-z]{4}_\d{3}\.\d{2})$/i.test(node.name)) return { type: 'known', previewKind };
 		return { type: 'unknown' };
 	}
 	return { type: 'known', previewKind };
