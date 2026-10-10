@@ -1,0 +1,29 @@
+{
+  "name": "@tootallnate/psx-str",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Decoders for PlayStation STR movies (MDEC v2 / v3 video) and CD-XA ADPCM audio.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "playstation",
+    "psx",
+    "str",
+    "mdec",
+    "xa",
+    "adpcm"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/psx-str"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
