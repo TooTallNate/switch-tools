@@ -1,5 +1,16 @@
 # @tootallnate/wem
 
+## 0.0.3
+
+### Patch Changes
+
+- 0475288: CRI audio banks from Super Mario RPG (and other titles) now open and play:
+
+  - `@tootallnate/awb` supports 4-byte track ids (AFS2 `idSize` 4) and sizes its header read from the header itself (`readAwbHeader` / `awbHeaderSize`) instead of assuming 64 KiB.
+  - `@tootallnate/acb` resolves cues through synths and sequences (sequence → track event noteOn → synth `ReferenceItems` → waveform), not just direct waveform references. Each cue lists every waveform it reaches in `waveforms`.
+  - `@tootallnate/wem` adds `nintendoOpusToOggOpus` / `parseNintendoOpus` / `isNintendoOpus` for standalone Nintendo Opus (`0x80000001`) streams, sharing the Ogg muxer with the Wwise OPUSNX path (`framedOpusToOggOpus`).
+  - nx-archive names AWB tracks by their real codec (`.lopus` for Nintendo Opus, `.hca`, `.adx`), labels the embedded `memory.awb` with the ACB's memory cues and streamed AWBs with their own port's cues, and plays `.lopus` tracks in the browser.
+
 ## 0.0.2
 
 ### Patch Changes
@@ -119,22 +130,21 @@ sample_rate` to ~4 ms precision, `audio.play()` advances
     PCM, IMA, DSP, XMA, ATRAC9, etc.) and converts the playable
     ones to browser-friendly Blobs:
 
-    - **PCM 16-bit LE → WAV** (44-byte header + raw samples)
-    - **Switch-Opus (0x3039) → Ogg-Opus** via a from-scratch
-      pure-JS Ogg muxer. Strips the per-frame `(u32 size + u32
-final_range)` Wwise framing, derives sample-counts from
-      Opus TOC bytes (RFC 6716 §3.1), wraps everything in
-      RFC-7845-compliant Ogg pages with proper CRC-32, granule
-      positions, BOS/EOS flags, and segment-table lacing.
-    - **Standard Ogg-Opus (0x3040) → passthrough** (data chunk
-      _is_ a `.ogg`).
-    - **Wwise Vorbis (0xFFFF)** + everything else surfaces a
-      clear "not supported yet" error. Vorbis specifically needs
-      a ww2ogg-style codebook reconstruction (~1500–2000 lines,
-      multi-version detection logic) which is its own substantial
-      undertaking.
+        - **PCM 16-bit LE → WAV** (44-byte header + raw samples)
+        - **Switch-Opus (0x3039) → Ogg-Opus** via a from-scratch
+          pure-JS Ogg muxer. Strips the per-frame `(u32 size + u32
 
-    No dependencies — fully pure-JS, ~750 lines of source.
+    final*range)` Wwise framing, derives sample-counts from
+    Opus TOC bytes (RFC 6716 §3.1), wraps everything in
+    RFC-7845-compliant Ogg pages with proper CRC-32, granule
+    positions, BOS/EOS flags, and segment-table lacing. - **Standard Ogg-Opus (0x3040) → passthrough** (data chunk
+    \_is* a `.ogg`). - **Wwise Vorbis (0xFFFF)** + everything else surfaces a
+    clear "not supported yet" error. Vorbis specifically needs
+    a ww2ogg-style codebook reconstruction (~1500–2000 lines,
+    multi-version detection logic) which is its own substantial
+    undertaking.
+
+        No dependencies — fully pure-JS, ~750 lines of source.
 
   Wired into `apps/nx-archive`:
 

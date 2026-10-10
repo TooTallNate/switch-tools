@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/awb",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Parser for CRI Middleware's AFS2 / AWB audio wave bank container.",
   "main": "dist/index.js",

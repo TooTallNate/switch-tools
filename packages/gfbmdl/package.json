@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/gfbmdl",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser for Game Freak's GFLX FlatBuffers model (.gfbmdl), animation (.gfbanm) and animation-config (.gfbanmcfg) formats, as used by Pokémon: Let's Go, Pikachu! / Eevee!.",
   "main": "dist/index.js",
