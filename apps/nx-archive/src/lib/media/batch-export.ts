@@ -1,6 +1,6 @@
 /**
  * Export many library models at once: load each headlessly in its rest
- * / idle pose, run the same STL / 3MF pipeline as the viewer's Export
+ * / idle pose, run the same STL / 3MF / GLB pipeline as the viewer's Export
  * dialog, and bundle the results into one ZIP. Every model shares the
  * opened file's print scale, so characters stay proportional.
  */
@@ -92,7 +92,7 @@ export async function exportModelsZip(
 		done++;
 	}
 	opts.onProgress?.(done, items.length, '');
-	// STL compresses well; 3MF is already a ZIP.
-	const zip = zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, [v, { level: k.endsWith('.stl') ? 6 : 0 }]])));
+	// STL and GLB geometry compress well; 3MF is already a ZIP.
+	const zip = zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, [v, { level: k.endsWith('.3mf') ? 0 : 6 }]])));
 	return { zip, exported: Object.keys(files).length, failed };
 }

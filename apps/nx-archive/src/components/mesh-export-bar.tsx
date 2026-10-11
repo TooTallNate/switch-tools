@@ -1,7 +1,9 @@
 /**
  * 3D-print export for the model viewers: a single "Export…" toolbar
  * button opening a dialog with every export setting (format, print
- * size, geometry repair / smoothing, colours). Viewers only supply a
+ * size, geometry repair / smoothing, colours). Formats: STL, painted
+ * 3MF, and textured GLB (for Blender, or a slicer's own texture-to-
+ * filament matching). Viewers only supply a
  * `bake` callback returning world-space {@link ExportMesh}es for the
  * current pose; the pipeline itself lives in `~/lib/model-export`.
  *
@@ -46,15 +48,14 @@ import {
 import { Spinner } from "~/components/ui/spinner"
 import { Switch } from "~/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "~/components/ui/toggle-group"
-import { analyzeGamut, mixLabel, type GamutReport } from "~/lib/full-spectrum"
 import { SLICER_PROFILES, slicerProfile } from "~/lib/slicer-profile"
 import { sanitizeStem, triggerDownload, type ExportMesh } from "~/lib/mesh-export"
-import { rgbToHex, surfaceColorBins, type ColorBin, type Rgb } from "~/lib/mesh-export-3mf"
+import { rgbToHex, type Rgb } from "~/lib/mesh-export-3mf"
 import { repairChangedAnything, type RepairSummary } from "~/lib/mesh-repair"
 import { planSupports, type SupportReport } from "~/lib/mesh-supports"
 import {
   DEFAULT_EXPORT_SETTINGS,
-  baseFilaments,
+  EXPORT_FORMATS,
   printSize,
   runModelExport,
   targetProfile,
@@ -102,20 +103,21 @@ export function loadSettings(): StoredSettings {
   try {
     const raw = localStorage.getItem(PREFS_KEY)
     if (raw) {
-      const s = { ...defaults, ...JSON.parse(raw) } as StoredSettings
-      if (!Array.isArray(s.base) || s.base.length !== 4) s.base = defaults.base
+      // Drop retired fields (the Full Spectrum `mixes` / `base`).
+      const { mixes: _m, base: _b, ...stored } = JSON.parse(raw) as Partial<StoredSettings> & { mixes?: unknown; base?: unknown }
+      const s = { ...defaults, ...stored }
+      // Retired formats (Full Spectrum) fall back to the color 3MF.
+      if (!EXPORT_FORMATS.includes(s.format)) s.format = "3mf"
       return s
     }
     // Carry over the earlier toolbar's choices.
     const legacy = localStorage.getItem(LEGACY_PREFS_KEY)
     if (legacy) {
-      const l = JSON.parse(legacy) as Partial<{ mode: string; colors: number; mixes: number; base: string[]; repair: boolean }>
+      const l = JSON.parse(legacy) as Partial<{ colors: number; repair: boolean }>
       return {
         ...defaults,
-        format: l.mode === "full-spectrum" ? "3mf-full-spectrum" : "3mf",
+        format: "3mf",
         colors: l.colors ?? defaults.colors,
-        mixes: l.mixes ?? defaults.mixes,
-        base: Array.isArray(l.base) && l.base.length === 4 ? l.base : defaults.base,
         repair: l.repair ?? defaults.repair,
       }
     }
@@ -171,61 +173,6 @@ function describeSubject(baseName: string | undefined, pose: string): string {
 }
 
 const pct = (f: number) => `${Math.round(f * 100)}%`
-
-/**
- * Full Spectrum gamut warning: near-black / near-white areas the loaded
- * filaments can't mix, with a one-click toolhead swap when it helps.
- */
-function GamutAlert({
-  report,
-  base,
-  onSwap,
-}: {
-  report: GamutReport | null
-  base: readonly string[]
-  onSwap: (toolhead: number, hex: string) => void
-}) {
-  if (!report) return null
-  const { dark, light, other } = report.unreachable
-  const parts: string[] = []
-  if (dark >= 0.03) parts.push(`${pct(dark)} dark`)
-  if (light >= 0.03) parts.push(`${pct(light)} light`)
-  if (other >= 0.1) parts.push(`${pct(other)} saturated`)
-  if (parts.length === 0 && !report.suggestion) return null
-  const s = report.suggestion
-  const filaments = baseFilaments(base)
-  const current = s ? filaments[s.toolhead]! : null
-  // Only explain the dark limit when no loaded filament is dark itself.
-  const hasDark = filaments.some((f) => 0.2126 * f.rgb[0] + 0.7152 * f.rgb[1] + 0.0722 * f.rgb[2] < 70)
-  return (
-    <Alert>
-      <TriangleAlertIcon />
-      <AlertTitle>Some colors are out of reach</AlertTitle>
-      <AlertDescription>
-        {parts.length > 0 && (
-          <p>
-            About {parts.join(", ").replace(/, ([^,]*)$/, " and $1")} colors of this model
-            can't be matched closely by these filaments or their mixes
-            {dark >= 0.03 && !hasDark && " (the darkest possible mix is a mid purple)"}.
-          </p>
-        )}
-        {s && current && (
-          <p>
-            Swapping toolhead {s.toolhead + 1} ({current.name}) for {s.filament.name} brings the
-            colors {pct(s.improvement)} closer.
-          </p>
-        )}
-      </AlertDescription>
-      {s && (
-        <AlertAction>
-          <Button size="xs" variant="outline" onClick={() => onSwap(s.toolhead, rgbToHex(s.filament.rgb))}>
-            Use {s.filament.name}
-          </Button>
-        </AlertAction>
-      )}
-    </Alert>
-  )
-}
 
 function Swatch({ rgb }: { rgb: Rgb }) {
   return (
@@ -296,30 +243,22 @@ function successToast(result: ModelExportResult): { title: string; description: 
     ? ` Added ${result.supports.struts} support strut${result.supports.struts === 1 ? "" : "s"}.`
     : ""
   const repairLine = repairText || supportText ? <span>{(repairText + supportText).trim()}</span> : null
-  if (result.fullSpectrum) {
-    const { base, mixes } = result.fullSpectrum
+  if (result.glb) {
+    const { textures, atlas } = result.glb
+    const parts = []
+    if (textures) parts.push(`${textures} original texture${textures === 1 ? "" : "s"}`)
+    if (atlas) parts.push(`a ${atlas.width}×${atlas.height} baked color texture`)
     return {
-      title: `Exported Full Spectrum 3MF (${mixes.length} mixes)`,
-      duration: 30000,
+      title: "Exported textured GLB",
+      duration: 15000,
       description: (
         <div className="mt-1 flex flex-col gap-0.5">
           {repairLine}
+          {parts.length > 0 && <span>Includes {parts.join(" and ")}.</span>}
           <span>
-            Open in Snapmaker Orca in a new, empty project — the U1 profile, filaments and mixes
-            load automatically.
+            Import into Blender (File › Import › glTF 2.0). OrcaSlicer nightly builds can also
+            import it and match the texture to your filaments.
           </span>
-          {base.map((f, i) => (
-            <span key={`p${i}`} className="flex items-center gap-1.5 font-mono">
-              <Swatch rgb={f.rgb} />
-              {i + 1}: {f.name} {rgbToHex(f.rgb)}
-            </span>
-          ))}
-          {mixes.map((m, i) => (
-            <span key={`m${i}`} className="flex items-center gap-1.5 font-mono">
-              <Swatch rgb={m.rgb} />
-              {base.length + 1 + i}: {mixLabel(base, m)}
-            </span>
-          ))}
         </div>
       ),
     }
@@ -375,7 +314,6 @@ export function MeshExportBar({
   const [sizeUnits, setSizeUnits] = useState<[number, number, number] | null>(null)
   const [scale, setScale] = useState(1)
   const [scaleSaved, setScaleSaved] = useState(false)
-  const [bins, setBins] = useState<ColorBin[] | null>(null)
   const [baked, setBaked] = useState<ExportMesh[] | null>(null)
   // What the support pass would do at the current scale / strut size.
   const supportPlan = useMemo(() => {
@@ -386,22 +324,12 @@ export function MeshExportBar({
       return null
     }
   }, [baked, scale, settings.supportMm])
-  const gamut = useMemo(
-    () =>
-      bins && settings.format === "3mf-full-spectrum"
-        ? analyzeGamut(bins, baseFilaments(settings.base))
-        : null,
-    [bins, settings.format, settings.base],
-  )
 
   const openDialog = () => {
     const meshes = bake()
     const size = meshes && meshes.length ? printSize(meshes, sourceAxis) : null
     setSizeUnits(size)
     setBaked(meshes && meshes.length ? meshes : null)
-    // Surface colours for the Full Spectrum gamut check (cheap: no
-    // welding / repair / painting).
-    setBins(meshes && meshes.length ? surfaceColorBins(meshes, 20_000) : null)
     const stored = loadPrintScale(scope.key)
     setScaleSaved(stored !== null)
     setScale(stored ?? (size ? defaultPrintScale(size) : 1))
@@ -450,7 +378,6 @@ export function MeshExportBar({
     }, 16)
   }
 
-  const is3mf = settings.format !== "stl"
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted-foreground">
@@ -481,14 +408,14 @@ export function MeshExportBar({
                 >
                   <ToggleGroupItem value="stl">STL</ToggleGroupItem>
                   <ToggleGroupItem value="3mf">3MF (color)</ToggleGroupItem>
-                  <ToggleGroupItem value="3mf-full-spectrum">Full Spectrum (U1)</ToggleGroupItem>
+                  <ToggleGroupItem value="glb">GLB (textured)</ToggleGroupItem>
                 </ToggleGroup>
                 <FieldDescription>
                   {settings.format === "stl"
                     ? "Geometry only, for any slicer."
                     : settings.format === "3mf"
                       ? "Model colors painted onto filaments, for OrcaSlicer / Bambu Studio."
-                      : "Four filaments plus layer-mixed colors, for Snapmaker Orca on a Snapmaker U1."}
+                      : "Full-color textured model for Blender and other 3D apps. OrcaSlicer nightly builds can import it and match the texture to your filaments; for released slicers, use 3MF (color)."}
                 </FieldDescription>
               </FieldSet>
 
@@ -619,7 +546,7 @@ export function MeshExportBar({
                 </FieldGroup>
               </FieldSet>
 
-              {is3mf && <FieldSeparator />}
+              {settings.format !== "stl" && <FieldSeparator />}
 
               {settings.format === "3mf" && (
                 <FieldSet>
@@ -668,76 +595,16 @@ export function MeshExportBar({
                 </FieldSet>
               )}
 
-              {settings.format === "3mf-full-spectrum" && (
+              {settings.format === "glb" && (
                 <FieldSet>
                   <FieldLegend>Colors</FieldLegend>
-                  <Field>
-                    <FieldLabel>Filaments by toolhead</FieldLabel>
-                    <div className="flex items-center gap-2">
-                      {settings.base.map((hex, i) => (
-                        <input
-                          key={i}
-                          type="color"
-                          value={hex}
-                          onChange={(e) => {
-                            const base = settings.base.slice()
-                            base[i] = e.target.value.toUpperCase()
-                            update({ base })
-                          }}
-                          aria-label={`Toolhead ${i + 1} filament color`}
-                          className="size-8 cursor-pointer rounded-md border bg-transparent p-0.5"
-                        />
-                      ))}
-                      {settings.base.join() !== DEFAULT_EXPORT_SETTINGS.base.join() && (
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          onClick={() => update({ base: DEFAULT_EXPORT_SETTINGS.base })}
-                        >
-                          <RotateCcwIcon data-icon="inline-start" />
-                          Full Spectrum bundle
-                        </Button>
-                      )}
-                    </div>
-                    <FieldDescription>
-                      Default: Snapmaker PLA Full Spectrum (Cyan, Magenta, Yellow, Gray).
-                    </FieldDescription>
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="export-mixes">Mixed colors</FieldLabel>
-                    <Select value={String(settings.mixes)} onValueChange={(v) => update({ mixes: Number(v) })}>
-                      <SelectTrigger id="export-mixes" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {/* 6 pairs × 3 ratios = 18 candidate mixes. */}
-                          {[4, 8, 12, 18].map((n) => (
-                            <SelectItem key={n} value={String(n)}>
-                              {n === 18 ? "Up to 18 (all)" : `Up to ${n}`}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                    <FieldDescription>
-                      Fewer are used when more wouldn't improve the colors.
-                    </FieldDescription>
-                  </Field>
-                  <GamutAlert
-                    report={gamut}
-                    base={settings.base}
-                    onSwap={(toolhead, hex) => {
-                      const base = settings.base.slice()
-                      base[toolhead] = hex
-                      update({ base })
-                    }}
-                  />
                   <Alert>
                     <InfoIcon />
                     <AlertDescription>
-                      Open the file in Snapmaker Orca in a new, empty project. It selects the U1
-                      0.4 mm nozzle, Color Mixing process and Full Spectrum PLA profiles.
+                      Textures are kept at full resolution. Vertex colors, flat colors and
+                      painted-on details (like eyes) are baked into an extra texture, so
+                      slicers that only read textures see them too. Units are millimeters, as
+                      in STL and 3MF.
                     </AlertDescription>
                   </Alert>
                 </FieldSet>
@@ -753,7 +620,7 @@ export function MeshExportBar({
             </DialogClose>
             <Button onClick={doExport} disabled={busy || !sizeUnits}>
               {busy ? <Spinner data-icon="inline-start" /> : <DownloadIcon data-icon="inline-start" />}
-              Export {settings.format === "stl" ? "STL" : "3MF"}
+              Export {settings.format.toUpperCase()}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -76,12 +76,6 @@ import {
 
 export type Rgb = readonly [number, number, number];
 
-/** One non-empty bin of the area-weighted surface colour histogram. */
-export interface ColorBin {
-	rgb: Rgb;
-	weight: number;
-}
-
 export interface Paint3mfOptions {
 	/** Number of filaments to quantise to (1–16) for the default k-means palette. */
 	colorCount: number;
@@ -96,19 +90,6 @@ export interface Paint3mfOptions {
 	 * `nx:` (e.g. the source file, pose and export settings).
 	 */
 	metadata?: Record<string, string>;
-	/**
-	 * Replace the default k-means palette. Receives the area-weighted
-	 * surface colours (alpha-cutout texels excluded) and returns the
-	 * palette *in filament order*: entry i is painted as filament i + 1.
-	 */
-	choosePalette?: (bins: ColorBin[]) => Rgb[];
-	/**
-	 * When set, near-horizontal faces may only use the first N palette
-	 * entries. Used for layer-alternation mixes (Snapmaker Full
-	 * Spectrum), which can't show on flat tops/bottoms — only the
-	 * outermost layer is visible there.
-	 */
-	flatSurfaceColors?: number;
 	/**
 	 * Extra archive entries, e.g. `Metadata/project_settings.config`.
 	 * A function is called with the final palette.
@@ -429,7 +410,7 @@ function wrapIndex(i: number, n: number, mode: ExportTextureWrap): number {
 }
 
 /** Nearest-texel fetch; returns the RGBA byte offset into `pixels`. */
-function texelOffset(tex: ExportTexture, u: number, v: number): number {
+export function texelOffset(tex: ExportTexture, u: number, v: number): number {
 	const x = wrapIndex(Math.floor(u * tex.width), tex.width, tex.wrapS);
 	let y = wrapIndex(Math.floor(v * tex.height), tex.height, tex.wrapT);
 	if (tex.flipY) y = tex.height - 1 - y;
@@ -458,7 +439,7 @@ function mulberry32(seed: number): () => number {
 // Geometry tracking through weld + subdivide
 // ---------------------------------------------------------------------------
 
-interface TrackedShape {
+export interface TrackedShape {
 	input: ExportMesh;
 	mesh: IndexedMesh;
 	/** Per output triangle: source triangle index in `input.indices`. */
@@ -467,7 +448,7 @@ interface TrackedShape {
 	bary: Float32Array;
 }
 
-function trackShape(
+export function trackShape(
 	input: ExportMesh,
 	passes: number,
 	repair: { minThickness: number } | null,
@@ -605,7 +586,7 @@ export function splitDecals(meshes: readonly ExportMesh[]): { meshes: ExportMesh
 const DECAL_REACH = 0.6;
 
 /** Colour of the decals at point q, or false where none is opaque. */
-function sampleDecals(decals: readonly DecalTri[], q: readonly number[], out: Uint8Array): boolean {
+export function sampleDecals(decals: readonly DecalTri[], q: readonly number[], out: Uint8Array): boolean {
 	for (const d of decals) {
 		const p = d.p;
 		const dist = (q[0]! - p[0]!) * d.n[0] + (q[1]! - p[1]!) * d.n[1] + (q[2]! - p[2]!) * d.n[2];
@@ -636,13 +617,36 @@ function sampleDecals(decals: readonly DecalTri[], q: readonly number[], out: Ui
 	return false;
 }
 
+/**
+ * Give `src` the decals that overlay its triangle (corner positions
+ * `pos`, same space as the decals): close by and facing the same way.
+ */
+export function attachDecals(src: TriSource, pos: Float64Array, decals: readonly DecalTri[]): void {
+	const lo = [0, 1, 2].map((k) => Math.min(pos[k]!, pos[3 + k]!, pos[6 + k]!) - DECAL_REACH);
+	const hi = [0, 1, 2].map((k) => Math.max(pos[k]!, pos[3 + k]!, pos[6 + k]!) + DECAL_REACH);
+	const e1 = [pos[3]! - pos[0]!, pos[4]! - pos[1]!, pos[5]! - pos[2]!];
+	const e2 = [pos[6]! - pos[0]!, pos[7]! - pos[1]!, pos[8]! - pos[2]!];
+	const n = [e1[1]! * e2[2]! - e1[2]! * e2[1]!, e1[2]! * e2[0]! - e1[0]! * e2[2]!, e1[0]! * e2[1]! - e1[1]! * e2[0]!];
+	const nl = Math.hypot(n[0]!, n[1]!, n[2]!) || 1;
+	const near = decals.filter(
+		(d) =>
+			d.lo[0] <= hi[0]! && d.hi[0] >= lo[0]! && d.lo[1] <= hi[1]! && d.hi[1] >= lo[1]! && d.lo[2] <= hi[2]! && d.hi[2] >= lo[2]! &&
+			// Same surface orientation (either winding).
+			Math.abs((d.n[0] * n[0]! + d.n[1] * n[1]! + d.n[2] * n[2]!) / nl) > 0.5,
+	);
+	if (near.length) {
+		src.decals = near;
+		src.pos = pos;
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Per-triangle colour sources
 // ---------------------------------------------------------------------------
 
-const KIND_FLAT = 0;
-const KIND_TEXTURE = 1;
-const KIND_VCOLOR = 2;
+export const KIND_FLAT = 0;
+export const KIND_TEXTURE = 1;
+export const KIND_VCOLOR = 2;
 
 /**
  * Colour source of one output triangle, parameterised over the
@@ -650,7 +654,7 @@ const KIND_VCOLOR = 2;
  * A = (0,0), B = (1,0), C = (0,1). Paint-tree subdivision happens in
  * that (s, t) space and only maps to UV / colour at sample time.
  */
-interface TriSource {
+export interface TriSource {
 	kind: number;
 	texture: ExportTexture | null;
 	/** Flat colour (sRGB bytes). */
@@ -670,7 +674,7 @@ interface TriSource {
  * for alpha-cutout texels (alpha < 0.5, matching the viewers'
  * `alphaTest`).
  */
-function sampleSource(src: TriSource, s: number, t: number, out: Uint8Array): boolean {
+export function sampleSource(src: TriSource, s: number, t: number, out: Uint8Array): boolean {
 	const a = src.attr;
 	const r = 1 - s - t;
 	if (src.decals && src.pos) {
@@ -708,7 +712,7 @@ const IDENTITY_BARY = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
  * triangle whose corners sit at barycentric `bary[bo … bo + 8]` within
  * it (identity = the source triangle itself).
  */
-function triSourceOf(inp: ExportMesh, st: number, bary: ArrayLike<number> = IDENTITY_BARY, bo = 0): TriSource {
+export function triSourceOf(inp: ExportMesh, st: number, bary: ArrayLike<number> = IDENTITY_BARY, bo = 0): TriSource {
 	const materials: ExportMaterial[] = inp.materials?.length ? inp.materials : [{ texture: null }];
 	const mat = materials[inp.triangleMaterials?.[st] ?? 0] ?? materials[0]!;
 	const uvs = inp.uvs;
@@ -744,65 +748,6 @@ function triSourceOf(inp: ExportMesh, st: number, bary: ArrayLike<number> = IDEN
 		}
 	}
 	return src;
-}
-
-/**
- * Area-weighted colours of the meshes' surfaces as displayed (texture,
- * vertex colour or flat colour per material slot), as non-empty
- * 15-bit histogram bins. Alpha-cutout texels are skipped, as in the
- * export. Cheap enough to run interactively: no welding, repair or
- * paint trees.
- */
-export function surfaceColorBins(meshes: readonly ExportMesh[], samples = 50_000): ColorBin[] {
-	const tris: { mesh: ExportMesh; t: number; area: number }[] = [];
-	let total = 0;
-	for (const m of meshes) {
-		const p = m.positions, idx = m.indices;
-		for (let t = 0; t < idx.length / 3; t++) {
-			const a = idx[t * 3]! * 3, b = idx[t * 3 + 1]! * 3, c = idx[t * 3 + 2]! * 3;
-			const e1x = p[b]! - p[a]!, e1y = p[b + 1]! - p[a + 1]!, e1z = p[b + 2]! - p[a + 2]!;
-			const e2x = p[c]! - p[a]!, e2y = p[c + 1]! - p[a + 1]!, e2z = p[c + 2]! - p[a + 2]!;
-			const area = 0.5 * Math.hypot(e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x);
-			if (!(area > 0)) continue;
-			tris.push({ mesh: m, t, area });
-			total += area;
-		}
-	}
-	const hist = new Float64Array(BIN_COUNT * 4);
-	const add = (r: number, g: number, b: number, w: number) => {
-		const o = binKey(r, g, b) * 4;
-		hist[o] = hist[o]! + r * w;
-		hist[o + 1] = hist[o + 1]! + g * w;
-		hist[o + 2] = hist[o + 2]! + b * w;
-		hist[o + 3] = hist[o + 3]! + w;
-	};
-	const rand = mulberry32(0x5eed);
-	const rgb = new Uint8Array(3);
-	let carry = 0;
-	for (const { mesh, t, area } of tris) {
-		const src = triSourceOf(mesh, t);
-		const want = (area / total) * samples;
-		if (src.kind === KIND_FLAT) {
-			add(src.flat[0], src.flat[1], src.flat[2], want);
-			continue;
-		}
-		carry += want;
-		while (carry >= 1) {
-			carry -= 1;
-			let r1 = rand(), r2 = rand();
-			if (r1 + r2 > 1) {
-				r1 = 1 - r1;
-				r2 = 1 - r2;
-			}
-			if (sampleSource(src, r1, r2, rgb)) add(rgb[0]!, rgb[1]!, rgb[2]!, 1);
-		}
-	}
-	const bins: ColorBin[] = [];
-	for (let i = 0; i < BIN_COUNT; i++) {
-		const w = hist[i * 4 + 3]!;
-		if (w > 0) bins.push({ rgb: [Math.round(hist[i * 4]! / w), Math.round(hist[i * 4 + 1]! / w), Math.round(hist[i * 4 + 2]! / w)], weight: w });
-	}
-	return bins;
 }
 
 // ---------------------------------------------------------------------------
@@ -884,23 +829,7 @@ export function buildPainted3MF(
 				// Decals are in input space; so are the shape's positions.
 				const sp = s.mesh.positions;
 				const ia = idx[t * 3]! * 3, ib = idx[t * 3 + 1]! * 3, ic = idx[t * 3 + 2]! * 3;
-				const pos = Float64Array.of(sp[ia]!, sp[ia + 1]!, sp[ia + 2]!, sp[ib]!, sp[ib + 1]!, sp[ib + 2]!, sp[ic]!, sp[ic + 1]!, sp[ic + 2]!);
-				const lo = [0, 1, 2].map((k) => Math.min(pos[k]!, pos[3 + k]!, pos[6 + k]!) - DECAL_REACH);
-				const hi = [0, 1, 2].map((k) => Math.max(pos[k]!, pos[3 + k]!, pos[6 + k]!) + DECAL_REACH);
-				const e1 = [pos[3]! - pos[0]!, pos[4]! - pos[1]!, pos[5]! - pos[2]!];
-				const e2 = [pos[6]! - pos[0]!, pos[7]! - pos[1]!, pos[8]! - pos[2]!];
-				const n = [e1[1]! * e2[2]! - e1[2]! * e2[1]!, e1[2]! * e2[0]! - e1[0]! * e2[2]!, e1[0]! * e2[1]! - e1[1]! * e2[0]!];
-				const nl = Math.hypot(n[0]!, n[1]!, n[2]!) || 1;
-				const near = options.decals.filter(
-					(d) =>
-						d.lo[0] <= hi[0]! && d.hi[0] >= lo[0]! && d.lo[1] <= hi[1]! && d.hi[1] >= lo[1]! && d.lo[2] <= hi[2]! && d.hi[2] >= lo[2]! &&
-						// Same surface orientation (either winding).
-						Math.abs((d.n[0] * n[0]! + d.n[1] * n[1]! + d.n[2] * n[2]!) / nl) > 0.5,
-				);
-				if (near.length) {
-					src.decals = near;
-					src.pos = pos;
-				}
+				attachDecals(src, Float64Array.of(sp[ia]!, sp[ia + 1]!, sp[ia + 2]!, sp[ib]!, sp[ib + 1]!, sp[ib + 2]!, sp[ic]!, sp[ic + 1]!, sp[ic + 2]!), options.decals);
 			}
 			sources.push(src);
 		}
@@ -991,33 +920,9 @@ export function buildPainted3MF(
 			addHist(rgb[0]!, rgb[1]!, rgb[2]!, 1);
 		}
 	}
-	let palette: Rgb[];
-	if (options.choosePalette) {
-		const bins: ColorBin[] = [];
-		for (let i = 0; i < BIN_COUNT; i++) {
-			const w = hist[i * 4 + 3]!;
-			if (w > 0) {
-				bins.push({
-					rgb: [
-						Math.round(hist[i * 4]! / w),
-						Math.round(hist[i * 4 + 1]! / w),
-						Math.round(hist[i * 4 + 2]! / w),
-					],
-					weight: w,
-				});
-			}
-		}
-		palette = options.choosePalette(bins);
-		if (palette.length === 0) palette = [DEFAULT_BASE];
-	} else {
-		palette = reducePalette(hist, colorCount);
-	}
-	const fullQuantize = makeQuantizer(palette);
-	const flatCount = Math.min(palette.length, Math.max(1, options.flatSurfaceColors ?? palette.length));
-	const flatQuantize =
-		flatCount < palette.length ? makeQuantizer(palette.slice(0, flatCount)) : fullQuantize;
-	/** |normal·Z| above which a face counts as a flat top / bottom (~18°). */
-	const FLAT_NZ = 0.95;
+	let palette = reducePalette(hist, colorCount);
+	if (palette.length === 0) palette = [DEFAULT_BASE];
+	const quantize = makeQuantizer(palette);
 
 	// --- 4. Paint trees. ---------------------------------------------------
 	const TRANSPARENT = -1;
@@ -1026,17 +931,6 @@ export function buildPainted3MF(
 	const paint: string[] = new Array(triCount);
 	for (let t = 0; t < triCount; t++) {
 		const src = sources[t]!;
-		let quantize = fullQuantize;
-		if (flatQuantize !== fullQuantize) {
-			const a = tris[t * 3]! * 3, b = tris[t * 3 + 1]! * 3, c = tris[t * 3 + 2]! * 3;
-			const e1x = positions[b]! - positions[a]!, e1y = positions[b + 1]! - positions[a + 1]!;
-			const e1z = positions[b + 2]! - positions[a + 2]!;
-			const e2x = positions[c]! - positions[a]!, e2y = positions[c + 1]! - positions[a + 1]!;
-			const e2z = positions[c + 2]! - positions[a + 2]!;
-			const nz = e1x * e2y - e1y * e2x;
-			const len = Math.hypot(e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, nz);
-			if (len > 0 && Math.abs(nz) / len > FLAT_NZ) quantize = flatQuantize;
-		}
 		let depth = 0;
 		if (src.decals) {
 			// Decal detail lives inside this triangle; resolve it fully.

@@ -1,6 +1,7 @@
 /**
  * Viewer-agnostic 3D-print export pipeline: baked {@link ExportMesh}es
- * → scale to millimetres → (repair) → (smooth) → STL or painted 3MF.
+ * → scale to millimetres → (supports) → (repair) → (smooth) → STL,
+ * painted 3MF, or textured GLB (`mesh-export-gltf.ts`).
  *
  * Geometry is converted to real millimetres *before* anything else, so
  * size-dependent settings (wall thickness for thickened sheets, plate
@@ -9,23 +10,20 @@
  */
 
 import {
-	FULL_SPECTRUM_BUNDLE,
-	buildFullSpectrum3MF,
-	type MixRecipe,
-	type PhysicalFilament,
-} from './full-spectrum';
-import {
 	emitBinarySTL,
 	loopSubdivide,
 	weldByPosition,
 	type ExportMesh,
 } from './mesh-export';
-import { buildPainted3MF, rgbToHex, splitDecals, type Rgb } from './mesh-export-3mf';
+import { buildPainted3MF, splitDecals, type Rgb } from './mesh-export-3mf';
+import { buildTexturedGlb } from './mesh-export-gltf';
 import { repairForPrinting, summarizeRepairs, type RepairReport, type RepairSummary } from './mesh-repair';
 import { SNAPMAKER_U1, projectSettingsConfig, slicerProfile, type SlicerProfile } from './slicer-profile';
 import { addStructuralSupports, type SupportReport } from './mesh-supports';
 
-export type ExportFormat = 'stl' | '3mf' | '3mf-full-spectrum';
+export type ExportFormat = 'stl' | '3mf' | 'glb';
+
+export const EXPORT_FORMATS: readonly ExportFormat[] = ['stl', '3mf', 'glb'];
 
 export interface ModelExportSettings {
 	format: ExportFormat;
@@ -41,14 +39,9 @@ export interface ModelExportSettings {
 	supportMm: number;
 	/** Standard 3MF: filament count. */
 	colors: number;
-	/** Full Spectrum: maximum mixed filaments. */
-	mixes: number;
-	/** Full Spectrum: physical filament colours (hex), toolhead order. */
-	base: string[];
 	/**
 	 * Standard 3MF: slicer profile to embed filament colours + stock
 	 * presets for (`slicer-profile.ts`), or `'none'` for a plain 3MF.
-	 * Full Spectrum always targets the Snapmaker U1.
 	 */
 	profile: string;
 }
@@ -61,16 +54,12 @@ export const DEFAULT_EXPORT_SETTINGS: ModelExportSettings = {
 	supports: true,
 	supportMm: 1.2,
 	colors: 4,
-	mixes: 12,
-	base: FULL_SPECTRUM_BUNDLE.map((f) => rgbToHex(f.rgb)),
 	profile: SNAPMAKER_U1.id,
 };
 
-/** Printer the export is laid out for: always the U1 for Full Spectrum. */
+/** Printer the export is laid out for (3MF with a slicer profile only). */
 export function targetProfile(s: Pick<ModelExportSettings, 'format' | 'profile'>): SlicerProfile | null {
-	if (s.format === '3mf-full-spectrum') return SNAPMAKER_U1;
-	if (s.format === 'stl') return null;
-	return slicerProfile(s.profile);
+	return s.format === '3mf' ? slicerProfile(s.profile) : null;
 }
 
 /**
@@ -97,27 +86,21 @@ export function printSize(meshes: readonly ExportMesh[], sourceAxis: 'y-up' | 'z
 	return sourceAxis === 'y-up' ? [d[0]!, d[2]!, d[1]!] : [d[0]!, d[1]!, d[2]!];
 }
 
-/** Copies of the meshes with positions multiplied by `scale`. */
+/** Copies of the meshes with positions (and skeleton joints) multiplied by `scale`. */
 export function scaleMeshes(meshes: readonly ExportMesh[], scale: number): ExportMesh[] {
 	return meshes.map((m) => {
 		const positions = new Float32Array(m.positions.length);
 		for (let i = 0; i < positions.length; i++) positions[i] = m.positions[i]! * scale;
-		return { ...m, positions };
+		if (!m.skeleton) return { ...m, positions };
+		// Joints share the positions' space; supports aim struts at them.
+		const joints = m.skeleton.joints.map((v) => v * scale);
+		return { ...m, positions, skeleton: { ...m.skeleton, joints } };
 	});
 }
 
 export function hexToRgb(hex: string): Rgb {
 	const n = parseInt(hex.replace('#', ''), 16);
 	return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
-}
-
-/** Full Spectrum base filaments; keep bundle names for unchanged colours. */
-export function baseFilaments(hexes: readonly string[]): PhysicalFilament[] {
-	return hexes.map((hex, i) => {
-		const bundle = FULL_SPECTRUM_BUNDLE[i];
-		const same = bundle && rgbToHex(bundle.rgb) === hex.toUpperCase();
-		return { name: same ? bundle.name : `F${i + 1}`, rgb: hexToRgb(hex) };
-	});
 }
 
 export interface ModelExportJob {
@@ -146,8 +129,8 @@ export interface ModelExportResult {
 	palette?: Rgb[];
 	/** Profile whose presets + filament colours were embedded, if any. */
 	profile?: SlicerProfile;
-	/** Full Spectrum filaments + mixes. */
-	fullSpectrum?: { base: readonly PhysicalFilament[]; mixes: MixRecipe[] };
+	/** GLB: original textures kept, and the baked colour atlas (if any). */
+	glb?: { textures: number; atlas: { width: number; height: number } | null };
 }
 
 /** What a 3MF records about its own export: source, pose, settings, supports. */
@@ -169,7 +152,6 @@ function exportMetadata(job: ModelExportJob, supports: SupportReport | null): Re
 		supports: s.supports,
 		supportMm: s.supportMm,
 		...(s.format === '3mf' && { colors: s.colors, profile: s.profile }),
-		...(s.format === '3mf-full-spectrum' && { mixes: s.mixes, base: s.base }),
 	});
 	if (supports) meta.Supports = JSON.stringify(supports);
 	return meta;
@@ -214,26 +196,22 @@ export function runModelExport(job: ModelExportJob): ModelExportResult {
 		};
 	}
 
-	if (s.format === '3mf-full-spectrum') {
-		const r = buildFullSpectrum3MF([...meshes], {
-			base: baseFilaments(s.base),
-			maxMixes: s.mixes,
+	if (s.format === 'glb') {
+		const r = buildTexturedGlb(meshes, {
+			decals,
 			subdivisionPasses: s.subdivision,
+			repair,
 			sourceAxis: job.sourceAxis,
-			title: objectName,
 			objectName,
 			metadata,
-			decals,
-			repair,
 		});
-		const n = r.base.length + r.mixes.length;
 		return {
 			bytes: r.bytes,
-			fileName: `${stem}${pose}${sub}_fs${n}.3mf`,
-			mimeType: 'model/3mf',
+			fileName: `${stem}${pose}${sub}.glb`,
+			mimeType: 'model/gltf-binary',
 			repair: r.repair,
 			supports,
-			fullSpectrum: { base: r.base, mixes: r.mixes },
+			glb: { textures: r.textureCount, atlas: r.atlas },
 		};
 	}
 

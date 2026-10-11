@@ -1,8 +1,12 @@
 /**
- * Minimal RGBA8 → PNG encoder. Uses `CompressionStream('deflate')`
- * (zlib framing, which is what IDAT wants), so it works in browsers,
- * workers, and Bun without a canvas.
+ * Minimal RGBA8 → PNG encoder. {@link encodePng} uses
+ * `CompressionStream('deflate')` (zlib framing, which is what IDAT
+ * wants), so it works in browsers, workers, and Bun without a canvas;
+ * {@link encodePngSync} uses fflate for synchronous callers (the 3D
+ * export pipeline).
  */
+
+import { zlibSync } from 'fflate';
 
 let crcTable: Uint32Array | null = null;
 
@@ -27,18 +31,29 @@ async function deflate(data: Uint8Array): Promise<Uint8Array> {
 	return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
+/** Scanlines with filter type 0 (none), the input IDAT compresses. */
+function scanlines(width: number, height: number, rgba: Uint8Array): Uint8Array {
+	const stride = width * 4;
+	const raw = new Uint8Array((stride + 1) * height);
+	for (let y = 0; y < height; y++) {
+		raw.set(rgba.subarray(y * stride, (y + 1) * stride), y * (stride + 1) + 1);
+	}
+	return raw;
+}
+
 export async function encodePng(
 	width: number,
 	height: number,
 	rgba: Uint8Array,
 ): Promise<Uint8Array> {
-	const stride = width * 4;
-	const raw = new Uint8Array((stride + 1) * height);
-	for (let y = 0; y < height; y++) {
-		// Filter type 0 (none) per scanline.
-		raw.set(rgba.subarray(y * stride, (y + 1) * stride), y * (stride + 1) + 1);
-	}
-	const idat = await deflate(raw);
+	return assemble(width, height, await deflate(scanlines(width, height, rgba)));
+}
+
+export function encodePngSync(width: number, height: number, rgba: Uint8Array): Uint8Array {
+	return assemble(width, height, zlibSync(scanlines(width, height, rgba), { level: 6 }));
+}
+
+function assemble(width: number, height: number, idat: Uint8Array): Uint8Array {
 	const chunks: [string, Uint8Array][] = [
 		['IHDR', ihdr(width, height)],
 		['IDAT', idat],

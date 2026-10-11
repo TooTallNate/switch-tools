@@ -41,6 +41,7 @@ import { Spinner } from "~/components/ui/spinner"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "~/components/ui/resizable"
 import type { Node } from "~/lib/archive"
 import { exportableModels, exportModelsZip } from "~/lib/media/batch-export"
+import type { ExportFormat } from "~/lib/model-export"
 import { gapReportMarkdown, summarize } from "~/lib/media/gaps"
 import type { ThumbResult } from "~/lib/media/thumbnails"
 import { MEDIA_KIND_LABEL, MEDIA_KINDS, type MediaItem, type MediaKind } from "~/lib/media/types"
@@ -461,7 +462,7 @@ function ExportModelsDialog({
   fileName: string
 }) {
   const models = useMemo(() => exportableModels(items), [items])
-  const [format, setFormat] = useState<"stl" | "3mf">("3mf")
+  const [format, setFormat] = useState<ExportFormat>("3mf")
   const [busy, setBusy] = useState<{ done: number; total: number; current: string } | null>(null)
   const abort = useRef<AbortController | null>(null)
   const run = async () => {
@@ -497,9 +498,9 @@ function ExportModelsDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="flex gap-2">
-          {(["3mf", "stl"] as const).map((f) => (
+          {(["3mf", "glb", "stl"] as const).map((f) => (
             <Button key={f} variant={format === f ? "default" : "outline"} size="sm" onClick={() => setFormat(f)} disabled={!!busy}>
-              {f === "3mf" ? "Painted 3MF" : "STL"}
+              {f === "3mf" ? "Painted 3MF" : f === "glb" ? "Textured GLB" : "STL"}
             </Button>
           ))}
         </div>

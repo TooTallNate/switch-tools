@@ -23,7 +23,8 @@ nx-archive has two views over the same file tree:
   lists everything we couldn't decode as a to-do list.
 
 3D models also export for **3D printing**: STL, a painted 3MF for
-OrcaSlicer/Bambu, or a Snapmaker U1 "Full Spectrum" 3MF. On the way out
+OrcaSlicer/Bambu, or a textured GLB (Blender, and OrcaSlicer's texture
+import). On the way out
 they get print scale, mesh repair, smoothing and structural supports.
 
 Platforms covered today include:
@@ -71,7 +72,7 @@ apps/nx-archive/
   src/lib/media/          library: scanner (walk + classify + dedupe), classify (kind sets),
                           thumbnails, model-assets (headless model loaders), gaps, batch-export
   src/lib/model-export.ts           print pipeline: scale → decals → supports → repair → STL/3MF
-  src/lib/mesh-export*.ts, mesh-repair.ts, mesh-supports.ts, full-spectrum.ts
+  src/lib/mesh-export*.ts (STL / 3MF / GLB), mesh-repair.ts, mesh-supports.ts
   src/lib/<platform>.ts   platform glue, e.g. halo.ts, psx.ts, ff7-psx.ts, mk64-karts.ts
   scripts/media-scan.ts   headless library scan + gaps report (Bun)
   test/*.test.ts          app tests (dispatch, library, export, …)

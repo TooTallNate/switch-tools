@@ -2,7 +2,7 @@ import { strFromU8, unzipSync } from 'fflate'
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import type { ExportMesh } from '~/lib/mesh-export'
-import { DEFAULT_EXPORT_SETTINGS, printSize, runModelExport, type ModelExportSettings } from '~/lib/model-export'
+import { DEFAULT_EXPORT_SETTINGS, printSize, runModelExport, scaleMeshes, type ModelExportSettings } from '~/lib/model-export'
 import { defaultPrintScale, loadPrintScale, savePrintScale } from '~/lib/print-scale'
 
 /** Closed axis-aligned box w × h × d (Y-up). */
@@ -27,6 +27,18 @@ describe('printSize', () => {
   it('reports print axes (Z up) for Y-up sources', () => {
     expect(printSize([box(1, 3, 2)], 'y-up')).toEqual([1, 2, 3])
     expect(printSize([box(1, 3, 2)], 'z-up')).toEqual([1, 3, 2])
+  })
+})
+
+describe('scaleMeshes', () => {
+  it('scales skeleton joints with the positions', () => {
+    const m: ExportMesh = {
+      ...box(1, 1, 1),
+      skeleton: { vertexBone: new Uint16Array(8), parent: Int16Array.of(-1), joints: Float32Array.of(1, 2, 3) },
+    }
+    const [s] = scaleMeshes([m], 10)
+    expect(Array.from(s!.skeleton!.joints)).toEqual([10, 20, 30])
+    expect(Array.from(m.skeleton!.joints)).toEqual([1, 2, 3])
   })
 })
 
@@ -85,10 +97,16 @@ describe('runModelExport', () => {
     expect(r.profile).toBeUndefined()
   })
 
-  it('produces Full Spectrum 3MFs', () => {
-    const r = runModelExport({ ...job, meshes: [box(1, 1, 1)], settings: settings({ format: '3mf-full-spectrum' }), mmPerUnit: 20 })
-    expect(r.fileName).toMatch(/_fs\d+\.3mf$/)
-    expect(r.fullSpectrum?.base).toHaveLength(4)
+  it('produces textured GLBs in millimetres', () => {
+    const r = runModelExport({ ...job, meshes: [box(1, 2, 1)], settings: settings({ format: 'glb' }), mmPerUnit: 20 })
+    expect(r.fileName).toBe('m.glb')
+    expect(r.mimeType).toBe('model/gltf-binary')
+    expect(r.glb?.atlas).not.toBeNull() // untextured: flat colour baked
+    const dv = new DataView(r.bytes.buffer, r.bytes.byteOffset)
+    const json = JSON.parse(new TextDecoder().decode(r.bytes.subarray(20, 20 + dv.getUint32(12, true))))
+    const pos = json.accessors[json.meshes[0].primitives[0].attributes.POSITION]
+    expect(pos.max[1] - pos.min[1]).toBeCloseTo(40) // 2 units × 20 mm, Y-up
+    expect(JSON.parse(json.asset.extras.ExportSettings).format).toBe('glb')
   })
 })
 
