@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { buildRootNode, type ArchiveContext, type Node } from '~/lib/archive'
+import { overlayTextures } from '~/lib/ff7-psx'
 import { classifyNode } from '~/lib/media/classify'
 import { previewKindForNode } from '~/lib/preview'
 
@@ -132,5 +133,23 @@ describe('Final Fantasy VII PSX models', () => {
     for (let i = 0; i < 8; i++) junk[4 + i * 9] = 0xff
     expect(detectFf7PsxModel('STAGE00.LZS', junk)).toBeNull()
     expect(detectFf7PsxModel('readme.txt', junk)).toBeNull()
+  })
+})
+
+describe('overlayTextures', () => {
+  // Two quads' worth of triangles: 0 = skin, 1 = a face overlay on the
+  // skin, 2 = a textured triangle with no twin.
+  const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 5, 5, 5, 6, 5, 5, 5, 6, 5])
+  const mesh = {
+    positions,
+    indices: new Uint32Array([0, 1, 2, 2, 1, 0, 3, 4, 5]),
+    groups: [
+      { texture: -1, firstIndex: 0, indexCount: 3 },
+      { texture: 0, firstIndex: 3, indexCount: 3 },
+      { texture: 1, firstIndex: 6, indexCount: 3 },
+    ],
+  }
+  it('flags textures whose triangles all sit on untextured twins', () => {
+    expect([...overlayTextures(mesh as never)]).toEqual([0])
   })
 })

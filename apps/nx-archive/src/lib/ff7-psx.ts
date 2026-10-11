@@ -84,6 +84,38 @@ export function buildFf7PsxMesh(
 	return { mesh: buildBattleMesh(raw, model), animator: new BattleAnimator(raw, model) };
 }
 
+/**
+ * Textures drawn as overlays: every triangle using them sits exactly on
+ * an untextured (Gouraud) triangle. Battle models draw faces this way,
+ * a cut-out texture over skin, so the PSX shows skin through the
+ * transparent texels. Treated as decals, the viewer draws them on top
+ * instead of z-fighting, and print exports paint them onto the skin
+ * (keeping the skin as the printed surface).
+ */
+export function overlayTextures(m: PsxMesh): Set<number> {
+	const key = (t: number) => {
+		const k: string[] = [];
+		for (let c = 0; c < 3; c++) {
+			const v = m.indices[t * 3 + c]! * 3;
+			k.push(`${m.positions[v]},${m.positions[v + 1]},${m.positions[v + 2]}`);
+		}
+		return k.sort().join('|');
+	};
+	const plain = new Set<string>();
+	for (const g of m.groups) {
+		if (g.texture >= 0) continue;
+		for (let t = g.firstIndex / 3; t < (g.firstIndex + g.indexCount) / 3; t++) plain.add(key(t));
+	}
+	const all = new Map<number, boolean>();
+	for (const g of m.groups) {
+		if (g.texture < 0) continue;
+		let every = all.get(g.texture) ?? true;
+		for (let t = g.firstIndex / 3; every && t < (g.firstIndex + g.indexCount) / 3; t++) every = plain.has(key(t));
+		all.set(g.texture, every && g.indexCount > 0);
+	}
+	return new Set([...all].filter(([, v]) => v).map(([k]) => k));
+}
+
 const toLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 
 export interface Ff7PsxModelView {
@@ -109,6 +141,7 @@ export async function loadFf7PsxModelView(node: Node, root: Node | null = null):
 	const { mesh: m, animator } = buildFf7PsxMesh(kind, bytes, tdb ? { tdb, face: faceId } : undefined);
 	if (!m.indices.length) throw new Error('Model has no polygons');
 	const untextured = m.textures.length;
+	const overlays = kind === 'battle' ? overlayTextures(m) : new Set<number>();
 	const textures: (DecodedTexture | null)[] = m.textures.map((t, i) => ({
 		packagePath: `${node.name}#${i}`,
 		width: t.width,
@@ -120,7 +153,8 @@ export async function loadFf7PsxModelView(node: Node, root: Node | null = null):
 		wrapS: 'clamp',
 		wrapT: 'clamp',
 		// Field models' only texture is the face atlas: eyes / mouth drawn over the skin.
-		...(kind === 'field' && { decal: true }),
+		// Battle models overlay some textures (faces) the same way, on untextured twins.
+		...((kind === 'field' || overlays.has(i)) && { decal: true }),
 	}));
 	textures.push(null); // material for vertex-coloured polygons
 	const colors = m.colors.map(toLinear);
