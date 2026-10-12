@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	TrinityAttribute,
+	TrinityPose,
 	TrinityFormat,
 	bakeLayeredAlbedo,
 	buildTrinityMesh,
+	parseTracm,
 	parseTrmbf,
 	parseTrmdl,
 	parseTrmmt,
@@ -204,5 +206,56 @@ describe('bakeLayeredAlbedo', () => {
 		expect(Array.from(out.pixels.subarray(0, 4))).toEqual([188, 137, 0, 255]);
 		// Unmasked: albedo unchanged.
 		expect(Array.from(out.pixels.subarray(4, 8))).toEqual([255, 0, 0, 255]);
+	});
+});
+
+describe('parseTracm', () => {
+	it('reads per-shape visibility', () => {
+		const flag = (v: boolean) => F.table([null, null, F.table([F.u8(1), F.table([F.bool(v)])])]);
+		const bytes = buildFlatBuffer([
+			F.table([F.u32(0), F.u32(120), F.u32(60)]),
+			F.tables([
+				[F.str('mon_body_shape'), null, null, null, null, flag(true)],
+				[F.str('mon_longtongue_shape'), null, null, null, null, flag(false)],
+				[F.str('mon_eye_shape')],
+			]),
+		]);
+		const c = parseTracm(bytes);
+		expect([c.frameCount, c.fps]).toEqual([120, 60]);
+		expect([...c.visibility]).toEqual([
+			['mon_body_shape', true],
+			['mon_longtongue_shape', false],
+		]);
+	});
+});
+
+describe('TrinityPose', () => {
+	const skl = parseTrskl(trskl()); // root → waist (rig 0) at (0, 1, 0)
+	const positions = new Float32Array([0, 1, 0, 1, 1, 0]);
+	const joints = new Uint16Array([0, 0, 0, 0, 0, 0, 0, 0]);
+	const weights = new Float32Array([1, 0, 0, 0, 0, 0, 0, 0]);
+
+	it('skins the bind pose to the input', () => {
+		const pose = new TrinityPose(skl);
+		const out = new Float32Array(6);
+		pose.skin(positions, null, joints, weights, out, null);
+		expect(Array.from(out)).toEqual([0, 1, 0, 1, 1, 0]);
+	});
+
+	it('moves weighted vertices with an animated bone; unweighted ones stay', () => {
+		const pose = new TrinityPose(skl);
+		const anim = {
+			frameCount: 1,
+			fps: 60,
+			bones: [{ name: 'waist', scale: null, translation: { kind: 'fixed' as const, frames: null, values: [[0, 3, 0] as [number, number, number]] }, rotation: null }],
+			materials: [],
+			visibility: [],
+			triggers: [],
+		};
+		pose.setPose(anim, 0);
+		const out = new Float32Array(6);
+		pose.skin(positions, null, joints, weights, out, null);
+		expect(Array.from(out)).toEqual([0, 3, 0, 1, 1, 0]);
+		expect(Array.from(pose.jointPositions().subarray(3, 6))).toEqual([0, 3, 0]);
 	});
 });
