@@ -177,6 +177,17 @@ export class GfpakOodleUnavailableError extends Error {
 	}
 }
 
+/**
+ * Version of what {@link gfpakEntryInfo} records (sniffed types, recovered
+ * names). Bumped whenever sniffing or name recovery improves, so callers
+ * that persist those results (keyed with this) recompute them instead of
+ * serving stale ones.
+ *
+ *   1  initial
+ *   2  Oodle entries, Trinity models / terrain, clip names from animation graphs
+ */
+export const GFPAK_INFO_VERSION = 2;
+
 /** The parts of a {@link GfpakEntry} that sniffing + name recovery compute. */
 export interface GfpakEntryInfo {
 	innerMagic: string | null;
