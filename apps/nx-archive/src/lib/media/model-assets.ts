@@ -32,6 +32,7 @@ import type { ExportMaterial, ExportMesh } from '../mesh-export';
 import { assembleBattle, buildBattleRig, poseFf7BattleRest } from '../ff7-battle-rig';
 import { assembleHrcCharacter, buildCompositeRig, poseFf7FieldRest } from '../ff7-field-rig';
 import { bakeSectionUvs, parseGfbmdlForView } from '../gfbmdl-view';
+import { loadTrinityModelView } from '../trinity-view';
 import {
 	decodePhyreTextureForMaterial,
 	ff7ExtractTriangles,
@@ -84,6 +85,7 @@ export interface ModelAsset {
 /** Preview kinds the library can load headlessly. */
 export const HEADLESS_MODEL_KINDS = new Set([
 	'gfbmdl-model',
+	'trinity-model',
 	'hsd-model',
 	'n64-model',
 	'halo-model',
@@ -421,6 +423,10 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 		case 'n64-model': {
 			const v = await parseN64ModelForView(await node.blob!(), node.meta?.n64Model as N64ModelRef);
 			return asset(n64Lod(v), v.texturedMaterials > 0 ? v.textures : []);
+		}
+		case 'trinity-model': {
+			const v = await loadTrinityModelView(node, root);
+			return asset(v.mesh.lods[0]!, v.textures, { texturesFound: [v.texturesFound, v.texturesWanted] });
 		}
 		case 'ff7-psx-model': {
 			const v = await loadFf7PsxModelView(node, root);

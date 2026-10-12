@@ -327,6 +327,10 @@ export type PreviewKind =
 	| 'hsd-model'
 	/** Game Freak GFBMDL model (Pokémon: Let's Go) — rendered in the mesh viewer. */
 	| 'gfbmdl-model'
+	/** Game Freak Trinity model (`.trmdl`, Pokémon Legends: Arceus) — mesh viewer. */
+	| 'trinity-model'
+	/** Trinity model parts (`.trmsh` / `.trmbf` / `.trmtr` / `.trskl` / `.trmmt`) — summary. */
+	| 'trinity-file'
 	/** Game Freak GFBANM animation — track summary. */
 	| 'gfbanm-info'
 	/** Game Freak GFBANMCFG — animation state → file table. */
@@ -719,6 +723,9 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.gfbmdl')) return 'gfbmdl-model';
 	if (lower.endsWith('.gfbanm')) return 'gfbanm-info';
 	if (lower.endsWith('.gfbanmcfg')) return 'gfbanmcfg-info';
+	// Game Freak Trinity (Legends: Arceus), likewise named by the GFPAK sniff.
+	if (lower.endsWith('.trmdl')) return 'trinity-model';
+	if (/\.(trmsh|trmbf|trmtr|trskl|trmmt)$/.test(lower)) return 'trinity-file';
 	if (lower.endsWith('.tbl')) return 'ahtb-table';
 	if (lower.endsWith('.bflyt')) return 'bflyt-info';
 	if (lower.endsWith('.bflan')) return 'bflan-info';

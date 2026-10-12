@@ -29,7 +29,8 @@ they get print scale, mesh repair, smoothing and structural supports.
 
 Platforms covered today include:
 
-- **Switch:** NSP, XCI, NCA, NCZ, RomFS, SARC, BFRES, BNTX, Game Freak formats.
+- **Switch:** NSP, XCI, NCA, NCZ, RomFS, SARC, BFRES, BNTX, Game Freak formats
+  (Let's Go GFBMDL; Legends: Arceus Trinity models, in Oodle GFPAKs).
 - **Nintendo, older:** GameCube / Wii (GCM, RVZ), N64, NES, SNES, GB, GBA.
 - **PlayStation:** PBP (including encrypted PS1 Classics), raw BIN, ISO 9660,
   STR video, XA audio, TIM images, FF7 PSX models.
@@ -146,6 +147,9 @@ apps/nx-archive/
   - It runs the same scanner as the Library and prints a summary line plus
     the gaps report.
   - Switch content needs keys at `~/.switch/prod.keys`.
+  - Oodle content (UE paks, newer GFPAKs) needs an `oodle.wasm` (see
+    `packages/oodle-wasm/README.md`): `--oodle <path>`, `~/.switch/oodle.wasm`,
+    or a local build at `packages/oodle-wasm/src/oodle.wasm`.
   - Bun runs app modules directly, e.g. `bun -e 'await import("./src/lib/…")'`.
 - **Browser:**
   - `npx vite --port 5199 --strictPort` in `apps/nx-archive`.

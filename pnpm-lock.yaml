@@ -526,6 +526,9 @@ importers:
       '@tootallnate/thp':
         specifier: workspace:*
         version: link:../../packages/thp
+      '@tootallnate/trinity':
+        specifier: workspace:*
+        version: link:../../packages/trinity
       '@tootallnate/uasset':
         specifier: workspace:*
         version: link:../../packages/uasset
@@ -1121,6 +1124,9 @@ importers:
       '@tootallnate/lz4':
         specifier: workspace:*
         version: link:../lz4
+      '@tootallnate/trinity':
+        specifier: workspace:*
+        version: link:../trinity
     devDependencies:
       typescript:
         specifier: ^5.3.3
@@ -1529,6 +1535,16 @@ importers:
       '@tootallnate/dsp-adpcm':
         specifier: workspace:*
         version: link:../dsp-adpcm
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/trinity:
+    dependencies:
+      '@tootallnate/gfbmdl':
+        specifier: workspace:*
+        version: link:../gfbmdl
     devDependencies:
       typescript:
         specifier: ^5.3.3

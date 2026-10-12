@@ -30,7 +30,7 @@ import type { ExportMaterial } from '../mesh-export';
 import type { MediaInfo, MediaItem, MediaKind, MediaStatus } from './types';
 
 /** Bump to regenerate cached thumbnails. */
-export const THUMB_VERSION = 8;
+export const THUMB_VERSION = 9;
 const SIZE = 256;
 
 export interface ThumbResult {
@@ -86,7 +86,15 @@ async function rgbaThumb(img: Rgba): Promise<Blob> {
 }
 
 async function bitmapThumb(blob: Blob): Promise<{ png: Blob; width: number; height: number }> {
-	const bmp = await createImageBitmap(blob);
+	let bmp: ImageBitmap;
+	try {
+		bmp = await createImageBitmap(blob);
+	} catch (err) {
+		// Lazy blob facades (archive entries read on demand) aren't real
+		// Blobs to the browser: "could not be converted to any of: …".
+		if (blob.constructor === Blob) throw err;
+		bmp = await createImageBitmap(new Blob([await blob.arrayBuffer()], { type: blob.type }));
+	}
 	const scale = Math.min(1, SIZE / Math.max(bmp.width, bmp.height));
 	const out = canvas(Math.max(1, Math.round(bmp.width * scale)), Math.max(1, Math.round(bmp.height * scale)));
 	out.getContext('2d')!.drawImage(bmp, 0, 0, out.width, out.height);

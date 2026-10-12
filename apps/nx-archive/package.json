@@ -125,6 +125,7 @@
     "@tootallnate/square-wd": "workspace:*",
     "@tootallnate/ssm": "workspace:*",
     "@tootallnate/thp": "workspace:*",
+    "@tootallnate/trinity": "workspace:*",
     "@tootallnate/uasset": "workspace:*",
     "@tootallnate/unity-asset": "workspace:*",
     "@tootallnate/upak": "workspace:*",

@@ -1763,7 +1763,15 @@ function makeNroNode(
 		format: 'NRO',
 		blob: async () => blob,
 		getChildren: async () => {
-			const nro = await nroDecode(blob);
+			let nro: Awaited<ReturnType<typeof nroDecode>>;
+			try {
+				nro = await nroDecode(blob);
+			} catch (err) {
+				// Plain executables (e.g. the system browser's
+				// `webkit_wkc.nro`) have no asset section: just the code.
+				if (!/asset header/i.test(err instanceof Error ? err.message : '')) throw err;
+				return [{ id: `${id}/nro-data`, name: 'main.nro', kind: 'file', isContainer: false, size: blob.size, format: 'NRO (executable)', blob: async () => blob }];
+			}
 			const children: Node[] = [];
 			children.push({
 				id: `${id}/nro-data`,
@@ -5316,10 +5324,11 @@ function makeBfresNode(
  * inner-file extension (`bntx`, `bfres`, `byaml`, …) so the
  * downstream previews pick them up automatically.
  *
- * Oodle-compressed entries (the default in newer Game Freak titles)
- * surface as info-only leaves with the original 0-byte blob; the
- * user gets a friendly error if they click "Download" because the
- * extractor throws. LZ4 / uncompressed entries extract cleanly.
+ * Oodle-compressed entries (the default in newer Game Freak titles,
+ * e.g. Legends: Arceus) decode through the user's `oodle.wasm`
+ * (`ctx.getOodleDecompressor`). Without it they list as unsniffed
+ * `.bin` leaves whose reads prompt for the decoder; the cache key
+ * includes whether a decoder was present, so loading one re-sniffs.
  */
 function makeGfpakNode(
 	id: string,
@@ -5339,9 +5348,23 @@ function makeGfpakNode(
 			// Sniffing decompresses every entry, so its results are
 			// cached per opened file (see `~/lib/media/cache`).
 			const cache = ctx.getPersistentCache?.() ?? null;
-			const key = `gfpak:${id}:${blob.size}`;
+			const haveOodle = !!ctx.getOodleDecompressor?.();
+			const key = `gfpak:${id}:${blob.size}${haveOodle ? ':oodle' : ''}`;
 			const known = cache ? await cache.get<GfpakEntryInfo[]>(key).catch(() => undefined) : undefined;
-			const parsed = await parseGfpak(blob, { path: gfpakRomfsPath(id, name), known });
+			const parsed = await parseGfpak(blob, {
+				path: gfpakRomfsPath(id, name),
+				known,
+				// Looked up per read, so a decoder loaded later still works.
+				oodle: async (compressed, size) => {
+					const od = ctx.getOodleDecompressor?.();
+					if (!od) {
+						ctx.requestOodle?.();
+						throw new OodleMissingError('This GFPAK entry is Oodle-compressed; load oodle.wasm to read it.');
+					}
+					return od(compressed, size);
+				},
+				sniffOodle: haveOodle,
+			});
 			if (cache && !known) void cache.set(key, gfpakEntryInfo(parsed)).catch(() => {});
 			return gfpakEntriesToNodes(id, parsed.entries, ctx);
 		},

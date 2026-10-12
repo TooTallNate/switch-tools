@@ -18,6 +18,7 @@ export type Classification =
 
 const MODEL_KINDS = new Set([
 	'gfbmdl-model',
+	'trinity-model',
 	'hsd-model',
 	'n64-model',
 	'halo-model',
@@ -97,6 +98,7 @@ function formatFor(node: Node, previewKind: string): string {
 		'ff8-mch': 'FF8 field model',
 		'j3d-model': 'J3D',
 		'gfbmdl-model': 'GFBMDL',
+		'trinity-model': 'Trinity model',
 		'unity-object': 'Unity',
 	};
 	if (special[previewKind]) return special[previewKind];
