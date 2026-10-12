@@ -164,6 +164,18 @@ function textureIds(model: GfbmdlModel): string[] {
 	return [...counts].sort((a, b) => b[1] - a[1]).map(([id]) => id);
 }
 
+/**
+ * The pak named after a model pak's folder, next to that folder:
+ * field maps keep geometry in `archive/field/area01/road023_00.gfpak`
+ * and the area's shared textures in `archive/field/area01.gfpak`.
+ */
+export async function folderPak(dir: Node | undefined, parent: Node | undefined): Promise<Node[]> {
+	if (!dir || !parent || dir.kind !== 'directory') return [];
+	const want = `${dir.name}.gfpak`.toLowerCase();
+	const hit = (await childrenOf(parent)).find((k) => k.name.toLowerCase() === want);
+	return hit ? [hit] : [];
+}
+
 /** Companion files for `node`: the enclosing GFPAK, or nearby loose files. */
 async function findCompanions(
 	root: Node | null,
@@ -176,10 +188,11 @@ async function findCompanions(
 	if (pakIndex >= 0) {
 		const pak = ancestors[pakIndex]!;
 		const files = await filesUnder(pak);
+		const dir = ancestors[pakIndex + 1];
 		if (!files.some((f) => isAnimationFile(f.name))) {
-			files.push(...(await siblingVariantAnimations(pak, ancestors[pakIndex + 1], relatedIds)));
+			files.push(...(await siblingVariantAnimations(pak, dir, relatedIds)));
 		}
-		return { files, extraPaks: [] };
+		return { files, extraPaks: await folderPak(dir, ancestors[pakIndex + 2]) };
 	}
 
 	const parent = ancestors[0];

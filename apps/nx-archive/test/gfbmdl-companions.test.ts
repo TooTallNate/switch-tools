@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Node } from '~/lib/archive'
-import { siblingVariantAnimations } from '~/lib/gfbmdl-view'
+import { folderPak, siblingVariantAnimations } from '~/lib/gfbmdl-view'
 
 const file = (name: string): Node => ({ id: name, name, kind: 'file', isContainer: false, blob: async () => new Blob([]) })
 const dir = (name: string, kids: Node[], kind = 'directory'): Node => ({
@@ -45,5 +45,15 @@ describe('siblingVariantAnimations', () => {
 
   it('never takes another character', async () => {
     expect((await siblingVariantAnimations(variant, dir('tr', [variant, other]), [])).length).toBe(0)
+  })
+})
+
+describe('folderPak', () => {
+  it("finds a field model pak's area textures next to its folder", async () => {
+    const areaPak = dir('area01.gfpak', [file('rock01_com.bntx')], 'gfpak')
+    const area = dir('area01', [dir('road023_00.gfpak', [file('road023_00.gfbmdl')], 'gfpak')])
+    const field = dir('field', [area, areaPak, dir('area02.gfpak', [], 'gfpak')])
+    expect(await folderPak(area, field)).toEqual([areaPak])
+    expect(await folderPak(dir('area03', []), field)).toEqual([])
   })
 })
