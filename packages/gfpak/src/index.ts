@@ -427,7 +427,7 @@ export function fnv1a64(s: string): bigint {
 }
 
 /** Trinity (Legends: Arceus) model + config extensions, for pak-stem name guesses. */
-const TRINITY_EXTS = ['trmdl', 'trmsh', 'trmbf', 'trmtr', 'trskl', 'trmmt', 'trpokecfg'];
+const TRINITY_EXTS = ['trmdl', 'trmsh', 'trmbf', 'trmtr', 'trskl', 'trmmt', 'trpokecfg', 'trtrr', 'trins', 'trtbf'];
 
 const FOLDER_SUFFIXES = ['', 'anm/', 'mdl/', 'tex/', 'model/', 'texture/', 'anim/', 'shader/', 'eff/', 'col/', 'cam/', 'light/'];
 
@@ -559,6 +559,8 @@ function extForMagic(magic: string | null): string {
 		case 'trmtr':
 		case 'trskl':
 		case 'trmmt':
+		case 'trtrr':
+		case 'trins':
 			return magic;
 		default:
 			return 'bin';
