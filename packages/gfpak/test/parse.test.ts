@@ -117,6 +117,25 @@ describe('parseGfpak', () => {
 		await expect(parsed.entries[0].getData()).rejects.toThrow(/Oodle/);
 	});
 
+	it('reads and sniffs Oodle entries through an injected decoder', async () => {
+		// "Compressed" bytes are the payload reversed; the fake decoder undoes it.
+		const payload = new TextEncoder().encode('SARC....');
+		const buf = buildMinimalGfpak(payload.slice().reverse(), 1n, 2n);
+		const v = new DataView(buf.buffer);
+		const fi = 0x30 + 32 + 8;
+		v.setUint16(fi + 2, GfpakCompression.Oodle, true);
+		const calls: number[] = [];
+		const oodle = async (c: Uint8Array, n: number) => {
+			calls.push(n);
+			return c.slice().reverse().subarray(0, n);
+		};
+		const parsed = await parseGfpak(new Blob([buf as BlobPart]), { oodle });
+		expect(parsed.entries[0].innerMagic).toBe('SARC');
+		const bytes = new Uint8Array(await (await parsed.entries[0].getData()).arrayBuffer());
+		expect(new TextDecoder().decode(bytes)).toBe('SARC....');
+		expect(calls).toEqual([8, 8]);
+	});
+
 	it('throws on bad magic', async () => {
 		const buf = new Uint8Array(0x30);
 		await expect(parseGfpak(new Blob([buf as BlobPart]))).rejects.toThrow(

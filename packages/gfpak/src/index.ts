@@ -53,6 +53,7 @@
 
 import { decodeBlock as decodeLz4Block } from '@tootallnate/lz4';
 import { parseGfbanmcfg, parseGfbmdl, sniffGflx } from '@tootallnate/gfbmdl';
+import { sniffTrinity, trinityReferencedNames } from '@tootallnate/trinity';
 
 export const GFPAK_MAGIC = 'GFLXPACK';
 
@@ -149,6 +150,31 @@ export interface ParseGfpakOptions {
 	 * decompresses every entry — and name recovery are skipped.
 	 */
 	known?: GfpakEntryInfo[];
+	/**
+	 * Decoder for Oodle-compressed entries (compression type 3, the
+	 * default in later Game Freak titles such as Legends: Arceus).
+	 * GFPAK stores each entry as one Oodle stream, so this is called
+	 * with the entry's compressed bytes and its decompressed size.
+	 * Without it, Oodle entries list fine but can't be read or sniffed.
+	 */
+	oodle?: GfpakOodleDecompress;
+	/**
+	 * Decompress Oodle entries while sniffing (types / names). Default
+	 * true. Set false when {@link oodle} is a lazy wrapper whose
+	 * decoder isn't available yet, so listing doesn't trip it.
+	 */
+	sniffOodle?: boolean;
+}
+
+/** Decompress one Oodle stream to exactly `decompressedSize` bytes. */
+export type GfpakOodleDecompress = (compressed: Uint8Array, decompressedSize: number) => Promise<Uint8Array>;
+
+/** Thrown reading an Oodle entry when no {@link ParseGfpakOptions.oodle} decoder was given. */
+export class GfpakOodleUnavailableError extends Error {
+	constructor() {
+		super('GFPAK entry is Oodle-compressed; load an Oodle decoder (oodle.wasm) to read it.');
+		this.name = 'GfpakOodleUnavailableError';
+	}
 }
 
 /** The parts of a {@link GfpakEntry} that sniffing + name recovery compute. */
@@ -195,9 +221,9 @@ export async function isGfpak(blob: Blob): Promise<boolean> {
  * archives) and exposes each entry as a lazy decompress-on-demand
  * `getData()` callback.
  *
- * Throws for unsupported compression types (Zlib, Oodle) only when
- * the user actually tries to read an entry — listing the archive
- * works regardless.
+ * Throws for unsupported compression types (Zlib, or Oodle without a
+ * decoder) only when the user actually tries to read an entry —
+ * listing the archive works regardless.
  */
 export async function parseGfpak(blob: Blob, options: ParseGfpakOptions = {}): Promise<ParsedGfpak> {
 	if (blob.size < HEADER_SIZE) {
@@ -336,6 +362,7 @@ export async function parseGfpak(blob: Blob, options: ParseGfpakOptions = {}): P
 					compressedSize,
 					decompressedSize,
 					compType,
+					options.oodle,
 				),
 		};
 		entries[i] = entry;
@@ -355,7 +382,7 @@ export async function parseGfpak(blob: Blob, options: ParseGfpakOptions = {}): P
 
 	const nameHints = new Set(options.nameHints ?? []);
 	for (const entry of entries) {
-		const sniff = await sniffEntry(blob, entry);
+		const sniff = await sniffEntry(blob, entry, options.sniffOodle === false ? undefined : options.oodle);
 		entry.innerMagic = sniff.magic;
 		entry.innerExt = sniff.ext;
 		entry.embeddedName = sniff.embeddedName;
@@ -389,6 +416,9 @@ export function fnv1a64(s: string): bigint {
 	return h;
 }
 
+/** Trinity (Legends: Arceus) model + config extensions, for pak-stem name guesses. */
+const TRINITY_EXTS = ['trmdl', 'trmsh', 'trmbf', 'trmtr', 'trskl', 'trmmt', 'trpokecfg'];
+
 const FOLDER_SUFFIXES = ['', 'anm/', 'mdl/', 'tex/', 'model/', 'texture/', 'anim/', 'shader/', 'eff/', 'col/', 'cam/', 'light/'];
 
 /**
@@ -404,7 +434,11 @@ export function gfpakFolderCandidates(path: string): string[] {
 	const stem = parts[parts.length - 1];
 	const dir = parts.slice(0, -1).join('/');
 	const d = dir ? `${dir}/` : '';
+	// Legends: Arceus nests by species: `pm0025_00_00.gfpak` → `bin/pokemon/pm0025/pm0025_00_00/`.
+	const species = stem!.split('_')[0];
 	const bases = new Set([
+		`bin/${d}${species}/${stem}/`,
+		`bin/${d}${species}/`,
 		`bin/${rel}/`,
 		`bin/${d}`,
 		`bin/${d}${stem}/`,
@@ -450,7 +484,7 @@ export function resolveGfpakNames(
 		const segs = base.split('_');
 		const prefixes = segs.map((_, i) => segs.slice(0, i + 1).join('_'));
 		for (const s of new Set([stem, base, ...prefixes, ...prefixes.map((p) => `${p}_rare`)])) {
-			for (const ext of ['gfbmdl', 'gfbanmcfg', 'gfbanm', 'gfbpokecfg', 'gfbcol', 'ptcl', 'bntx']) add(`${s}.${ext}`);
+			for (const ext of ['gfbmdl', 'gfbanmcfg', 'gfbanm', 'gfbpokecfg', 'gfbcol', 'ptcl', 'bntx', ...TRINITY_EXTS]) add(`${s}.${ext}`);
 		}
 	}
 	for (const e of parsed.entries) {
@@ -509,6 +543,12 @@ function extForMagic(magic: string | null): string {
 		case 'gfbmdl':
 		case 'gfbanm':
 		case 'gfbanmcfg':
+		case 'trmdl':
+		case 'trmsh':
+		case 'trmbf':
+		case 'trmtr':
+		case 'trskl':
+		case 'trmmt':
 			return magic;
 		default:
 			return 'bin';
@@ -533,7 +573,7 @@ const FORMATS_WITH_EMBEDDED_NAME = new Set([
 	'FSHA',
 ]);
 
-async function sniffEntry(blob: Blob, entry: GfpakEntry): Promise<SniffResult> {
+async function sniffEntry(blob: Blob, entry: GfpakEntry, oodle?: GfpakOodleDecompress): Promise<SniffResult> {
 	const none: SniffResult = { magic: null, ext: 'bin', embeddedName: '', referencedNames: [] };
 	if (entry.decompressedSize < 4) return none;
 	let full: Uint8Array | null = null;
@@ -549,20 +589,20 @@ async function sniffEntry(blob: Blob, entry: GfpakEntry): Promise<SniffResult> {
 				.slice(entry.dataOffset, entry.dataOffset + Math.min(4096, entry.decompressedSize))
 				.arrayBuffer(),
 		);
-	} else if (entry.compression === GfpakCompression.Lz4) {
+	} else if (entry.compression === GfpakCompression.Lz4 || (entry.compression === GfpakCompression.Oodle && oodle)) {
 		// Decompress just enough to read 4 KB of the inner payload.
 		// LZ4's block decoder won't stop early though, so we have to
 		// decode the whole thing. For massive entries we'd want a
 		// smarter strategy, but in practice GFPAK entries
 		// max out around a few MB.
 		try {
-			full = await readDecompressedAsBytes(blob, entry);
+			full = await readDecompressedAsBytes(blob, entry, oodle);
 			head = full.subarray(0, Math.min(4096, full.length));
 		} catch {
 			return none;
 		}
 	} else {
-		// Zlib / Oodle — we can't sniff without a decompressor.
+		// Zlib, or Oodle without a decoder — can't sniff.
 		return none;
 	}
 	const magic4 = new TextDecoder('ascii').decode(head.subarray(0, 4));
@@ -582,7 +622,13 @@ async function sniffEntry(blob: Blob, entry: GfpakEntry): Promise<SniffResult> {
 							await blob.slice(entry.dataOffset, entry.dataOffset + entry.decompressedSize).arrayBuffer(),
 						);
 		}
-		const kind = full ? sniffGflx(full) : null;
+		// Trinity (Legends: Arceus) first: its files name their siblings.
+		const trinity = full ? sniffTrinity(full) : null;
+		if (trinity) {
+			magic = trinity;
+			referencedNames.push(...trinityReferencedNames(trinity, full!));
+		}
+		const kind = !trinity && full ? sniffGflx(full) : null;
 		if (kind) {
 			magic = kind;
 			try {
@@ -626,6 +672,7 @@ async function decompressEntry(
 	compressedSize: number,
 	decompressedSize: number,
 	compression: GfpakCompression,
+	oodle?: GfpakOodleDecompress,
 ): Promise<Blob> {
 	const compBytes = new Uint8Array(
 		await blob.slice(dataOffset, dataOffset + compressedSize).arrayBuffer(),
@@ -642,11 +689,14 @@ async function decompressEntry(
 				'GFPAK Zlib compression is not yet supported in this package. ' +
 					'Switch shipped content uses LZ4; Zlib appears in older 3DS-era files.',
 			);
-		case GfpakCompression.Oodle:
-			throw new Error(
-				'GFPAK Oodle compression is not supported. Oodle is a proprietary ' +
-					"codec that requires Epic's `oo2core` library.",
-			);
+		case GfpakCompression.Oodle: {
+			if (!oodle) throw new GfpakOodleUnavailableError();
+			const dec = await oodle(compBytes, decompressedSize);
+			if (dec.length !== decompressedSize) {
+				throw new Error(`GFPAK Oodle entry decoded to ${dec.length} bytes, expected ${decompressedSize}`);
+			}
+			return new Blob([dec as BlobPart]);
+		}
 		default:
 			throw new Error(
 				`Unknown GFPAK compression type ${compression}`,
@@ -657,6 +707,7 @@ async function decompressEntry(
 async function readDecompressedAsBytes(
 	blob: Blob,
 	entry: GfpakEntry,
+	oodle?: GfpakOodleDecompress,
 ): Promise<Uint8Array> {
 	const data = await decompressEntry(
 		blob,
@@ -664,6 +715,7 @@ async function readDecompressedAsBytes(
 		entry.compressedSize,
 		entry.decompressedSize,
 		entry.compression,
+		oodle,
 	);
 	return new Uint8Array(await data.arrayBuffer());
 }
