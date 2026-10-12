@@ -269,6 +269,27 @@ export interface DecodeBntxLayerOptions {
 	astcDecoder?: BntxAstcDecoder;
 }
 
+/**
+ * A layer's mip-0 texels, deswizzled to row-major order but otherwise
+ * raw (`width × height × bytesPerBlock` bytes for uncompressed
+ * formats). For data textures read as numbers rather than colours,
+ * e.g. `R32_FLOAT` heightmaps.
+ */
+export function deswizzleBntxLayer(bytes: Uint8Array, tex: BntxTexture, layerIndex = 0): Uint8Array {
+	const info = tex.formatInfo;
+	const layerStart = tex.mipOffset + layerIndex * tex.layerSize;
+	const swizzled = bytes.subarray(layerStart, Math.min(bytes.length, layerStart + tex.layerSize));
+	return deswizzle({
+		width: tex.width,
+		height: tex.height,
+		blkWidth: info.blkWidth,
+		blkHeight: info.blkHeight,
+		bytesPerBlock: info.bytesPerBlock,
+		data: swizzled,
+		blockHeight: blockHeightFromLog2(tex.blockHeightLog2),
+	});
+}
+
 export function decodeBntxLayer(
 	bytes: Uint8Array,
 	tex: BntxTexture,
@@ -389,10 +410,41 @@ export function decodeBntxLayer(
 		case 0x2006:
 			pixels = decodeBC7(linear, w, h);
 			break;
+		case 0x0e01: {
+			// R10G10B10A2: 10 bits per colour channel, 2 alpha.
+			pixels = new Uint8Array(w * h * 4);
+			const dv = new DataView(linear.buffer, linear.byteOffset, linear.byteLength);
+			for (let i = 0; i < w * h; i++) {
+				const v = dv.getUint32(i * 4, true);
+				pixels[i * 4] = ((v & 0x3ff) * 255) / 1023;
+				pixels[i * 4 + 1] = (((v >>> 10) & 0x3ff) * 255) / 1023;
+				pixels[i * 4 + 2] = (((v >>> 20) & 0x3ff) * 255) / 1023;
+				pixels[i * 4 + 3] = ((v >>> 30) * 255) / 3;
+			}
+			break;
+		}
+		case 0x1405: {
+			// R32 float (e.g. heightmaps): shown as greyscale, min → max.
+			const f = new Float32Array(linear.buffer.slice(linear.byteOffset, linear.byteOffset + w * h * 4));
+			let lo = Infinity, hi = -Infinity;
+			for (const x of f) {
+				if (!Number.isFinite(x)) continue;
+				if (x < lo) lo = x;
+				if (x > hi) hi = x;
+			}
+			const span = hi > lo ? hi - lo : 1;
+			pixels = new Uint8Array(w * h * 4);
+			for (let i = 0; i < w * h; i++) {
+				const g = Number.isFinite(f[i]!) ? Math.round(((f[i]! - lo) / span) * 255) : 0;
+				pixels[i * 4] = pixels[i * 4 + 1] = pixels[i * 4 + 2] = g;
+				pixels[i * 4 + 3] = 255;
+			}
+			break;
+		}
 		default:
 			throw new Error(
 				`Unsupported BNTX format ${info.name} (0x${info.code.toString(16)}). ` +
-					`Supported: BC1/BC2/BC3/BC4/BC5/BC7 + RGBA8/BGRA8/R8/RG8/R4G4/R5G6B5/B5G6R5/R4G4B4A4/R5G5B5A1.`,
+					`Supported: BC1/BC2/BC3/BC4/BC5/BC7 + RGBA8/BGRA8/R8/RG8/R4G4/R5G6B5/B5G6R5/R4G4B4A4/R5G5B5A1/R10G10B10A2/R32F.`,
 			);
 	}
 
