@@ -25,6 +25,15 @@ interface SyntheticFile {
 	content: Uint8Array;
 }
 
+/** Index of the first differing byte, or -1 if `a` and `b` are identical. */
+function firstMismatch(a: Uint8Array, b: Uint8Array): number {
+	if (a.length !== b.length) return Math.min(a.length, b.length);
+	for (let i = 0; i < a.length; i++) {
+		if (a[i] !== b[i]) return i;
+	}
+	return -1;
+}
+
 /**
  * Build a minimal valid VBF in memory containing the given files.
  * Uses the Switch layout (two hash tables) so the parser's
@@ -240,8 +249,11 @@ describe('parseVbf', () => {
 		);
 		const out = new Uint8Array(await parsed.entries[0].data.arrayBuffer());
 		expect(out.length).toBe(content.length);
-		expect(out).toEqual(content);
-	});
+		// `toEqual` on a 200 KB typed array walks it element-by-element
+		// and is slow enough to time out on loaded CI runners — compare
+		// bytes directly instead.
+		expect(firstMismatch(out, content)).toBe(-1);
+	}, 30_000);
 
 	it('supports lazy slicing across chunk boundaries', async () => {
 		// 100 KB file → 2 chunks at 64 KiB boundary.
