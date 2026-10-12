@@ -48,7 +48,7 @@ import { parseBfsar, extForMagic as bfsarExtForMagic } from '@tootallnate/bfsar'
 import { parseBfwar } from '@tootallnate/bfwar';
 import { parseBfres } from '@tootallnate/bfres';
 import { parseBea, type BeaEntry } from '@tootallnate/bea';
-import { gfpakEntryInfo, parseGfpak, type GfpakEntryInfo } from '@tootallnate/gfpak';
+import { GFPAK_INFO_VERSION, gfpakEntryInfo, parseGfpak, type GfpakEntryInfo } from '@tootallnate/gfpak';
 import { parseAkpk } from '@tootallnate/wwise-pck';
 import { parseBnk } from '@tootallnate/wwise-bnk';
 import {
@@ -5349,7 +5349,9 @@ function makeGfpakNode(
 			// cached per opened file (see `~/lib/media/cache`).
 			const cache = ctx.getPersistentCache?.() ?? null;
 			const haveOodle = !!ctx.getOodleDecompressor?.();
-			const key = `gfpak:${id}:${blob.size}${haveOodle ? ':oodle' : ''}`;
+			// Versioned: results from older sniffing / name recovery are
+			// recomputed (stale names hid Legends: Arceus clips, for one).
+			const key = `gfpak:v${GFPAK_INFO_VERSION}:${id}:${blob.size}${haveOodle ? ':oodle' : ''}`;
 			const known = cache ? await cache.get<GfpakEntryInfo[]>(key).catch(() => undefined) : undefined;
 			const parsed = await parseGfpak(blob, {
 				path: gfpakRomfsPath(id, name),
