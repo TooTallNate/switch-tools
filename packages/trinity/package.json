@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/trinity",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Parser for Game Freak's Trinity model formats (.trmdl, .trmsh, .trmbf, .trmtr, .trskl, .trmmt), as used by Pokémon Legends: Arceus.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/trinity"
+  },
+  "dependencies": {
+    "@tootallnate/gfbmdl": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
