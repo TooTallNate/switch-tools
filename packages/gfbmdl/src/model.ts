@@ -393,10 +393,18 @@ export function layer1TextureMap(mat: GfbmdlMaterial): GfbmdlTextureMap | null {
 
 /**
  * Colour-map UV transform. The game samples at
- * `base + scale · (uv + translate)` in a V-flipped UV space
+ * `scale · (uv + translate + base)` in a V-flipped UV space
  * (`v' = 1 − v`) — Pokémon bodies use this with a mirrored wrap to
  * paint both halves from a half-width texture, and eye / mouth
  * expressions are selected by animating the translation.
+ *
+ * The base is an offset in *UV* space, inside the scale. Mirrored
+ * pairs (two eyes sharing one texture) prove it: their stored UVs
+ * mirror about an axis, and only this form maps that axis onto a
+ * mirrored wrap's axis (an integer sample coordinate) for every base
+ * the game uses. Adding the base after the scale puts e.g. Mew's iris
+ * axis at 8.25 instead of 9, shifting the right eye's iris off its
+ * eye white.
  */
 export interface GfbmdlUvTransform {
 	scaleU: number;
@@ -449,7 +457,12 @@ export function layer1UvTransform(mat: GfbmdlMaterial): GfbmdlUvTransform {
 
 /** Apply a UV transform to a raw stored UV, returning the sample coordinate. */
 export function applyUvTransform(t: GfbmdlUvTransform, u: number, v: number): [number, number] {
-	return [t.baseU + t.scaleU * (u + t.translateU), t.baseV + t.scaleV * (1 - v + t.translateV)];
+	return [t.scaleU * (u + t.translateU + t.baseU), t.scaleV * (1 - v + t.translateV + t.baseV)];
+}
+
+/** Inverse of {@link applyUvTransform}: sample coordinate → raw stored UV. */
+export function invertUvTransform(t: GfbmdlUvTransform, s: number, r: number): [number, number] {
+	return [s / (t.scaleU || 1) - t.translateU - t.baseU, 1 - (r / (t.scaleV || 1) - t.translateV - t.baseV)];
 }
 
 /** Shader groups that only draw effects / shadows / collision, never a visible surface. */

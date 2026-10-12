@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	albedoTextureMap,
 	applyUvTransform,
+	invertUvTransform,
 	buildGfbmdlMesh,
 	colorUvTransform,
 	GfbmdlPose,
@@ -250,6 +251,9 @@ describe('materials', () => {
 		const t = colorUvTransform(model.materials[0]);
 		expect(t).toMatchObject({ scaleU: 2, translateU: 1, scaleV: 1 });
 		expect(applyUvTransform(t, 0.25, 0.25)).toEqual([2.5, 0.75]);
+		// The base offsets the UV before scaling.
+		expect(applyUvTransform({ ...t, baseU: 0.25 }, 0.25, 0.25)).toEqual([3, 0.75]);
+		expect(invertUvTransform({ ...t, baseU: 0.25 }, 3, 0.75)).toEqual([0.25, 0.25]);
 	});
 
 	it('flags hidden and alpha-tested materials', () => {
