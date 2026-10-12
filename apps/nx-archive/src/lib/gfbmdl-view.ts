@@ -7,7 +7,8 @@
  *  - **Companions.** A model's BNTX textures and GFBANM animations are
  *    separate files. Inside a GFPAK they're the pak's other entries
  *    (Pokémon and trainer paks hold model, textures and animations
- *    together). For loose models they're siblings, `../anm/` /
+ *    together); trainer variant paks borrow the base pak's animations
+ *    (see `siblingVariantAnimations`). For loose models they're siblings, `../anm/` /
  *    `../anime/` directories, and — for field maps under
  *    `bin/field/model/<area>/` — the textures in
  *    `bin/archive/field/<area>.gfpak`.
@@ -112,12 +113,74 @@ async function childNamed(dir: Node | undefined, name: string): Promise<Node | u
 	return (await childrenOf(dir)).find((k) => k.name === name);
 }
 
+const isAnimationFile = (name: string) => /\.gfbanm(cfg)?$/i.test(name);
+
+/** `tr0029_01_elitem.gfpak` → id `tr0029`, variant `01`, suffix `_elitem`. */
+const VARIANT_PAK = /^([a-z]+\d+)_(\d+)(.*)\.gfpak$/i;
+
+/**
+ * Animations for a pak that has none, from sibling paks.
+ *
+ * - **Variants.** Trainer variants (`tr0029_01_elitem.gfpak`, `_02`, …)
+ *   carry only a model and textures; the clips live in the base
+ *   variant's pak (`tr0029_00_elitem.gfpak/anm/`). Pokémon variants
+ *   don't need this: their rare / gender models sit inside the base
+ *   pak itself.
+ * - **Reskins.** Some trainers reuse another's rig without clips of
+ *   their own (`tr0087_00_gostaff` is `tr0071`, as its texture names
+ *   `tr0071_00_*` show); `relatedIds` lists such ids, tried after the
+ *   pak's own.
+ *
+ * Same-id siblings with the same suffix come first, then the lowest
+ * variant number. Clips are still filtered by bone names
+ * (`clipMatchesModel`), so a wrong guess just adds nothing.
+ */
+export async function siblingVariantAnimations(pak: Node, dir: Node | undefined, relatedIds: readonly string[]): Promise<Node[]> {
+	const m = VARIANT_PAK.exec(pak.name);
+	if (!m || !dir) return [];
+	const [, id, , suffix] = m;
+	const ids = [id!.toLowerCase(), ...relatedIds.map((r) => r.toLowerCase()).filter((r) => r !== id!.toLowerCase())];
+	const paks = (await childrenOf(dir))
+		.map((k) => ({ k, m: VARIANT_PAK.exec(k.name) }))
+		.filter((s) => s.k !== pak && s.m && ids.includes(s.m[1]!.toLowerCase()));
+	const rank = (s: (typeof paks)[number]) => ids.indexOf(s.m![1]!.toLowerCase()) * 2 + (s.m![3] === suffix ? 0 : 1);
+	paks.sort((a, b) => rank(a) - rank(b) || Number(a.m![2]) - Number(b.m![2]));
+	for (const { k } of paks) {
+		const anims = (await filesUnder(k)).filter((f) => isAnimationFile(f.name));
+		if (anims.length) return anims;
+	}
+	return [];
+}
+
+/** Character ids named by a model's textures (`tr0071_00_eye_col` → `tr0071`), most used first. */
+function textureIds(model: GfbmdlModel): string[] {
+	const counts = new Map<string, number>();
+	for (const mat of model.materials) {
+		for (const t of mat.textures) {
+			const id = /^([a-z]+\d+)_\d+_/i.exec(t.texture)?.[1];
+			if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
+		}
+	}
+	return [...counts].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+}
+
 /** Companion files for `node`: the enclosing GFPAK, or nearby loose files. */
-async function findCompanions(root: Node | null, node: Node): Promise<{ files: Node[]; extraPaks: Node[] }> {
+async function findCompanions(
+	root: Node | null,
+	node: Node,
+	relatedIds: readonly string[] = [],
+): Promise<{ files: Node[]; extraPaks: Node[] }> {
 	if (!root) return { files: [], extraPaks: [] };
 	const ancestors = await ancestorsOf(root, node);
-	const pak = ancestors.find((a) => a.kind === 'gfpak');
-	if (pak) return { files: await filesUnder(pak), extraPaks: [] };
+	const pakIndex = ancestors.findIndex((a) => a.kind === 'gfpak');
+	if (pakIndex >= 0) {
+		const pak = ancestors[pakIndex]!;
+		const files = await filesUnder(pak);
+		if (!files.some((f) => isAnimationFile(f.name))) {
+			files.push(...(await siblingVariantAnimations(pak, ancestors[pakIndex + 1], relatedIds)));
+		}
+		return { files, extraPaks: [] };
+	}
 
 	const parent = ancestors[0];
 	const files: Node[] = [];
@@ -349,7 +412,7 @@ export async function parseGfbmdlForView(node: Node, root: Node | null): Promise
 	if (uv) bakeSectionUvs(mesh, uvTransforms, uv);
 
 	// ---- companions ----
-	const { files, extraPaks } = await findCompanions(root, node);
+	const { files, extraPaks } = await findCompanions(root, node, textureIds(model));
 	const texIndex = await indexTextures(files, extraPaks);
 	const decodedCache = new Map<string, Promise<Awaited<ReturnType<typeof decodeBntx>>>>();
 	const decodeByName = (name: string) => {
