@@ -27,7 +27,8 @@
 import { parseGfbanm, type GfbanmAnimation } from '@tootallnate/gfbmdl';
 import {
 	TrinityPose,
-	bakeLayeredAlbedo,
+	bakeTrinitySurface,
+	sampleTracmMaterials,
 	buildTrinityMesh,
 	parseTracm,
 	parseTrmbf,
@@ -37,6 +38,8 @@ import {
 	parseTrskl,
 	uvScaleOffset,
 	type RgbaImage,
+	type TracmClip,
+	type TrinityBakeRegion,
 	type TrinityMaterial,
 	type TrinityWrap,
 	type TrsklSkeleton,
@@ -54,8 +57,101 @@ export interface TrinityClip {
 	/** Clip name without the model prefix, e.g. `00000_defaultwait01_loop`. */
 	name: string;
 	anim: GfbanmAnimation;
-	/** Mesh shape name → visible, from the clip's `.tracm`. */
-	visibility: Map<string, boolean> | null;
+	/** The clip's `.tracm`: per-shape visibility and material curves. */
+	tracm: TracmClip | null;
+}
+
+/** A material's texture inputs, kept so animated parameters can re-bake it. */
+export interface TrinitySurface {
+	material: TrinityMaterial;
+	images: Record<string, RgbaImage | null>;
+	region: TrinityBakeRegion;
+	wrapS: 'repeat' | 'clamp' | 'mirror';
+	wrapT: 'repeat' | 'clamp' | 'mirror';
+	file: string;
+}
+
+/** Maps a material's colour reads: albedo, layer mask, eye highlight. */
+const SURFACE_BINDINGS = ['BaseColorMap', 'LayerMaskMap', 'HighlightMaskMap'] as const;
+
+/** Float4 parameters whose animation changes a baked texture. */
+const SURFACE_PARAMS = /^(UVScaleOffset1?|BaseColorLayer[1-4]|EmissionColorLayer5)$/;
+
+function surfaceFor(mat: TrinityMaterial, images: Record<string, RgbaImage | null>, r: { u0: number; v0: number; u1: number; v1: number }): TrinitySurface {
+	const [su, sv, ou, ov] = uvScaleOffset(mat);
+	const [hu, hv] = (mat.float4s.UVScaleOffset1 ?? [1, 1]) as number[];
+	const dims = (b: string) => images[b] ?? null;
+	// Enough texels to match the densest map as mapped onto the region.
+	const need = (img: RgbaImage | null, s: number, span: number, axis: 'width' | 'height') => (img ? img[axis] * Math.abs(s) * span : 0);
+	const du = r.u1 - r.u0, dv = r.v1 - r.v0;
+	const width = Math.round(
+		Math.min(2048, Math.max(16, need(dims('BaseColorMap'), su, du, 'width'), need(dims('LayerMaskMap'), su, du, 'width'), need(dims('HighlightMaskMap'), hu!, du, 'width'))),
+	);
+	const height = Math.round(
+		Math.min(2048, Math.max(16, need(dims('BaseColorMap'), sv, dv, 'height'), need(dims('LayerMaskMap'), sv, dv, 'height'), need(dims('HighlightMaskMap'), hv!, dv, 'height'))),
+	);
+	// Materials sit in their own UV tiles (Pikachu: body_a v ∈ [0, 1],
+	// body_b [1, 2], body_c [2.5, 3] → ×2 = [5, 6]) but sample with
+	// clamping, so the tile number is ignored: shift a clamped axis's
+	// range into [0, 1] when it fits in one tile.
+	const ref = mat.textures.find((t) => t.binding === 'BaseColorMap') ?? mat.textures.find((t) => t.binding === 'LayerMaskMap');
+	const smp = ref ? mat.samplers[ref.slot] : undefined;
+	const tile = (wrap: TrinityWrap | undefined, a: number, b: number, s: number, o: number) => {
+		if (wrap !== 'clamp') return 0;
+		const lo = Math.min(a * s + o, b * s + o), hi = Math.max(a * s + o, b * s + o);
+		const t = Math.floor(lo + 1e-4);
+		return t !== 0 && hi - t <= 1 + 1e-3 ? t : 0;
+	};
+	return {
+		material: mat,
+		images,
+		region: { ...r, width, height, tileU: tile(smp?.wrapU, r.u0, r.u1, su, ou), tileV: tile(smp?.wrapV, r.v0, r.v1, sv, ov) },
+		// The region spans exactly the material's UVs.
+		wrapS: 'clamp',
+		wrapT: 'clamp',
+		file: ref?.file ?? mat.name,
+	};
+}
+
+/** Bake a surface (optionally with animated parameter overrides) into a viewer texture. */
+export function bakeSurface(sf: TrinitySurface, params?: Record<string, readonly number[]>): DecodedTexture {
+	const img = bakeTrinitySurface(sf.material, sf.images, sf.region, params);
+	return {
+		packagePath: sf.file,
+		width: img.width,
+		height: img.height,
+		pixels: img.pixels,
+		pixelFormat: 'RGBA8',
+		normalReconstructed: false,
+		// Row 0 is the region's top; vertex V runs bottom-up.
+		flipY: true,
+		wrapS: sf.wrapS,
+		wrapT: sf.wrapT,
+	};
+}
+
+/**
+ * Animated surface parameters per material index for `clip` at `frame`
+ * (only parameters that differ from the material's own values).
+ */
+export function materialParams(materials: TrinityMaterial[], clip: TrinityClip | null, frame: number): Map<number, Record<string, [number, number, number, number]>> {
+	const out = new Map<number, Record<string, [number, number, number, number]>>();
+	if (!clip?.tracm || !clip.tracm.curves.size) return out;
+	const byName = new Map(materials.map((m, i) => [m.name, i]));
+	const sampled = sampleTracmMaterials(clip.tracm, frame, (mat, param) => materials[byName.get(mat) ?? -1]?.float4s[param]);
+	for (const [name, rec] of sampled) {
+		const mi = byName.get(name);
+		if (mi === undefined) continue;
+		const mat = materials[mi]!;
+		const changed: Record<string, [number, number, number, number]> = {};
+		for (const [k, v] of Object.entries(rec)) {
+			if (!SURFACE_PARAMS.test(k)) continue;
+			const d = mat.float4s[k] ?? (k.startsWith('UVScaleOffset') ? [1, 1, 0, 0] : undefined);
+			if (!d || v.some((x, i) => Math.abs(x - d[i]!) > 1e-4)) changed[k] = v;
+		}
+		if (Object.keys(changed).length) out.set(mi, changed);
+	}
+	return out;
 }
 
 /** What posing needs: bind-pose buffers, skeleton, and per-section shapes. */
@@ -81,6 +177,8 @@ export interface TrinityModelView {
 	hasRare: boolean;
 	texturesFound: number;
 	texturesWanted: number;
+	/** Per material: what's needed to re-bake its texture (animated parameters). */
+	surfaces: (TrinitySurface | null)[];
 	/** Present when the model has a skeleton and skinned vertices. */
 	rig: TrinityRig | null;
 	clips: TrinityClip[];
@@ -207,12 +305,14 @@ export async function loadTrinityModelView(
 	const materials = matNode ? parseTrmtr(await bytesOf(matNode)).materials : [];
 	const matIndex = new Map(materials.map((m, i) => [m.name, i]));
 
-	// Split vertices per section, baking each material's UV transform.
+	// Split vertices per section (materials are baked per region of raw
+	// UV space, so each section's vertices get that material's mapping).
 	const P: number[] = [], N: number[] = [], U: number[] = [], C: number[] = [];
 	const J: number[] = [], W: number[] = [];
 	const I: number[] = [];
 	const sections: RenderableMesh['lods'][number]['sections'] = [];
 	const sectionShapes: TrinityRig['sections'] = [];
+	const sectionMat: number[] = [];
 	const extraMats: string[] = [];
 	for (const s of render.sections) {
 		let mi = matIndex.get(s.material);
@@ -222,9 +322,9 @@ export async function loadTrinityModelView(
 			if (e < 0) e = extraMats.push(s.material) - 1;
 			mi = materials.length + e;
 		}
-		const [su, sv, ou, ov] = mi < materials.length ? uvScaleOffset(materials[mi]!) : [1, 1, 0, 0];
 		const remap = new Map<number, number>();
 		const first = I.length;
+		const start = P.length / 3;
 		for (let k = 0; k < s.indexCount; k++) {
 			const v = render.indices[s.firstIndex + k]!;
 			let nv = remap.get(v);
@@ -233,7 +333,7 @@ export async function loadTrinityModelView(
 				remap.set(v, nv);
 				P.push(render.positions[v * 3]!, render.positions[v * 3 + 1]!, render.positions[v * 3 + 2]!);
 				if (render.normals) N.push(render.normals[v * 3]!, render.normals[v * 3 + 1]!, render.normals[v * 3 + 2]!);
-				if (render.uv0) U.push(render.uv0[v * 2]! * su + ou, render.uv0[v * 2 + 1]! * sv + ov);
+				if (render.uv0) U.push(render.uv0[v * 2]!, render.uv0[v * 2 + 1]!);
 				if (render.colors) C.push(render.colors[v * 4]!, render.colors[v * 4 + 1]!, render.colors[v * 4 + 2]!);
 				if (render.joints && render.weights) {
 					for (let q = 0; q < 4; q++) {
@@ -244,33 +344,44 @@ export async function loadTrinityModelView(
 			}
 			I.push(nv);
 		}
-		// Materials sit in their own UV tiles (Pikachu: body_a v ∈ [0, 1],
-		// body_b [1, 2], body_c [2.5, 3] → ×2 = [5, 6]) but sample with
-		// clamping, so the tile number is ignored: move a clamped axis's
-		// range into [0, 1] when it fits in one tile.
-		if (U.length && mi < materials.length) {
-			const mat = materials[mi]!;
-			const ref = mat.textures.find((t) => t.binding === 'BaseColorMap') ?? mat.textures.find((t) => t.binding === 'LayerMaskMap');
-			const smp = ref ? mat.samplers[ref.slot] : undefined;
-			const firstV = remap.size ? Math.min(...remap.values()) : 0;
-			const lastV = P.length / 3;
-			for (const [axis, wrap] of [[0, smp?.wrapU], [1, smp?.wrapV]] as const) {
-				if (wrap !== 'clamp') continue;
-				let lo = Infinity, hi = -Infinity;
-				for (let v = firstV; v < lastV; v++) {
-					lo = Math.min(lo, U[v * 2 + axis]!);
-					hi = Math.max(hi, U[v * 2 + axis]!);
-				}
-				const tile = Math.floor(lo);
-				if (tile !== 0 && hi - tile <= 1 + 1e-4) for (let v = firstV; v < lastV; v++) U[v * 2 + axis]! -= tile;
-			}
-		}
 		sections.push({ materialIndex: mi, firstIndex: first, numTriangles: s.indexCount / 3 });
-		const start = remap.size ? Math.min(...remap.values()) : P.length / 3;
 		sectionShapes.push({ shape: s.shape, start, end: P.length / 3 });
+		sectionMat.push(mi);
 	}
 
-	// Textures (decoded once per file).
+	// Each material's raw-UV bounds, and its vertices remapped into them.
+	const regions = materials.map((): { u0: number; v0: number; u1: number; v1: number } | null => null);
+	if (U.length) {
+		sectionShapes.forEach((sec, i) => {
+			const mi = sectionMat[i]!;
+			if (mi >= materials.length) return;
+			let r = regions[mi];
+			for (let v = sec.start; v < sec.end; v++) {
+				const u = U[v * 2]!, w = U[v * 2 + 1]!;
+				if (!r) r = regions[mi] = { u0: u, v0: w, u1: u, v1: w };
+				r.u0 = Math.min(r.u0, u);
+				r.v0 = Math.min(r.v0, w);
+				r.u1 = Math.max(r.u1, u);
+				r.v1 = Math.max(r.v1, w);
+			}
+		});
+		for (const r of regions) {
+			if (!r) continue;
+			// Avoid zero-size regions; pad a hair so edge texels aren't clipped.
+			const pu = Math.max(1e-3, (r.u1 - r.u0) * 0.002), pv = Math.max(1e-3, (r.v1 - r.v0) * 0.002);
+			r.u0 -= pu; r.u1 += pu; r.v0 -= pv; r.v1 += pv;
+		}
+		sectionShapes.forEach((sec, i) => {
+			const r = regions[sectionMat[i]!];
+			if (!r) return;
+			for (let v = sec.start; v < sec.end; v++) {
+				U[v * 2] = (U[v * 2]! - r.u0) / (r.u1 - r.u0);
+				U[v * 2 + 1] = (U[v * 2 + 1]! - r.v0) / (r.v1 - r.v0);
+			}
+		});
+	}
+
+	// Decoded textures, once per file.
 	const decoded = new Map<string, Promise<RgbaImage | null>>();
 	const image = (file: string | undefined) => {
 		if (!file) return Promise.resolve(null);
@@ -283,33 +394,6 @@ export async function loadTrinityModelView(
 		}
 		return p;
 	};
-	let wanted = 0, found = 0;
-	const textures = await Promise.all(
-		materials.map(async (mat): Promise<DecodedTexture | null> => {
-			const albRef = mat.textures.find((t) => t.binding === 'BaseColorMap');
-			const lymRef = mat.textures.find((t) => t.binding === 'LayerMaskMap');
-			if (!albRef && !lymRef) return null;
-			wanted++;
-			const [alb, lym] = await Promise.all([image(albRef?.file), image(lymRef?.file)]);
-			const img = bakeLayeredAlbedo(mat, alb, lym);
-			if (!img) return null;
-			found++;
-			const sampler = mat.samplers[(albRef ?? lymRef)!.slot];
-			return {
-				packagePath: (albRef ?? lymRef)!.file,
-				width: img.width,
-				height: img.height,
-				pixels: img.pixels,
-				pixelFormat: 'RGBA8',
-				normalReconstructed: false,
-				// BNTX rows are top-down but Trinity UVs put V = 0 at the bottom.
-				flipY: true,
-				wrapS: WRAP[sampler?.wrapU ?? 'repeat'],
-				wrapT: WRAP[sampler?.wrapV ?? 'repeat'],
-			};
-		}),
-	);
-	for (let i = 0; i < extraMats.length; i++) textures.push(null);
 
 	// Skeleton hints for print supports: each vertex's dominant bone.
 	let skeleton: ExportSkeleton | undefined;
@@ -361,6 +445,30 @@ export async function loadTrinityModelView(
 		defaultClip = clips.findIndex((c) => re.test(c.name));
 		if (defaultClip >= 0) break;
 	}
+	// Bake each material over its raw-UV region (with the idle clip's
+	// opening parameter values, e.g. an expression's eye UV offset).
+	const initialParams = materialParams(materials, clips[defaultClip] ?? null, 0);
+	let wanted = 0, found = 0;
+	const surfaces: (TrinitySurface | null)[] = await Promise.all(
+		materials.map(async (mat, mi): Promise<TrinitySurface | null> => {
+			const region = regions[mi];
+			const bindings = SURFACE_BINDINGS.filter((b) => mat.textures.some((t) => t.binding === b));
+			if (!region || !bindings.some((b) => b === 'BaseColorMap' || b === 'LayerMaskMap')) return null;
+			wanted++;
+			const images: Record<string, RgbaImage | null> = {};
+			await Promise.all(
+				bindings.map(async (b) => {
+					images[b] = await image(mat.textures.find((t) => t.binding === b)!.file);
+				}),
+			);
+			if (!images.BaseColorMap && !images.LayerMaskMap) return null;
+			found++;
+			return surfaceFor(mat, images, region);
+		}),
+	);
+	const textures: (DecodedTexture | null)[] = surfaces.map((sf, mi) => (sf ? bakeSurface(sf, initialParams.get(mi)) : null));
+	for (let i = 0; i < extraMats.length; i++) textures.push(null);
+
 	return {
 		mesh: {
 			lods: [
@@ -385,6 +493,7 @@ export async function loadTrinityModelView(
 		hasRare: !!get(rareFile),
 		texturesFound: found,
 		texturesWanted: wanted,
+		surfaces,
 		rig,
 		clips,
 		defaultClip,
@@ -436,18 +545,18 @@ async function loadClips(node: Node, root: Node | null, skl: TrsklSkeleton, mesh
 			if (anim.frameCount < 1 || !anim.bones.length) continue;
 			const hits = anim.bones.filter((b) => names.has(b.name)).length;
 			if (hits < Math.max(1, anim.bones.length * 0.5)) continue;
-			const vis = tracm.get(stem.toLowerCase());
-			let visibility: Map<string, boolean> | null = null;
-			if (vis) {
+			const tn = tracm.get(stem.toLowerCase());
+			let clipTracm: TracmClip | null = null;
+			if (tn) {
 				try {
-					visibility = parseTracm(await bytesOf(vis)).visibility;
+					clipTracm = parseTracm(await bytesOf(tn));
 				} catch {
-					// visibility is optional
+					// visibility / curves are optional
 				}
 			}
 			const lower = stem.toLowerCase();
 			const name = lower.startsWith(`${prefix}_`) ? stem.slice(prefix.length + 1) : stem;
-			clips.push({ name, anim, visibility });
+			clips.push({ name, anim, tracm: clipTracm });
 		} catch {
 			// not a bone clip
 		}
@@ -473,7 +582,7 @@ export function applyTrinityClip(
 	const clip = view.clips[index] ?? null;
 	rig.pose.setPose(clip?.anim ?? null, frame);
 	rig.pose.skin(rig.positions, rig.normals, rig.joints, rig.weights, positions, normals);
-	const visibility = (clip ?? view.clips[view.defaultClip])?.visibility;
+	const visibility = (clip ?? view.clips[view.defaultClip])?.tracm?.visibility;
 	if (visibility) {
 		for (const s of rig.sections) {
 			if (visibility.get(s.shape) !== false) continue;

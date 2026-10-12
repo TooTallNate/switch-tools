@@ -6,6 +6,7 @@
 import { useMemo, useState } from "react"
 import type * as THREE from "three"
 import {
+  parseTrins,
   parseTracm,
   parseTrmbf,
   parseTrmdl,
@@ -18,7 +19,8 @@ import {
 } from "@tootallnate/trinity"
 
 import type { Node } from "~/lib/archive"
-import { applyTrinityClip, loadTrinityModelView } from "~/lib/trinity-view"
+import { applyTrinityClip, bakeSurface, loadTrinityModelView, materialParams } from "~/lib/trinity-view"
+import { loadTrinityTerrainView } from "~/lib/trinity-terrain"
 import { ScrollArea } from "~/components/ui/scroll-area"
 import { Switch } from "~/components/ui/switch"
 
@@ -39,6 +41,31 @@ export function TrinityModelPreview({ node, root }: { node: Node; root: Node | n
   const drivers = useMemo((): MeshViewerAnimationDriver[] => {
     const v = data
     if (!v?.rig) return []
+    // Animated material parameters (eye expressions / highlights,
+    // colour curves) re-bake that material's texture when they change.
+    const keyOf = (p: Record<string, readonly number[]> | undefined) =>
+      p ? JSON.stringify(Object.entries(p).map(([k, x]) => [k, x.map((n) => Math.round(n * 1e4))])) : ""
+    const applied = new Map<number, string>()
+    for (const [mi, p] of materialParams(v.materials, v.clips[v.defaultClip] ?? null, 0)) applied.set(mi, keyOf(p))
+    const updateTextures = (index: number, frame: number, materials: THREE.Material[] | undefined) => {
+      if (!materials) return
+      const clip = v.clips[index] ?? v.clips[v.defaultClip] ?? null
+      const params = materialParams(v.materials, clip, index < 0 ? 0 : frame)
+      v.surfaces.forEach((sf, mi) => {
+        if (!sf) return
+        const p = params.get(mi)
+        const key = keyOf(p)
+        if ((applied.get(mi) ?? "") === key) return
+        const map = (materials[mi] as THREE.MeshStandardMaterial | undefined)?.map as THREE.DataTexture | undefined
+        const data = map?.image?.data as Uint8Array | undefined
+        if (!map || !data) return
+        const baked = bakeSurface(sf, p)
+        if (baked.pixels.length !== data.length) return
+        data.set(baked.pixels)
+        map.needsUpdate = true
+        applied.set(mi, key)
+      })
+    }
     return [
       {
         category: "Animation",
@@ -49,7 +76,7 @@ export function TrinityModelPreview({ node, root }: { node: Node; root: Node | n
           fps: c.anim.fps || 30,
         })),
         defaultIndex: v.defaultClip,
-        sample: (index, frame, { geometry }) => {
+        sample: (index, frame, { geometry, materials }) => {
           const pos = geometry?.getAttribute("position") as THREE.BufferAttribute | undefined
           if (!pos || pos.count * 3 !== v.rig!.positions.length) return
           const nrm = geometry!.getAttribute("normal") as THREE.BufferAttribute | undefined
@@ -60,6 +87,7 @@ export function TrinityModelPreview({ node, root }: { node: Node; root: Node | n
           // Keep the export's joint hints on the current pose.
           if (joints && geometry!.userData.skeleton) geometry!.userData.skeleton.joints = joints
           geometry!.computeBoundingSphere()
+          updateTextures(index, frame, materials)
         },
       },
     ]
@@ -94,6 +122,29 @@ export function TrinityModelPreview({ node, root }: { node: Node; root: Node | n
   )
 }
 
+export function TrinityTerrainPreview({ node, root }: { node: Node; root: Node | null }) {
+  const { loading, data, error } = useAsync(() => loadTrinityTerrainView(node, root), [node.id])
+  if (loading) return <LoadingFiller label="Building terrain…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const t = v.terrain
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">Game Freak Trinity terrain tile</h2>
+        <p className="text-xs text-muted-foreground">
+          {t.size.x.toFixed(0)} × {t.size.z.toFixed(0)} units, up to {t.size.y.toFixed(1)} high · {v.heightmap.width} × {v.heightmap.height} heightmap ·{" "}
+          {v.layersFound}/{v.layersWanted} ground layers · {t.instances.reduce((n, i) => n + i.files.length, 0).toLocaleString()} vegetation
+          placements ({t.instances.length} models, not shown) · drag to orbit, scroll to zoom
+        </p>
+      </div>
+      <div className="flex-1 p-3">
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name} />
+      </div>
+    </div>
+  )
+}
+
 const KIND_LABEL: Record<string, string> = {
   trmsh: "mesh shapes",
   trmbf: "mesh buffers",
@@ -101,6 +152,7 @@ const KIND_LABEL: Record<string, string> = {
   trskl: "skeleton",
   trmmt: "material table",
   tracm: "clip visibility",
+  trins: "instance placements",
 }
 
 export function TrinityFilePreview({ node }: { node: Node }) {
@@ -120,6 +172,8 @@ export function TrinityFilePreview({ node }: { node: Node }) {
         return { kind: ext, value: parseTrmmt(b) } as const
       case "tracm":
         return { kind: ext, value: parseTracm(b) } as const
+      case "trins":
+        return { kind: ext, value: parseTrins(b) } as const
       default:
         return { kind: "trmdl", value: parseTrmdl(b) } as const
     }
@@ -207,6 +261,12 @@ export function TrinityFilePreview({ node }: { node: Node }) {
               rows={[...d.value.visibility].map(([k, on]) => [k, on ? "yes" : "no"])}
             />
           </>
+        )}
+        {d.kind === "trins" && (
+          <KvBlock title="Instances">
+            <KvRow k="Type" v={d.value.type} />
+            <KvRow k="Data" v={`${d.value.data.length.toLocaleString()} bytes`} />
+          </KvBlock>
         )}
         {d.kind === "trmdl" && (
           <KvBlock title="Model">

@@ -331,6 +331,8 @@ export type PreviewKind =
 	| 'trinity-model'
 	/** Trinity model parts (`.trmsh` / `.trmbf` / `.trmtr` / `.trskl` / `.trmmt`) — summary. */
 	| 'trinity-file'
+	/** Trinity field terrain tile (`.trtrr`, Legends: Arceus) — heightmap mesh. */
+	| 'trinity-terrain'
 	/** Game Freak GFBANM animation — track summary. */
 	| 'gfbanm-info'
 	/** Game Freak GFBANMCFG — animation state → file table. */
@@ -725,9 +727,10 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.gfbanmcfg')) return 'gfbanmcfg-info';
 	// Game Freak Trinity (Legends: Arceus), likewise named by the GFPAK sniff.
 	if (lower.endsWith('.trmdl')) return 'trinity-model';
+	if (lower.endsWith('.trtrr')) return 'trinity-terrain';
 	// Legends: Arceus clips: `.tranm` bone tracks are GFBANM.
 	if (lower.endsWith('.tranm')) return 'gfbanm-info';
-	if (/\.(trmsh|trmbf|trmtr|trskl|trmmt|tracm)$/.test(lower)) return 'trinity-file';
+	if (/\.(trmsh|trmbf|trmtr|trskl|trmmt|tracm|trins)$/.test(lower)) return 'trinity-file';
 	if (lower.endsWith('.tbl')) return 'ahtb-table';
 	if (lower.endsWith('.bflyt')) return 'bflyt-info';
 	if (lower.endsWith('.bflan')) return 'bflan-info';

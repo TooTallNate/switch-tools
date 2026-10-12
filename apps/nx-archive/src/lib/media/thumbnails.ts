@@ -30,7 +30,7 @@ import type { ExportMaterial } from '../mesh-export';
 import type { MediaInfo, MediaItem, MediaKind, MediaStatus } from './types';
 
 /** Bump to regenerate cached thumbnails. */
-export const THUMB_VERSION = 10;
+export const THUMB_VERSION = 11;
 const SIZE = 256;
 
 export interface ThumbResult {

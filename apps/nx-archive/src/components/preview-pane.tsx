@@ -322,7 +322,7 @@ import { MeshViewer, type MeshViewerAnimationDriver } from "./mesh-viewer"
 import type * as THREE from "three"
 import { loadHaloModelView, type HaloModelRef } from "~/lib/halo"
 import { loadFf7PsxModelView } from "~/lib/ff7-psx"
-import { TrinityFilePreview, TrinityModelPreview } from "./trinity-previews"
+import { TrinityFilePreview, TrinityModelPreview, TrinityTerrainPreview } from "./trinity-previews"
 import { applyPose, poseJoints } from "@tootallnate/ff7-psx-model"
 import { strFrameSource } from "~/lib/psx-str-source"
 import { decodeTim } from "@tootallnate/psx-tim"
@@ -1968,6 +1968,8 @@ function FilePreview({
       return <TrinityModelPreview node={node} root={root} />
     case "trinity-file":
       return <TrinityFilePreview node={node} />
+    case "trinity-terrain":
+      return <TrinityTerrainPreview node={node} root={root} />
     case "bti-image":
       return <BtiPreview node={node} />
     case "j3d-model":

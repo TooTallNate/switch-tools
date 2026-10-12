@@ -186,7 +186,15 @@ export interface MeshViewerAnimationDriver {
   sample(
     index: number,
     frame: number,
-    ctx: { geometry: THREE.BufferGeometry | null },
+    ctx: {
+      geometry: THREE.BufferGeometry | null
+      /**
+       * The mounted mesh's materials, one per slot (section
+       * `materialIndex`). Drivers that animate textures (Trinity eye
+       * expressions) can rewrite a slot's `map` data in place.
+       */
+      materials?: THREE.Material[]
+    },
   ): void
 }
 
@@ -456,6 +464,7 @@ export function MeshViewer({
   // drivers can mutate it in place without us threading
   // closures through the rAF loop.
   const geometryRef = useRef<THREE.BufferGeometry | null>(null)
+  const materialsRef = useRef<THREE.Material[]>([])
 
   // Resize the per-driver selection array if the driver count
   // changes (rare — drivers usually arrive once at mount).
@@ -579,6 +588,7 @@ export function MeshViewer({
         )
       }
     }
+    materialsRef.current = materials
     const meshMaterial: THREE.Material | THREE.Material[] =
       materials.length === 1 ? materials[0]! : materials
     const meshObj = new THREE.Mesh(geometry, meshMaterial)
@@ -708,7 +718,7 @@ export function MeshViewer({
       // so scrubbing has immediate visual feedback.
       for (let d = 0; d < driversRef.current.length; d++) {
         const idx = selectedAnimsRef.current[d] ?? -1
-        driversRef.current[d]!.sample(idx, frame, { geometry: geometryRef.current })
+        driversRef.current[d]!.sample(idx, frame, { geometry: geometryRef.current, materials: materialsRef.current })
       }
       return
     }
@@ -751,7 +761,7 @@ export function MeshViewer({
         }
         for (let d = 0; d < driversRef.current.length; d++) {
           const idx = selectedAnimsRef.current[d] ?? -1
-          driversRef.current[d]!.sample(idx, next, { geometry: geometryRef.current })
+          driversRef.current[d]!.sample(idx, next, { geometry: geometryRef.current, materials: materialsRef.current })
         }
         return next
       })
@@ -767,7 +777,7 @@ export function MeshViewer({
   useEffect(() => {
     for (let d = 0; d < drivers.length; d++) {
       const idx = selectedAnims[d] ?? -1
-      drivers[d]!.sample(idx, frame, { geometry: geometryRef.current })
+      drivers[d]!.sample(idx, frame, { geometry: geometryRef.current, materials: materialsRef.current })
     }
   }, [selectedAnims, drivers])
 

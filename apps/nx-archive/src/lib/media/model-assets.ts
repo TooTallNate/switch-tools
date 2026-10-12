@@ -33,6 +33,7 @@ import { assembleBattle, buildBattleRig, poseFf7BattleRest } from '../ff7-battle
 import { assembleHrcCharacter, buildCompositeRig, poseFf7FieldRest } from '../ff7-field-rig';
 import { bakeSectionUvs, parseGfbmdlForView } from '../gfbmdl-view';
 import { applyTrinityClip, loadTrinityModelView } from '../trinity-view';
+import { loadTrinityTerrainView } from '../trinity-terrain';
 import {
 	decodePhyreTextureForMaterial,
 	ff7ExtractTriangles,
@@ -86,6 +87,7 @@ export interface ModelAsset {
 export const HEADLESS_MODEL_KINDS = new Set([
 	'gfbmdl-model',
 	'trinity-model',
+	'trinity-terrain',
 	'hsd-model',
 	'n64-model',
 	'halo-model',
@@ -423,6 +425,10 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 		case 'n64-model': {
 			const v = await parseN64ModelForView(await node.blob!(), node.meta?.n64Model as N64ModelRef);
 			return asset(n64Lod(v), v.texturedMaterials > 0 ? v.textures : []);
+		}
+		case 'trinity-terrain': {
+			const v = await loadTrinityTerrainView(node, root);
+			return asset(v.mesh.lods[0]!, v.textures, { texturesFound: [v.layersFound, v.layersWanted] });
 		}
 		case 'trinity-model': {
 			const v = await loadTrinityModelView(node, root);
