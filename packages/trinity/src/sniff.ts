@@ -7,8 +7,9 @@
 import { FlatBuffer, type Table } from '@tootallnate/gfbmdl';
 
 import { parseTrmdl, parseTrmmt, parseTrmsh, parseTrmtr } from './model.js';
+import { parseTrtrr } from './terrain.js';
 
-export type TrinityKind = 'trmdl' | 'trmsh' | 'trmbf' | 'trmtr' | 'trskl' | 'trmmt';
+export type TrinityKind = 'trmdl' | 'trmsh' | 'trmbf' | 'trmtr' | 'trskl' | 'trmmt' | 'trtrr' | 'trins';
 
 const ok = (f: () => boolean): boolean => {
 	try {
@@ -30,6 +31,9 @@ export function sniffTrinity(bytes: Uint8Array): TrinityKind | null {
 		return null;
 	}
 	if (ok(() => t.tables(1).length > 0 && t.tables(1).every((r) => endsWith(r.str(0), '.trmsh')))) return 'trmdl';
+	// Terrain tile: bounds table, splat material, `.trtbf` buffers.
+	if (ok(() => endsWith(t.table(7)?.str(0) ?? null, '.trmtr') && t.table(1) !== null && t.strings(8).every((b) => endsWith(b, '.trtbf')))) return 'trtrr';
+	if (ok(() => /InstanceBuffer$/.test(t.str(0) ?? '') && t.table(4) !== null)) return 'trins';
 	if (ok(() => endsWith(t.str(2), '.trmbf') && t.tables(1).length > 0)) return 'trmsh';
 	if (
 		ok(() => {
@@ -100,6 +104,16 @@ export function trinityReferencedNames(kind: TrinityKind, bytes: Uint8Array): st
 				return parseTrmmt(bytes).tables.flatMap((t) => t.files);
 			case 'trmtr':
 				return [...new Set(parseTrmtr(bytes).materials.flatMap((m) => m.textures.map((x) => x.file)))];
+			case 'trtrr': {
+				const t = parseTrtrr(bytes);
+				const out = [...t.buffers, ...t.grass, ...t.instances.flatMap((i) => [i.model, ...i.files])];
+				if (t.material) {
+					out.push(t.material);
+					// The tile is named like its material (`area01_0_0.trmtr` → `area01_0_0.trtrr`).
+					out.push(t.material.replace(/\.trmtr$/i, '.trtrr'));
+				}
+				return out;
+			}
 			default:
 				return [];
 		}

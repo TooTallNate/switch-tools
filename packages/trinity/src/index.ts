@@ -4,3 +4,4 @@ export * from './sniff.js';
 export * from './material.js';
 export * from './pose.js';
 export * from './animation.js';
+export * from './terrain.js';

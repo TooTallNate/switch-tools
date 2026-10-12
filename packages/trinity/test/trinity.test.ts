@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	bakeTerrainColor,
+	bakeTrinitySurface,
+	buildTerrainMesh,
+	parseTrtrr,
+	sampleTracmMaterials,
 	TrinityAttribute,
 	TrinityPose,
 	TrinityFormat,
@@ -257,5 +262,94 @@ describe('TrinityPose', () => {
 		pose.skin(positions, null, joints, weights, out, null);
 		expect(Array.from(out)).toEqual([0, 3, 0, 1, 1, 0]);
 		expect(Array.from(pose.jointPositions().subarray(3, 6))).toEqual([0, 3, 0]);
+	});
+});
+
+describe('tracm material curves', () => {
+	it('samples float4 curves per material, interpolating keys', () => {
+		const keys = (pairs: [number, number][]) => F.table([F.tables(pairs.map(([t, v]) => [F.f32(t), F.f32(v)]))]);
+		const bytes = buildFlatBuffer([
+			F.table([F.u32(0), F.u32(10), F.u32(60)]),
+			F.tables([
+				[
+					F.str('mon_eye_shape'),
+					null,
+					null,
+					null,
+					F.table([
+						null,
+						null,
+						F.tables([[F.str('eye'), null, F.tables([[F.str('UVScaleOffset'), F.table([keys([[0, 1]]), keys([[0, 1]]), keys([[0, 0]]), keys([[0, 0], [10, -0.5]])])]])]]),
+					]),
+				],
+			]),
+		]);
+		const clip = parseTracm(bytes);
+		expect(sampleTracmMaterials(clip, 5).get('eye')?.UVScaleOffset).toEqual([1, 1, 0, -0.25]);
+	});
+});
+
+describe('bakeTrinitySurface', () => {
+	const material = (extra: Partial<ReturnType<typeof parseTrmtr>['materials'][number]> = {}) => ({
+		...parseTrmtr(trmtr()).materials[0]!,
+		...extra,
+	});
+	const solid = (w: number, h: number, rgba: number[]) => ({ width: w, height: h, pixels: Uint8Array.from({ length: w * h * 4 }, (_, i) => rgba[i % 4]!) });
+
+	it('draws the eye highlight through its own UV transform', () => {
+		const mat = material({
+			shaderValues: { EnableHighlight: 'True' },
+			textures: [
+				{ binding: 'BaseColorMap', file: 'a', slot: 0 },
+				{ binding: 'HighlightMaskMap', file: 'h', slot: 0 },
+			],
+			samplers: [{ wrapU: 'clamp', wrapV: 'clamp' }],
+			float4s: { UVScaleOffset: [1, 1, 0, 0], UVScaleOffset1: [1, 1, 0.5, 0] },
+		});
+		// Highlight mask: left half white, right half black (clamped).
+		const mask = { width: 2, height: 1, pixels: new Uint8Array([255, 255, 255, 255, 0, 0, 0, 255]) };
+		// UVScaleOffset1 shifts the mask +0.5 in U: raw u = 0.125 samples
+		// mask u = 0.625, the black half.
+		const out = bakeTrinitySurface(mat, { BaseColorMap: solid(1, 1, [0, 0, 0, 255]), HighlightMaskMap: mask }, { u0: 0, v0: 0, u1: 1, v1: 1, width: 4, height: 1 });
+		expect(out.pixels[0]).toBe(0);
+		// Animated back to no offset, the left half lights up.
+		const out2 = bakeTrinitySurface(mat, { BaseColorMap: solid(1, 1, [0, 0, 0, 255]), HighlightMaskMap: mask }, { u0: 0, v0: 0, u1: 1, v1: 1, width: 4, height: 1 }, { UVScaleOffset1: [1, 1, 0, 0] });
+		expect(out2.pixels[0]).toBe(255);
+		expect(out2.pixels[3 * 4]).toBe(0);
+	});
+});
+
+describe('terrain', () => {
+	it('reads tile bounds as width, height, depth (stored Z-up)', () => {
+		const bytes = buildFlatBuffer([
+			null,
+			F.table([F.f32(1025), F.f32(1025), F.f32(121.5), F.u32(8), F.u32(2048)]),
+			F.table([F.u32(1024), F.u32(1024)]),
+			F.u32(1),
+			F.tables([[F.str('tree.trmdl'), F.strs(['tile_tree_X0Z0_d0.trins'])]]),
+			null,
+			null,
+			F.table([F.str('tile.trmtr')]),
+			F.strs(['tile_detailmap_0.trtbf']),
+		]);
+		const t = parseTrtrr(bytes);
+		expect(t.size).toEqual({ x: 1025, y: 121.5, z: 1025 });
+		expect(t.material).toBe('tile.trmtr');
+		expect(sniffTrinity(bytes)).toBe('trtrr');
+		expect(trinityReferencedNames('trtrr', bytes)).toEqual(expect.arrayContaining(['tile.trtrr', 'tile_tree_X0Z0_d0.trins', 'tile_detailmap_0.trtbf']));
+	});
+
+	it('displaces a grid by the heightmap', () => {
+		const m = buildTerrainMesh(new Float32Array([0, 0, 0, 1]), 2, 2, { x: 10, y: 4, z: 20 });
+		expect(m.numVertices).toBe(4);
+		expect(Array.from(m.positions.subarray(9, 12))).toEqual([10, 4, 20]);
+		expect(m.indices.length).toBe(6);
+	});
+
+	it('blends layer colours by splat weight', () => {
+		const control = [{ width: 1, height: 1, pixels: new Uint8Array([255, 255, 0, 0]) }];
+		const img = bakeTerrainColor(control, [[1, 0, 0], [0, 0, 1], null, null]);
+		// Equal red / blue in linear space → sRGB 188 each.
+		expect(Array.from(img.pixels)).toEqual([188, 0, 188, 255]);
 	});
 });
