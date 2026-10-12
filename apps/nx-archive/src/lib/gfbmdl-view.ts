@@ -16,13 +16,14 @@
  *    elsewhere it's a shader mask and is forced opaque. Eyes composite
  *    the iris layer (`L1ColTex` on trainers, `LyCol0Tex` on Pokémon)
  *    under the eye texture's alpha cut-out, baked on the CPU.
- *  - **UVs.** The game samples at `base + scale · (uv + translate)` in
+ *  - **UVs.** The game samples at `scale · (uv + translate + base)` in
  *    V-flipped space. We bake that per vertex (every polygon owns its
  *    vertices, see `buildGfbmdlMesh`), and re-bake it when an animation
  *    moves a material's UVs (eye / mouth expressions).
  */
 
 import * as g from '@tootallnate/gfbmdl';
+import { applyUvTransform, invertUvTransform } from '@tootallnate/gfbmdl';
 import type {
 	GfbanmAnimation,
 	GfbmdlMaterial,
@@ -248,13 +249,13 @@ function bakeLayer1(
 			const a = l0.pixels[i + 3] / 255;
 			let r = l0.pixels[i], g = l0.pixels[i + 1], b = l0.pixels[i + 2];
 			if (a < 1) {
-				// Back to the stored (V-flipped) UV, then into layer space.
+				// Back to the stored UV, then into layer space.
 				const s = unwrap((x + 0.5) / l0.width, period[0]);
 				const t = unwrap((y + 0.5) / l0.height, period[1]);
-				const u = (s - t0.baseU) / (t0.scaleU || 1) - t0.translateU;
-				const vf = (t - t0.baseV) / (t0.scaleV || 1) - t0.translateV;
-				const s1 = wrapCoord(t1.baseU + t1.scaleU * (u + t1.translateU), wrap1[0]);
-				const t1v = wrapCoord(t1.baseV + t1.scaleV * (vf + t1.translateV), wrap1[1]);
+				const [u, w] = invertUvTransform(t0, s, t);
+				const [ls, lt] = applyUvTransform(t1, u, w);
+				const s1 = wrapCoord(ls, wrap1[0]);
+				const t1v = wrapCoord(lt, wrap1[1]);
 				const lx = Math.min(l1.width - 1, Math.floor(s1 * l1.width));
 				const ly = Math.min(l1.height - 1, Math.floor(t1v * l1.height));
 				const j = (ly * l1.width + lx) * 4;
@@ -305,8 +306,9 @@ export function bakeSectionUvs(
 				uv[v * 2 + 1] = 1 - w;
 				continue;
 			}
-			uv[v * 2] = t.baseU + t.scaleU * (u + t.translateU);
-			uv[v * 2 + 1] = t.baseV + t.scaleV * (1 - w + t.translateV);
+			const [ss, st] = applyUvTransform(t, u, w);
+			uv[v * 2] = ss;
+			uv[v * 2 + 1] = st;
 		}
 	}
 }
