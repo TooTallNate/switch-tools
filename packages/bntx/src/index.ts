@@ -56,6 +56,8 @@ export { formatName, type FormatInfo } from './format.js';
 export { deswizzle, type DeswizzleOptions, pickBlockHeight } from './swizzle.js';
 export { decodeBC1, decodeBC2, decodeBC3, decodeBC4, decodeBC5 } from './decode-bc.js';
 export { decodeBC7 } from './decode-bc7.js';
+export { decodeBC6H, decodeBC6HBlock } from './decode-bc6.js';
+import { decodeBC6H, halfToFloat } from './decode-bc6.js';
 
 export type Endian = 'big' | 'little';
 
@@ -423,28 +425,38 @@ export function decodeBntxLayer(
 			}
 			break;
 		}
-		case 0x1405: {
-			// R32 float (e.g. heightmaps): shown as greyscale, min → max.
-			const f = new Float32Array(linear.buffer.slice(linear.byteOffset, linear.byteOffset + w * h * 4));
-			let lo = Infinity, hi = -Infinity;
-			for (const x of f) {
-				if (!Number.isFinite(x)) continue;
-				if (x < lo) lo = x;
-				if (x > hi) hi = x;
-			}
-			const span = hi > lo ? hi - lo : 1;
-			pixels = new Uint8Array(w * h * 4);
+		case 0x1405:
+		case 0x0a05:
+		case 0x0a01: {
+			// Single-channel data (heightmaps, depth): greyscale, min → max.
+			const dv = new DataView(linear.buffer, linear.byteOffset, linear.byteLength);
+			const f = new Float32Array(w * h);
 			for (let i = 0; i < w * h; i++) {
-				const g = Number.isFinite(f[i]!) ? Math.round(((f[i]! - lo) / span) * 255) : 0;
-				pixels[i * 4] = pixels[i * 4 + 1] = pixels[i * 4 + 2] = g;
-				pixels[i * 4 + 3] = 255;
+				f[i] =
+					info.code === 0x1405 ? dv.getFloat32(i * 4, true)
+					: info.code === 0x0a05 ? halfToFloat(dv.getUint16(i * 2, true))
+					: dv.getUint16(i * 2, true) / 65535;
 			}
+			pixels = greyscale(f, w, h);
+			break;
+		}
+		case 0x1f05:
+		case 0x1f0a:
+			// BC6H HDR (light probes): tone-mapped for display.
+			pixels = toneMap(decodeBC6H(linear, w, h, info.code === 0x1f05), w, h, 3);
+			break;
+		case 0x1505:
+		case 0x1905: {
+			const dv = new DataView(linear.buffer, linear.byteOffset, linear.byteLength);
+			const f = new Float32Array(w * h * 4);
+			for (let i = 0; i < w * h * 4; i++) f[i] = info.code === 0x1505 ? halfToFloat(dv.getUint16(i * 2, true)) : dv.getFloat32(i * 4, true);
+			pixels = toneMap(f, w, h, 4);
 			break;
 		}
 		default:
 			throw new Error(
 				`Unsupported BNTX format ${info.name} (0x${info.code.toString(16)}). ` +
-					`Supported: BC1/BC2/BC3/BC4/BC5/BC7 + RGBA8/BGRA8/R8/RG8/R4G4/R5G6B5/B5G6R5/R4G4B4A4/R5G5B5A1/R10G10B10A2/R32F.`,
+					`Supported: BC1–BC7 + RGBA8/BGRA8/R8/RG8/R4G4/R5G6B5/B5G6R5/R4G4B4A4/R5G5B5A1/R10G10B10A2/R16/R32F/RGBA16F/RGBA32F.`,
 			);
 	}
 
@@ -469,4 +481,39 @@ export function decodeBntxToRgba(
 	const tex = parsed.textures[0];
 	const decoded = decodeBntxLayer(bytes, tex, 0, options);
 	return { ...decoded, texture: tex };
+}
+
+/** Single-channel floats → greyscale RGBA8, stretched min → max. */
+function greyscale(f: Float32Array, w: number, h: number): Uint8Array {
+	let lo = Infinity, hi = -Infinity;
+	for (const x of f) {
+		if (!Number.isFinite(x)) continue;
+		if (x < lo) lo = x;
+		if (x > hi) hi = x;
+	}
+	const span = hi > lo ? hi - lo : 1;
+	const out = new Uint8Array(w * h * 4);
+	for (let i = 0; i < w * h; i++) {
+		const g = Number.isFinite(f[i]!) ? Math.round(((f[i]! - lo) / span) * 255) : 0;
+		out[i * 4] = out[i * 4 + 1] = out[i * 4 + 2] = g;
+		out[i * 4 + 3] = 255;
+	}
+	return out;
+}
+
+/** Linear HDR RGB(A) → displayable sRGB RGBA8 (Reinhard `c / (1 + c)`). */
+function toneMap(f: Float32Array, w: number, h: number, channels: 3 | 4): Uint8Array {
+	const out = new Uint8Array(w * h * 4);
+	const enc = (c: number) => {
+		if (!(c > 0)) return 0;
+		const t = c / (1 + c);
+		return Math.round((t <= 0.0031308 ? 12.92 * t : 1.055 * t ** (1 / 2.4) - 0.055) * 255);
+	};
+	for (let i = 0; i < w * h; i++) {
+		out[i * 4] = enc(f[i * channels]!);
+		out[i * 4 + 1] = enc(f[i * channels + 1]!);
+		out[i * 4 + 2] = enc(f[i * channels + 2]!);
+		out[i * 4 + 3] = channels === 4 ? Math.round(Math.min(1, Math.max(0, f[i * 4 + 3]!)) * 255) : 255;
+	}
+	return out;
 }

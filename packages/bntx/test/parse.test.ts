@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { decodeBC6HBlock as _bc6 } from '../src/decode-bc6.js';
 import {
 	BNTX_MAGIC,
 	formatName,
@@ -148,5 +149,23 @@ describe('parseBntx — error paths', () => {
 describe('BNTX_MAGIC export', () => {
 	it('matches the on-disk value', () => {
 		expect(BNTX_MAGIC).toBe('BNTX');
+	});
+});
+
+
+describe('BC6H', () => {
+	it('decodes a one-region block (mode 11) to its endpoint colour', () => {
+		// LSB-first bits: mode 0b00011 (read as 2 bits = 3, then 3 bits = 0),
+		// then rw, gw, bw = 1023 (10 bits each); everything after is 0.
+		const bits: number[] = [1, 1, 0, 0, 0];
+		for (let c = 0; c < 3; c++) for (let i = 0; i < 10; i++) bits.push(1);
+		const block = new Uint8Array(16);
+		bits.forEach((b, i) => {
+			if (b) block[i >> 3]! |= 1 << (i & 7);
+		});
+		const out = new Uint16Array(48);
+		_bc6(block, 0, false, out);
+		// Max unsigned endpoint → largest finite half (65504 = 0x7BFF).
+		expect(new Set(out)).toEqual(new Set([0x7bff]));
 	});
 });

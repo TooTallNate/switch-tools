@@ -29,6 +29,8 @@ export const BNTX_FORMATS: Record<number, string> = {
 	0x1405: 'R32_FLOAT',
 	0x0a01: 'R16_UNORM',
 	0x0a05: 'R16_FLOAT',
+	0x1505: 'R16_G16_B16_A16_FLOAT',
+	0x1905: 'R32_G32_B32_A32_FLOAT',
 	0x1a01: 'BC1_UNORM',
 	0x1a06: 'BC1_SRGB',
 	0x1b01: 'BC2_UNORM',
@@ -129,6 +131,8 @@ const BPP: Record<number, number> = {
 	0x0e: 0x04, // R10_G10_B10_A2
 	0x14: 0x04, // R32 (Legends: Arceus terrain heightmaps)
 	0x0a: 0x02, // R16 (half-float heightmaps on larger Legends: Arceus areas)
+	0x15: 0x08, // R16G16B16A16 (light probe volumes)
+	0x19: 0x10, // R32G32B32A32
 	0x1a: 0x08, // BC1
 	0x1b: 0x10, // BC2
 	0x1c: 0x10, // BC3
