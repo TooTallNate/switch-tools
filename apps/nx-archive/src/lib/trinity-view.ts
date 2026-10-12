@@ -16,11 +16,20 @@
  *  - **Textures.** `BaseColorMap` tinted by `LayerMaskMap` +
  *    `BaseColorLayer1–4` (see `bakeLayeredAlbedo`). The shiny palette
  *    is the `_rare.trmtr` material file.
+ *  - **Animations.** Clips live in the pak's `anm/` folder as
+ *    `<model>_<clip>.tranm` (GFBANM bone tracks) + `.tracm` (per-shape
+ *    visibility). Bones are posed and skinned on the CPU
+ *    (`TrinityPose`); hidden shapes collapse. With no clip selected the
+ *    default (idle) clip's visibility still applies, so alternative
+ *    meshes (Gengar's long tongue) stay hidden in the bind pose.
  */
 
+import { parseGfbanm, type GfbanmAnimation } from '@tootallnate/gfbmdl';
 import {
+	TrinityPose,
 	bakeLayeredAlbedo,
 	buildTrinityMesh,
+	parseTracm,
 	parseTrmbf,
 	parseTrmdl,
 	parseTrmsh,
@@ -41,6 +50,25 @@ import type { DecodedTexture } from './uasset-material-chain';
 import { findNodeById } from './unity-external';
 import type { RenderableMesh } from '~/components/mesh-viewer';
 
+export interface TrinityClip {
+	/** Clip name without the model prefix, e.g. `00000_defaultwait01_loop`. */
+	name: string;
+	anim: GfbanmAnimation;
+	/** Mesh shape name → visible, from the clip's `.tracm`. */
+	visibility: Map<string, boolean> | null;
+}
+
+/** What posing needs: bind-pose buffers, skeleton, and per-section shapes. */
+export interface TrinityRig {
+	pose: TrinityPose;
+	positions: Float32Array;
+	normals: Float32Array | null;
+	joints: Uint16Array;
+	weights: Float32Array;
+	/** Per section: mesh shape name and its vertex range `[start, end)`. */
+	sections: { shape: string; start: number; end: number }[];
+}
+
 export interface TrinityModelView {
 	mesh: RenderableMesh;
 	/** One per material (section `materialIndex`). */
@@ -53,6 +81,11 @@ export interface TrinityModelView {
 	hasRare: boolean;
 	texturesFound: number;
 	texturesWanted: number;
+	/** Present when the model has a skeleton and skinned vertices. */
+	rig: TrinityRig | null;
+	clips: TrinityClip[];
+	/** Clip to open on (an idle / wait clip), or -1. */
+	defaultClip: number;
 }
 
 async function childrenOf(node: Node): Promise<Node[]> {
@@ -179,6 +212,7 @@ export async function loadTrinityModelView(
 	const J: number[] = [], W: number[] = [];
 	const I: number[] = [];
 	const sections: RenderableMesh['lods'][number]['sections'] = [];
+	const sectionShapes: TrinityRig['sections'] = [];
 	const extraMats: string[] = [];
 	for (const s of render.sections) {
 		let mi = matIndex.get(s.material);
@@ -232,6 +266,8 @@ export async function loadTrinityModelView(
 			}
 		}
 		sections.push({ materialIndex: mi, firstIndex: first, numTriangles: s.indexCount / 3 });
+		const start = remap.size ? Math.min(...remap.values()) : P.length / 3;
+		sectionShapes.push({ shape: s.shape, start, end: P.length / 3 });
 	}
 
 	// Textures (decoded once per file).
@@ -278,14 +314,16 @@ export async function loadTrinityModelView(
 	// Skeleton hints for print supports: each vertex's dominant bone.
 	let skeleton: ExportSkeleton | undefined;
 	let bones = 0;
+	let skl: TrsklSkeleton | null = null;
 	const sklNode = get(mdl.skeleton);
 	if (sklNode && J.length) {
 		try {
-			const skl = parseTrskl(await bytesOf(sklNode));
-			bones = skl.boneCount;
+			const parsed = parseTrskl(await bytesOf(sklNode));
+			skl = parsed;
+			bones = parsed.boneCount;
 			const rigToNode = new Map<number, number>();
-			skl.nodes.forEach((n, i) => {
-				if (n.rigIndex >= 0) rigToNode.set(n.rigIndex + skl.rigOffset, i);
+			parsed.nodes.forEach((n, i) => {
+				if (n.rigIndex >= 0) rigToNode.set(n.rigIndex + parsed.rigOffset, i);
 			});
 			const vertexBone = new Uint16Array(P.length / 3);
 			for (let v = 0; v < vertexBone.length; v++) {
@@ -295,8 +333,8 @@ export async function loadTrinityModelView(
 			}
 			skeleton = {
 				vertexBone,
-				parent: Int16Array.from(skl.nodes.map((n) => n.parent)),
-				joints: nodeWorldPositions(skl),
+				parent: Int16Array.from(parsed.nodes.map((n) => n.parent)),
+				joints: nodeWorldPositions(parsed),
 			};
 		} catch {
 			// skeleton is optional
@@ -304,13 +342,32 @@ export async function loadTrinityModelView(
 	}
 
 	const numVertices = P.length / 3;
+	const positions = new Float32Array(P);
+	const normals = N.length ? new Float32Array(N) : undefined;
+	const rig: TrinityRig | null =
+		skl && J.length
+			? {
+					pose: new TrinityPose(skl),
+					positions: Float32Array.from(positions),
+					normals: normals ? Float32Array.from(normals) : null,
+					joints: Uint16Array.from(J),
+					weights: Float32Array.from(W),
+					sections: sectionShapes,
+				}
+			: null;
+	const clips = skl ? await loadClips(node, root, skl, mdl.meshes[0] ?? node.name) : [];
+	let defaultClip = -1;
+	for (const re of [/defaultwait01/, /wait01_loop/, /wait/, /idle/]) {
+		defaultClip = clips.findIndex((c) => re.test(c.name));
+		if (defaultClip >= 0) break;
+	}
 	return {
 		mesh: {
 			lods: [
 				{
 					numVertices,
-					positions: new Float32Array(P),
-					normals: N.length ? new Float32Array(N) : undefined,
+					positions,
+					normals,
 					uv: U.length ? new Float32Array(U) : undefined,
 					indices: new Uint32Array(I),
 					sections,
@@ -328,5 +385,100 @@ export async function loadTrinityModelView(
 		hasRare: !!get(rareFile),
 		texturesFound: found,
 		texturesWanted: wanted,
+		rig,
+		clips,
+		defaultClip,
 	};
+}
+
+/** Every file in the enclosing GFPAK (or the model's folder when loose). */
+async function packFiles(node: Node, root: Node | null): Promise<Node[]> {
+	if (!root) return [];
+	let id = node.id;
+	let pak: Node | null = null;
+	while (id.lastIndexOf('/') > 0) {
+		id = id.slice(0, id.lastIndexOf('/'));
+		const n = await findNodeById(root, id);
+		if (n?.kind === 'gfpak') {
+			pak = n;
+			break;
+		}
+	}
+	const start = pak ?? (await findNodeById(root, node.id.slice(0, node.id.lastIndexOf('/'))));
+	if (!start) return [];
+	const out: Node[] = [];
+	const walk = async (n: Node, depth: number) => {
+		for (const k of await childrenOf(n)) {
+			if (k.kind === 'directory' && depth < 4) await walk(k, depth + 1);
+			else if (k.blob && !k.isContainer) out.push(k);
+		}
+	};
+	await walk(start, 0);
+	return out;
+}
+
+/**
+ * The model's clips: `<prefix>_<clip>.tranm` files whose bone tracks
+ * match the skeleton, each with its `.tracm` visibility when present.
+ */
+async function loadClips(node: Node, root: Node | null, skl: TrsklSkeleton, meshFile: string): Promise<TrinityClip[]> {
+	const files = await packFiles(node, root);
+	const prefix = meshFile.replace(/(_lod\d+)?\.trmsh$/i, '').replace(/\.trmdl$/i, '').toLowerCase();
+	const tracm = new Map<string, Node>();
+	for (const f of files) if (/\.tracm$/i.test(f.name)) tracm.set(f.name.replace(/\.tracm$/i, '').toLowerCase(), f);
+	const names = new Set(skl.nodes.map((n) => n.name));
+	const clips: TrinityClip[] = [];
+	for (const f of files) {
+		if (!/\.tranm$/i.test(f.name)) continue;
+		const stem = f.name.replace(/\.tranm$/i, '');
+		try {
+			const anim = parseGfbanm(await bytesOf(f));
+			if (anim.frameCount < 1 || !anim.bones.length) continue;
+			const hits = anim.bones.filter((b) => names.has(b.name)).length;
+			if (hits < Math.max(1, anim.bones.length * 0.5)) continue;
+			const vis = tracm.get(stem.toLowerCase());
+			let visibility: Map<string, boolean> | null = null;
+			if (vis) {
+				try {
+					visibility = parseTracm(await bytesOf(vis)).visibility;
+				} catch {
+					// visibility is optional
+				}
+			}
+			const lower = stem.toLowerCase();
+			const name = lower.startsWith(`${prefix}_`) ? stem.slice(prefix.length + 1) : stem;
+			clips.push({ name, anim, visibility });
+		} catch {
+			// not a bone clip
+		}
+	}
+	return clips.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+}
+
+/**
+ * Pose `view` on clip `index` at `frame` (or the bind pose for -1) into
+ * `positions` / `normals`, collapsing shapes the clip hides. The default
+ * clip's visibility applies in the bind pose. Returns the posed joint
+ * positions (for print supports), or null without a rig.
+ */
+export function applyTrinityClip(
+	view: TrinityModelView,
+	index: number,
+	frame: number,
+	positions: Float32Array,
+	normals: Float32Array | null,
+): Float32Array | null {
+	const rig = view.rig;
+	if (!rig) return null;
+	const clip = view.clips[index] ?? null;
+	rig.pose.setPose(clip?.anim ?? null, frame);
+	rig.pose.skin(rig.positions, rig.normals, rig.joints, rig.weights, positions, normals);
+	const visibility = (clip ?? view.clips[view.defaultClip])?.visibility;
+	if (visibility) {
+		for (const s of rig.sections) {
+			if (visibility.get(s.shape) !== false) continue;
+			positions.fill(0, s.start * 3, s.end * 3);
+		}
+	}
+	return rig.pose.jointPositions();
 }

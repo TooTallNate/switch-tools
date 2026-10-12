@@ -32,7 +32,7 @@ import type { ExportMaterial, ExportMesh } from '../mesh-export';
 import { assembleBattle, buildBattleRig, poseFf7BattleRest } from '../ff7-battle-rig';
 import { assembleHrcCharacter, buildCompositeRig, poseFf7FieldRest } from '../ff7-field-rig';
 import { bakeSectionUvs, parseGfbmdlForView } from '../gfbmdl-view';
-import { loadTrinityModelView } from '../trinity-view';
+import { applyTrinityClip, loadTrinityModelView } from '../trinity-view';
 import {
 	decodePhyreTextureForMaterial,
 	ff7ExtractTriangles,
@@ -426,7 +426,25 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 		}
 		case 'trinity-model': {
 			const v = await loadTrinityModelView(node, root);
-			return asset(v.mesh.lods[0]!, v.textures, { texturesFound: [v.texturesFound, v.texturesWanted] });
+			const lod = v.mesh.lods[0]!;
+			// Idle pose (and its mesh visibility), like the viewer opens on.
+			let posed = lod;
+			if (v.rig) {
+				const positions = new Float32Array(lod.positions.length);
+				const normals = lod.normals ? new Float32Array(lod.normals.length) : null;
+				const joints = applyTrinityClip(v, v.defaultClip, 0, positions, normals);
+				posed = {
+					...lod,
+					positions,
+					normals: normals ?? undefined,
+					...(lod.skeleton && joints && { skeleton: { ...lod.skeleton, joints } }),
+				};
+			}
+			return asset(posed, v.textures, {
+				texturesFound: [v.texturesFound, v.texturesWanted],
+				pose: v.clips[v.defaultClip]?.name,
+				animations: v.clips.length,
+			});
 		}
 		case 'ff7-psx-model': {
 			const v = await loadFf7PsxModelView(node, root);

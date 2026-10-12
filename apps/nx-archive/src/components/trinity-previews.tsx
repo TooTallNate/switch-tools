@@ -3,8 +3,10 @@
  * `.trmdl` models in the mesh viewer (with a shiny toggle when a
  * `_rare.trmtr` exists), and a summary for the other model parts.
  */
-import { useState } from "react"
+import { useMemo, useState } from "react"
+import type * as THREE from "three"
 import {
+  parseTracm,
   parseTrmbf,
   parseTrmdl,
   parseTrmmt,
@@ -16,11 +18,11 @@ import {
 } from "@tootallnate/trinity"
 
 import type { Node } from "~/lib/archive"
-import { loadTrinityModelView } from "~/lib/trinity-view"
+import { applyTrinityClip, loadTrinityModelView } from "~/lib/trinity-view"
 import { ScrollArea } from "~/components/ui/scroll-area"
 import { Switch } from "~/components/ui/switch"
 
-import { MeshViewer } from "./mesh-viewer"
+import { MeshViewer, type MeshViewerAnimationDriver } from "./mesh-viewer"
 import { ErrorFiller, KvBlock, KvRow, LoadingFiller, SectionHeader, useAsync } from "./preview-pane"
 
 async function nodeBytes(node: Node): Promise<Uint8Array> {
@@ -33,6 +35,35 @@ const THEAD = "bg-muted/40 text-xs font-medium uppercase tracking-wider text-mut
 export function TrinityModelPreview({ node, root }: { node: Node; root: Node | null }) {
   const [rare, setRare] = useState(false)
   const { loading, data, error } = useAsync(() => loadTrinityModelView(node, root, { rare }), [node.id, rare])
+  // CPU skinning: re-pose the mounted geometry from the bind pose each frame.
+  const drivers = useMemo((): MeshViewerAnimationDriver[] => {
+    const v = data
+    if (!v?.rig) return []
+    return [
+      {
+        category: "Animation",
+        animations: v.clips.map((c) => ({
+          name: c.name,
+          frameCount: c.anim.frameCount,
+          loop: /loop/.test(c.name),
+          fps: c.anim.fps || 30,
+        })),
+        defaultIndex: v.defaultClip,
+        sample: (index, frame, { geometry }) => {
+          const pos = geometry?.getAttribute("position") as THREE.BufferAttribute | undefined
+          if (!pos || pos.count * 3 !== v.rig!.positions.length) return
+          const nrm = geometry!.getAttribute("normal") as THREE.BufferAttribute | undefined
+          const normals = nrm && v.rig!.normals && nrm.count === pos.count ? (nrm.array as Float32Array) : null
+          const joints = applyTrinityClip(v, index, frame, pos.array as Float32Array, normals)
+          pos.needsUpdate = true
+          if (normals) nrm!.needsUpdate = true
+          // Keep the export's joint hints on the current pose.
+          if (joints && geometry!.userData.skeleton) geometry!.userData.skeleton.joints = joints
+          geometry!.computeBoundingSphere()
+        },
+      },
+    ]
+  }, [data])
   if (loading) return <LoadingFiller label="Decoding model…" />
   if (error) return <ErrorFiller error={error} />
   const v = data!
@@ -45,6 +76,7 @@ export function TrinityModelPreview({ node, root }: { node: Node; root: Node | n
             {v.vertices.toLocaleString()} vertices · {v.triangles.toLocaleString()} triangles · {v.materials.length} materials
             {v.bones ? ` · ${v.bones} bones` : ""}
             {v.texturesWanted ? ` · ${v.texturesFound}/${v.texturesWanted} textured` : ""}
+            {v.clips.length ? ` · ${v.clips.length} animations` : ""}
             {" · drag to orbit, scroll to zoom"}
           </p>
         </div>
@@ -56,7 +88,7 @@ export function TrinityModelPreview({ node, root }: { node: Node; root: Node | n
         )}
       </div>
       <div className="flex-1 p-3">
-        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name} />
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name} animationDrivers={drivers} />
       </div>
     </div>
   )
@@ -68,6 +100,7 @@ const KIND_LABEL: Record<string, string> = {
   trmtr: "materials",
   trskl: "skeleton",
   trmmt: "material table",
+  tracm: "clip visibility",
 }
 
 export function TrinityFilePreview({ node }: { node: Node }) {
@@ -85,6 +118,8 @@ export function TrinityFilePreview({ node }: { node: Node }) {
         return { kind: ext, value: parseTrskl(b) } as const
       case "trmmt":
         return { kind: ext, value: parseTrmmt(b) } as const
+      case "tracm":
+        return { kind: ext, value: parseTracm(b) } as const
       default:
         return { kind: "trmdl", value: parseTrmdl(b) } as const
     }
@@ -160,6 +195,18 @@ export function TrinityFilePreview({ node }: { node: Node }) {
         )}
         {d.kind === "trmmt" && (
           <Table head={["Table", "Material files"]} rows={d.value.tables.map((t) => [t.name, t.files.join(", ")])} />
+        )}
+        {d.kind === "tracm" && (
+          <>
+            <KvBlock title="Clip">
+              <KvRow k="Frames" v={String(d.value.frameCount)} />
+              <KvRow k="FPS" v={String(d.value.fps)} />
+            </KvBlock>
+            <Table
+              head={["Mesh shape", "Visible"]}
+              rows={[...d.value.visibility].map(([k, on]) => [k, on ? "yes" : "no"])}
+            />
+          </>
         )}
         {d.kind === "trmdl" && (
           <KvBlock title="Model">
