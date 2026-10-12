@@ -10,6 +10,21 @@ export type MediaKind = 'model' | 'music' | 'sound' | 'video' | 'font' | 'image'
 
 export const MEDIA_KINDS: readonly MediaKind[] = ['model', 'music', 'sound', 'video', 'font', 'image'];
 
+const KIND_RANK = Object.fromEntries(MEDIA_KINDS.map((k, i) => [k, i])) as Record<MediaKind, number>;
+/** One shared collator: `localeCompare` with options builds a new one per call. */
+const PATH_COLLATOR = new Intl.Collator(undefined, { numeric: true });
+
+/** Library order: by kind, then natural path order. */
+export function compareMediaItems(a: Pick<MediaItem, 'kind' | 'path'>, b: Pick<MediaItem, 'kind' | 'path'>): number {
+	return KIND_RANK[a.kind] - KIND_RANK[b.kind] || PATH_COLLATOR.compare(a.path, b.path);
+}
+
+/** True when `items` is already in {@link compareMediaItems} order (O(n)). */
+export function isMediaOrder(items: readonly Pick<MediaItem, 'kind' | 'path'>[]): boolean {
+	for (let i = 1; i < items.length; i++) if (compareMediaItems(items[i - 1]!, items[i]!) > 0) return false;
+	return true;
+}
+
 export const MEDIA_KIND_LABEL: Record<MediaKind, string> = {
 	model: '3D models',
 	music: 'Music',

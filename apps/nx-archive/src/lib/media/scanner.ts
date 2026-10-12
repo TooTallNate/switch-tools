@@ -34,6 +34,7 @@ import { parseFf7HrcForView, parseFf7RsdForView } from '../preview';
 import { audioKindFor, classifyNode, titleFor } from './classify';
 import {
 	MEDIA_INDEX_VERSION,
+	compareMediaItems,
 	type MediaIndex,
 	type MediaItem,
 	type MediaKind,
@@ -506,6 +507,8 @@ function finalize(
 			parts: p && p.size ? [...p] : undefined,
 		});
 	}
+	// Library order, so views can skip re-sorting (see `isMediaOrder`).
+	out.sort(compareMediaItems);
 	return {
 		version: MEDIA_INDEX_VERSION,
 		fileName: base.fileName,

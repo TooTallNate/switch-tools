@@ -63,19 +63,28 @@ function canvas(w: number, h: number): HTMLCanvasElement {
 	return c;
 }
 
+/**
+ * A CPU-backed 2D context. Chrome's default GPU-backed canvases make
+ * `toBlob` do a synchronous GPU readback on the main thread, which was
+ * the largest main-thread cost while a library scan generated thumbnails.
+ */
+function ctx2d(c: HTMLCanvasElement): CanvasRenderingContext2D {
+	return c.getContext('2d', { willReadFrequently: true })!;
+}
+
 const toPng = (c: HTMLCanvasElement) =>
 	new Promise<Blob>((resolve, reject) => c.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png'));
 
 /** Downscale RGBA pixels into a ≤256 px PNG. */
 async function rgbaThumb(img: Rgba): Promise<Blob> {
 	const src = canvas(img.width, img.height);
-	const ctx = src.getContext('2d')!;
+	const ctx = ctx2d(src);
 	const data = ctx.createImageData(img.width, img.height);
 	data.data.set(img.pixels.subarray(0, img.width * img.height * 4));
 	ctx.putImageData(data, 0, 0);
 	const scale = Math.min(1, SIZE / Math.max(img.width, img.height));
 	const out = canvas(Math.max(1, Math.round(img.width * scale)), Math.max(1, Math.round(img.height * scale)));
-	const octx = out.getContext('2d')!;
+	const octx = ctx2d(out);
 	octx.imageSmoothingQuality = 'high';
 	if (img.flipY) {
 		octx.translate(0, out.height);
@@ -97,7 +106,7 @@ async function bitmapThumb(blob: Blob): Promise<{ png: Blob; width: number; heig
 	}
 	const scale = Math.min(1, SIZE / Math.max(bmp.width, bmp.height));
 	const out = canvas(Math.max(1, Math.round(bmp.width * scale)), Math.max(1, Math.round(bmp.height * scale)));
-	out.getContext('2d')!.drawImage(bmp, 0, 0, out.width, out.height);
+	ctx2d(out).drawImage(bmp, 0, 0, out.width, out.height);
 	const res = { png: await toPng(out), width: bmp.width, height: bmp.height };
 	bmp.close();
 	return res;
@@ -148,6 +157,10 @@ function renderer(): THREE.WebGLRenderer {
 		sharedRenderer.setPixelRatio(1);
 		sharedRenderer.setSize(SIZE, SIZE, false);
 		sharedRenderer.outputColorSpace = THREE.SRGBColorSpace;
+		// The error check queries link status synchronously, stalling the
+		// main thread on every new shader; a bad shader just means a blank
+		// thumbnail here.
+		sharedRenderer.debug.checkShaderErrors = false;
 	}
 	return sharedRenderer;
 }
@@ -275,7 +288,7 @@ async function audioThumb(blob: Blob): Promise<{ png: Blob; durationSec: number 
 	}
 	const max = Math.max(1e-3, ...peaks);
 	const c = canvas(W, H);
-	const g = c.getContext('2d')!;
+	const g = ctx2d(c);
 	g.fillStyle = '#8b5cf6';
 	const bw = W / bins;
 	for (let b = 0; b < bins; b++) {
@@ -297,7 +310,7 @@ async function fontThumb(node: Node): Promise<{ png: Blob; family?: string }> {
 	document.fonts.add(face);
 	try {
 		const c = canvas(SIZE, 128);
-		const g = c.getContext('2d')!;
+		const g = ctx2d(c);
 		g.fillStyle = '#e5e7eb';
 		g.textBaseline = 'middle';
 		g.font = `64px "${family}"`;
@@ -329,7 +342,7 @@ async function videoThumb(blob: Blob): Promise<{ png: Blob; durationSec: number;
 		});
 		const scale = Math.min(1, SIZE / Math.max(video.videoWidth, video.videoHeight));
 		const c = canvas(Math.round(video.videoWidth * scale), Math.round(video.videoHeight * scale));
-		c.getContext('2d')!.drawImage(video, 0, 0, c.width, c.height);
+		ctx2d(c).drawImage(video, 0, 0, c.width, c.height);
 		return { png: await toPng(c), durationSec: video.duration, width: video.videoWidth, height: video.videoHeight };
 	} finally {
 		URL.revokeObjectURL(url);

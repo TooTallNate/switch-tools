@@ -48,7 +48,7 @@ import type { KeySet } from "@tootallnate/nca"
 import { formatBytes } from "~/lib/utils"
 import { ModelExportScopeContext, type ModelExportScope } from "~/components/model-export-scope"
 import { LibraryView } from "~/components/library/library-view"
-import { useMediaLibrary } from "~/components/library/use-media-library"
+import { useMediaLibrary, type MediaLibraryEnv } from "~/components/library/use-media-library"
 import { directoryIdentity, fileIdentity, persistentCacheFor } from "~/lib/media/cache"
 
 type ViewMode = "library" | "files"
@@ -629,7 +629,16 @@ function ArchiveApp() {
         : null,
     [opened],
   )
-  const library = useMediaLibrary(opened?.root ?? null, fileKey, libraryBase)
+  const libraryEnv = useMemo<MediaLibraryEnv>(
+    () => ({
+      source: !opened ? null : opened.kind === "file" ? { kind: "file", file: opened.file } : { kind: "directory", directory: opened.directory },
+      getKeys: () => keysRef.current,
+      requestKeys: () => setKeysOpen(true),
+      requestOodle: () => setOodleOpen(true),
+    }),
+    [opened],
+  )
+  const library = useMediaLibrary(opened?.root ?? null, fileKey, libraryBase, libraryEnv)
 
   const selectById = useCallback(
     async (id: string | null) => {

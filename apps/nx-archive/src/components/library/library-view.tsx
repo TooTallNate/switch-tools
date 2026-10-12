@@ -44,7 +44,7 @@ import { exportableModels, exportModelsZip } from "~/lib/media/batch-export"
 import type { ExportFormat } from "~/lib/model-export"
 import { gapReportMarkdown, summarize } from "~/lib/media/gaps"
 import type { ThumbResult } from "~/lib/media/thumbnails"
-import { MEDIA_KIND_LABEL, MEDIA_KINDS, type MediaItem, type MediaKind } from "~/lib/media/types"
+import { MEDIA_KIND_LABEL, MEDIA_KINDS, compareMediaItems, isMediaOrder, type MediaItem, type MediaKind } from "~/lib/media/types"
 import { triggerDownload } from "~/lib/mesh-export"
 import { cn, formatBytes } from "~/lib/utils"
 
@@ -59,8 +59,6 @@ const KIND_ICON: Record<MediaKind, typeof BoxIcon> = {
   font: TypeIcon,
   image: ImageIcon,
 }
-
-const KIND_ORDER = Object.fromEntries(MEDIA_KINDS.map((k, i) => [k, i])) as Record<MediaKind, number>
 
 function duration(sec: number): string {
   const m = Math.floor(sec / 60)
@@ -572,10 +570,11 @@ export function LibraryView({
   }, [visible])
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return visible
+    const out = visible
       .filter((i) => (kind === "all" ? true : kind === "issues" ? i.status !== "ok" : i.kind === kind))
       .filter((i) => !q || i.title.toLowerCase().includes(q) || i.path.toLowerCase().includes(q) || i.format.toLowerCase().includes(q))
-      .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || a.path.localeCompare(b.path, undefined, { numeric: true }))
+    // Scans emit items in library order; re-sort only if a patch changed a kind.
+    return isMediaOrder(out) ? out : out.sort(compareMediaItems)
   }, [visible, kind, query])
 
   const itemsById = useMemo(() => new Map((index?.items ?? []).map((i) => [i.id, i])), [index])

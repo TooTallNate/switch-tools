@@ -3,14 +3,25 @@
  * loads a cached index (instant on reopen), otherwise runs the
  * automatic scan in the background, merges facts learned by the
  * thumbnail pipeline into items, and persists everything.
+ *
+ * The scan runs in a Web Worker (`~/lib/media/scan-client`) so it never
+ * blocks rendering; when workers are unavailable it falls back to the
+ * in-thread scanner over the shared tree.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import type { Node } from "~/lib/archive"
 import { loadIndex, saveIndex } from "~/lib/media/cache"
+import type { KeySet } from "@tootallnate/nca"
+
+import { ScanWorkerUnavailableError, scanInWorker, scanWorkerEnabled } from "~/lib/media/scan-client"
+import type { ScanSource } from "~/lib/media/scan-worker"
 import { scanMedia } from "~/lib/media/scanner"
 import { ThumbnailService, type ItemPatch } from "~/lib/media/thumbnails"
 import { MEDIA_INDEX_VERSION, type MediaIndex } from "~/lib/media/types"
+
+/** How often thumbnail-learned facts (durations, sizes, statuses) re-render the library. */
+const PATCH_FLUSH_MS = 500
 
 export interface ScanProgress {
   visited: number
@@ -55,11 +66,22 @@ function applyPatches(index: MediaIndex, patches: Map<string, ItemPatch>): Media
   }
 }
 
+/** What a worker scan needs from the app: the opened source, and keys / prompts. */
+export interface MediaLibraryEnv {
+  source: ScanSource | null
+  getKeys: () => KeySet | null
+  requestKeys: () => void
+  requestOodle: () => void
+}
+
 export function useMediaLibrary(
   root: Node | null,
   fileKey: string | null,
   base: { fileName: string; fileSize: number } | null,
+  env?: MediaLibraryEnv,
 ): MediaLibrary {
+  const envRef = useRef(env)
+  envRef.current = env
   const [raw, setRaw] = useState<MediaIndex | null>(null)
   const [scanning, setScanning] = useState(false)
   const [progress, setProgress] = useState<ScanProgress | null>(null)
@@ -82,10 +104,18 @@ export function useMediaLibrary(
 
   const thumbs = useMemo(() => {
     if (!root) return null
+    // Each patch re-derives the whole index (and the view re-filters it),
+    // so thumbnails' facts are coalesced into one update per interval.
+    let flush: ReturnType<typeof setTimeout> | null = null
     return new ThumbnailService(fileKey, root, (id, patch) => {
       const prev = patches.current.get(id)
       patches.current.set(id, { ...prev, ...patch, info: { ...prev?.info, ...patch.info } })
-      setPatchVersion((v) => v + 1)
+      if (!flush) {
+        flush = setTimeout(() => {
+          flush = null
+          setPatchVersion((v) => v + 1)
+        }, PATCH_FLUSH_MS)
+      }
       schedulePersist()
     })
   }, [root, fileKey, schedulePersist])
@@ -100,8 +130,18 @@ export function useMediaLibrary(
       setScanning(true)
       setFromCache(false)
       let lastProgress = 0
-      try {
-        const result = await scanMedia(
+      const onUpdate = (idx: MediaIndex) => {
+        if (!ac.signal.aborted) setRaw(idx)
+      }
+      const onProgress = (visited: number, path: string) => {
+        const now = performance.now()
+        if (now - lastProgress > 150 && !ac.signal.aborted) {
+          lastProgress = now
+          setProgress({ visited, path })
+        }
+      }
+      const inThread = () =>
+        scanMedia(
           root,
           { ...base, platform: root.format ?? "file" },
           {
@@ -109,18 +149,37 @@ export function useMediaLibrary(
             include: opts.include ? new Set(opts.include) : undefined,
             deep: opts.deep,
             updateIntervalMs: 1200,
-            onUpdate: (idx) => {
-              if (!ac.signal.aborted) setRaw(idx)
-            },
-            onProgress: (visited, path) => {
-              const now = performance.now()
-              if (now - lastProgress > 150 && !ac.signal.aborted) {
-                lastProgress = now
-                setProgress({ visited, path })
-              }
-            },
+            onUpdate,
+            onProgress,
           },
         )
+      try {
+        const e = envRef.current
+        let result: MediaIndex
+        if (e?.source && scanWorkerEnabled()) {
+          try {
+            result = await scanInWorker({
+              source: e.source,
+              fileKey,
+              keys: e.getKeys(),
+              base,
+              include: opts.include,
+              deep: opts.deep,
+              signal: ac.signal,
+              onUpdate,
+              onProgress,
+              onRequestKeys: e.requestKeys,
+              onRequestOodle: e.requestOodle,
+            })
+          } catch (err) {
+            if (ac.signal.aborted) return
+            if (!(err instanceof ScanWorkerUnavailableError)) throw err
+            console.warn("Scan worker unavailable, scanning on the main thread:", err.message)
+            result = await inThread()
+          }
+        } else {
+          result = await inThread()
+        }
         if (ac.signal.aborted) return
         setRaw(result)
         if (fileKey && result.complete) void saveIndex(fileKey, applyPatches(result, patches.current))
