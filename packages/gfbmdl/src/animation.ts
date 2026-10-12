@@ -6,8 +6,10 @@
  *
  * Bone tracks are FlatBuffers unions: a `u8` type tag slot followed by
  * the value table slot. Tag 1 = fixed (one value), 2 = dynamic (one
- * value per frame), 3 = framed (u16 key frames + values). Rotations
- * are 48-bit "smallest three" packed quaternions.
+ * value per frame), 3 = framed (u16 key frames + values), 4 = framed
+ * with u8 key frames (Legends: Arceus `.tranm`, per pkZukan/PokeDocs
+ * `tranm.fbs`). Rotations are 48-bit "smallest three" packed
+ * quaternions.
  *
  * Correction to Switch-Toolbox's schema: in Let's Go files
  * `Trigger.Parameter` is a *vector* of parameters, not a single table.
@@ -65,7 +67,9 @@ export interface GfbanmAnimation {
 	triggers: GfbanmTrigger[];
 }
 
-const KINDS: (GfbanmTrackKind | null)[] = [null, 'fixed', 'dynamic', 'framed'];
+const KINDS: (GfbanmTrackKind | null)[] = [null, 'fixed', 'dynamic', 'framed', 'framed'];
+/** Union tag of framed tracks whose key frames are u8 (`Framed8…Track`). */
+const FRAMED8 = 4;
 
 // ---- packed quaternion (port of Switch-Toolbox `PackedToQuat`) ----
 const QUAT_SWIZZLE = [
@@ -136,7 +140,8 @@ function readTrack<T>(
 	readFixed: (t: Table) => T | null,
 	readVec: (t: Table, slot: number) => T[],
 ): GfbanmTrack<T> | null {
-	const kind = KINDS[owner.u8(typeSlot)] ?? null;
+	const tag = owner.u8(typeSlot);
+	const kind = KINDS[tag] ?? null;
 	const t = owner.table(valueSlot);
 	if (!kind || !t) return null;
 	if (kind === 'fixed') {
@@ -147,7 +152,10 @@ function readTrack<T>(
 		const values = readVec(t, 0);
 		return values.length ? { kind, frames: null, values } : null;
 	}
-	const frames = t.u16s(0);
+	const frames = tag === FRAMED8 ? (() => {
+		const b = t.bytes(0);
+		return b ? Uint16Array.from(b) : null;
+	})() : t.u16s(0);
 	const values = readVec(t, 1);
 	if (!frames || !values.length) return null;
 	return { kind, frames, values };

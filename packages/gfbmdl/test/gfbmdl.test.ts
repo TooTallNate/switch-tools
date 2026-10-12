@@ -280,6 +280,21 @@ describe('animation', () => {
 		expect(sampleVec3(anim.bones[0].translation!, 5)).toEqual([5, 5, 0]);
 	});
 
+	it('reads framed tracks with u8 key frames (Legends: Arceus .tranm)', () => {
+		const bytes = buildFlatBuffer([
+			F.table([F.u32(0), F.u32(11), F.u32(60)]),
+			F.table([
+				F.tables([
+					[F.str('Skin'), null, null, null, null, F.u8(4), F.table([F.bytes(new Uint8Array([0, 10])), F.structs(f32Bytes([0, 0, 0, 0, 4, 0]), 2)])],
+				]),
+			]),
+		]);
+		const t = parseGfbanm(bytes).bones[0].translation!;
+		expect(t.kind).toBe('framed');
+		expect(Array.from(t.frames!)).toEqual([0, 10]);
+		expect(sampleVec3(t, 5)).toEqual([0, 2, 0]);
+	});
+
 	it('skins a posed vertex', () => {
 		const pose = new GfbmdlPose(model, mesh);
 		pose.setPose(anim, 10);
