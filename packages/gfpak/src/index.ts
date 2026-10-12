@@ -381,15 +381,25 @@ export async function parseGfpak(blob: Blob, options: ParseGfpakOptions = {}): P
 	}
 
 	const nameHints = new Set(options.nameHints ?? []);
+	const identifiers = new Set<string>();
 	for (const entry of entries) {
 		const sniff = await sniffEntry(blob, entry, options.sniffOodle === false ? undefined : options.oodle);
 		entry.innerMagic = sniff.magic;
 		entry.innerExt = sniff.ext;
 		entry.embeddedName = sniff.embeddedName;
 		for (const n of sniff.referencedNames) nameHints.add(n);
+		for (const n of sniff.identifiers ?? []) identifiers.add(n);
 	}
 
 	const parsed: ParsedGfpak = { version, fileCount, folderCount, folders, entries };
+	// Clip files (`pm0025_00_00_00000_defaultwait01_loop.tranm`) are named
+	// in the pak's animation graph; try `<stem prefix>_<identifier>.<ext>`.
+	if (identifiers.size) {
+		const stem = options.path?.split('/').pop()?.replace(/\.gfpak$/i, '') ?? '';
+		const segs = stem.split('_');
+		const prefixes = ['', ...segs.map((_, i) => `${segs.slice(0, i + 1).join('_')}_`)];
+		for (const id of identifiers) for (const p of prefixes) for (const ext of CLIP_EXTS) nameHints.add(`${p}${id}.${ext}`);
+	}
 	resolveGfpakNames(parsed, { path: options.path, nameHints: [...nameHints] });
 	for (const entry of entries) entry.displayName = synthesizeDisplayName(entry);
 	return parsed;
@@ -561,6 +571,31 @@ interface SniffResult {
 	embeddedName: string;
 	/** File names referenced by this entry (gfbanmcfg animation files). */
 	referencedNames: string[];
+	/** Identifier strings found in a magic-less entry (clip names in animation graphs). */
+	identifiers?: string[];
+}
+
+/** Clip-name extensions an identifier may name, prefixed by the pak stem (Legends: Arceus). */
+const CLIP_EXTS = ['tranm', 'tracm', 'tracn', 'tracr', 'tracl', 'tracp', 'tracs', 'traef', 'gfbanm'];
+
+/** FlatBuffer strings (u32 length, bytes, NUL) that look like identifiers. */
+function identifierStrings(bytes: Uint8Array, limit = 4000): string[] {
+	const out = new Set<string>();
+	const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+	for (let p = 0; p + 8 <= bytes.length && out.size < limit; p += 4) {
+		const n = dv.getUint32(p, true);
+		if (n < 3 || n > 80 || p + 4 + n >= bytes.length || bytes[p + 4 + n] !== 0) continue;
+		let ok = true;
+		for (let i = 0; i < n; i++) {
+			const c = bytes[p + 4 + i]!;
+			if (!((c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || c === 0x5f || c === 0x2d)) {
+				ok = false;
+				break;
+			}
+		}
+		if (ok) out.add(String.fromCharCode(...bytes.subarray(p + 4, p + 4 + n)));
+	}
+	return [...out];
 }
 
 /** Largest uncompressed entry we'll read whole just to sniff it. */
@@ -612,6 +647,7 @@ async function sniffEntry(blob: Blob, entry: GfpakEntry, oodle?: GfpakOodleDecom
 	else if (/^[A-Z][A-Za-z0-9 ]{3}$/.test(magic4)) magic = magic4;
 	else magic = null;
 	const referencedNames: string[] = [];
+	let identifiers: string[] | undefined;
 	if (!magic) {
 		// Magic-less Game Freak FlatBuffers (models / animations).
 		if (!full && entry.compression === GfpakCompression.None && entry.decompressedSize <= MAX_FULL_SNIFF) {
@@ -629,6 +665,7 @@ async function sniffEntry(blob: Blob, entry: GfpakEntry, oodle?: GfpakOodleDecom
 			referencedNames.push(...trinityReferencedNames(trinity, full!));
 		}
 		const kind = !trinity && full ? sniffGflx(full) : null;
+		if (!trinity && !kind && full && full.length <= 4 * 1024 * 1024) identifiers = identifierStrings(full);
 		if (kind) {
 			magic = kind;
 			try {
@@ -663,7 +700,7 @@ async function sniffEntry(blob: Blob, entry: GfpakEntry, oodle?: GfpakOodleDecom
 			);
 		}
 	}
-	return { magic, ext, embeddedName, referencedNames };
+	return { magic, ext, embeddedName, referencedNames, identifiers };
 }
 
 async function decompressEntry(
