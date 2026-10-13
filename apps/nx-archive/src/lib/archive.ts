@@ -48,6 +48,7 @@ import { parseBfsar, extForMagic as bfsarExtForMagic } from '@tootallnate/bfsar'
 import { parseBfwar } from '@tootallnate/bfwar';
 import { parseBfres } from '@tootallnate/bfres';
 import { parseBea, type BeaEntry } from '@tootallnate/bea';
+import { BLOB_FACADE } from './blob-facade';
 import { GFPAK_INFO_VERSION, gfpakEntryInfo, parseGfpak, type GfpakEntryInfo } from '@tootallnate/gfpak';
 import { parseAkpk } from '@tootallnate/wwise-pck';
 import { parseBnk } from '@tootallnate/wwise-bnk';
@@ -5651,6 +5652,7 @@ function makeFmodBankNode(
  * and caches the result. Subsequent calls return the same buffer.
  */
 class LazyDecompressBlob extends Blob {
+	readonly [BLOB_FACADE] = true as const;
 	private _decoder: () => Promise<Blob>;
 	private _cached: Promise<ArrayBuffer> | null = null;
 	// Callers (the preview pane, the file tree) read `size`
@@ -5667,6 +5669,26 @@ class LazyDecompressBlob extends Blob {
 			this._cached = this._decoder().then((b) => b.arrayBuffer());
 		}
 		return this._cached;
+	}
+	// The native backing is empty, so every read goes through the
+	// decoder (downloads and the VFS stream, previews read `text()`).
+	override async bytes(): Promise<Uint8Array<ArrayBuffer>> {
+		return new Uint8Array(await this.arrayBuffer());
+	}
+	override async text(): Promise<string> {
+		return new TextDecoder().decode(await this.arrayBuffer());
+	}
+	override stream(): ReadableStream<Uint8Array<ArrayBuffer>> {
+		return new ReadableStream({
+			start: async (controller) => {
+				try {
+					controller.enqueue(await this.bytes());
+					controller.close();
+				} catch (err) {
+					controller.error(err);
+				}
+			},
+		});
 	}
 	override slice(start = 0, end?: number): Blob {
 		// `slice()` is used by magic-sniffing code and by leaf-blob

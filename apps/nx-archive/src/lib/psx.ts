@@ -29,6 +29,7 @@ import {
 import { parsePbp, type CdTrack, type ParsedPbp } from '@tootallnate/pbp';
 import { decodeXaStream, hasStrVideo, isCookedStr, pcm16ToWav, scanXaStreams } from '@tootallnate/psx-str';
 import type { Node } from './archive';
+import { BLOB_FACADE, isBlobFacade, realBlob } from './blob-facade';
 import { detectFf7PsxModel } from './ff7-psx';
 
 /** Builds a child node the normal way (injected by archive.ts). */
@@ -41,6 +42,7 @@ export type ChildFor = (id: string, name: string, blob: Blob) => Promise<Node>;
  * `stream` work — hand {@link materialize}d Blobs to browser APIs.
  */
 export class SectorFileBlob extends Blob {
+	readonly [BLOB_FACADE] = true as const;
 	constructor(
 		private readonly reader: SectorReader,
 		private readonly lba: number,
@@ -99,8 +101,8 @@ export class SectorFileBlob extends Blob {
 
 /** Read a SectorFileBlob (or any Blob) into a real, browser-usable Blob. */
 export async function materialize(blob: Blob, type = ''): Promise<Blob> {
-	if (!(blob instanceof SectorFileBlob)) return blob;
-	return new Blob([(await blob.read()) as BlobPart], { type });
+	if (blob instanceof SectorFileBlob) return new Blob([(await blob.read()) as BlobPart], { type });
+	return isBlobFacade(blob) ? realBlob(blob, type) : blob;
 }
 
 const WAV_HEADER = 44;

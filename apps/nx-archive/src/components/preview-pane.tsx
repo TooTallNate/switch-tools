@@ -269,6 +269,7 @@ import {
   type SupportedLang,
 } from "~/lib/highlight"
 import { useTheme } from "next-themes"
+import { isBlobFacade, realBlob } from "~/lib/blob-facade"
 import { cn, formatBytes } from "~/lib/utils"
 import {
   formatBytesShort,
@@ -15470,7 +15471,9 @@ export function ErrorFiller({ error }: { error: Error }) {
  * files inside Switch archives are well under that range.
  */
 async function materializeAsBlob(value: Blob): Promise<Blob> {
-  // Real Blobs (and File, which extends Blob) pass straight through.
+  // Real Blobs (and File, which extends Blob) pass straight through;
+  // facades extend Blob too, but their native backing is empty.
+  if (isBlobFacade(value)) return realBlob(value)
   if (typeof Blob !== "undefined" && value instanceof Blob) {
     return value
   }
@@ -15572,7 +15575,9 @@ function DownloadButton({
         // independently of the iframe.
         setTimeout(() => iframe.remove(), 60_000)
       }
-      const isReal = typeof Blob !== "undefined" && blob instanceof Blob
+      // Facades (lazy GFPAK entries, disc sectors) extend Blob but are
+      // empty to createObjectURL: they'd download as 0 bytes.
+      const isReal = typeof Blob !== "undefined" && blob instanceof Blob && !isBlobFacade(blob)
       if (isReal) {
         const url = URL.createObjectURL(blob)
         clickAnchor(url)
