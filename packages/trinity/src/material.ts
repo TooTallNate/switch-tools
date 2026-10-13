@@ -90,9 +90,20 @@ export function bakeLayeredAlbedo(mat: TrinityMaterial, albedo: RgbaImage | null
 	return { width, height, pixels };
 }
 
-/** `UVScaleOffset` (scale u, scale v, offset u, offset v); identity when absent. */
-export function uvScaleOffset(mat: TrinityMaterial): [number, number, number, number] {
-	return mat.float4s.UVScaleOffset ?? [1, 1, 0, 0];
+/**
+ * The `UVScaleOffset` (scale u, scale v, offset u, offset v) a material's
+ * shader applies; identity when absent. `value` overrides the stored
+ * parameter (an animated value).
+ *
+ * Eye materials with `UVTransformMode` `T` (translate) apply only the
+ * offset, which steps between the cells of an expression atlas; their
+ * stored scale is ignored. Magnemite's eye is (2, 4) and Magikarp's is
+ * (1, 0): taken literally, they would clamp the mask to an empty edge
+ * or collapse it to one row.
+ */
+export function uvScaleOffset(mat: TrinityMaterial, value?: readonly number[]): [number, number, number, number] {
+	const [su = 1, sv = 1, ou = 0, ov = 0] = value ?? mat.float4s.UVScaleOffset ?? [];
+	return mat.shaderValues.UVTransformMode === 'T' ? [1, 1, ou, ov] : [su, sv, ou, ov];
 }
 
 // ---------------------------------------------------------------------------
@@ -174,7 +185,7 @@ export function bakeTrinitySurface(
 		const c = param(`BaseColorLayer${i}`);
 		return c ? [c[0]!, c[1]!, c[2]!] : null;
 	});
-	const [s0u, s0v, o0u, o0v] = (param('UVScaleOffset') ?? [1, 1, 0, 0]) as number[];
+	const [s0u, s0v, o0u, o0v] = uvScaleOffset(mat, param('UVScaleOffset'));
 	const [s1u, s1v, o1u, o1v] = (param('UVScaleOffset1') ?? [1, 1, 0, 0]) as number[];
 	const highlightColor = (param('EmissionColorLayer5') ?? [1, 1, 1]).slice(0, 3);
 	const { width, height } = region;

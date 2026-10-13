@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	bakeTerrainColor,
 	bakeTrinitySurface,
+	uvScaleOffset,
 	buildTerrainMesh,
 	parseTrtrr,
 	sampleTracmMaterials,
@@ -316,6 +317,25 @@ describe('bakeTrinitySurface', () => {
 		const out2 = bakeTrinitySurface(mat, { BaseColorMap: solid(1, 1, [0, 0, 0, 255]), HighlightMaskMap: mask }, { u0: 0, v0: 0, u1: 1, v1: 1, width: 4, height: 1 }, { UVScaleOffset1: [1, 1, 0, 0] });
 		expect(out2.pixels[0]).toBe(255);
 		expect(out2.pixels[3 * 4]).toBe(0);
+	});
+
+	it('ignores the UV scale in translate-only (UVTransformMode T) eyes', () => {
+		const shaderValues = { UVTransformMode: 'T' };
+		const mat = material({
+			shaderValues,
+			textures: [{ binding: 'BaseColorMap', file: 'a', slot: 0 }],
+			samplers: [{ wrapU: 'clamp', wrapV: 'clamp' }],
+			// Magnemite's eye: taken literally, (2, 4) clamps to the edge.
+			float4s: { UVScaleOffset: [2, 4, 0, 0] },
+		});
+		expect(uvScaleOffset(mat)).toEqual([1, 1, 0, 0]);
+		expect(uvScaleOffset(mat, [2, 4, 0.5, 0])).toEqual([1, 1, 0.5, 0]);
+		expect(uvScaleOffset(material({ shaderValues: {}, float4s: { UVScaleOffset: [2, 4, 0, 0] } }))).toEqual([2, 4, 0, 0]);
+		// 2×1 albedo: black left, white right. Scaled by 2, raw u = 0.375
+		// would sample the white half; unscaled it stays black.
+		const albedo = { width: 2, height: 1, pixels: new Uint8Array([0, 0, 0, 255, 255, 255, 255, 255]) };
+		const out = bakeTrinitySurface(mat, { BaseColorMap: albedo }, { u0: 0, v0: 0, u1: 1, v1: 1, width: 4, height: 1 });
+		expect([0, 1, 2, 3].map((x) => out.pixels[x * 4])).toEqual([0, 0, 255, 255]);
 	});
 });
 
