@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/aurora",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "BioWare Aurora (Star Wars: Knights of the Old Republic I / II) formats: KEY / BIF, ERF / RIM / MOD archives, TPC textures and binary MDL / MDX models.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/aurora"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@tootallnate/bcn": "workspace:*"
+  }
+}
