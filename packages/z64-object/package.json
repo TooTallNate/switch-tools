@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/z64-object",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Zelda 64 (Ocarina of Time / Majora's Mask) object files: object table, skeletons and their bind-posed meshes.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/z64-object"
+  },
+  "dependencies": {
+    "@tootallnate/f3dex": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

@@ -586,6 +586,9 @@ importers:
       '@tootallnate/z64-fs':
         specifier: workspace:*
         version: link:../../packages/z64-fs
+      '@tootallnate/z64-object':
+        specifier: workspace:*
+        version: link:../../packages/z64-object
       '@tootallnate/zstd-wasm':
         specifier: workspace:*
         version: link:../../packages/zstd-wasm
@@ -1707,6 +1710,16 @@ importers:
       '@tootallnate/yaz0':
         specifier: workspace:*
         version: link:../yaz0
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/z64-object:
+    dependencies:
+      '@tootallnate/f3dex':
+        specifier: workspace:*
+        version: link:../f3dex
     devDependencies:
       typescript:
         specifier: ^5.3.3
