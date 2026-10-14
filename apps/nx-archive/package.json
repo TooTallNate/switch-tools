@@ -98,6 +98,7 @@
     "@tootallnate/msbt": "workspace:*",
     "@tootallnate/mth": "workspace:*",
     "@tootallnate/n64-rom": "workspace:*",
+    "@tootallnate/n64-seq": "workspace:*",
     "@tootallnate/n64-soundbank": "workspace:*",
     "@tootallnate/nacp": "workspace:*",
     "@tootallnate/nca": "workspace:*",

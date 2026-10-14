@@ -53,6 +53,9 @@ import { isPokemonStadium2 } from '@tootallnate/pokestadium';
 import { findGoldeneyeFiles, isGoldeneyeRom, makeGoldeneyeDirs } from './goldeneye';
 import { makeAlBankDirNode } from './n64-libaudio';
 import { makeSm64Dirs, sm64Scripts } from './sm64';
+import { makeN64MusicDir } from './n64-music';
+import { findSeqLibrary } from '@tootallnate/n64-seq';
+import { SM64_SEQUENCE_NAMES } from '@tootallnate/sm64';
 import { findZ64Objects, makeZ64ObjectsDir, makeZ64SceneDirs } from './z64-objects';
 import { makeStadium2ModelDirs } from './pokestadium';
 import { GFPAK_INFO_VERSION, gfpakEntryInfo, parseGfpak, type GfpakEntryInfo } from '@tootallnate/gfpak';
@@ -8396,9 +8399,12 @@ function makeN64RomNode(
 			const kartSprites = isMk64Rom(rom)
 				? makeMk64KartSpritesNode(`${id}/kart sprites`, normalizedOnce, rom)
 				: null;
+			// Sequenced music (SM64-family audio library).
+			const seqLib = soundBanks ? findSeqLibrary(rom) : null;
 			return [
 				...stadiumDirs,
 				...sm64Dirs,
+				...(seqLib ? [makeN64MusicDir(`${id}/music`, rom, seqLib, sm64 ? SM64_SEQUENCE_NAMES : undefined)] : []),
 				...(kartSprites ? [kartSprites] : []),
 				...(soundBanks
 					? [makeSoundBankDirNode(`${id}/audio`, rom, soundBanks)]
