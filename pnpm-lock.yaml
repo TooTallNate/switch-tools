@@ -445,6 +445,9 @@ importers:
       '@tootallnate/n64-rom':
         specifier: workspace:*
         version: link:../../packages/n64-rom
+      '@tootallnate/n64-seq':
+        specifier: workspace:*
+        version: link:../../packages/n64-seq
       '@tootallnate/n64-soundbank':
         specifier: workspace:*
         version: link:../../packages/n64-soundbank
@@ -1311,6 +1314,19 @@ importers:
         version: 5.9.3
 
   packages/n64-rom:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/n64-seq:
+    dependencies:
+      '@tootallnate/n64-soundbank':
+        specifier: workspace:*
+        version: link:../n64-soundbank
+      '@tootallnate/vadpcm':
+        specifier: workspace:*
+        version: link:../vadpcm
     devDependencies:
       typescript:
         specifier: ^5.3.3

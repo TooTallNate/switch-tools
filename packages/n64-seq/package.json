@@ -1,0 +1,26 @@
+{
+  "name": "@tootallnate/n64-seq",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "N64 sequenced music (Super Mario 64 / Mario Kart 64 audio library): M64 sequence player and sample synth.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/n64-seq"
+  },
+  "dependencies": {
+    "@tootallnate/n64-soundbank": "workspace:*",
+    "@tootallnate/vadpcm": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
