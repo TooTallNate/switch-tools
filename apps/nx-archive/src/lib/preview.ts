@@ -196,6 +196,8 @@ export type PreviewKind =
 	 * + uncompressed RGBA via `@tootallnate/dds`.
 	 */
 	| 'dds-image'
+	/** Truevision TGA image (Quake 3-engine games, KOTOR, …). */
+	| 'tga-image'
 	/**
 	 * FFVIII PC field-scene background (`.map` + sibling `.mim`).
 	 * Composited 2D pre-rendered backgrounds (Balamb Garden
@@ -730,6 +732,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 		return 'byaml-tree';
 	}
 	if (lower.endsWith('.bntx')) return 'bntx-image';
+	if (lower.endsWith('.tga')) return 'tga-image';
 	// Standalone DDS textures (NOT `.dds.phyre`, handled below).
 	if (lower.endsWith('.dds') && !lower.endsWith('.dds.phyre')) {
 		return 'dds-image';

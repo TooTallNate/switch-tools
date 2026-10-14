@@ -130,6 +130,7 @@
     "@tootallnate/snes-rom": "workspace:*",
     "@tootallnate/square-wd": "workspace:*",
     "@tootallnate/ssm": "workspace:*",
+    "@tootallnate/tga": "workspace:*",
     "@tootallnate/thp": "workspace:*",
     "@tootallnate/trinity": "workspace:*",
     "@tootallnate/trpfs": "workspace:*",

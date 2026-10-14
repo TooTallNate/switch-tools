@@ -62,6 +62,7 @@ const IMAGE_KINDS = new Set([
 	'image',
 	'psx-tim',
 	'dds-image',
+	'tga-image',
 	'bntx-image',
 	'phyre-image',
 	'bimage',

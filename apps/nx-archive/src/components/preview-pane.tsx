@@ -1918,6 +1918,8 @@ function FilePreview({
       return <Ff7WorldMapPreview node={node} root={root} />
     case "dds-image":
       return <DdsPreview node={node} />
+    case "tga-image":
+      return <DdsPreview node={node} kind="tga" />
     case "ff8-field-scene":
       return <Ff8FieldScenePreview node={node} root={root} />
     case "ff8-battle-dat":

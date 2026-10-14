@@ -11,6 +11,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react"
 import { parseDds } from "@tootallnate/dds"
+import { decodeTga } from "@tootallnate/tga"
 import type { Node } from "~/lib/archive"
 import { ErrorFiller, LoadingFiller, useAsync } from "./preview-pane"
 import { triggerDownload, sanitizeStem } from "~/lib/mesh-export"
@@ -24,8 +25,12 @@ interface ParsedView {
 	rawDdsBytes: Uint8Array
 }
 
-async function parse(blob: Blob): Promise<ParsedView> {
+async function parse(blob: Blob, kind: "dds" | "tga"): Promise<ParsedView> {
 	const rawDdsBytes = new Uint8Array(await blob.arrayBuffer())
+	if (kind === "tga") {
+		const t = decodeTga(rawDdsBytes)
+		return { width: t.width, height: t.height, pixels: t.pixels, formatLabel: t.hasAlpha ? "TGA RGBA" : "TGA RGB", rawDdsBytes }
+	}
 	const parsed = parseDds(rawDdsBytes)
 	return {
 		width: parsed.width,
@@ -36,10 +41,10 @@ async function parse(blob: Blob): Promise<ParsedView> {
 	}
 }
 
-export function DdsPreview({ node }: { node: Node }) {
+export function DdsPreview({ node, kind = "dds" }: { node: Node; kind?: "dds" | "tga" }) {
 	const { loading, data, error } = useAsync(
-		async () => parse(await node.blob!()),
-		[node.id],
+		async () => parse(await node.blob!(), kind),
+		[node.id, kind],
 	)
 	const canvasRef = useRef<HTMLCanvasElement | null>(null)
 	const [bgKind, setBgKind] = useState<"dark" | "light" | "checker">(
@@ -73,8 +78,8 @@ export function DdsPreview({ node }: { node: Node }) {
 		if (!data) return
 		triggerDownload(
 			data.rawDdsBytes,
-			`${sanitizeStem(node.name)}.dds`,
-			"image/vnd.ms-dds",
+			`${sanitizeStem(node.name)}.${kind}`,
+			kind === "tga" ? "image/x-tga" : "image/vnd.ms-dds",
 		)
 	}
 
@@ -90,7 +95,7 @@ export function DdsPreview({ node }: { node: Node }) {
 		triggerDownload(bytes, `${sanitizeStem(node.name)}.png`, "image/png")
 	}
 
-	if (loading) return <LoadingFiller label="Decoding DDS…" />
+	if (loading) return <LoadingFiller label={kind === "tga" ? "Decoding TGA…" : "Decoding DDS…"} />
 	if (error) return <ErrorFiller error={error} />
 	if (!data) return null
 
@@ -102,7 +107,7 @@ export function DdsPreview({ node }: { node: Node }) {
 				<p className="text-xs text-muted-foreground">
 					{isDdsz ? "DDSZ (LZ4-compressed) · " : ""}
 					{data.formatLabel} · {data.width}×{data.height} ·{" "}
-					{formatBytes(data.rawDdsBytes.length)} raw DDS
+					{formatBytes(data.rawDdsBytes.length)} raw {kind.toUpperCase()}
 				</p>
 				<div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
 					<label className="flex items-center gap-1">
@@ -131,7 +136,7 @@ export function DdsPreview({ node }: { node: Node }) {
 						className="rounded border px-2 py-1 hover:bg-accent"
 						onClick={downloadDds}
 					>
-						Download DDS
+						Download {kind.toUpperCase()}
 					</button>
 				</div>
 			</div>
