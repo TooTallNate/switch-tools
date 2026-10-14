@@ -96,6 +96,12 @@ export interface F3dexMaterial {
 	wrapT: WrapMode;
 	/** True if any triangle in this material was drawn with lighting on. */
 	lit: boolean;
+	/** `G_SETPRIMCOLOR` RGBA at draw time (0–255), or null if never set. */
+	primColor: [number, number, number, number] | null;
+	/** `G_SETENVCOLOR` RGBA at draw time, or null if never set. */
+	envColor: [number, number, number, number] | null;
+	/** `G_SETCOMBINE` words at draw time, or null if never set. */
+	combine: [number, number] | null;
 	/**
 	 * Set when the texture lives in a different segment than the
 	 * geometry, so it is not present in this buffer at all.
@@ -214,6 +220,18 @@ export interface InterpretOptions {
 	 * identity.
 	 */
 	baseMatrix?: Float32Array;
+	/**
+	 * Supply `G_MTX` matrices the buffer doesn't contain, e.g. the
+	 * per-limb matrices Zelda 64 flex skeletons reference through
+	 * segment 0x0D. Return null to fall back to reading the address.
+	 */
+	resolveMatrix?: (segmentedAddress: number) => Float32Array | null;
+	/**
+	 * Resolve vertices and textures from any segment `resolveSegment`
+	 * maps, instead of only the segment the first vertices came from.
+	 * For callers that lay several segments out in one buffer.
+	 */
+	trustSegments?: boolean;
 }
 
 /** One entry of the RSP vertex cache. */
@@ -278,6 +296,25 @@ function multiplyMatrix(a: Float32Array, b: Float32Array): Float32Array {
 
 const EMPTY_FLOATS = new Float32Array(0);
 
+const rgba = (c: number | null): [number, number, number, number] | null =>
+	c === null ? null : [c >>> 24, (c >>> 16) & 255, (c >>> 8) & 255, c & 255];
+
+/**
+ * The constant colour a material's combiner multiplies in, from cycle 1
+ * of `G_SETCOMBINE`: (a − b) · c + d with a/b/c/d selectors where 3 is
+ * PRIMITIVE and 5 ENVIRONMENT. Returns the colour used as `c` (the usual
+ * "TEXEL0 · PRIM" / "SHADE · ENV" forms), else the one used as `a` or
+ * `d` when no texel / shade input is involved; null when neither is used.
+ */
+export function f3dexMaterialTint(m: Pick<F3dexMaterial, 'primColor' | 'envColor' | 'combine'>): [number, number, number, number] | null {
+	if (!m.combine) return null;
+	const [w0, w1] = m.combine;
+	const a = (w0 >>> 20) & 0xf, c = (w0 >>> 15) & 0x1f;
+	const d = (w1 >>> 15) & 0x7;
+	const pick = (sel: number) => (sel === 3 ? m.primColor : sel === 5 ? m.envColor : null);
+	return pick(c) ?? pick(a) ?? pick(d);
+}
+
 /** Growable Float32Array accumulator. */
 class FloatBuffer {
 	// Starts empty: the scanner constructs an interpreter at every
@@ -301,6 +338,9 @@ class FloatBuffer {
 }
 
 interface MaterialKeyState {
+	prim: number | null;
+	env: number | null;
+	combine: [number, number] | null;
 	timg: number | null;
 	format: number;
 	size: number;
@@ -371,6 +411,11 @@ export function interpretDisplayList(
 	let tileWidth: number | null = null;
 	let tileHeight: number | null = null;
 	let tlut: number | null = null;
+	let tileFormat: number | null = null;
+	let tileSize: number | null = null;
+	let primColor: number | null = null;
+	let envColor: number | null = null;
+	let combine: [number, number] | null = null;
 	let wrapS: WrapMode = 'wrap';
 	let wrapT: WrapMode = 'wrap';
 	let texScaleS = 1;
@@ -401,6 +446,9 @@ export function interpretDisplayList(
 			state.tlut ?? 'none',
 			state.wrapS,
 			state.wrapT,
+			state.prim ?? '-',
+			state.env ?? '-',
+			state.combine ? state.combine.join(',') : '-',
 		].join('|');
 		const existing = materialByKey.get(key);
 		if (existing !== undefined) {
@@ -413,7 +461,7 @@ export function interpretDisplayList(
 		let externalTexture = false;
 		if (state.timg !== null) {
 			const segment = (state.timg >>> 24) & 0xff;
-			if (homeSegment === null || segment === homeSegment) {
+			if (options.trustSegments || homeSegment === null || segment === homeSegment) {
 				textureOffset = resolve(state.timg);
 				if (textureOffset === null) externalTexture = true;
 			} else {
@@ -435,6 +483,9 @@ export function interpretDisplayList(
 			wrapS: state.wrapS,
 			wrapT: state.wrapT,
 			lit,
+			primColor: rgba(state.prim),
+			envColor: rgba(state.env),
+			combine: state.combine,
 		});
 		materialByKey.set(key, index);
 		return index;
@@ -459,9 +510,12 @@ export function interpretDisplayList(
 		}
 		const lit = (geometryMode & GEOMETRY_MODE.G_LIGHTING) !== 0;
 		const state: MaterialKeyState = {
+			prim: primColor,
+			env: envColor,
+			combine,
 			timg: textureEnabled ? timg : null,
-			format: timgFormat,
-			size: timgSize,
+			format: tileFormat ?? timgFormat,
+			size: tileSize ?? timgSize,
 			width: tileWidth,
 			height: tileHeight,
 			tlut,
@@ -505,7 +559,7 @@ export function interpretDisplayList(
 	/** Load `n` vertices into the cache starting at slot `v0`. */
 	const loadVertices = (address: number, n: number, v0: number): void => {
 		const segment = (address >>> 24) & 0xff;
-		if (homeSegment !== null && segment !== homeSegment) {
+		if (!options.trustSegments && homeSegment !== null && segment !== homeSegment) {
 			// Vertices for this draw live in a segment the game binds
 			// at runtime — not in this buffer. See
 			// F3dexMesh.foreignVertexLoads.
@@ -714,10 +768,11 @@ export function interpretDisplayList(
 					break;
 				}
 				case ops.G_MTX: {
-					const loaded = readMatrix(data, resolve(w1) ?? -1);
+					const loaded = options.resolveMatrix?.(w1) ?? readMatrix(data, resolve(w1) ?? -1);
 					if (loaded) {
-						let params = (w0 >>> 16) & 0xff;
-						// F3DEX2 stores the push flag inverted.
+						// F3D keeps the params in w0 bits 16-23; F3DEX2 in the
+						// low byte, with the push flag inverted (gbi.h gSPMatrix).
+						let params = microcode === 'f3dex2' ? w0 & 0xff : (w0 >>> 16) & 0xff;
 						if (microcode === 'f3dex2') params ^= 0x01;
 						const push = (params & 0x01) !== 0;
 						const load = (params & 0x02) !== 0;
@@ -777,15 +832,22 @@ export function interpretDisplayList(
 					break;
 				}
 				case RDP.G_SETTILE: {
-					// Wrap modes for the render tile (tile 0).
+					// Wrap modes, and the real texel format, of the render
+					// tile (tile 0). G_SETTIMG names the *load* format, which
+					// for colour-indexed images is a 16-bit block load
+					// (gsDPLoadTextureBlock_4b/8b); the tile says CI4 / CI8.
 					const tile = (w1 >>> 24) & 0x07;
 					if (tile === 0) {
+						tileFormat = (w0 >>> 21) & 0x07;
+						tileSize = (w0 >>> 19) & 0x03;
 						wrapT = wrapModeFor((w1 >>> 18) & 0x03);
 						wrapS = wrapModeFor((w1 >>> 8) & 0x03);
 					}
 					break;
 				}
 				case RDP.G_SETTILESIZE: {
+					// Only the render tile's size describes the image.
+					if (((w1 >>> 24) & 0x07) !== 0) break;
 					const uls = (w0 >>> 12) & 0xfff;
 					const ult = w0 & 0xfff;
 					const lrs = (w1 >>> 12) & 0xfff;
@@ -803,8 +865,17 @@ export function interpretDisplayList(
 					tlut = timg;
 					break;
 				}
+				case RDP.G_SETPRIMCOLOR:
+					primColor = w1;
+					break;
+				case RDP.G_SETENVCOLOR:
+					envColor = w1;
+					break;
+				case RDP.G_SETCOMBINE:
+					combine = [w0 & 0xffffff, w1];
+					break;
 				default:
-					// Everything else (sync, combiner, blender,
+					// Everything else (sync, blender,
 					// scissor, fill colours, MOVEMEM/MOVEWORD, …)
 					// does not affect the geometry we extract.
 					break;

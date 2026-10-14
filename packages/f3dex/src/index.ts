@@ -47,6 +47,7 @@ export {
 
 export {
 	interpretDisplayList,
+	f3dexMaterialTint,
 	defaultSegmentResolver,
 	type F3dexMesh,
 	type F3dexGroup,
