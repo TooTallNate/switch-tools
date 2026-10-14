@@ -249,10 +249,6 @@ export async function scanMedia(root: Node, base: ScanBase, opts: ScanOptions = 
 		}
 		if (c.type === 'media') {
 			const item = addItem(node, frame, c.kind, c.previewKind, c.format);
-			if (c.format === 'UE SkeletalMesh') {
-				item.status = 'error';
-				item.note = 'SkeletalMesh geometry is not decoded yet (only StaticMesh)';
-			}
 			if (c.previewKind === 'gfbmdl-model') await noteModelTextures(node, item, textureRefs);
 		} else if (c.type === 'unknown') {
 			await recordUnknown(node, path);

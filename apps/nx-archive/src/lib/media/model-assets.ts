@@ -63,6 +63,7 @@ import { createAssetResolver } from '../uasset-resolver';
 import { loadHaloModelView, type HaloModelRef } from '../halo';
 import { loadPlatinumModelView } from '../platinum';
 import { loadIdTechModelView, poseIdTechView } from '../idtech';
+import { loadUeSkeletalView, skeletalMeshExportIndex } from '../unreal-skeletal';
 import { loadFf7PsxModelView } from '../ff7-psx';
 import { unityMeshDisplayColors } from '../unity-mesh';
 import { findNodeById } from '../unity-external';
@@ -379,10 +380,16 @@ async function loadUeMesh(node: Node, root: Node | null): Promise<ModelAsset> {
 	if (!isUasset(bytes)) throw new Error('Not a legacy .uasset (Zen packages are not supported yet)');
 	const parsed = parseUasset(bytes);
 	const cls = inferAssetClassName(parsed);
-	if (cls !== 'StaticMesh') throw new Error(`${cls ?? 'This'} geometry is not supported yet (only StaticMesh)`);
+	if (cls !== 'StaticMesh' && cls !== 'SkeletalMesh') throw new Error(`${cls ?? 'This'} geometry is not supported yet`);
 	const uexpNode = root ? await findNodeById(root, node.id.replace(/\.uasset$/i, '.uexp')) : null;
 	if (!uexpNode?.blob) throw new Error('Missing the .uexp companion with the mesh data');
 	const uexp = await bytesOf(uexpNode);
+	if (cls === 'SkeletalMesh') {
+		const idx = skeletalMeshExportIndex(parsed);
+		if (idx < 0) throw new Error('No SkeletalMesh export found');
+		const v = await loadUeSkeletalView(parsed, uexp, idx, root, node.id);
+		return asset(v.lod, v.textures, { texturesFound: [v.texturesFound, v.slots] }, 'z-up');
+	}
 	let exportIdx = -1;
 	for (let i = 0; i < parsed.exports.length; i++) {
 		const exp = parsed.exports[i]!;

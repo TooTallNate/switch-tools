@@ -123,8 +123,17 @@ async function resolveOneMaterial(
 	if (parameters.length === 0) return null;
 	// Resolve every referenced texture in parallel — they may share
 	// the same .ubulk sibling, but each is its own .uasset.
+	// Textures can also be exports of the material's own package (the
+	// GTA Definitive Editions cook them in); their mips then sit in the
+	// material's .uexp / .ubulk.
+	let ownUbulk: Promise<Uint8Array | null> | null = null;
 	const decoded = await Promise.all(
 		parameters.map(async (p) => {
+			if (p.parameterValueIndex > 0) {
+				ownUbulk ??= mi.ubulk ? mi.ubulk.blob!().then((b) => b.arrayBuffer()).then((b) => new Uint8Array(b)) : Promise.resolve(null);
+				const tex = await decodeTextureExport(`${materialPath}:${p.parameterName}`, parsed, eBytes, await ownUbulk, p.parameterValueIndex - 1);
+				return tex ? { parameterName: p.parameterName, tex } : null;
+			}
 			const texturePath = resolveImportPackagePath(p.parameterValueIndex, parsed.imports, parsed.names);
 			if (!texturePath) return null;
 			const tex = await decodeTextureAsset(texturePath, resolver);
@@ -158,7 +167,28 @@ async function decodeTextureAsset(
 			t.ubulk ? t.ubulk.blob!().then((b) => b.arrayBuffer()).then((b) => new Uint8Array(b)) : Promise.resolve(null),
 		]);
 		const parsed = parseUasset(aBytes);
-		const tpd = parseTexturePlatformData(parsed, eBytes, 0);
+		return await decodeTextureExport(packagePath, parsed, eBytes, uBytes, 0, true);
+	} catch (err) {
+		if (err instanceof UnsupportedPixelFormatError) {
+			console.info(`Skipping unsupported texture ${packagePath}: ${err.message}`);
+		} else {
+			console.warn(`Failed to decode texture ${packagePath}:`, err);
+		}
+		return null;
+	}
+}
+
+/** Decode one Texture2D export (mip in the .uexp or the .ubulk). */
+async function decodeTextureExport(
+	packagePath: string,
+	parsed: ReturnType<typeof parseUasset>,
+	eBytes: Uint8Array,
+	uBytes: Uint8Array | null,
+	exportIndex: number,
+	rethrow = false,
+): Promise<DecodedTexture | null> {
+	try {
+		const tpd = parseTexturePlatformData(parsed, eBytes, exportIndex);
 		// Pick the largest available mip we can resolve in full. If the
 		// top mip is in .ubulk and we don't have one, fall back to the
 		// largest inline mip.
@@ -176,11 +206,7 @@ async function decodeTextureAsset(
 			normalReconstructed: decoded.normalReconstructed ?? false,
 		};
 	} catch (err) {
-		if (err instanceof UnsupportedPixelFormatError) {
-			console.info(`Skipping unsupported texture ${packagePath}: ${err.message}`);
-		} else {
-			console.warn(`Failed to decode texture ${packagePath}:`, err);
-		}
+		if (rethrow) throw err;
 		return null;
 	}
 }

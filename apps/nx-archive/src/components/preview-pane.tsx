@@ -276,6 +276,7 @@ import { loadPlatinumModelView } from "~/lib/platinum"
 import { PlatinumModelViewer } from "./platinum-model-viewer"
 import { loadIdTechModelView } from "~/lib/idtech"
 import { IdTechModelViewer } from "./idtech-model-viewer"
+import { loadUeSkeletalView, skeletalMeshExportIndex } from "~/lib/unreal-skeletal"
 import { loadZ64ObjectModelView, loadZ64SceneView } from "~/lib/z64-objects"
 import { loadSm64ModelView } from "~/lib/sm64"
 import { cn, formatBytes } from "~/lib/utils"
@@ -5255,6 +5256,10 @@ function UassetPreview({
           />
         )}
 
+        {className === "SkeletalMesh" && uexpBytes && (
+          <UassetSkeletalMeshSection parsed={v} uexpBytes={uexpBytes} root={root} scopeId={node.id} />
+        )}
+
         {isStaticMesh && uexpBytes && (
           <UassetStaticMeshSection parsed={v} uexpBytes={uexpBytes} root={root} scopeId={node.id} />
         )}
@@ -6006,6 +6011,53 @@ interface DecodedMipState {
   width: number
   height: number
   pixels: Uint8Array
+}
+
+/** SkeletalMesh preview: LOD 0 in its bind pose, textured like static meshes. */
+function UassetSkeletalMeshSection({
+  parsed,
+  uexpBytes,
+  root,
+  scopeId,
+}: {
+  parsed: ParsedUasset
+  uexpBytes: Uint8Array
+  root: Node | null
+  scopeId: string
+}) {
+  const state = useAsync(async () => {
+    const idx = skeletalMeshExportIndex(parsed)
+    if (idx < 0) throw new Error("No SkeletalMesh export found in this .uasset")
+    return loadUeSkeletalView(parsed, uexpBytes, idx, root, scopeId)
+  }, [parsed, uexpBytes, root, scopeId])
+  if (state.loading) return <LoadingFiller label="Decoding SkeletalMesh…" />
+  if (state.error) {
+    return (
+      <section className="flex flex-col gap-2 rounded-md border bg-card p-4">
+        <p className="text-sm font-medium">Could not decode SkeletalMesh geometry</p>
+        <p className="text-xs text-muted-foreground">{state.error.message}</p>
+      </section>
+    )
+  }
+  const v = state.data!
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-medium tracking-wider text-muted-foreground uppercase">Mesh</h3>
+      <KvBlock title="SkeletalMesh">
+        <KvRow k="LOD 0" v={`${v.lod.numVertices.toLocaleString()} vertices · ${(v.lod.indices.length / 3).toLocaleString()} triangles`} />
+        <KvRow k="Bones" v={`${v.mesh.bones.length}`} />
+        <KvRow k="Sections" v={`${v.lod.sections.length}`} />
+        <KvRow k="Textures" v={`${v.texturesFound} of ${v.slots} material${v.slots === 1 ? "" : "s"} textured`} />
+      </KvBlock>
+      <div className="mt-3 h-[500px]">
+        <MeshViewer
+          mesh={{ lods: [v.lod], upAxis: "z-up" }}
+          materialDiffuseTextures={v.textures}
+          baseName={parsed.names[parsed.exports[skeletalMeshExportIndex(parsed)]?.objectName.nameIndex ?? -1]?.value}
+        />
+      </div>
+    </section>
+  )
 }
 
 /**
