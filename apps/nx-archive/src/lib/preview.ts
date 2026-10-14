@@ -710,7 +710,11 @@ export function detectPreviewKind(name: string): PreviewKind {
 	// `…/WwiseAudio/Media/`. Route them to the WEM player — for a
 	// non-WEM `.ubulk` (e.g. texture-mip stream) `parseWem` throws a
 	// clean error which the preview surfaces gracefully.
-	if (lower.endsWith('.ubulk')) return 'wem-audio';
+	// Mesh / texture / animation bulk data, named by UE's asset prefixes
+	// (`SM_`, `SK_`, `T_`, …), is the asset's own payload, not audio.
+	if (lower.endsWith('.ubulk')) {
+		return /^(sm|sk|t|tx|m|mi|mf|a|am|abp|bp|ps|ns|fx|da|dt|hlod|lm|bs)_/i.test(lower) ? 'hex' : 'wem-audio';
+	}
 	if (lower.endsWith('.barslist')) return 'barslist-info';
 	if (lower.endsWith('.bnvib')) return 'bnvib-audio';
 	// `.byaml` / `.byml` are the historical extensions; TotK / Mario
