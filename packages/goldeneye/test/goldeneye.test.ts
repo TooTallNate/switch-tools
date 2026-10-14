@@ -101,3 +101,26 @@ describe('buildGoldeneyeModel', () => {
 		expect(() => buildGoldeneyeModel(new Uint8Array(0x100))).toThrow();
 	});
 });
+
+import { decodeGoldeneyeTexture, findGoldeneyeTextureOffsets } from '../src/index.js';
+
+describe('textures', () => {
+	it('decodes an uncompressed (method 0) RGBA16 bitstring', () => {
+		// flags 0; then bits: format 1 (4), width 2 (8), height 1 (8), method 0 (4), 2 × 16-bit pixels.
+		const bits = '0001' + '00000010' + '00000001' + '0000' + '1111100000000001' + '0000011111000001';
+		const bytes = [0];
+		for (let i = 0; i < bits.length; i += 8) bytes.push(parseInt(bits.slice(i, i + 8).padEnd(8, '0'), 2));
+		const t = decodeGoldeneyeTexture(Uint8Array.from(bytes))!;
+		expect([t.width, t.height]).toEqual([2, 1]);
+		expect(Array.from(t.rgba)).toEqual([255, 0, 0, 255, 0, 255, 0, 255]);
+	});
+
+	it('turns the size table into running offsets', () => {
+		const code = new Uint8Array(8 * 600);
+		const dv = new DataView(code.buffer);
+		for (let i = 0; i < 600; i++) dv.setUint32(i * 8, 0x10 + i);
+		const offs = findGoldeneyeTextureOffsets(code)!;
+		expect(offs.slice(0, 3)).toEqual([0, 0x10, 0x21]);
+		expect(offs).toHaveLength(601);
+	});
+});

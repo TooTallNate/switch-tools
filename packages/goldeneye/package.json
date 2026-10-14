@@ -16,6 +16,9 @@
     "url": "https://github.com/TooTallNate/switch-tools",
     "directory": "packages/goldeneye"
   },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
   "devDependencies": {
     "typescript": "^5.3.3"
   }

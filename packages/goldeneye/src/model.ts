@@ -32,11 +32,16 @@
  * For LOD sets, only the nearest-range branch is drawn.
  */
 
+export type GoldeneyeWrap = 'repeat' | 'clamp' | 'mirror';
+
 export interface GoldeneyePrimitive {
 	/** Global texture number from `G_SETTEX`, or -1. */
 	textureId: number;
+	/** `G_SETTEX` s/t modes (1 clamp, 2 mirror, else wrap; `texModeToGbiMode`). */
+	wrapS: GoldeneyeWrap;
+	wrapT: GoldeneyeWrap;
 	positions: Float32Array;
-	/** Raw s/t in texels (10.5 fixed point already divided out). */
+	/** s/t in texels (10.5 fixed point divided out, `G_TEXTURE` scale applied). */
 	texels: Float32Array;
 	normals: Float32Array | null;
 	/** RGBA8 vertex colours (unlit geometry). */
@@ -67,7 +72,9 @@ const G_CULL_FRONT = 0x00001000;
 const G_CULL_BACK = 0x00002000;
 
 interface Vtx { x: number; y: number; z: number; s: number; t: number; c: [number, number, number, number]; lit: boolean }
-interface Prim { tex: number; lit: boolean; verts: Vtx[]; remap: Map<string, number>; tris: number[] }
+interface Prim { tex: number; lit: boolean; ws: GoldeneyeWrap; wt: GoldeneyeWrap; verts: Vtx[]; remap: Map<string, number>; tris: number[] }
+
+const wrapOf = (mode: number): GoldeneyeWrap => (mode === 1 ? 'clamp' : mode === 2 ? 'mirror' : 'repeat');
 
 const MODEL_BASE = 0x05000000;
 
@@ -171,11 +178,11 @@ export function buildGoldeneyeModel(bytes: Uint8Array): GoldeneyeModel {
 	};
 	const translation = (idx: number): [number, number, number] => matrices.get(idx) ?? [0, 0, 0];
 
-	const prim = (tex: number, lit: boolean): Prim => {
-		const key = `${tex},${lit}`;
+	const prim = (tex: number, lit: boolean, ws: GoldeneyeWrap, wt: GoldeneyeWrap): Prim => {
+		const key = `${tex},${lit},${ws},${wt}`;
 		let p = prims.get(key);
 		if (!p) {
-			p = { tex, lit, verts: [], remap: new Map(), tris: [] };
+			p = { tex, lit, ws, wt, verts: [], remap: new Map(), tris: [] };
 			prims.set(key, p);
 			order.push(p);
 		}
@@ -187,6 +194,8 @@ export function buildGoldeneyeModel(bytes: Uint8Array): GoldeneyeModel {
 		let mtx = nodeMtx;
 		let geometryMode = 0;
 		let tex = -1;
+		let ws: GoldeneyeWrap = 'repeat', wt: GoldeneyeWrap = 'repeat';
+		let scaleS = 1, scaleT = 1;
 		const resolve = (addr: number): number | null => {
 			const seg = addr >>> 24;
 			if (seg === 4) return vtxTable === null ? null : vtxTable + (addr & 0xffffff);
@@ -196,7 +205,7 @@ export function buildGoldeneyeModel(bytes: Uint8Array): GoldeneyeModel {
 		const emit = (a: number, b: number, c: number) => {
 			const vs = [cache[a], cache[b], cache[c]];
 			if (!vs[0] || !vs[1] || !vs[2]) return;
-			const p = prim(tex, vs[0].lit);
+			const p = prim(tex, vs[0].lit, ws, wt);
 			const ids: number[] = [];
 			for (const v of vs as Vtx[]) {
 				const key = `${v.x},${v.y},${v.z},${v.s},${v.t},${v.c.join(',')}`;
@@ -238,7 +247,7 @@ export function buildGoldeneyeModel(bytes: Uint8Array): GoldeneyeModel {
 							if (p + 16 > d.length) break;
 							cache[v0 + i] = {
 								x: s16(d, p) + tx, y: s16(d, p + 2) + ty, z: s16(d, p + 4) + tz,
-								s: s16(d, p + 8), t: s16(d, p + 10),
+								s: s16(d, p + 8) * scaleS, t: s16(d, p + 10) * scaleT,
 								c: [u8(d, p + 12), u8(d, p + 13), u8(d, p + 14), u8(d, p + 15)],
 								lit,
 							};
@@ -261,10 +270,19 @@ export function buildGoldeneyeModel(bytes: Uint8Array): GoldeneyeModel {
 					case 0xb6: // G_CLEARGEOMETRYMODE
 						geometryMode = (geometryMode & ~w1) >>> 0;
 						break;
-					case 0xc0: // G_SETTEX: global texture number
+					case 0xc0: // G_SETTEX: global texture number + tile modes
 						tex = w1 & 0xfff;
+						ws = wrapOf((w0 >>> 22) & 3);
+						wt = wrapOf((w0 >>> 20) & 3);
 						textureIds.add(tex);
 						break;
+					case 0xbb: {
+						// G_TEXTURE: 0.16 s/t scale (0xFFFF ≈ 1)
+						const ss = w1 >>> 16, st = w1 & 0xffff;
+						scaleS = ss === 0xffff ? 1 : ss / 65536;
+						scaleT = st === 0xffff ? 1 : st / 65536;
+						break;
+					}
 				}
 			}
 		};
@@ -338,7 +356,7 @@ export function buildGoldeneyeModel(bytes: Uint8Array): GoldeneyeModel {
 				normals.set([nx / len, ny / len, nz / len], i * 3);
 			} else colors!.set(v.c, i * 4);
 		});
-		primitives.push({ textureId: p.tex, positions, texels, normals, colors, indices: Uint32Array.from(p.tris) });
+		primitives.push({ textureId: p.tex, wrapS: p.ws, wrapT: p.wt, positions, texels, normals, colors, indices: Uint32Array.from(p.tris) });
 	}
 	return { primitives, nodeCount, textureIds: [...textureIds].sort((a, b) => a - b), warnings };
 }

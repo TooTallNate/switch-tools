@@ -1139,6 +1139,10 @@ importers:
         version: 5.9.3
 
   packages/goldeneye:
+    dependencies:
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.2
     devDependencies:
       typescript:
         specifier: ^5.3.3
