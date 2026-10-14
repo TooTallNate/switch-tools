@@ -211,11 +211,15 @@ function toRgba(format: number, v: number, out: Uint8Array, o: number): void {
 		case TexFormat.IA4:
 			out[o] = out[o + 1] = out[o + 2] = Math.floor((((v >> 1) & 7) * 255) / 7); out[o + 3] = v & 1 ? 255 : 0;
 			return;
+		// Intensity-only images are opaque: GoldenEye's combiners use them as
+		// colour (rock, concrete), so intensity-as-alpha would punch holes.
 		case TexFormat.I8:
-			out[o] = out[o + 1] = out[o + 2] = out[o + 3] = v & 255;
+			out[o] = out[o + 1] = out[o + 2] = v & 255;
+			out[o + 3] = 255;
 			return;
 		case TexFormat.I4:
-			out[o] = out[o + 1] = out[o + 2] = out[o + 3] = (v & 15) * 17;
+			out[o] = out[o + 1] = out[o + 2] = (v & 15) * 17;
+			out[o + 3] = 255;
 			return;
 	}
 }
