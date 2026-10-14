@@ -151,6 +151,7 @@ import {
 } from '@tootallnate/upak';
 import {
 	parseNca,
+	NCA_CRYPT_BKTR,
 	NCA_FS_TYPE_PFS0,
 	NCA_FS_TYPE_ROMFS,
 	type ParsedNca,
@@ -1192,13 +1193,13 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 	{
 		format: 'NSP',
 		extensions: ['nsp'],
-		build: (a) => makePfs0Node(a.id, a.name, a.blob, a.ctx, 'NSP'),
+		build: (a) => registerSwitchContainer(a, 'pfs0', makePfs0Node(a.id, a.name, a.blob, a.ctx, 'NSP')),
 	},
 	{
 		// An NSP whose NCAs are NCZs — same container, different contents.
 		format: 'NSZ',
 		extensions: ['nsz'],
-		build: (a) => makePfs0Node(a.id, a.name, a.blob, a.ctx, 'NSZ'),
+		build: (a) => registerSwitchContainer(a, 'pfs0', makePfs0Node(a.id, a.name, a.blob, a.ctx, 'NSZ')),
 	},
 	{
 		format: 'PFS0',
@@ -1212,12 +1213,16 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		sniff: ['hfs0'],
 		build: (a) => makeHfs0Node(a.id, a.name, a.blob, a.ctx),
 	},
-	{ format: 'XCI', extensions: ['xci'], build: (a) => makeXciNode(a.id, a.name, a.blob, a.ctx) },
+	{
+		format: 'XCI',
+		extensions: ['xci'],
+		build: (a) => registerSwitchContainer(a, 'xci', makeXciNode(a.id, a.name, a.blob, a.ctx)),
+	},
 	{
 		// The cartridge equivalent of NSZ.
 		format: 'XCZ',
 		extensions: ['xcz'],
-		build: (a) => makeXciNode(a.id, a.name, a.blob, a.ctx),
+		build: (a) => registerSwitchContainer(a, 'xci', makeXciNode(a.id, a.name, a.blob, a.ctx)),
 	},
 	{
 		format: 'NCA',
@@ -1694,6 +1699,7 @@ export async function buildRootNode(
 		if (sniffed) format = FILE_EXT_FORMATS[sniffed] ?? format;
 	}
 
+	resetSwitchContainers(ctx);
 	const id = `/${displayName}`;
 	const blob = file instanceof File ? file : (file as Blob);
 
@@ -1729,6 +1735,7 @@ export async function buildDirectoryRootNode(
 	directory: WalkedDirectory,
 	ctx: ArchiveContext,
 ): Promise<Node> {
+	resetSwitchContainers(ctx);
 	// Merge split-file groups before anything else, so the rest of the
 	// pipeline never sees `.xci.00` etc.
 	const merged = mergeSplitFiles(directory.files);
@@ -2073,6 +2080,7 @@ async function parseNcaWithTik(
 	blob: Blob,
 	ctx: ArchiveContext,
 	tikMap: TikMap | undefined,
+	options: { resolveBase?: boolean } = {},
 ): Promise<ParsedNca> {
 	const keys = ctx.getKeys();
 	if (!keys) {
@@ -2080,14 +2088,161 @@ async function parseNcaWithTik(
 		throw new ProdKeysMissingError();
 	}
 	let parsed = await parseNca(blob, { keys });
+	let encryptedTitleKey: Uint8Array | undefined;
 	if (parsed.hasRightsId && tikMap) {
 		const ridKey = bytesToHex(parsed.rightsId);
-		const encryptedTitleKey = tikMap.get(ridKey);
+		encryptedTitleKey = tikMap.get(ridKey);
 		if (encryptedTitleKey) {
 			parsed = await parseNca(blob, { keys, encryptedTitleKey });
 		}
 	}
+	// Update NCAs: BKTR sections are patches over the base game's NCA.
+	// Look the base up among the Switch containers opened alongside.
+	if (
+		options.resolveBase !== false &&
+		!parsed.missingKeyDetail &&
+		parsed.sections.some((s) => s.cryptType === NCA_CRYPT_BKTR)
+	) {
+		// Several base NCAs can share a content type (a game's
+		// HtmlDocument and LegalInformation are both "Manual"), so take
+		// the first candidate whose patched sections actually decode.
+		for (const base of await findBaseNcas(ctx, parsed)) {
+			const patched = await parseNca(blob, { keys, encryptedTitleKey, base });
+			if (await patchedSectionsDecode(patched)) {
+				parsed = patched;
+				break;
+			}
+		}
+	}
 	return parsed;
+}
+
+/** Sanity-check BKTR-patched RomFS sections by decoding their tables. */
+async function patchedSectionsDecode(parsed: ParsedNca): Promise<boolean> {
+	for (const section of parsed.sections) {
+		if (!section.patched || !section.romfsData) continue;
+		try {
+			await romfsDecode(section.romfsData);
+		} catch {
+			return false;
+		}
+	}
+	return true;
+}
+
+// ----- Update ↔ base game pairing (BKTR) -----
+
+/**
+ * Switch packages (NSP / NSZ / XCI / XCZ) created under a context,
+ * keyed by node ID. Update NCAs search these for their base game:
+ * opening a folder holding `Game [v0].nsp` and `Game [v458752].nsp`
+ * creates both containers, so the update's RomFS decodes.
+ */
+interface SwitchContainer {
+	id: string;
+	name: string;
+	kind: 'pfs0' | 'xci';
+	blob: Blob;
+	/** Lazily listed NCA / NCZ entries, with the container's tickets. */
+	entries?: Promise<{ name: string; blob: Blob; tikMap: TikMap }[]>;
+}
+const switchContainers = new WeakMap<ArchiveContext, Map<string, SwitchContainer>>();
+const baseNcaCache = new WeakMap<ArchiveContext, Map<string, Promise<ParsedNca[]>>>();
+
+/** A new root was opened: forget the previous root's containers. */
+function resetSwitchContainers(ctx: ArchiveContext): void {
+	switchContainers.delete(ctx);
+	baseNcaCache.delete(ctx);
+}
+
+function registerSwitchContainer(
+	a: { id: string; name: string; blob: Blob; ctx: ArchiveContext },
+	kind: SwitchContainer['kind'],
+	node: Node,
+): Node {
+	let map = switchContainers.get(a.ctx);
+	if (!map) switchContainers.set(a.ctx, (map = new Map()));
+	map.set(a.id, { id: a.id, name: a.name, kind, blob: a.blob });
+	return node;
+}
+
+function listContainerNcas(c: SwitchContainer) {
+	c.entries ??= (async () => {
+		const groups: Map<string, { data: Blob }>[] = [];
+		if (c.kind === 'pfs0') groups.push((await parseNsp(c.blob)).files);
+		else for (const p of (await parseXci(c.blob)).partitions) groups.push(p.files);
+		const out: { name: string; blob: Blob; tikMap: TikMap }[] = [];
+		for (const files of groups) {
+			const tikMap = await buildTikMap(files);
+			for (const [name, entry] of files) {
+				if (/\.nc[az]$/i.test(name) && !/\.cnmt\.nc[az]$/i.test(name)) {
+					out.push({ name, blob: entry.data, tikMap });
+				}
+			}
+		}
+		return out;
+	})();
+	return c.entries;
+}
+
+/**
+ * Find and parse the base-game NCAs an update NCA may patch: same
+ * content type, and the same title ID (update program NCAs carry the
+ * base title ID; the `…800` update ID is only on the CNMT, but accept
+ * that too). Containers whose name mentions the base title ID go first,
+ * and the search stops at the first container with any candidates.
+ */
+function findBaseNcas(ctx: ArchiveContext, update: ParsedNca): Promise<ParsedNca[]> {
+	const baseId = update.titleId & ~0x800n;
+	const key = `${baseId.toString(16)}:${update.contentType}`;
+	let cache = baseNcaCache.get(ctx);
+	if (!cache) baseNcaCache.set(ctx, (cache = new Map()));
+	let hit = cache.get(key);
+	if (!hit) {
+		hit = (async () => {
+			const keys = ctx.getKeys();
+			const containers = [...(switchContainers.get(ctx)?.values() ?? [])];
+			if (!keys || containers.length === 0) return [];
+			const idHex = baseId.toString(16).padStart(16, '0');
+			containers.sort(
+				(a, b) =>
+					Number(b.name.toLowerCase().includes(idHex)) -
+					Number(a.name.toLowerCase().includes(idHex)),
+			);
+			for (const c of containers) {
+				let entries: Awaited<ReturnType<typeof listContainerNcas>>;
+				try {
+					entries = await listContainerNcas(c);
+				} catch {
+					continue;
+				}
+				const found: ParsedNca[] = [];
+				for (const e of entries) {
+					const ncz = /\.ncz$/i.test(e.name);
+					let header: ParsedNca;
+					try {
+						header = await parseNca(ncz ? e.blob.slice(0, NCZ_NCA_HEADER_BYTES) : e.blob, { keys });
+					} catch {
+						continue;
+					}
+					if (header.contentType !== update.contentType) continue;
+					if (header.titleId !== baseId && header.titleId !== update.titleId) continue;
+					if (header.sections.some((s) => s.cryptType === NCA_CRYPT_BKTR)) continue;
+					const full = ncz ? await decompressNczToBlob(e.blob) : e.blob;
+					const parsed = await parseNcaWithTik(full, ctx, e.tikMap, { resolveBase: false });
+					if (!parsed.missingKeyDetail) found.push(parsed);
+				}
+				if (found.length > 0) return found;
+			}
+			return [];
+		})();
+		cache.set(key, hit);
+		// Don't pin a miss: the base may be opened later.
+		hit.then((r) => {
+			if (r.length === 0) cache!.delete(key);
+		}, () => cache!.delete(key));
+	}
+	return hit;
 }
 
 /**
@@ -2231,7 +2386,9 @@ export interface NcaSource {
  */
 export async function parseNcaForNode(source: NcaSource): Promise<ParsedNca> {
 	const blob = await source.getHeader();
-	return parseNcaWithTik(blob, source.ctx, source.tikMap);
+	// Header-only: don't pair updates with their base game here (that
+	// reads the patch tables, which an NCZ header slice doesn't have).
+	return parseNcaWithTik(blob, source.ctx, source.tikMap, { resolveBase: false });
 }
 
 function ncaSectionNodes(

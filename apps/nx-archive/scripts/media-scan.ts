@@ -3,7 +3,7 @@
  * code as the web app, run the media scan, and print a coverage / gap
  * report (Markdown) — the same document the app's "Gaps" dialog shows.
  *
- *   bun scripts/media-scan.ts <file> [--keys ~/.switch/prod.keys] [--deep]
+ *   bun scripts/media-scan.ts <file|folder> [--keys ~/.switch/prod.keys] [--deep]
  *                                    [--oodle oodle.wasm]
  *                                    [--md report.md] [--json index.json]
  *
@@ -11,17 +11,22 @@
  * `packages/oodle-wasm/src/oodle.wasm` (see its README); without one,
  * Oodle-compressed content (UE paks, newer GFPAKs) is reported as gaps.
  *
+ * A folder is opened like the app's folder picker: one root holding
+ * every file under it (so, for example, a Switch update NSP pairs with
+ * its base game NSP).
+ *
  * Requires Bun (Node's `fs.openAsBlob` truncates files over 4 GiB).
  */
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { initializeKeySet, type KeySet } from '@tootallnate/nca';
 import { OodleDecoder } from '@tootallnate/oodle-wasm';
 
-import { buildRootNode } from '../src/lib/archive';
+import { buildDirectoryRootNode, buildRootNode } from '../src/lib/archive';
+import type { WalkedFile } from '../src/lib/directory';
 import { gapReportMarkdown, summarize } from '../src/lib/media/gaps';
 import { scanMedia } from '../src/lib/media/scanner';
 import { MEDIA_KIND_LABEL, MEDIA_KINDS } from '../src/lib/media/types';
@@ -35,7 +40,7 @@ function arg(name: string): string | undefined {
 
 const file = process.argv.slice(2).find((a, i, all) => !a.startsWith('--') && !all[i - 1]?.startsWith('--'));
 if (!file) {
-	console.error('usage: bun scripts/media-scan.ts <file> [--keys prod.keys] [--deep] [--oodle oodle.wasm] [--md out.md] [--json out.json]');
+	console.error('usage: bun scripts/media-scan.ts <file|folder> [--keys prod.keys] [--deep] [--oodle oodle.wasm] [--md out.md] [--json out.json]');
 	process.exit(1);
 }
 if (typeof Bun === 'undefined') {
@@ -55,18 +60,39 @@ const oodlePath = [
 const oodle = oodlePath ? await OodleDecoder.create(readFileSync(oodlePath)) : null;
 if (oodle) console.error(`Oodle: ${oodlePath}`);
 
-const blob = Bun.file(file);
-const name = basename(file);
-const root = await buildRootNode(blob, name, {
+const ctx = {
 	getKeys: () => keys,
 	requestKeys: () => {},
-	getOodleDecompressor: () => (oodle ? async (c, n) => oodle.decompress(c, n) : null),
-});
+	getOodleDecompressor: () => (oodle ? async (c: Uint8Array, n: number) => oodle.decompress(c, n) : null),
+};
+const name = basename(file);
+let root;
+let totalSize = 0;
+if (statSync(file).isDirectory()) {
+	const files: WalkedFile[] = [];
+	const walk = (dir: string) => {
+		for (const entry of readdirSync(dir, { withFileTypes: true })) {
+			if (entry.name.startsWith('.')) continue;
+			const path = join(dir, entry.name);
+			if (entry.isDirectory()) walk(path);
+			else if (entry.isFile()) {
+				files.push({ relativePath: relative(file, path), file: Bun.file(path) as File });
+				totalSize += statSync(path).size;
+			}
+		}
+	};
+	walk(file);
+	root = await buildDirectoryRootNode({ name, files }, ctx);
+} else {
+	const blob = Bun.file(file);
+	totalSize = blob.size;
+	root = await buildRootNode(blob, name, ctx);
+}
 
 let last = 0;
 const index = await scanMedia(
 	root,
-	{ fileName: name, fileSize: blob.size, platform: root.format ?? 'file' },
+	{ fileName: name, fileSize: totalSize, platform: root.format ?? 'file' },
 	{
 		deep: process.argv.includes('--deep'),
 		onProgress: (visited, path) => {
