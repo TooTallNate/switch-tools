@@ -490,6 +490,9 @@ importers:
       '@tootallnate/phyre':
         specifier: workspace:*
         version: link:../../packages/phyre
+      '@tootallnate/platinum':
+        specifier: workspace:*
+        version: link:../../packages/platinum
       '@tootallnate/pokestadium':
         specifier: workspace:*
         version: link:../../packages/pokestadium
@@ -1456,6 +1459,16 @@ importers:
         version: 5.3.3
 
   packages/phyre:
+    dependencies:
+      '@tootallnate/bntx':
+        specifier: workspace:*
+        version: link:../bntx
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/platinum:
     dependencies:
       '@tootallnate/bntx':
         specifier: workspace:*

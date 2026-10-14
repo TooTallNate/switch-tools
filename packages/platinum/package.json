@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/platinum",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Parsers for PlatinumGames formats (Bayonetta 3, Astral Chain, NieR): PKZ packages, DAT/DTT archives, WTA/WTP/WTB textures, WMB3 models and MOT animations.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/platinum"
+  },
+  "dependencies": {
+    "@tootallnate/bntx": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
