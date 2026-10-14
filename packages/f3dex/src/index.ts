@@ -62,3 +62,5 @@ export {
 	type DisplayListRef,
 	type ScanOptions,
 } from './scan.js';
+
+export { mergeF3dexMeshes } from './merge.js';

@@ -103,6 +103,12 @@ export interface F3dexMaterial {
 	/** `G_SETCOMBINE` words at draw time, or null if never set. */
 	combine: [number, number] | null;
 	/**
+	 * Lit geometry's light colour: light 1's diffuse plus the next light
+	 * (the ambient in `gSPSetLights1`), clamped; null when no lights
+	 * were loaded. Super Mario 64 colours Mario this way.
+	 */
+	lightColor: [number, number, number] | null;
+	/**
 	 * Set when the texture lives in a different segment than the
 	 * geometry, so it is not present in this buffer at all.
 	 *
@@ -232,6 +238,11 @@ export interface InterpretOptions {
 	 * For callers that lay several segments out in one buffer.
 	 */
 	trustSegments?: boolean;
+	/**
+	 * Geometry mode before the list runs, for games that set it once in
+	 * an init list (Super Mario 64 enables G_LIGHTING there).
+	 */
+	initialGeometryMode?: number;
 }
 
 /** One entry of the RSP vertex cache. */
@@ -338,6 +349,7 @@ class FloatBuffer {
 }
 
 interface MaterialKeyState {
+	light: [number, number, number] | null;
 	prim: number | null;
 	env: number | null;
 	combine: [number, number] | null;
@@ -393,7 +405,7 @@ export function interpretDisplayList(
 
 	let matrix = options.baseMatrix ?? identityMatrix();
 	const matrixStack: Float32Array[] = [];
-	let geometryMode = 0;
+	let geometryMode = options.initialGeometryMode ?? 0;
 	let usesLighting = false;
 	let commandCount = 0;
 	let unknownCommands = 0;
@@ -414,6 +426,14 @@ export function interpretDisplayList(
 	let tileFormat: number | null = null;
 	let tileSize: number | null = null;
 	let primColor: number | null = null;
+	/** Light colours by slot (0 = light 1). */
+	const lights: ([number, number, number] | undefined)[] = [];
+	const lightColor = (): [number, number, number] | null => {
+		const d = lights[0];
+		if (!d) return null;
+		const a = lights[1] ?? [0, 0, 0];
+		return [Math.min(255, d[0] + a[0]), Math.min(255, d[1] + a[1]), Math.min(255, d[2] + a[2])];
+	};
 	let envColor: number | null = null;
 	let combine: [number, number] | null = null;
 	let wrapS: WrapMode = 'wrap';
@@ -449,6 +469,7 @@ export function interpretDisplayList(
 			state.prim ?? '-',
 			state.env ?? '-',
 			state.combine ? state.combine.join(',') : '-',
+			lit && state.light ? state.light.join(',') : '-',
 		].join('|');
 		const existing = materialByKey.get(key);
 		if (existing !== undefined) {
@@ -486,6 +507,7 @@ export function interpretDisplayList(
 			primColor: rgba(state.prim),
 			envColor: rgba(state.env),
 			combine: state.combine,
+			lightColor: lit ? state.light : null,
 		});
 		materialByKey.set(key, index);
 		return index;
@@ -510,6 +532,7 @@ export function interpretDisplayList(
 		}
 		const lit = (geometryMode & GEOMETRY_MODE.G_LIGHTING) !== 0;
 		const state: MaterialKeyState = {
+			light: lightColor(),
 			prim: primColor,
 			env: envColor,
 			combine,
@@ -863,6 +886,21 @@ export function interpretDisplayList(
 					// The palette address is whatever G_SETTIMG last
 					// set — the RDP loads from the current image.
 					tlut = timg;
+					break;
+				}
+				case ops.G_MOVEMEM: {
+					// Lights: F3D indexes them 0x86, 0x88, … (G_MV_L0 + 2n);
+					// F3DEX2 uses G_MV_LIGHT (0x0A) with a byte offset of
+					// (n + 1) · 24, light 1 at offset 48.
+					let slot = -1;
+					if (microcode === 'f3dex2') {
+						if ((w0 & 0xff) === 0x0a) slot = (((w0 >>> 8) & 0xff) * 8) / 24 - 2;
+					} else {
+						const idx = (w0 >>> 16) & 0xff;
+						if (idx >= 0x86 && idx <= 0x94 && !(idx & 1)) slot = (idx - 0x86) >> 1;
+					}
+					const at = slot >= 0 && Number.isInteger(slot) ? resolve(w1) : null;
+					if (at !== null && at + 3 <= data.length) lights[slot] = [data[at]!, data[at + 1]!, data[at + 2]!];
 					break;
 				}
 				case RDP.G_SETPRIMCOLOR:
