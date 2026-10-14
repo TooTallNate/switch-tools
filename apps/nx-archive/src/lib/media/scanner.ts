@@ -70,6 +70,7 @@ function skipReason(node: Node): string | null {
 	const fmt = (node.format ?? '').toUpperCase();
 	if (fmt === 'NCZ') return 'NCZ: expanding decompresses the whole NCA (zstd, often several GB)';
 	if (fmt === 'XCZ') return 'XCZ: compressed cartridge image (zstd NCZ contents)';
+	if (typeof node.meta?.scanSkipReason === 'string') return node.meta.scanSkipReason;
 	return null;
 }
 

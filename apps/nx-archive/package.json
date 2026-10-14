@@ -132,6 +132,7 @@
     "@tootallnate/ssm": "workspace:*",
     "@tootallnate/thp": "workspace:*",
     "@tootallnate/trinity": "workspace:*",
+    "@tootallnate/trpfs": "workspace:*",
     "@tootallnate/uasset": "workspace:*",
     "@tootallnate/unity-asset": "workspace:*",
     "@tootallnate/upak": "workspace:*",

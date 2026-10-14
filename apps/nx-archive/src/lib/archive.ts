@@ -62,6 +62,7 @@ import { makeStadium2ModelDirs } from './pokestadium';
 import { GFPAK_INFO_VERSION, gfpakEntryInfo, parseGfpak, type GfpakEntryInfo } from '@tootallnate/gfpak';
 import { isDat as isPlatinumDat } from '@tootallnate/platinum';
 import { registerIdTechResources } from './idtech';
+import { catalogFolders, nameModelFolder, openTrinityFs, type TrinityFs } from './trinity-fs';
 import { datEntryBytes, listDat, pkzEntryBytes, readPkz, registerPkzChild, textureBankChildren } from './platinum';
 import { parseAkpk } from '@tootallnate/wwise-pck';
 import { parseBnk } from '@tootallnate/wwise-bnk';
@@ -707,6 +708,7 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	bea: 'BEA', // Bezel Engine Archive (magic SCNE) — zstd-compressed asset bundle
 	gfpak: 'GFPAK', // Game Freak archive
 	pkz: 'PKZ', // PlatinumGames package (Bayonetta 3, Astral Chain)
+	trpfs: 'TRPFS', // Game Freak Trinity file system (Scarlet / Violet)
 	dtt: 'PG-DAT', // PlatinumGames texture archive (DAT layout)
 	'platinum-dat': 'PG-DAT', // PlatinumGames DAT archive (sniffed)
 	wta: 'PG-WTB', // PlatinumGames texture headers (pixels in the .dtt)
@@ -1580,6 +1582,11 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		extensions: ['fsb'],
 		sniff: ['fsb5'],
 		build: (a) => makeFsb5Node(a.id, a.name, a.blob),
+	},
+	{
+		format: 'TRPFS',
+		extensions: ['trpfs'],
+		build: (a) => makeTrpfsNode(a.id, a.name, a.blob, a.ctx, a.siblings),
 	},
 	{
 		format: 'PKZ',
@@ -5535,6 +5542,97 @@ async function gfpakEntriesToNodes(
 		return [...dirNodes, ...files];
 	};
 	return toNodes(id, root);
+}
+
+// ----- Game Freak Trinity file system (TRPFS / TRPFD) -----
+
+/**
+ * Pokémon Scarlet / Violet `arc/data.trpfs` with its sibling
+ * `data.trpfd`. Catalogued Pokémon model folders appear under their real
+ * paths (see `./trinity-fs`); every pack is also browsable by hash.
+ */
+function makeTrpfsNode(id: string, name: string, blob: Blob, ctx: ArchiveContext, siblings: SiblingMap | undefined): Node {
+	const fdBlob = siblings?.get(name.toLowerCase().replace(/\.trpfs$/, '.trpfd'));
+	if (!fdBlob) return genericFileNode(id, name, blob, 'TRPFS');
+	let opened: Promise<TrinityFs> | null = null;
+	const oodle = () => {
+		const od = ctx.getOodleDecompressor?.();
+		if (!od) {
+			ctx.requestOodle?.();
+			throw new OodleMissingError('Trinity packs are Oodle-compressed; load oodle.wasm to read them.');
+		}
+		return od;
+	};
+	const open = () => (opened ??= openTrinityFs(blob, fdBlob, oodle));
+	const fileNode = (fs: TrinityFs, dirId: string, hash: bigint, fallback: string) => {
+		const path = fs.names.get(hash);
+		const leaf = path ? path.slice(path.lastIndexOf('/') + 1) : fallback;
+		const known = !!path || !/\.bin$/.test(leaf);
+		const lazy = new LazyDecompressBlob(async () => new Blob([((await fs.read(hash)) ?? new Uint8Array(0)) as BlobPart]), undefined, { cache: false });
+		return childNodeFor(`${dirId}/${leaf}`, leaf, lazy, ctx, { skipMagicSniff: known });
+	};
+	return {
+		id,
+		name,
+		kind: 'file',
+		isContainer: true,
+		size: blob.size,
+		format: 'TRPFS',
+		blob: async () => blob,
+		getChildren: async () => {
+			const fs = await open();
+			// Catalogued model folders, as a directory tree.
+			type Dir = { dirs: Map<string, Dir>; model?: string };
+			const top: Dir = { dirs: new Map() };
+			for (const { folder, modelPath } of catalogFolders(fs)) {
+				let d = top;
+				for (const part of folder.split('/').filter(Boolean)) {
+					let n = d.dirs.get(part);
+					if (!n) d.dirs.set(part, (n = { dirs: new Map() }));
+					d = n;
+				}
+				d.model = modelPath;
+			}
+			const toNodes = (dirId: string, d: Dir): Node[] =>
+				[...d.dirs.keys()].sort(humanCompare).map((part) => {
+					const sub = d.dirs.get(part)!;
+					const childId = `${dirId}/${part}`;
+					return childDirectoryNodeFor({
+						id: childId,
+						name: part,
+						getChildren: async () => {
+							const nested = toNodes(childId, sub);
+							if (!sub.model) return nested;
+							const listed = await nameModelFolder(fs, sub.model);
+							const files = await Promise.all(listed.map((f) => fileNode(fs, childId, f.hash, f.name)));
+							return [...nested, ...files.sort((a, b) => humanCompare(a.name, b.name))];
+						},
+					});
+				});
+			const packsId = `${id}/packs`;
+			const packs: Node = {
+				...childDirectoryNodeFor({
+					id: packsId,
+					name: 'packs',
+					getChildren: async () =>
+						fs.fd.packNames.map((pn, p) => {
+							const pname = pn.replace(/^arc\//, '');
+							const pid = `${packsId}/${pname}`;
+							return childDirectoryNodeFor({
+								id: pid,
+								name: pname,
+								getChildren: async () => {
+									const entries = await fs.pack(p);
+									return Promise.all(entries.map((e) => fileNode(fs, pid, e.hash, `0x${e.hash.toString(16).padStart(16, '0')}.bin`)));
+								},
+							});
+						}),
+				}),
+				meta: { scanSkipReason: 'TRPFS packs by hash: the named model folders are scanned instead; browse packs in the Files view' },
+			};
+			return [...toNodes(id, top), packs];
+		},
+	};
 }
 
 // ----- PlatinumGames (PKZ / DAT / WTA) -----
