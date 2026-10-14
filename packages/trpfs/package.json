@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/trpfs",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Game Freak Trinity virtual file system (Pokémon Scarlet / Violet, Legends: Arceus): .trpfd descriptors, .trpfs pack files, .trpak packs, and path-hash name recovery.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/trpfs"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
