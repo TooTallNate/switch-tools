@@ -273,6 +273,7 @@ import { isBlobFacade, realBlob } from "~/lib/blob-facade"
 import { loadStadiumModelView } from "~/lib/pokestadium"
 import { loadGoldeneyeModelView } from "~/lib/goldeneye"
 import { loadZ64ObjectModelView, loadZ64SceneView } from "~/lib/z64-objects"
+import { loadSm64ModelView } from "~/lib/sm64"
 import { cn, formatBytes } from "~/lib/utils"
 import {
   formatBytesShort,
@@ -1972,6 +1973,8 @@ function FilePreview({
       return <Z64ObjectPreview node={node} />
     case "z64-scene":
       return <Z64ScenePreview node={node} />
+    case "sm64-model":
+      return <Sm64ModelPreview node={node} />
     case "halo-model":
       return <HaloModelPreview node={node} />
     case "ff7-psx-model":
@@ -15286,6 +15289,27 @@ function HaloModelPreview({ node }: { node: Node }) {
           materialDiffuseTextures={v.textures}
           baseName={node.name}
         />
+      </div>
+    </div>
+  )
+}
+
+function Sm64ModelPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(() => loadSm64ModelView(node), [node.id])
+  if (loading) return <LoadingFiller label="Building geo layout…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">Super Mario 64 Model</h2>
+        <p className="text-xs text-muted-foreground">
+          {v.vertices.toLocaleString()} vertices · {v.triangles.toLocaleString()} triangles · {v.texturedMaterials} textures
+          {v.animatedParts > 0 ? ` · ${v.animatedParts} animated parts${v.posed ? " (posed)" : ""}` : ""} · drag to orbit, scroll to zoom
+        </p>
+      </div>
+      <div className="flex-1 p-3">
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name} />
       </div>
     </div>
   )

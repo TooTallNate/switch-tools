@@ -122,6 +122,7 @@
     "@tootallnate/rvz": "workspace:*",
     "@tootallnate/sarc": "workspace:*",
     "@tootallnate/sead-audio": "workspace:*",
+    "@tootallnate/sm64": "workspace:*",
     "@tootallnate/smw": "workspace:*",
     "@tootallnate/snes-rom": "workspace:*",
     "@tootallnate/square-wd": "workspace:*",

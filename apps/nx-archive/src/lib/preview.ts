@@ -304,6 +304,7 @@ export type PreviewKind =
 	| 'goldeneye-model'
 	| 'z64-object'
 	| 'z64-scene'
+	| 'sm64-model'
 	| 'halo-model'
 	| 'psx-str'
 	| 'psx-tim'
@@ -580,6 +581,7 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	// Zelda 64 object skeleton (posed from its own animation).
 	if (node.meta?.z64Object) return 'z64-object';
 	if (node.meta?.z64Scene) return 'z64-scene';
+	if (node.meta?.sm64Model) return 'sm64-model';
 	if (node.meta?.haloModel) return 'halo-model';
 	if (node.meta?.psxStr) return 'psx-str';
 	if (node.meta?.ff7PsxModel) return 'ff7-psx-model';

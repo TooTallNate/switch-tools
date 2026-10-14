@@ -52,6 +52,7 @@ import { BLOB_FACADE } from './blob-facade';
 import { isPokemonStadium2 } from '@tootallnate/pokestadium';
 import { findGoldeneyeFiles, isGoldeneyeRom, makeGoldeneyeDirs } from './goldeneye';
 import { makeAlBankDirNode } from './n64-libaudio';
+import { makeSm64Dirs, sm64Scripts } from './sm64';
 import { findZ64Objects, makeZ64ObjectsDir, makeZ64SceneDirs } from './z64-objects';
 import { makeStadium2ModelDirs } from './pokestadium';
 import { GFPAK_INFO_VERSION, gfpakEntryInfo, parseGfpak, type GfpakEntryInfo } from '@tootallnate/gfpak';
@@ -8330,7 +8331,10 @@ function makeN64RomNode(
 			// which only find fragments of them (vertex pointers are
 			// absolute module addresses, not segments).
 			const stadiumDirs = isPokemonStadium2(rom) ? makeStadium2ModelDirs(id, rom) : [];
-			const scanModels = stadiumDirs.length === 0;
+			// Super Mario 64: models and levels from its level scripts.
+			const sm64 = stadiumDirs.length === 0 ? sm64Scripts(rom) : null;
+			const sm64Dirs = sm64 ? makeSm64Dirs(id, rom, sm64) : [];
+			const scanModels = stadiumDirs.length === 0 && sm64Dirs.length === 0;
 			const rareFiles = await scanRare1172(rom);
 			// Stock-library games embed a ctl/tbl sound-bank pair.
 			const soundBanks = findSoundBanks(rom);
@@ -8394,6 +8398,7 @@ function makeN64RomNode(
 				: null;
 			return [
 				...stadiumDirs,
+				...sm64Dirs,
 				...(kartSprites ? [kartSprites] : []),
 				...(soundBanks
 					? [makeSoundBankDirNode(`${id}/audio`, rom, soundBanks)]

@@ -59,7 +59,10 @@ export function f3dexTintedLod(mesh: Pick<F3dexMesh, 'positions' | 'normals' | '
 		const tint = f3dexMaterialTint(mat) ?? [255, 255, 255, 255];
 		for (let k = g.firstIndex; k < g.firstIndex + g.numTriangles * 3; k++) {
 			const v = mesh.indices[k]!;
-			for (let c = 0; c < 3; c++) colors[v * 3 + c] = (mat.lit ? 1 : mesh.colors[v * 3 + c]!) * (tint[c]! / 255);
+			for (let c = 0; c < 3; c++) {
+				const shade = mat.lit ? (mat.lightColor ? mat.lightColor[c]! / 255 : 1) : mesh.colors[v * 3 + c]!;
+				colors[v * 3 + c] = shade * (tint[c]! / 255);
+			}
 		}
 	}
 	return {
