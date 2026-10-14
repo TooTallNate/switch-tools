@@ -78,3 +78,5 @@ export {
 	nintendoOpusToOggOpus,
 	type NintendoOpusInfo,
 } from './opusnx.js';
+
+export { decodePtadpcm, ptadpcmSampleCount } from './ptadpcm.js';

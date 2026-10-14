@@ -5,6 +5,7 @@
 
 import type { ParsedWem } from './parse.js';
 import { wemSwitchOpusToOggOpus } from './opusnx.js';
+import { decodePtadpcm } from './ptadpcm.js';
 import {
 	parseWemVorbisV62,
 	wemVorbisToOggVorbis,
@@ -104,6 +105,14 @@ export async function decodeWemToBlob(
 				extension: 'ogg',
 				kind: 'wwise-vorbis-to-ogg-vorbis',
 			};
+		}
+
+		case 0x8311: {
+			// Platinum PTADPCM → 16-bit PCM WAV.
+			const data = new Uint8Array(await dataChunk.data.arrayBuffer());
+			const pcm = decodePtadpcm(data, fmt.channels, fmt.blockAlign);
+			const blob = encodeWavBlobFromPcm16(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength), fmt.channels, fmt.sampleRate);
+			return { blob, extension: 'wav', kind: 'pcm-wav' };
 		}
 
 		case 0x3041:
