@@ -1924,6 +1924,8 @@ function FilePreview({
       return <DdsPreview node={node} kind="tga" />
     case "tpc-image":
       return <DdsPreview node={node} kind="tpc" />
+    case "mt-tex-image":
+      return <DdsPreview node={node} kind="tex" />
     case "kotor-model":
       return <KotorModelPreview node={node} root={root} />
     case "ff8-field-scene":

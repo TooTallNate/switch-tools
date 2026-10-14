@@ -63,6 +63,7 @@ import { GFPAK_INFO_VERSION, gfpakEntryInfo, parseGfpak, type GfpakEntryInfo } f
 import { isDat as isPlatinumDat } from '@tootallnate/platinum';
 import { registerIdTechResources } from './idtech';
 import { bifResources, erfResources, registerAuroraKey } from './kotor';
+import { isMtArc, mtArcTableSize, parseMtArc } from '@tootallnate/mtf';
 import { isErf as isAuroraErf, isKey as isAuroraKey, type AuroraResource } from '@tootallnate/aurora';
 import { catalogFolders, nameModelFolder, openTrinityFs, type TrinityFs } from './trinity-fs';
 import { datEntryBytes, listDat, pkzEntryBytes, readPkz, registerPkzChild, textureBankChildren } from './platinum';
@@ -4466,6 +4467,20 @@ function makeArcNode(
 				await blob.slice(0, 4).arrayBuffer(),
 			);
 			const magic = new TextDecoder().decode(head);
+			// Capcom MT Framework (Resident Evil 0 / 1 HD): zlib entries.
+			if (isMtArc(head)) {
+				const tableHead = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
+				const entries = parseMtArc(new Uint8Array(await blob.slice(0, mtArcTableSize(tableHead)).arrayBuffer()));
+				const files = entries.map((e) => {
+					const raw = blob.slice(e.offset, e.offset + e.compressedSize);
+					const data =
+						e.compressedSize === e.size
+							? raw
+							: new LazyDecompressBlob(async () => new Blob([await new Response(raw.stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer()]), e.size);
+					return { path: e.name, data };
+				});
+				return mtArcEntriesToNodes(id, files, ctx);
+			}
 			if (magic === 'RARC') {
 				const archive = parseRarc(new Uint8Array(await blob.arrayBuffer()));
 				return archive
@@ -5574,6 +5589,42 @@ async function gfpakEntriesToNodes(
 		return [...dirNodes, ...files];
 	};
 	return toNodes(id, root);
+}
+
+// ----- Capcom MT Framework ARC -----
+
+/** MT ARC entries as a folder tree (paths use `/`); `.tex` are tagged for the texture preview. */
+async function mtArcEntriesToNodes(id: string, files: { path: string; data: Blob }[], ctx: ArchiveContext): Promise<Node[]> {
+	type Dir = { dirs: Map<string, Dir>; files: Promise<Node>[] };
+	const top: Dir = { dirs: new Map(), files: [] };
+	for (const f of files) {
+		const parts = f.path.split('/').filter(Boolean);
+		const leaf = parts.pop()!;
+		let d = top;
+		let dirId = id;
+		for (const p of parts) {
+			dirId = `${dirId}/${p}`;
+			let n = d.dirs.get(p);
+			if (!n) d.dirs.set(p, (n = { dirs: new Map(), files: [] }));
+			d = n;
+		}
+		const childId = `${dirId}/${leaf}`;
+		d.files.push(
+			/\.tex$/i.test(leaf)
+				? Promise.resolve({ ...genericFileNode(childId, leaf, f.data, 'MT TEX'), meta: { mtTex: true } })
+				: childNodeFor(childId, leaf, f.data, ctx, { skipMagicSniff: true }),
+		);
+	}
+	const toNodes = async (dirId: string, d: Dir): Promise<Node[]> => {
+		const dirNodes = [...d.dirs.keys()].sort(humanCompare).map((n) => {
+			const childId = `${dirId}/${n}`;
+			const sub = d.dirs.get(n)!;
+			return childDirectoryNodeFor({ id: childId, name: n, getChildren: () => toNodes(childId, sub) });
+		});
+		const leaves = (await Promise.all(d.files)).sort((a, b) => humanCompare(a.name, b.name));
+		return [...dirNodes, ...leaves];
+	};
+	return toNodes(id, top);
 }
 
 // ----- BioWare Aurora (KotOR): BIF / ERF / RIM / MOD -----

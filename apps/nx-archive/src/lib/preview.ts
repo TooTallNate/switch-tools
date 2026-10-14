@@ -200,6 +200,8 @@ export type PreviewKind =
 	| 'tga-image'
 	/** KotOR TPC texture. */
 	| 'tpc-image'
+	/** Capcom MT Framework texture (inside an MT ARC). */
+	| 'mt-tex-image'
 	/**
 	 * FFVIII PC field-scene background (`.map` + sibling `.mim`).
 	 * Composited 2D pre-rendered backgrounds (Balamb Garden
@@ -599,6 +601,7 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.idtechModel) return 'idtech-model';
 	// KotOR binary model (inside a BIF / ERF / RIM).
 	if (node.meta?.kotorModel) return 'kotor-model';
+	if (node.meta?.mtTex) return 'mt-tex-image';
 	if (node.meta?.psxStr) return 'psx-str';
 	if (node.meta?.ff7PsxModel) return 'ff7-psx-model';
 	// Melee model: the tree tags which archive + joint root to render.

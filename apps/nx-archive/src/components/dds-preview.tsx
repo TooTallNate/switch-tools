@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { parseDds } from "@tootallnate/dds"
 import { decodeTga } from "@tootallnate/tga"
 import { decodeTpc } from "@tootallnate/aurora"
+import { decodeMtTex } from "@tootallnate/mtf"
 import type { Node } from "~/lib/archive"
 import { ErrorFiller, LoadingFiller, useAsync } from "./preview-pane"
 import { triggerDownload, sanitizeStem } from "~/lib/mesh-export"
@@ -26,8 +27,12 @@ interface ParsedView {
 	rawDdsBytes: Uint8Array
 }
 
-async function parse(blob: Blob, kind: "dds" | "tga" | "tpc"): Promise<ParsedView> {
+async function parse(blob: Blob, kind: "dds" | "tga" | "tpc" | "tex"): Promise<ParsedView> {
 	const rawDdsBytes = new Uint8Array(await blob.arrayBuffer())
+	if (kind === "tex") {
+		const t = decodeMtTex(rawDdsBytes)
+		return { width: t.width, height: t.height, pixels: t.pixels, formatLabel: `MT TEX 0x${t.format.toString(16)}`, rawDdsBytes }
+	}
 	if (kind === "tpc") {
 		const t = decodeTpc(rawDdsBytes)
 		return { width: t.width, height: t.height, pixels: t.pixels, formatLabel: t.hasAlpha ? "TPC RGBA" : "TPC RGB", rawDdsBytes }
@@ -46,7 +51,7 @@ async function parse(blob: Blob, kind: "dds" | "tga" | "tpc"): Promise<ParsedVie
 	}
 }
 
-export function DdsPreview({ node, kind = "dds" }: { node: Node; kind?: "dds" | "tga" | "tpc" }) {
+export function DdsPreview({ node, kind = "dds" }: { node: Node; kind?: "dds" | "tga" | "tpc" | "tex" }) {
 	const { loading, data, error } = useAsync(
 		async () => parse(await node.blob!(), kind),
 		[node.id, kind],
@@ -84,7 +89,7 @@ export function DdsPreview({ node, kind = "dds" }: { node: Node; kind?: "dds" | 
 		triggerDownload(
 			data.rawDdsBytes,
 			`${sanitizeStem(node.name)}.${kind}`,
-			kind === "tga" ? "image/x-tga" : kind === "tpc" ? "application/octet-stream" : "image/vnd.ms-dds",
+			kind === "tga" ? "image/x-tga" : kind === "tpc" || kind === "tex" ? "application/octet-stream" : "image/vnd.ms-dds",
 		)
 	}
 

@@ -99,6 +99,7 @@
     "@tootallnate/mio0": "workspace:*",
     "@tootallnate/ms-adpcm": "workspace:*",
     "@tootallnate/msbt": "workspace:*",
+    "@tootallnate/mtf": "workspace:*",
     "@tootallnate/mth": "workspace:*",
     "@tootallnate/n64-rom": "workspace:*",
     "@tootallnate/n64-seq": "workspace:*",

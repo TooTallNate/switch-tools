@@ -66,6 +66,7 @@ const IMAGE_KINDS = new Set([
 	'dds-image',
 	'tga-image',
 	'tpc-image',
+	'mt-tex-image',
 	'bntx-image',
 	'phyre-image',
 	'bimage',
