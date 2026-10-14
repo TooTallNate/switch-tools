@@ -517,6 +517,9 @@ importers:
       '@tootallnate/sead-audio':
         specifier: workspace:*
         version: link:../../packages/sead-audio
+      '@tootallnate/sm64':
+        specifier: workspace:*
+        version: link:../../packages/sm64
       '@tootallnate/smw':
         specifier: workspace:*
         version: link:../../packages/smw
@@ -1519,6 +1522,19 @@ importers:
       vitest:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
+
+  packages/sm64:
+    dependencies:
+      '@tootallnate/f3dex':
+        specifier: workspace:*
+        version: link:../f3dex
+      '@tootallnate/mio0':
+        specifier: workspace:*
+        version: link:../mio0
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
 
   packages/smw:
     dependencies:
