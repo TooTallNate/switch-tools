@@ -300,6 +300,8 @@ export type PreviewKind =
 	 * routed via `meta.n64Model`.
 	 */
 	| 'n64-model'
+	| 'stadium-model'
+	| 'goldeneye-model'
 	| 'halo-model'
 	| 'psx-str'
 	| 'psx-tim'
@@ -569,6 +571,10 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.gbRom) return 'gb-rom-info';
 	// A single N64 display list located by the model scanner.
 	if (node.meta?.n64Model) return 'n64-model';
+	// Pokémon Stadium 2 Pokémon / arena model (FRAGMENT module).
+	if (node.meta?.stadiumModel) return 'stadium-model';
+	// GoldenEye 007 character / gun / prop model file.
+	if (node.meta?.goldeneyeModel) return 'goldeneye-model';
 	if (node.meta?.haloModel) return 'halo-model';
 	if (node.meta?.psxStr) return 'psx-str';
 	if (node.meta?.ff7PsxModel) return 'ff7-psx-model';

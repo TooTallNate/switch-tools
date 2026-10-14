@@ -13,6 +13,8 @@
  * itself ({@link ./scanner}) stays DOM-free.
  */
 
+import { loadStadiumModelView } from '../pokestadium';
+import { loadGoldeneyeModelView } from '../goldeneye';
 import { GfbmdlPose, colorUvTransform, groupVisibility, materialValues } from '@tootallnate/gfbmdl';
 import { isDummyMch, parseMch } from '@tootallnate/ff8-model';
 import { parseDat } from '@tootallnate/ff8-battle';
@@ -90,6 +92,8 @@ export const HEADLESS_MODEL_KINDS = new Set([
 	'trinity-terrain',
 	'hsd-model',
 	'n64-model',
+	'stadium-model',
+	'goldeneye-model',
 	'halo-model',
 	'ff7-psx-model',
 	'j3d-model',
@@ -425,6 +429,14 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 		case 'n64-model': {
 			const v = await parseN64ModelForView(await node.blob!(), node.meta?.n64Model as N64ModelRef);
 			return asset(n64Lod(v), v.texturedMaterials > 0 ? v.textures : []);
+		}
+		case 'stadium-model': {
+			const v = await loadStadiumModelView(node);
+			return asset(v.mesh.lods[0]!, v.textures);
+		}
+		case 'goldeneye-model': {
+			const v = await loadGoldeneyeModelView(node);
+			return asset(v.mesh.lods[0]!, []);
 		}
 		case 'trinity-terrain': {
 			const v = await loadTrinityTerrainView(node, root);

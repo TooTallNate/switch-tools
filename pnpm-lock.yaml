@@ -385,6 +385,9 @@ importers:
       '@tootallnate/gfpak':
         specifier: workspace:*
         version: link:../../packages/gfpak
+      '@tootallnate/goldeneye':
+        specifier: workspace:*
+        version: link:../../packages/goldeneye
       '@tootallnate/halo-map':
         specifier: workspace:*
         version: link:../../packages/halo-map
@@ -484,6 +487,9 @@ importers:
       '@tootallnate/phyre':
         specifier: workspace:*
         version: link:../../packages/phyre
+      '@tootallnate/pokestadium':
+        specifier: workspace:*
+        version: link:../../packages/pokestadium
       '@tootallnate/ps-adpcm':
         specifier: workspace:*
         version: link:../../packages/ps-adpcm
@@ -1132,6 +1138,12 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/goldeneye:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/hacbrewpack:
     dependencies:
       '@tootallnate/cnmt':
@@ -1427,6 +1439,16 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/pokestadium:
+    dependencies:
+      '@tootallnate/yay0':
+        specifier: workspace:*
+        version: link:../yay0
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/ps-adpcm:
     devDependencies:
       typescript:
@@ -1452,6 +1474,10 @@ importers:
         version: 5.9.3
 
   packages/rare-1172:
+    dependencies:
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.2
     devDependencies:
       typescript:
         specifier: ^5.3.3

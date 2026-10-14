@@ -270,6 +270,8 @@ import {
 } from "~/lib/highlight"
 import { useTheme } from "next-themes"
 import { isBlobFacade, realBlob } from "~/lib/blob-facade"
+import { loadStadiumModelView } from "~/lib/pokestadium"
+import { loadGoldeneyeModelView } from "~/lib/goldeneye"
 import { cn, formatBytes } from "~/lib/utils"
 import {
   formatBytesShort,
@@ -1961,6 +1963,10 @@ function FilePreview({
       return <TileViewerPreview node={node} />
     case "n64-model":
       return <N64ModelPreview node={node} />
+    case "stadium-model":
+      return <StadiumModelPreview node={node} />
+    case "goldeneye-model":
+      return <GoldeneyeModelPreview node={node} />
     case "halo-model":
       return <HaloModelPreview node={node} />
     case "ff7-psx-model":
@@ -15275,6 +15281,53 @@ function HaloModelPreview({ node }: { node: Node }) {
           materialDiffuseTextures={v.textures}
           baseName={node.name}
         />
+      </div>
+    </div>
+  )
+}
+
+function GoldeneyeModelPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(() => loadGoldeneyeModelView(node), [node.id])
+  if (loading) return <LoadingFiller label="Decoding model…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">GoldenEye 007 Model</h2>
+        <p className="text-xs text-muted-foreground">
+          {v.vertices.toLocaleString()} vertices · {v.triangles.toLocaleString()} triangles ·{" "}
+          {v.model.textureIds.length} texture references (not decoded yet) · rest pose as authored ·
+          drag to orbit, scroll to zoom
+        </p>
+      </div>
+      <div className="flex-1 p-3">
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={[]} baseName={node.name} />
+      </div>
+    </div>
+  )
+}
+
+function StadiumModelPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(() => loadStadiumModelView(node), [node.id])
+  if (loading) return <LoadingFiller label="Decoding model…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const arena = v.model.kind === "stage"
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">
+          {arena ? "Pokémon Stadium 2 Arena" : "Pokémon Stadium 2 Model"}
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          {v.vertices.toLocaleString()} vertices · {v.triangles.toLocaleString()} triangles ·{" "}
+          {v.model.textures.length} texture{v.model.textures.length === 1 ? "" : "s"} ·{" "}
+          {v.model.bones.length} joints · bind pose · drag to orbit, scroll to zoom
+        </p>
+      </div>
+      <div className="flex-1 p-3">
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name} />
       </div>
     </div>
   )

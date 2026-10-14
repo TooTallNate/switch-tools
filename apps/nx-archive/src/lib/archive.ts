@@ -49,6 +49,10 @@ import { parseBfwar } from '@tootallnate/bfwar';
 import { parseBfres } from '@tootallnate/bfres';
 import { parseBea, type BeaEntry } from '@tootallnate/bea';
 import { BLOB_FACADE } from './blob-facade';
+import { isPokemonStadium2 } from '@tootallnate/pokestadium';
+import { findGoldeneyeFiles, isGoldeneyeRom, makeGoldeneyeDirs } from './goldeneye';
+import { makeAlBankDirNode } from './n64-libaudio';
+import { makeStadium2ModelDirs } from './pokestadium';
 import { GFPAK_INFO_VERSION, gfpakEntryInfo, parseGfpak, type GfpakEntryInfo } from '@tootallnate/gfpak';
 import { parseAkpk } from '@tootallnate/wwise-pck';
 import { parseBnk } from '@tootallnate/wwise-bnk';
@@ -94,6 +98,7 @@ import {
 import { decompressYaz0ToBytes } from '@tootallnate/yaz0';
 import { parseZ64Fs, extractDmaFile, type DmaEntry } from '@tootallnate/z64-fs';
 import {
+	findAlBankFiles,
 	findSoundBanks,
 	scanAllSamples as scanSoundBankSamples,
 	decodeBankSample,
@@ -8275,10 +8280,31 @@ function makeN64RomNode(
 			// for Rare's `0x1172` deflate containers (GoldenEye 007,
 			// Perfect Dark), which use neither a dmadata table nor
 			// any of the Nintendo compression formats.
+			// GoldenEye 007 names every file in a table inside its code
+			// segment: list those (models, levels, setups, …) instead of
+			// guessing at Rare-1172 containers and display lists.
+			if (isGoldeneyeRom(rom)) {
+				const geFiles = await findGoldeneyeFiles(rom);
+				if (geFiles) {
+					const banks = findAlBankFiles(rom);
+					return [
+						...(banks.length ? [makeAlBankDirNode(`${id}/audio`, rom, banks, { goldeneye: true })] : []),
+						...makeGoldeneyeDirs(id, rom, geFiles),
+					];
+				}
+			}
 			const blocks = scanN64Compression(rom);
+			// Pokémon Stadium 2 stores its models as FRAGMENT modules in
+			// archive tables; list those instead of display-list guesses,
+			// which only find fragments of them (vertex pointers are
+			// absolute module addresses, not segments).
+			const stadiumDirs = isPokemonStadium2(rom) ? makeStadium2ModelDirs(id, rom) : [];
+			const scanModels = stadiumDirs.length === 0;
 			const rareFiles = await scanRare1172(rom);
 			// Stock-library games embed a ctl/tbl sound-bank pair.
 			const soundBanks = findSoundBanks(rom);
+			// Classic libultra ALBankFile ctl/tbl pairs (libaudio games).
+			const alBanks = soundBanks ? [] : findAlBankFiles(rom);
 			const rareNodes = rareFiles.map((f: Rare1172File): Node => {
 				const childName = `file_0x${f.offset
 					.toString(16)
@@ -8326,7 +8352,9 @@ function makeN64RomNode(
 					format: b.type,
 					meta: { tileData: 'n64-rgba16' },
 					blob: async () => new Blob([(await decompress()) as BlobPart]),
-					getChildren: n64ModelChildren(childId, decompress),
+					...(scanModels
+						? { getChildren: n64ModelChildren(childId, decompress) }
+						: { kind: 'file' as const, isContainer: false }),
 				};
 			});
 			// Mario Kart 64 racers are pre-rendered sprites, not models.
@@ -8334,10 +8362,13 @@ function makeN64RomNode(
 				? makeMk64KartSpritesNode(`${id}/kart sprites`, normalizedOnce, rom)
 				: null;
 			return [
+				...stadiumDirs,
 				...(kartSprites ? [kartSprites] : []),
 				...(soundBanks
 					? [makeSoundBankDirNode(`${id}/audio`, rom, soundBanks)]
-					: []),
+					: alBanks.length
+						? [makeAlBankDirNode(`${id}/audio`, rom, alBanks)]
+						: []),
 				...blockNodes,
 				...rareNodes,
 			];
