@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/idtech-models",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Parsers for DOOM 3 BFG Edition compiled models: BRMl static models, MD5 meshes and animations, and .bproc level geometry.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/idtech-models"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

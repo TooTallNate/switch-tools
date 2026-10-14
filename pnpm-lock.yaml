@@ -406,6 +406,9 @@ importers:
       '@tootallnate/idfont':
         specifier: workspace:*
         version: link:../../packages/idfont
+      '@tootallnate/idtech-models':
+        specifier: workspace:*
+        version: link:../../packages/idtech-models
       '@tootallnate/idtech-resources':
         specifier: workspace:*
         version: link:../../packages/idtech-resources
@@ -1219,6 +1222,12 @@ importers:
         version: 5.9.3
 
   packages/idfont:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/idtech-models:
     devDependencies:
       typescript:
         specifier: ^5.3.3
