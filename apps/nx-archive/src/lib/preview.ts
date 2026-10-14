@@ -310,6 +310,7 @@ export type PreviewKind =
 	| 'sm64-model'
 	| 'platinum-model'
 	| 'idtech-model'
+	| 'idtech3-model'
 	| 'halo-model'
 	| 'psx-str'
 	| 'psx-tim'
@@ -733,6 +734,8 @@ export function detectPreviewKind(name: string): PreviewKind {
 	}
 	if (lower.endsWith('.bntx')) return 'bntx-image';
 	if (lower.endsWith('.tga')) return 'tga-image';
+	// id Tech 3 family (Jedi Knight II / Jedi Academy): MD3, Ghoul2, BSP levels.
+	if (lower.endsWith('.md3') || lower.endsWith('.glm') || lower.endsWith('.bsp')) return 'idtech3-model';
 	// Standalone DDS textures (NOT `.dds.phyre`, handled below).
 	if (lower.endsWith('.dds') && !lower.endsWith('.dds.phyre')) {
 		return 'dds-image';

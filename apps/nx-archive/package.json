@@ -86,6 +86,7 @@
     "@tootallnate/hsd": "workspace:*",
     "@tootallnate/idfont": "workspace:*",
     "@tootallnate/idtech-models": "workspace:*",
+    "@tootallnate/idtech3": "workspace:*",
     "@tootallnate/idtech-resources": "workspace:*",
     "@tootallnate/iostore": "workspace:*",
     "@tootallnate/iso9660": "workspace:*",

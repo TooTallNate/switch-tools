@@ -63,6 +63,7 @@ import { createAssetResolver } from '../uasset-resolver';
 import { loadHaloModelView, type HaloModelRef } from '../halo';
 import { loadPlatinumModelView } from '../platinum';
 import { loadIdTechModelView, poseIdTechView } from '../idtech';
+import { loadIdtech3ModelView } from '../idtech3';
 import { loadUeSkeletalView, skeletalMeshExportIndex } from '../unreal-skeletal';
 import { loadFf7PsxModelView } from '../ff7-psx';
 import { unityMeshDisplayColors } from '../unity-mesh';
@@ -105,6 +106,7 @@ export const HEADLESS_MODEL_KINDS = new Set([
 	'sm64-model',
 	'platinum-model',
 	'idtech-model',
+	'idtech3-model',
 	'halo-model',
 	'ff7-psx-model',
 	'j3d-model',
@@ -500,6 +502,10 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 		case 'ff7-psx-model': {
 			const v = await loadFf7PsxModelView(node, root);
 			return asset(v.mesh.lods[0], v.textures, { animations: v.animator.clips.length });
+		}
+		case 'idtech3-model': {
+			const v = await loadIdtech3ModelView(node, root);
+			return asset(v.mesh.lods[0]!, v.textures, { texturesFound: [v.texturesFound, v.materials.length] }, 'z-up');
 		}
 		case 'idtech-model': {
 			const v = await loadIdTechModelView(node, root);
