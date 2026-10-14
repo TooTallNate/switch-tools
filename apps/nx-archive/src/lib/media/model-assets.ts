@@ -15,6 +15,7 @@
 
 import { loadStadiumModelView } from '../pokestadium';
 import { loadGoldeneyeModelView } from '../goldeneye';
+import { loadZ64ObjectModelView, loadZ64SceneView } from '../z64-objects';
 import { GfbmdlPose, colorUvTransform, groupVisibility, materialValues } from '@tootallnate/gfbmdl';
 import { isDummyMch, parseMch } from '@tootallnate/ff8-model';
 import { parseDat } from '@tootallnate/ff8-battle';
@@ -94,6 +95,8 @@ export const HEADLESS_MODEL_KINDS = new Set([
 	'n64-model',
 	'stadium-model',
 	'goldeneye-model',
+	'z64-object',
+	'z64-scene',
 	'halo-model',
 	'ff7-psx-model',
 	'j3d-model',
@@ -433,6 +436,14 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 		case 'stadium-model': {
 			const v = await loadStadiumModelView(node);
 			return asset(v.mesh.lods[0]!, v.textures);
+		}
+		case 'z64-scene': {
+			const v = await loadZ64SceneView(node);
+			return asset(v.mesh.lods[0]!, v.texturedMaterials > 0 ? v.textures : []);
+		}
+		case 'z64-object': {
+			const v = await loadZ64ObjectModelView(node);
+			return asset(v.mesh.lods[0]!, v.texturedMaterials > 0 ? v.textures : []);
 		}
 		case 'goldeneye-model': {
 			const v = await loadGoldeneyeModelView(node);

@@ -52,6 +52,7 @@ import { BLOB_FACADE } from './blob-facade';
 import { isPokemonStadium2 } from '@tootallnate/pokestadium';
 import { findGoldeneyeFiles, isGoldeneyeRom, makeGoldeneyeDirs } from './goldeneye';
 import { makeAlBankDirNode } from './n64-libaudio';
+import { findZ64Objects, makeZ64ObjectsDir, makeZ64SceneDirs } from './z64-objects';
 import { makeStadium2ModelDirs } from './pokestadium';
 import { GFPAK_INFO_VERSION, gfpakEntryInfo, parseGfpak, type GfpakEntryInfo } from '@tootallnate/gfpak';
 import { parseAkpk } from '@tootallnate/wwise-pck';
@@ -8247,6 +8248,35 @@ function makeN64RomNode(
 						),
 					);
 				}
+				// Named objects with posed skeleton models (the object
+				// table in `code`); object files then skip the raw
+				// display-list scan below so they aren't counted twice.
+				const z64 = await findZ64Objects(normBlob, fs).catch(() => null);
+				const objectVroms = new Set(z64?.objects.map((o) => o.entry.vromStart) ?? []);
+				if (z64) {
+					children.push(
+						makeZ64ObjectsDir(`${id}/objects`, normBlob, fs, z64.objects, (nodeId, getBytes) => n64ModelChildren(nodeId, getBytes)),
+					);
+					// Scenes are levels: room files are drawn through their scene.
+					if (z64.scenes.length) children.push(...makeZ64SceneDirs(id, normBlob, fs, z64.scenes));
+				}
+				// Scene and room files are covered by scenes/; skip their raw
+				// scan. Rooms follow their scene in dmadata, so everything
+				// from a scene up to the next one (at most 64 files) counts.
+				const sceneVroms = new Set<number>();
+				if (z64) {
+					const sceneSet = new Set(z64.scenes.map((s) => s.entry.vromStart));
+					const objSet = objectVroms;
+					let inScene = 0;
+					for (const e of fs.entries) {
+						if (sceneSet.has(e.vromStart)) inScene = 65;
+						else if (objSet.has(e.vromStart)) inScene = 0;
+						if (inScene > 0) {
+							sceneVroms.add(e.vromStart);
+							inScene--;
+						}
+					}
+				}
 				children.push(
 					...fs.entries
 					.filter((e: DmaEntry) => !e.deleted && e.size > 0)
@@ -8256,11 +8286,12 @@ function makeN64RomNode(
 							new Uint8Array(
 								await (await extractDmaFile(normBlob, e)).arrayBuffer(),
 							);
+						const isObject = objectVroms.has(e.vromStart) || sceneVroms.has(e.vromStart);
 						return {
 							id: childId,
 							name: e.name,
-							kind: 'n64-blob',
-							isContainer: true,
+							kind: isObject ? 'file' : 'n64-blob',
+							isContainer: !isObject,
 							size: e.size,
 							format: e.compressed ? 'Yaz0' : 'BIN',
 							meta: {
@@ -8270,7 +8301,7 @@ function makeN64RomNode(
 								tileData: 'n64-rgba16',
 							},
 							blob: () => extractDmaFile(normBlob, e),
-							getChildren: n64ModelChildren(childId, getBytes),
+							...(!isObject && { getChildren: n64ModelChildren(childId, getBytes) }),
 						};
 					}),
 				);

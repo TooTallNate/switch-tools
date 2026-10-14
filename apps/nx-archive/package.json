@@ -145,6 +145,7 @@
     "@tootallnate/yaz0": "workspace:*",
     "@tootallnate/z64-audio": "workspace:*",
     "@tootallnate/z64-fs": "workspace:*",
+    "@tootallnate/z64-object": "workspace:*",
     "@tootallnate/zstd-wasm": "workspace:*",
     "@types/js-yaml": "^4.0.9",
     "class-variance-authority": "^0.7.1",

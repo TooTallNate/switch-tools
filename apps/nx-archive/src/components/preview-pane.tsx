@@ -272,6 +272,7 @@ import { useTheme } from "next-themes"
 import { isBlobFacade, realBlob } from "~/lib/blob-facade"
 import { loadStadiumModelView } from "~/lib/pokestadium"
 import { loadGoldeneyeModelView } from "~/lib/goldeneye"
+import { loadZ64ObjectModelView, loadZ64SceneView } from "~/lib/z64-objects"
 import { cn, formatBytes } from "~/lib/utils"
 import {
   formatBytesShort,
@@ -1967,6 +1968,10 @@ function FilePreview({
       return <StadiumModelPreview node={node} />
     case "goldeneye-model":
       return <GoldeneyeModelPreview node={node} />
+    case "z64-object":
+      return <Z64ObjectPreview node={node} />
+    case "z64-scene":
+      return <Z64ScenePreview node={node} />
     case "halo-model":
       return <HaloModelPreview node={node} />
     case "ff7-psx-model":
@@ -15281,6 +15286,49 @@ function HaloModelPreview({ node }: { node: Node }) {
           materialDiffuseTextures={v.textures}
           baseName={node.name}
         />
+      </div>
+    </div>
+  )
+}
+
+function Z64ScenePreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(() => loadZ64SceneView(node), [node.id])
+  if (loading) return <LoadingFiller label="Building level…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">Zelda 64 Level</h2>
+        <p className="text-xs text-muted-foreground">
+          {v.rooms} rooms · {v.vertices.toLocaleString()} vertices · {v.triangles.toLocaleString()} triangles ·{" "}
+          {v.texturedMaterials} textures · drag to orbit, scroll to zoom
+        </p>
+      </div>
+      <div className="flex-1 p-3">
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name} />
+      </div>
+    </div>
+  )
+}
+
+function Z64ObjectPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(() => loadZ64ObjectModelView(node), [node.id])
+  if (loading) return <LoadingFiller label="Posing skeleton…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">Zelda 64 Model</h2>
+        <p className="text-xs text-muted-foreground">
+          {v.vertices.toLocaleString()} vertices · {v.triangles.toLocaleString()} triangles · {v.limbs} limbs
+          {v.skinned ? " (skinned)" : ""} · {v.texturedMaterials} textures ·{" "}
+          {v.posed ? "first animation frame" : "bind pose"} · drag to orbit, scroll to zoom
+        </p>
+      </div>
+      <div className="flex-1 p-3">
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name} />
       </div>
     </div>
   )

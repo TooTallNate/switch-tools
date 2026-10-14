@@ -302,6 +302,8 @@ export type PreviewKind =
 	| 'n64-model'
 	| 'stadium-model'
 	| 'goldeneye-model'
+	| 'z64-object'
+	| 'z64-scene'
 	| 'halo-model'
 	| 'psx-str'
 	| 'psx-tim'
@@ -575,6 +577,9 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.stadiumModel) return 'stadium-model';
 	// GoldenEye 007 character / gun / prop model file.
 	if (node.meta?.goldeneyeModel) return 'goldeneye-model';
+	// Zelda 64 object skeleton (posed from its own animation).
+	if (node.meta?.z64Object) return 'z64-object';
+	if (node.meta?.z64Scene) return 'z64-scene';
 	if (node.meta?.haloModel) return 'halo-model';
 	if (node.meta?.psxStr) return 'psx-str';
 	if (node.meta?.ff7PsxModel) return 'ff7-psx-model';
