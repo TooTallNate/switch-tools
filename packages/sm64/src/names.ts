@@ -156,3 +156,6 @@ export const SM64_MODEL_NAMES: Readonly<Record<number, string>> = {
 	0xe0: 'white_puff',
 	0xe1: 'trajectory_marker_ball',
 };
+
+/** Sequence names (`sound/sequences.json`), index = sequence id. */
+export const SM64_SEQUENCE_NAMES: readonly string[] = ["00_sound_player", "01_cutscene_collect_star", "02_menu_title_screen", "03_level_grass", "04_level_inside_castle", "05_level_water", "06_level_hot", "07_level_boss_koopa", "08_level_snow", "09_level_slide", "0A_level_spooky", "0B_event_piranha_plant", "0C_level_underground", "0D_menu_star_select", "0E_event_powerup", "0F_event_metal_cap", "10_event_koopa_message", "11_level_koopa_road", "12_event_high_score", "13_event_merry_go_round", "14_event_race", "15_cutscene_star_spawn", "16_event_boss", "17_cutscene_collect_key", "18_event_endless_stairs", "19_level_boss_koopa_final", "1A_cutscene_credits", "1B_event_solve_puzzle", "1C_event_toad_message", "1D_event_peach_message", "1E_cutscene_intro", "1F_cutscene_victory", "20_cutscene_ending", "21_menu_file_select", "22_cutscene_lakitu"];
