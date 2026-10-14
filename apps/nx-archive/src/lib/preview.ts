@@ -302,6 +302,7 @@ export type PreviewKind =
 	| 'n64-model'
 	| 'stadium-model'
 	| 'goldeneye-model'
+	| 'goldeneye-level'
 	| 'z64-object'
 	| 'z64-scene'
 	| 'sm64-model'
@@ -578,6 +579,7 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.stadiumModel) return 'stadium-model';
 	// GoldenEye 007 character / gun / prop model file.
 	if (node.meta?.goldeneyeModel) return 'goldeneye-model';
+	if (node.meta?.goldeneyeLevel) return 'goldeneye-level';
 	// Zelda 64 object skeleton (posed from its own animation).
 	if (node.meta?.z64Object) return 'z64-object';
 	if (node.meta?.z64Scene) return 'z64-scene';

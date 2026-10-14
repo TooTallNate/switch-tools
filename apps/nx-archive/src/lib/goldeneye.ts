@@ -12,7 +12,10 @@
  */
 
 import {
+	buildGoldeneyeLevel,
 	buildGoldeneyeModel,
+	isGoldeneyeLevel,
+	type GoldeneyePrimitive,
 	findGoldeneyeFileTable,
 	findGoldeneyeTextureBank,
 	findGoldeneyeTextureOffsets,
@@ -154,8 +157,9 @@ export function makeGoldeneyeDirs(id: string, rom: Uint8Array, info: GoldeneyeRo
 								format: f.compressed ? 'Rare-1172' : 'BIN',
 								meta: {
 									...(model && { goldeneyeModel: { name: f.name } }),
+									...(k === 'level' && { goldeneyeLevel: { name: f.name } }),
 									contentKey: `ge:${f.romOffset}:${f.romSize}`,
-									...(!model && { tileData: 'n64-rgba16' }),
+									...(!model && k !== 'level' && { tileData: 'n64-rgba16' }),
 								},
 								blob: async () => new Blob([(await bytes()) as BlobPart]),
 							};
@@ -199,13 +203,14 @@ function makeTextureDir(id: string, rom: Uint8Array, bank: GoldeneyeTextureBank)
 }
 
 export interface GoldeneyeModelView {
-	model: GoldeneyeModel;
+	model: { textureIds: number[] };
 	mesh: RenderableMesh;
 	/** One per material slot (primitive); null when untextured. */
 	textures: (DecodedTexture | null)[];
 	texturedSlots: number;
 	triangles: number;
 	vertices: number;
+	rooms?: number;
 }
 
 /** Decode a `meta.goldeneyeModel` leaf. */
@@ -213,12 +218,23 @@ export async function loadGoldeneyeModelView(node: Node): Promise<GoldeneyeModel
 	const bytes = new Uint8Array(await (await node.blob!()).arrayBuffer());
 	if (!isGoldeneyeModel(bytes)) throw new Error('This file has no model node graph');
 	const model = buildGoldeneyeModel(bytes);
+	return { ...primitivesView(model.primitives, contextFor(node.id)), model };
+}
+
+/** Decode a `meta.goldeneyeLevel` leaf (every room of a level). */
+export async function loadGoldeneyeLevelView(node: Node): Promise<GoldeneyeModelView> {
+	const bytes = new Uint8Array(await (await node.blob!()).arrayBuffer());
+	if (!isGoldeneyeLevel(bytes)) throw new Error('This level file is empty (cut from the game)');
+	const level = await buildGoldeneyeLevel(bytes, (b, o) => decompressRare1172(b, o));
+	return { ...primitivesView(level.primitives, contextFor(node.id)), model: { textureIds: level.textureIds }, rooms: level.rooms };
+}
+
+function primitivesView(prims: GoldeneyePrimitive[], ctx: RomContext | null): Omit<GoldeneyeModelView, 'model'> {
 	let nv = 0, ni = 0;
-	for (const p of model.primitives) {
+	for (const p of prims) {
 		nv += p.positions.length / 3;
 		ni += p.indices.length;
 	}
-	const ctx = contextFor(node.id);
 	const positions = new Float32Array(nv * 3);
 	const colors = new Float32Array(nv * 3);
 	const uv = new Float32Array(nv * 2);
@@ -227,14 +243,13 @@ export async function loadGoldeneyeModelView(node: Node): Promise<GoldeneyeModel
 	const textures: (DecodedTexture | null)[] = [];
 	const decodedById = new Map<number, DecodedTexture | null>();
 	let vo = 0, io = 0;
-	model.primitives.forEach((p, slot) => {
+	prims.forEach((p, slot) => {
 		const n = p.positions.length / 3;
 		positions.set(p.positions, vo * 3);
 		const t = ctx && p.textureId >= 0 ? texture(ctx, p.textureId) : null;
 		if (t) {
-			const key = p.textureId;
-			if (!decodedById.has(key)) {
-				decodedById.set(key, {
+			if (!decodedById.has(p.textureId)) {
+				decodedById.set(p.textureId, {
 					packagePath: `tex_${String(p.textureId).padStart(4, '0')}`,
 					width: t.width,
 					height: t.height,
@@ -244,7 +259,7 @@ export async function loadGoldeneyeModelView(node: Node): Promise<GoldeneyeModel
 					flipY: false,
 				});
 			}
-			const base = decodedById.get(key)!;
+			const base = decodedById.get(p.textureId)!;
 			// Wrap modes differ per draw; share pixels, not the sampler.
 			textures.push(base && { ...base, wrapS: p.wrapS, wrapT: p.wrapT });
 			for (let i = 0; i < n; i++) {
@@ -260,7 +275,6 @@ export async function loadGoldeneyeModelView(node: Node): Promise<GoldeneyeModel
 	});
 	if (nv === 0) throw new Error('This model draws no triangles');
 	return {
-		model,
 		// Flat normals from faces (the viewer derives them when absent).
 		mesh: { lods: [{ numVertices: nv, positions, colors, uv, indices, sections }], upAxis: 'y-up' },
 		textures,
