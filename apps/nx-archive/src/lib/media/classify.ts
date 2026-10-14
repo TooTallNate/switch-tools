@@ -28,6 +28,7 @@ const MODEL_KINDS = new Set([
 	'z64-object',
 	'z64-scene',
 	'sm64-model',
+	'platinum-model',
 	'halo-model',
 	'ff7-psx-model',
 	'j3d-model',
@@ -104,6 +105,7 @@ function formatFor(node: Node, previewKind: string): string {
 		'z64-scene': 'Zelda 64 level',
 		'sm64-model': 'Super Mario 64 model',
 		'halo-model': 'Halo model',
+		'platinum-model': 'PlatinumGames model',
 		'psx-str': 'PlayStation STR',
 		'ff7-psx-model': 'FF7 PSX model',
 		'psx-tim': 'PlayStation TIM',
@@ -158,6 +160,9 @@ export function classifyNode(node: Node, path: string): Classification {
 		// Companion payloads read through their primary file (UE export
 		// bodies / bulk data, Unity resource streams) — not gaps.
 		if (/\.(uexp|ubulk|uptnl|ress|resource)$/i.test(node.name)) return { type: 'known', previewKind };
+		// PlatinumGames texture pixels / streamed LODs / motions, read
+		// through their model (`.wmb`) or texture bank (`.wta`).
+		if (/\.(wtp|wme|mot)$/i.test(node.name) && /\.(dat|dtt|pkz)\//i.test(node.id)) return { type: 'known', previewKind };
 		// PlayStation / PSP system files: boot config, executables, PARAM.SFO.
 		if (/^(system\.cnf|param\.sfo|data\.psp|[a-z]{4}_\d{3}\.\d{2})$/i.test(node.name)) return { type: 'known', previewKind };
 		return { type: 'unknown' };

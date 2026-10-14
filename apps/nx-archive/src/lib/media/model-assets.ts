@@ -61,6 +61,7 @@ import {
 } from '../uasset-material-chain';
 import { createAssetResolver } from '../uasset-resolver';
 import { loadHaloModelView, type HaloModelRef } from '../halo';
+import { loadPlatinumModelView } from '../platinum';
 import { loadFf7PsxModelView } from '../ff7-psx';
 import { unityMeshDisplayColors } from '../unity-mesh';
 import { findNodeById } from '../unity-external';
@@ -100,6 +101,7 @@ export const HEADLESS_MODEL_KINDS = new Set([
 	'z64-object',
 	'z64-scene',
 	'sm64-model',
+	'platinum-model',
 	'halo-model',
 	'ff7-psx-model',
 	'j3d-model',
@@ -489,6 +491,10 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 		case 'ff7-psx-model': {
 			const v = await loadFf7PsxModelView(node, root);
 			return asset(v.mesh.lods[0], v.textures, { animations: v.animator.clips.length });
+		}
+		case 'platinum-model': {
+			const v = await loadPlatinumModelView(node, root);
+			return asset(v.mesh.lods[0]!, v.textures, { texturesFound: [v.texturesFound, v.texturesWanted], animations: v.clips.length });
 		}
 		case 'halo-model': {
 			const v = await loadHaloModelView(node.meta?.haloModel as HaloModelRef);

@@ -60,6 +60,8 @@ import { findZ64Objects, makeZ64ObjectsDir, makeZ64SceneDirs } from './z64-objec
 import { makeZ64MusicDir } from './z64-music';
 import { makeStadium2ModelDirs } from './pokestadium';
 import { GFPAK_INFO_VERSION, gfpakEntryInfo, parseGfpak, type GfpakEntryInfo } from '@tootallnate/gfpak';
+import { isDat as isPlatinumDat } from '@tootallnate/platinum';
+import { datEntryBytes, listDat, pkzEntryBytes, readPkz, registerPkzChild, textureBankChildren } from './platinum';
 import { parseAkpk } from '@tootallnate/wwise-pck';
 import { parseBnk } from '@tootallnate/wwise-bnk';
 import {
@@ -299,6 +301,9 @@ export type NodeKind =
 	 */
 	| 'sead-audio'
 	| 'gfpak'
+	| 'pkz'
+	| 'platinum-dat'
+	| 'platinum-wtb'
 	| 'wwise-pck'
 	| 'wwise-bnk'
 	| 'fmod-bank'
@@ -700,6 +705,12 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	fvbb: 'BFRES', // bone-visibility animation
 	bea: 'BEA', // Bezel Engine Archive (magic SCNE) — zstd-compressed asset bundle
 	gfpak: 'GFPAK', // Game Freak archive
+	pkz: 'PKZ', // PlatinumGames package (Bayonetta 3, Astral Chain)
+	dtt: 'PG-DAT', // PlatinumGames texture archive (DAT layout)
+	'platinum-dat': 'PG-DAT', // PlatinumGames DAT archive (sniffed)
+	wta: 'PG-WTB', // PlatinumGames texture headers (pixels in the .dtt)
+	wtb: 'PG-WTB', // PlatinumGames texture bank
+	'platinum-wtb': 'PG-WTB',
 	gfbmdl: 'GFBMDL', // Game Freak model
 	gfbanm: 'GFBANM', // Game Freak skeletal animation
 	gfbanmcfg: 'GFBANMCFG', // Game Freak animation config
@@ -817,6 +828,9 @@ type SniffedFormat =
 	| 'bfwar'
 	| 'bfres'
 	| 'gfpak'
+	| 'pkz'
+	| 'platinum-dat'
+	| 'platinum-wtb'
 	| 'wwise-pck'
 	| 'wwise-bnk'
 	| 'fmod-bank'
@@ -865,6 +879,9 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 			? new TextDecoder().decode(head.subarray(0, 4))
 			: '';
 	if (m4 === 'PFS0') return 'pfs0';
+	if (m4 === 'pkzl') return 'pkz';
+	if (m4 === 'DAT\0') return 'platinum-dat';
+	if (m4 === 'WTB\0') return 'platinum-wtb';
 	if (m4 === 'HFS0') return 'hfs0';
 	if (m4 === 'IVFC') return 'romfs';
 	if (m4 === 'SARC') return 'sarc';
@@ -1304,7 +1321,12 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		// downloadable file it was.
 		format: 'HSD',
 		extensions: ['usd', 'dat'],
-		build: (a) => makeHsdNode(a.id, a.name, a.blob),
+		build: async (a) => {
+			// PlatinumGames archives share the extension but carry a magic.
+			const head = new Uint8Array(await a.blob.slice(0, 4).arrayBuffer());
+			if (isPlatinumDat(head)) return makePlatinumDatNode(a.id, a.name, a.blob, a.ctx);
+			return makeHsdNode(a.id, a.name, a.blob);
+		},
 	},
 	{
 		// Needs its sibling `.aaf`/`.baa` index to mean anything.
@@ -1548,6 +1570,25 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		extensions: ['gfpak'],
 		sniff: ['gfpak'],
 		build: (a) => makeGfpakNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'PKZ',
+		extensions: ['pkz'],
+		sniff: ['pkz'],
+		build: (a) => makePkzNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		// `.dat` itself is claimed by HSD, whose builder hands `DAT\0` files here.
+		format: 'PG-DAT',
+		extensions: ['dtt'],
+		sniff: ['platinum-dat'],
+		build: (a) => makePlatinumDatNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'PG-WTB',
+		extensions: ['wta', 'wtb'],
+		sniff: ['platinum-wtb'],
+		build: (a) => makePlatinumTextureBankNode(a.id, a.name, a.blob),
 	},
 	{
 		format: 'idTech-Resources',
@@ -5469,6 +5510,144 @@ async function gfpakEntriesToNodes(
 	return toNodes(id, root);
 }
 
+// ----- PlatinumGames (PKZ / DAT / WTA) -----
+
+/** A Blob over a Uint8Array view without copying it twice. */
+function u8Blob(u8: Uint8Array): Blob {
+	return new Blob([u8 as BlobPart]);
+}
+
+/**
+ * Bayonetta 3 / Astral Chain `.pkz`: compressed files (DAT / DTT
+ * archives) under `pl/`, `em/`, `st1/`, … The entries are decompressed
+ * on read (Oodle Kraken through the user's `oodle.wasm`, or zstd) into
+ * the bounded LRU in `./platinum`, never onto the nodes.
+ */
+function makePkzNode(id: string, name: string, blob: Blob, ctx: ArchiveContext): Node {
+	return {
+		id,
+		name,
+		kind: 'pkz',
+		isContainer: true,
+		size: blob.size,
+		format: 'PKZ',
+		blob: async () => blob,
+		getChildren: async () => {
+			const pkz = await readPkz(blob);
+			const decompress = async (c: Uint8Array, size: number, compression: string) => {
+				if (/^zstandard|^zstd/i.test(compression)) return zstdDecompressBytes(c);
+				const od = ctx.getOodleDecompressor?.();
+				if (!od) {
+					ctx.requestOodle?.();
+					throw new OodleMissingError(`This PKZ is ${compression}-compressed; load oodle.wasm to read it.`);
+				}
+				return od(c, size);
+			};
+			type Dir = { dirs: Map<string, Dir>; files: Promise<Node>[] };
+			const top: Dir = { dirs: new Map(), files: [] };
+			for (const e of pkz.entries) {
+				const parts = e.name.split('/').filter(Boolean);
+				const leaf = parts.pop() ?? `entry_${e.index}`;
+				let dir = top;
+				let dirId = id;
+				for (const p of parts) {
+					dirId = `${dirId}/${p}`;
+					let next = dir.dirs.get(p);
+					if (!next) dir.dirs.set(p, (next = { dirs: new Map(), files: [] }));
+					dir = next;
+				}
+				const lazy = new LazyDecompressBlob(async () => u8Blob(await pkzEntryBytes(id, blob, pkz, e, decompress)), e.size, { cache: false });
+				const ext = extOf(leaf);
+				const childId = `${dirId}/${leaf}`;
+				// Archives by extension: sniffing would decompress the entry
+				// just to list the folder.
+				dir.files.push(
+					(/^(dat|dtt|eff|evn)$/.test(ext)
+						? Promise.resolve(makePlatinumDatNode(childId, leaf, lazy, ctx))
+						: ext === 'wme'
+							? Promise.resolve({ ...genericFileNode(childId, leaf, lazy, 'WME3'), meta: { decoded: true } })
+							: childNodeFor(childId, leaf, lazy, ctx)
+					).then(registerPkzChild),
+				);
+			}
+			const toNodes = async (dirId: string, d: Dir): Promise<Node[]> => {
+				const dirNodes = [...d.dirs.keys()].sort(humanCompare).map((n) => {
+					const childId = `${dirId}/${n}`;
+					const sub = d.dirs.get(n)!;
+					return childDirectoryNodeFor({ id: childId, name: n, getChildren: () => toNodes(childId, sub) });
+				});
+				const files = (await Promise.all(d.files)).sort((a, b) => humanCompare(a.name, b.name));
+				return [...dirNodes, ...files];
+			};
+			return toNodes(id, top);
+		},
+	};
+}
+
+/**
+ * PlatinumGames DAT archive (`.dat` / `.dtt` / `.eff` / …, magic
+ * `DAT\0`). `.wmb` models are tagged for the model preview; `.wta` /
+ * `.wtb` texture banks expand to PNGs.
+ */
+function makePlatinumDatNode(id: string, name: string, blob: Blob, ctx: ArchiveContext): Node {
+	return {
+		id,
+		name,
+		kind: 'platinum-dat',
+		isContainer: true,
+		size: blob.size,
+		format: 'PG-DAT',
+		blob: async () => blob,
+		getChildren: async () => {
+			// Some `.dtt` / `.eff` entries aren't archives at all: keep their
+			// bytes reachable instead of failing.
+			const head = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+			if (!isPlatinumDat(head)) return [genericFileNode(`${id}/${name}.bin`, `${name}.bin`, blob, 'BIN')];
+			const listing = await listDat(id, blob);
+			const nodes = await Promise.all(
+				listing.entries.map(async (e) => {
+					const childId = `${id}/${e.name}`;
+					const lazy = new LazyDecompressBlob(async () => u8Blob(await datEntryBytes(id, blob, e)), e.size, { cache: false });
+					const ext = extOf(e.name);
+					if (ext === 'wmb') {
+						return {
+							id: childId,
+							name: e.name,
+							kind: 'file' as const,
+							isContainer: false,
+							size: e.size,
+							format: 'WMB3',
+							meta: { platinumModel: true, contentKey: `pg-wmb:${e.name}:${e.size}` },
+							blob: async () => lazy,
+						};
+					}
+					if (ext === 'wta' || ext === 'wtb') return makePlatinumTextureBankNode(childId, e.name, lazy);
+					if (ext === 'mot' || ext === 'wtp' || ext === 'bxm' || ext === 'wme') {
+						return { ...genericFileNode(childId, e.name, lazy, ext.toUpperCase()), meta: { contentKey: `pg:${e.name}:${e.size}` } };
+					}
+					return childNodeFor(childId, e.name, lazy, ctx, { skipMagicSniff: !!FILE_EXT_FORMATS[ext] });
+				}),
+			);
+			return nodes.sort((a, b) => humanCompare(a.name, b.name));
+		},
+	};
+}
+
+/** `.wta` (pixels in the paired `.dtt`) / `.wtb` (self-contained) texture bank. */
+function makePlatinumTextureBankNode(id: string, name: string, blob: Blob): Node {
+	const node: Node = {
+		id,
+		name,
+		kind: 'platinum-wtb',
+		isContainer: true,
+		size: blob.size,
+		format: 'PG-WTB',
+		blob: async () => blob,
+		getChildren: async () => textureBankChildren(node, blob),
+	};
+	return node;
+}
+
 // ----- Wwise (.pck AKPK / .bnk SoundBank) -----
 
 /**
@@ -5670,12 +5849,20 @@ class LazyDecompressBlob extends Blob {
 	// synchronously to label entries, so callers that know the
 	// decompressed size up front (GFPAK's file-info table) pass it in;
 	// otherwise it reads 0 until decompressed.
-	constructor(decoder: () => Promise<Blob>, size?: number) {
+	private _cache: boolean;
+	/**
+	 * `cache: false` re-runs the decoder on every read, for facades whose
+	 * decoder already reads through a bounded cache (PKZ / DAT entries):
+	 * pinning their bytes on the node would grow without bound.
+	 */
+	constructor(decoder: () => Promise<Blob>, size?: number, options?: { cache?: boolean }) {
 		super([]);
 		this._decoder = decoder;
+		this._cache = options?.cache !== false;
 		if (size !== undefined) Object.defineProperty(this, 'size', { value: size });
 	}
 	override async arrayBuffer(): Promise<ArrayBuffer> {
+		if (!this._cache) return this._decoder().then((b) => b.arrayBuffer());
 		if (!this._cached) {
 			this._cached = this._decoder().then((b) => b.arrayBuffer());
 		}

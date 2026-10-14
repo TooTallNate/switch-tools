@@ -113,6 +113,7 @@
     "@tootallnate/pbp": "workspace:*",
     "@tootallnate/pfs0": "workspace:*",
     "@tootallnate/phyre": "workspace:*",
+    "@tootallnate/platinum": "workspace:*",
     "@tootallnate/pokestadium": "workspace:*",
     "@tootallnate/ps-adpcm": "workspace:*",
     "@tootallnate/psx-str": "workspace:*",

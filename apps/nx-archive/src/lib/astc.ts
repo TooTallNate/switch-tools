@@ -13,15 +13,12 @@
 import type { AstcDecoder } from '@tootallnate/astc-wasm';
 import astcWasmUrl from '@tootallnate/astc-wasm/astc.wasm?url';
 
+import { compileWasmUrl } from './wasm-url';
+
 let wasmPromise: Promise<WebAssembly.Module> | null = null;
 function getWasm(): Promise<WebAssembly.Module> {
 	if (!wasmPromise) {
-		wasmPromise =
-			typeof WebAssembly.compileStreaming === 'function'
-				? WebAssembly.compileStreaming(fetch(astcWasmUrl))
-				: fetch(astcWasmUrl)
-						.then((r) => r.arrayBuffer())
-						.then((b) => WebAssembly.compile(b));
+		wasmPromise = compileWasmUrl(astcWasmUrl);
 	}
 	return wasmPromise;
 }

@@ -306,6 +306,7 @@ export type PreviewKind =
 	| 'z64-object'
 	| 'z64-scene'
 	| 'sm64-model'
+	| 'platinum-model'
 	| 'halo-model'
 	| 'psx-str'
 	| 'psx-tim'
@@ -585,6 +586,8 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.z64Scene) return 'z64-scene';
 	if (node.meta?.sm64Model) return 'sm64-model';
 	if (node.meta?.haloModel) return 'halo-model';
+	// PlatinumGames WMB3 model (Bayonetta 3).
+	if (node.meta?.platinumModel) return 'platinum-model';
 	if (node.meta?.psxStr) return 'psx-str';
 	if (node.meta?.ff7PsxModel) return 'ff7-psx-model';
 	// Melee model: the tree tags which archive + joint root to render.

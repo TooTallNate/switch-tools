@@ -8,15 +8,12 @@
 import type { ZstdDecompressBytes, ZstdDecompressStream } from '@tootallnate/ncz';
 import zstdWasmUrl from '@tootallnate/zstd-wasm/zstd.wasm?url';
 
+import { compileWasmUrl } from './wasm-url';
+
 let wasmPromise: Promise<WebAssembly.Module> | null = null;
 function getWasm(): Promise<WebAssembly.Module> {
 	if (!wasmPromise) {
-		wasmPromise =
-			typeof WebAssembly.compileStreaming === 'function'
-				? WebAssembly.compileStreaming(fetch(zstdWasmUrl))
-				: fetch(zstdWasmUrl)
-						.then((r) => r.arrayBuffer())
-						.then((b) => WebAssembly.compile(b));
+		wasmPromise = compileWasmUrl(zstdWasmUrl);
 	}
 	return wasmPromise;
 }
