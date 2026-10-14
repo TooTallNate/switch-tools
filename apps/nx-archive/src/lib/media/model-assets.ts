@@ -62,6 +62,7 @@ import {
 import { createAssetResolver } from '../uasset-resolver';
 import { loadHaloModelView, type HaloModelRef } from '../halo';
 import { loadPlatinumModelView } from '../platinum';
+import { loadIdTechModelView, poseIdTechView } from '../idtech';
 import { loadFf7PsxModelView } from '../ff7-psx';
 import { unityMeshDisplayColors } from '../unity-mesh';
 import { findNodeById } from '../unity-external';
@@ -102,6 +103,7 @@ export const HEADLESS_MODEL_KINDS = new Set([
 	'z64-scene',
 	'sm64-model',
 	'platinum-model',
+	'idtech-model',
 	'halo-model',
 	'ff7-psx-model',
 	'j3d-model',
@@ -491,6 +493,19 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 		case 'ff7-psx-model': {
 			const v = await loadFf7PsxModelView(node, root);
 			return asset(v.mesh.lods[0], v.textures, { animations: v.animator.clips.length });
+		}
+		case 'idtech-model': {
+			const v = await loadIdTechModelView(node, root);
+			let lod = v.mesh.lods[0]!;
+			// Characters open on their idle clip rather than the bind pose.
+			const clip = v.clips[v.defaultClip];
+			if (v.md5 && clip) {
+				const positions = new Float32Array(lod.positions.length);
+				const normals = lod.normals ? new Float32Array(lod.normals.length) : null;
+				poseIdTechView(v, await clip.load(), 0, positions, normals);
+				lod = { ...lod, positions, normals: normals ?? undefined };
+			}
+			return asset(lod, v.textures, { texturesFound: [v.texturesFound, v.texturesWanted], animations: v.clips.length, pose: clip?.name }, 'z-up');
 		}
 		case 'platinum-model': {
 			const v = await loadPlatinumModelView(node, root);

@@ -132,4 +132,4 @@ export interface MediaIndex {
 }
 
 /** Bump when classification changes so cached indexes rebuild. */
-export const MEDIA_INDEX_VERSION = 11;
+export const MEDIA_INDEX_VERSION = 12;

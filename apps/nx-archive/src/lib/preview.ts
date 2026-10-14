@@ -307,6 +307,7 @@ export type PreviewKind =
 	| 'z64-scene'
 	| 'sm64-model'
 	| 'platinum-model'
+	| 'idtech-model'
 	| 'halo-model'
 	| 'psx-str'
 	| 'psx-tim'
@@ -588,6 +589,8 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.haloModel) return 'halo-model';
 	// PlatinumGames WMB3 model (Bayonetta 3).
 	if (node.meta?.platinumModel) return 'platinum-model';
+	// DOOM 3 BFG compiled model / MD5 mesh / map render world.
+	if (node.meta?.idtechModel) return 'idtech-model';
 	if (node.meta?.psxStr) return 'psx-str';
 	if (node.meta?.ff7PsxModel) return 'ff7-psx-model';
 	// Melee model: the tree tags which archive + joint root to render.
@@ -3151,16 +3154,26 @@ export async function parseFmodSampleForView(
 	bankBlob: Blob,
 	sampleIndex: number,
 ): Promise<FmodSampleView> {
-	const bank = await parseFmodBank(bankBlob);
-	const r = await extractFsb5FromBank(bank, bankBlob);
-	if (!r || !r.fsb5) {
-		throw new Error(
-			r?.wasEncrypted
-				? 'FMOD bank is encrypted and no matching key was found in the built-in list.'
-				: 'FMOD bank has no SND chunk (Master/strings bank?)',
-		);
+	// A bare FSB5 (`.fsb`, e.g. DOOM 3 BFG) or a Studio bank wrapping one.
+	const head = new Uint8Array(await bankBlob.slice(0, 4).arrayBuffer());
+	let fsbBytes: Uint8Array;
+	let bankInfo = { wasEncrypted: false, matchedKeyGame: null as string | null, paddingBytes: 0 };
+	if (head[0] === 0x46 && head[1] === 0x53 && head[2] === 0x42 && head[3] === 0x35) {
+		fsbBytes = new Uint8Array(await bankBlob.arrayBuffer());
+	} else {
+		const bank = await parseFmodBank(bankBlob);
+		const r = await extractFsb5FromBank(bank, bankBlob);
+		if (!r || !r.fsb5) {
+			throw new Error(
+				r?.wasEncrypted
+					? 'FMOD bank is encrypted and no matching key was found in the built-in list.'
+					: 'FMOD bank has no SND chunk (Master/strings bank?)',
+			);
+		}
+		fsbBytes = r.fsb5;
+		bankInfo = { wasEncrypted: r.wasEncrypted, matchedKeyGame: r.matchedKey?.game ?? null, paddingBytes: r.paddingBytes };
 	}
-	const fsb5 = parseFsb5(r.fsb5);
+	const fsb5 = parseFsb5(fsbBytes);
 	if (sampleIndex < 0 || sampleIndex >= fsb5.samples.length) {
 		throw new Error(`FMOD sample index ${sampleIndex} out of range (have ${fsb5.samples.length})`);
 	}
@@ -3184,11 +3197,7 @@ export async function parseFmodSampleForView(
 		sample,
 		decoded,
 		decodeError,
-		bankInfo: {
-			wasEncrypted: r.wasEncrypted,
-			matchedKeyGame: r.matchedKey?.game ?? null,
-			paddingBytes: r.paddingBytes,
-		},
+		bankInfo,
 	};
 }
 

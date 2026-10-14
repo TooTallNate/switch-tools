@@ -274,6 +274,8 @@ import { loadStadiumModelView } from "~/lib/pokestadium"
 import { loadGoldeneyeLevelView, loadGoldeneyeModelView } from "~/lib/goldeneye"
 import { loadPlatinumModelView } from "~/lib/platinum"
 import { PlatinumModelViewer } from "./platinum-model-viewer"
+import { loadIdTechModelView } from "~/lib/idtech"
+import { IdTechModelViewer } from "./idtech-model-viewer"
 import { loadZ64ObjectModelView, loadZ64SceneView } from "~/lib/z64-objects"
 import { loadSm64ModelView } from "~/lib/sm64"
 import { cn, formatBytes } from "~/lib/utils"
@@ -342,6 +344,7 @@ import {
   type ParsedBimage,
 } from "@tootallnate/bimage"
 import { decodeBC1, decodeBC3 } from "@tootallnate/bcn"
+import { decodeBimageMip0 } from "~/lib/bimage-decode"
 
 const TEXT_PREVIEW_LIMIT = 1 * 1024 * 1024 // 1 MB
 const HEX_PREVIEW_LIMIT = 4 * 1024 // 4 KB hex window
@@ -1983,6 +1986,8 @@ function FilePreview({
       return <HaloModelPreview node={node} />
     case "platinum-model":
       return <PlatinumModelPreview node={node} root={root} />
+    case "idtech-model":
+      return <IdTechModelPreview node={node} root={root} />
     case "ff7-psx-model":
       return <Ff7PsxModelPreview node={node} root={root} />
     case "trinity-model":
@@ -10010,60 +10015,6 @@ function BimagePreview({ node }: { node: Node }) {
   )
 }
 
-/**
- * Decode the base mip of a parsed bimage into RGBA8. Handles the
- * formats actually seen in DOOM 3 BFG Switch / RAGE; throws for
- * anything else.
- */
-async function decodeBimageMip0(
-  info: ParsedBimage,
-): Promise<{ width: number; height: number; pixels: Uint8Array }> {
-  const mip0 = info.mips[0]
-  const bytes = new Uint8Array(await mip0.data.arrayBuffer())
-  if (info.format === BimageFormat.DXT1) {
-    return decodeBC1(bytes, mip0.width, mip0.height)
-  }
-  if (info.format === BimageFormat.DXT5) {
-    return decodeBC3(bytes, mip0.width, mip0.height)
-  }
-  if (info.format === BimageFormat.RGBA8) {
-    return {
-      width: mip0.width,
-      height: mip0.height,
-      pixels: bytes.slice(0, mip0.width * mip0.height * 4),
-    }
-  }
-  if (info.format === BimageFormat.Alpha) {
-    const w = mip0.width
-    const h = mip0.height
-    const out = new Uint8Array(w * h * 4)
-    for (let i = 0; i < w * h; i++) {
-      const a = bytes[i]
-      out[i * 4] = 255
-      out[i * 4 + 1] = 255
-      out[i * 4 + 2] = 255
-      out[i * 4 + 3] = a
-    }
-    return { width: w, height: h, pixels: out }
-  }
-  if (info.format === BimageFormat.LUM8 || info.format === BimageFormat.INT8) {
-    const w = mip0.width
-    const h = mip0.height
-    const out = new Uint8Array(w * h * 4)
-    for (let i = 0; i < w * h; i++) {
-      const v = bytes[i]
-      out[i * 4] = v
-      out[i * 4 + 1] = v
-      out[i * 4 + 2] = v
-      out[i * 4 + 3] = info.format === BimageFormat.INT8 ? v : 255
-    }
-    return { width: w, height: h, pixels: out }
-  }
-  throw new Error(
-    `Unsupported bimage format ${BimageFormat[info.format] ?? info.format}`,
-  )
-}
-
 // ====================================================================
 // idTech BFG bitmap-font preview (`newfonts/<Family>/48.dat`)
 // ====================================================================
@@ -15359,6 +15310,27 @@ function Z64ObjectPreview({ node }: { node: Node }) {
       </div>
       <div className="flex-1 p-3">
         <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name} />
+      </div>
+    </div>
+  )
+}
+
+function IdTechModelPreview({ node, root }: { node: Node; root: Node | null }) {
+  const { loading, data, error } = useAsync(() => loadIdTechModelView(node, root), [node.id])
+  if (loading) return <LoadingFiller label="Decoding model…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const title = v.kind === "level" ? "DOOM 3 Level" : v.kind === "md5" ? "DOOM 3 MD5 Model" : "DOOM 3 Model"
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">{title}</h2>
+        <p className="text-xs text-muted-foreground">
+          {v.kind === "level" ? "every area of the map’s render world" : v.kind === "md5" ? "skinned · pick a clip to animate" : "static model"} · drag to orbit, scroll to zoom
+        </p>
+      </div>
+      <div className="flex-1 p-3">
+        <IdTechModelViewer node={node} view={v} />
       </div>
     </div>
   )

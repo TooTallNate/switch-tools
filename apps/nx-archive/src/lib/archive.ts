@@ -61,6 +61,7 @@ import { makeZ64MusicDir } from './z64-music';
 import { makeStadium2ModelDirs } from './pokestadium';
 import { GFPAK_INFO_VERSION, gfpakEntryInfo, parseGfpak, type GfpakEntryInfo } from '@tootallnate/gfpak';
 import { isDat as isPlatinumDat } from '@tootallnate/platinum';
+import { registerIdTechResources } from './idtech';
 import { datEntryBytes, listDat, pkzEntryBytes, readPkz, registerPkzChild, textureBankChildren } from './platinum';
 import { parseAkpk } from '@tootallnate/wwise-pck';
 import { parseBnk } from '@tootallnate/wwise-bnk';
@@ -728,6 +729,7 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	wem: 'WEM', // Wwise Encoded Media (audio asset)
 	bank: 'BANK', // FMOD Studio bank (FEV form-type)
 	fsb: 'FSB5', // FMOD Sample Bank
+	fsb5: 'FSB5', // sniffed FMOD Sample Bank
 	awb: 'AWB', // CRI AFS2 audio wave bank
 	acb: 'ACB', // CRI Audio Cue Binary (cue manifest; pairs with .awb sibling)
 	hca: 'HCA', // CRI High Compression Audio
@@ -827,6 +829,7 @@ type SniffedFormat =
 	| 'bfsar'
 	| 'bfwar'
 	| 'bfres'
+	| 'fsb5'
 	| 'gfpak'
 	| 'pkz'
 	| 'platinum-dat'
@@ -880,6 +883,7 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 			: '';
 	if (m4 === 'PFS0') return 'pfs0';
 	if (m4 === 'pkzl') return 'pkz';
+	if (m4 === 'FSB5') return 'fsb5';
 	if (m4 === 'DAT\0') return 'platinum-dat';
 	if (m4 === 'WTB\0') return 'platinum-wtb';
 	if (m4 === 'HFS0') return 'hfs0';
@@ -1570,6 +1574,12 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		extensions: ['gfpak'],
 		sniff: ['gfpak'],
 		build: (a) => makeGfpakNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		format: 'FSB5',
+		extensions: ['fsb'],
+		sniff: ['fsb5'],
+		build: (a) => makeFsb5Node(a.id, a.name, a.blob),
 	},
 	{
 		format: 'PKZ',
@@ -2794,6 +2804,8 @@ async function idTechResourcesEntriesToNodes(
 ): Promise<Node[]> {
 	type Tree = Map<string, { dir?: Tree; file?: IdTechResourceEntry }>;
 	const root: Tree = new Map();
+	// Models look their textures, materials and clips up by path.
+	registerIdTechResources(parentId, entries);
 	for (const entry of entries) {
 		const parts = entry.name
 			.replace(/\\/g, '/')
@@ -2841,6 +2853,21 @@ async function idTechResourcesEntriesToNodes(
 					});
 				}
 				const file = child.file!;
+				// DOOM 3 BFG compiled models (see `./idtech`).
+				const lower = file.name.replace(/\\/g, '/').toLowerCase();
+				const idtechModel = lower.endsWith('.bmd5mesh')
+					? 'md5'
+					: /^generated\/maps\/.*\.bproc$/.test(lower)
+						? 'level'
+						: /^generated\/rendermodels\/.*\.b[a-z0-9]+$/.test(lower)
+							? 'static'
+							: null;
+				if (idtechModel) {
+					return {
+						...genericFileNode(childId, name, file.data, idtechModel === 'md5' ? 'MD5 mesh' : idtechModel === 'level' ? 'BFG proc' : 'BFG model'),
+						meta: { idtechModel },
+					};
+				}
 				// Route through childNodeFor so nested formats (.bik
 				// videos, embedded SARCs, etc.) light up. The entry's
 				// `data` is already a lazy Blob slice into the source.
@@ -5825,6 +5852,48 @@ function makeFmodBankNode(
 						fmodBankBlob: blob,
 						fmodSampleIndex: s.index,
 					},
+				};
+			});
+		},
+	};
+}
+
+/**
+ * A bare FMOD FSB5 sample bank (`.fsb`). DOOM 3 BFG ships one per
+ * sound, so a single-sample bank is an audio leaf itself; larger banks
+ * list their samples. Decoding shares the Studio-bank sample path
+ * (`meta.fmodBankBlob` accepts a raw FSB5 as well).
+ */
+async function makeFsb5Node(id: string, name: string, blob: Blob): Promise<Node> {
+	const head = new Uint8Array(await blob.slice(0, 12).arrayBuffer());
+	const isFsb = head.length >= 12 && head[0] === 0x46 && head[1] === 0x53 && head[2] === 0x42 && head[3] === 0x35;
+	if (!isFsb) return genericFileNode(id, name, blob, 'FSB');
+	const count = new DataView(head.buffer).getUint32(8, true);
+	if (count === 1) {
+		return { ...genericFileNode(id, name, blob, 'FSB5'), meta: { fmodBankBlob: blob, fmodSampleIndex: 0 } };
+	}
+	return {
+		id,
+		name,
+		kind: 'file',
+		isContainer: true,
+		size: blob.size,
+		format: 'FSB5',
+		blob: async () => blob,
+		getChildren: async () => {
+			const fsb5 = parseFsb5(new Uint8Array(await blob.arrayBuffer()));
+			const ext = fsb5.header.mode === 15 ? 'ogg' : fsb5.header.mode === 11 ? 'mp3' : 'wav';
+			return fsb5.samples.map((s): Node => {
+				const leaf = `${(s.name || `sample_${s.index}`).replace(/[^a-zA-Z0-9._-]/g, '_')}.${ext}`;
+				return {
+					id: `${id}/${leaf}`,
+					name: leaf,
+					kind: 'file',
+					isContainer: false,
+					size: s.data.length,
+					format: fsb5.header.modeName,
+					blob: async () => new Blob([s.data as unknown as BlobPart]),
+					meta: { fmodBankBlob: blob, fmodSampleIndex: s.index },
 				};
 			});
 		},

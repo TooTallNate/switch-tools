@@ -24,13 +24,15 @@ import { decodeTim } from '@tootallnate/psx-tim';
 import { strRawBytes } from '../psx-str-source';
 import { findNodeById } from '../unity-external';
 import { decodeAudioBlob } from './audio';
+import { parseBimage } from '@tootallnate/bimage';
+import { decodeBimageMip0 } from '../bimage-decode';
 import { loadThumb, saveThumb, type ThumbRecord } from './cache';
 import { canLoadModelHeadless, loadModelAsset, modelAssetToExportMeshes, type ModelAsset } from './model-assets';
 import type { ExportMaterial } from '../mesh-export';
 import type { MediaInfo, MediaItem, MediaKind, MediaStatus } from './types';
 
 /** Bump to regenerate cached thumbnails. */
-export const THUMB_VERSION = 17;
+export const THUMB_VERSION = 18;
 const SIZE = 256;
 
 export interface ThumbResult {
@@ -137,6 +139,8 @@ async function decodeImage(node: Node, previewKind: string): Promise<(Rgba & { c
 			if (!t) throw new Error('Not a valid TIM image');
 			return { width: t.width, height: t.height, pixels: t.pixels, count: t.paletteCount > 1 ? t.paletteCount : undefined };
 		}
+		case 'bimage':
+			return decodeBimageMip0(await parseBimage(blob));
 		case 'ff7-tex': {
 			const v = await parseFf7TexForView(blob);
 			return { width: v.width, height: v.height, pixels: v.pixels };
