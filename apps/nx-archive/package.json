@@ -29,6 +29,7 @@
     "@tootallnate/afc": "workspace:*",
     "@tootallnate/ast": "workspace:*",
     "@tootallnate/astc-wasm": "workspace:*",
+    "@tootallnate/aurora": "workspace:*",
     "@tootallnate/awb": "workspace:*",
     "@tootallnate/bars": "workspace:*",
     "@tootallnate/barslist": "workspace:*",

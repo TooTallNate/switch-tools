@@ -26,6 +26,7 @@ import { findNodeById } from '../unity-external';
 import { decodeAudioBlob } from './audio';
 import { parseBimage } from '@tootallnate/bimage';
 import { decodeTga } from '@tootallnate/tga';
+import { decodeTpc } from '@tootallnate/aurora';
 import { decodeBimageMip0 } from '../bimage-decode';
 import { loadThumb, saveThumb, type ThumbRecord } from './cache';
 import { canLoadModelHeadless, loadModelAsset, modelAssetToExportMeshes, type ModelAsset } from './model-assets';
@@ -140,6 +141,8 @@ async function decodeImage(node: Node, previewKind: string): Promise<(Rgba & { c
 			if (!t) throw new Error('Not a valid TIM image');
 			return { width: t.width, height: t.height, pixels: t.pixels, count: t.paletteCount > 1 ? t.paletteCount : undefined };
 		}
+		case 'tpc-image':
+			return decodeTpc(new Uint8Array(await blob.arrayBuffer()));
 		case 'tga-image':
 			return decodeTga(new Uint8Array(await blob.arrayBuffer()));
 		case 'bimage':

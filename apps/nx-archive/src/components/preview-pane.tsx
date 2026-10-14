@@ -276,6 +276,7 @@ import { loadPlatinumModelView } from "~/lib/platinum"
 import { PlatinumModelViewer } from "./platinum-model-viewer"
 import { loadIdTechModelView } from "~/lib/idtech"
 import { loadIdtech3ModelView } from "~/lib/idtech3"
+import { loadKotorModelView } from "~/lib/kotor"
 import { IdTechModelViewer } from "./idtech-model-viewer"
 import { loadUeSkeletalView, skeletalMeshExportIndex } from "~/lib/unreal-skeletal"
 import { loadZ64ObjectModelView, loadZ64SceneView } from "~/lib/z64-objects"
@@ -1921,6 +1922,10 @@ function FilePreview({
       return <DdsPreview node={node} />
     case "tga-image":
       return <DdsPreview node={node} kind="tga" />
+    case "tpc-image":
+      return <DdsPreview node={node} kind="tpc" />
+    case "kotor-model":
+      return <KotorModelPreview node={node} root={root} />
     case "ff8-field-scene":
       return <Ff8FieldScenePreview node={node} root={root} />
     case "ff8-battle-dat":
@@ -15367,6 +15372,27 @@ function Z64ObjectPreview({ node }: { node: Node }) {
       </div>
       <div className="flex-1 p-3">
         <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name} />
+      </div>
+    </div>
+  )
+}
+
+function KotorModelPreview({ node, root }: { node: Node; root: Node | null }) {
+  const { loading, data, error } = useAsync(() => loadKotorModelView(node, root), [node.id])
+  if (loading) return <LoadingFiller label="Decoding model…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">KotOR Model</h2>
+        <p className="text-xs text-muted-foreground">
+          {v.nodes} nodes · {v.triangles.toLocaleString()} triangles · {v.texturesFound}/{v.materials.length} textured
+          {v.superModel && v.superModel.toLowerCase() !== "null" ? ` · supermodel ${v.superModel}` : ""} · drag to orbit, scroll to zoom
+        </p>
+      </div>
+      <div className="flex-1 p-3">
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name.replace(/\.[^.]+$/, "")} />
       </div>
     </div>
   )

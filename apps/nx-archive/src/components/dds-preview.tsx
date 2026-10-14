@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { parseDds } from "@tootallnate/dds"
 import { decodeTga } from "@tootallnate/tga"
+import { decodeTpc } from "@tootallnate/aurora"
 import type { Node } from "~/lib/archive"
 import { ErrorFiller, LoadingFiller, useAsync } from "./preview-pane"
 import { triggerDownload, sanitizeStem } from "~/lib/mesh-export"
@@ -25,8 +26,12 @@ interface ParsedView {
 	rawDdsBytes: Uint8Array
 }
 
-async function parse(blob: Blob, kind: "dds" | "tga"): Promise<ParsedView> {
+async function parse(blob: Blob, kind: "dds" | "tga" | "tpc"): Promise<ParsedView> {
 	const rawDdsBytes = new Uint8Array(await blob.arrayBuffer())
+	if (kind === "tpc") {
+		const t = decodeTpc(rawDdsBytes)
+		return { width: t.width, height: t.height, pixels: t.pixels, formatLabel: t.hasAlpha ? "TPC RGBA" : "TPC RGB", rawDdsBytes }
+	}
 	if (kind === "tga") {
 		const t = decodeTga(rawDdsBytes)
 		return { width: t.width, height: t.height, pixels: t.pixels, formatLabel: t.hasAlpha ? "TGA RGBA" : "TGA RGB", rawDdsBytes }
@@ -41,7 +46,7 @@ async function parse(blob: Blob, kind: "dds" | "tga"): Promise<ParsedView> {
 	}
 }
 
-export function DdsPreview({ node, kind = "dds" }: { node: Node; kind?: "dds" | "tga" }) {
+export function DdsPreview({ node, kind = "dds" }: { node: Node; kind?: "dds" | "tga" | "tpc" }) {
 	const { loading, data, error } = useAsync(
 		async () => parse(await node.blob!(), kind),
 		[node.id, kind],
@@ -79,7 +84,7 @@ export function DdsPreview({ node, kind = "dds" }: { node: Node; kind?: "dds" | 
 		triggerDownload(
 			data.rawDdsBytes,
 			`${sanitizeStem(node.name)}.${kind}`,
-			kind === "tga" ? "image/x-tga" : "image/vnd.ms-dds",
+			kind === "tga" ? "image/x-tga" : kind === "tpc" ? "application/octet-stream" : "image/vnd.ms-dds",
 		)
 	}
 
@@ -95,7 +100,7 @@ export function DdsPreview({ node, kind = "dds" }: { node: Node; kind?: "dds" | 
 		triggerDownload(bytes, `${sanitizeStem(node.name)}.png`, "image/png")
 	}
 
-	if (loading) return <LoadingFiller label={kind === "tga" ? "Decoding TGA…" : "Decoding DDS…"} />
+	if (loading) return <LoadingFiller label={`Decoding ${kind.toUpperCase()}…`} />
 	if (error) return <ErrorFiller error={error} />
 	if (!data) return null
 

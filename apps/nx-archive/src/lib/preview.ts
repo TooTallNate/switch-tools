@@ -198,6 +198,8 @@ export type PreviewKind =
 	| 'dds-image'
 	/** Truevision TGA image (Quake 3-engine games, KOTOR, …). */
 	| 'tga-image'
+	/** KotOR TPC texture. */
+	| 'tpc-image'
 	/**
 	 * FFVIII PC field-scene background (`.map` + sibling `.mim`).
 	 * Composited 2D pre-rendered backgrounds (Balamb Garden
@@ -311,6 +313,7 @@ export type PreviewKind =
 	| 'platinum-model'
 	| 'idtech-model'
 	| 'idtech3-model'
+	| 'kotor-model'
 	| 'halo-model'
 	| 'psx-str'
 	| 'psx-tim'
@@ -594,6 +597,8 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.platinumModel) return 'platinum-model';
 	// DOOM 3 BFG compiled model / MD5 mesh / map render world.
 	if (node.meta?.idtechModel) return 'idtech-model';
+	// KotOR binary model (inside a BIF / ERF / RIM).
+	if (node.meta?.kotorModel) return 'kotor-model';
 	if (node.meta?.psxStr) return 'psx-str';
 	if (node.meta?.ff7PsxModel) return 'ff7-psx-model';
 	// Melee model: the tree tags which archive + joint root to render.
@@ -734,6 +739,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	}
 	if (lower.endsWith('.bntx')) return 'bntx-image';
 	if (lower.endsWith('.tga')) return 'tga-image';
+	if (lower.endsWith('.tpc')) return 'tpc-image';
 	// id Tech 3 family (Jedi Knight II / Jedi Academy): MD3, Ghoul2, BSP levels.
 	if (lower.endsWith('.md3') || lower.endsWith('.glm') || lower.endsWith('.bsp')) return 'idtech3-model';
 	// Standalone DDS textures (NOT `.dds.phyre`, handled below).

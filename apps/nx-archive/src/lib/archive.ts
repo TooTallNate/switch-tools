@@ -62,6 +62,8 @@ import { makeStadium2ModelDirs } from './pokestadium';
 import { GFPAK_INFO_VERSION, gfpakEntryInfo, parseGfpak, type GfpakEntryInfo } from '@tootallnate/gfpak';
 import { isDat as isPlatinumDat } from '@tootallnate/platinum';
 import { registerIdTechResources } from './idtech';
+import { bifResources, erfResources, registerAuroraKey } from './kotor';
+import { isErf as isAuroraErf, isKey as isAuroraKey, type AuroraResource } from '@tootallnate/aurora';
 import { catalogFolders, nameModelFolder, openTrinityFs, type TrinityFs } from './trinity-fs';
 import { datEntryBytes, listDat, pkzEntryBytes, readPkz, registerPkzChild, textureBankChildren } from './platinum';
 import { parseAkpk } from '@tootallnate/wwise-pck';
@@ -709,6 +711,12 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	gfpak: 'GFPAK', // Game Freak archive
 	pkz: 'PKZ', // PlatinumGames package (Bayonetta 3, Astral Chain)
 	trpfs: 'TRPFS', // Game Freak Trinity file system (Scarlet / Violet)
+	key: 'AURORA-KEY', // BioWare chitin.key (KotOR)
+	bif: 'AURORA-BIF', // BioWare resource archive (KotOR)
+	erf: 'AURORA-ERF', // BioWare encapsulated resources (KotOR)
+	rim: 'AURORA-ERF',
+	sav: 'AURORA-ERF',
+	'aurora-erf': 'AURORA-ERF',
 	dtt: 'PG-DAT', // PlatinumGames texture archive (DAT layout)
 	'platinum-dat': 'PG-DAT', // PlatinumGames DAT archive (sniffed)
 	wta: 'PG-WTB', // PlatinumGames texture headers (pixels in the .dtt)
@@ -832,6 +840,7 @@ type SniffedFormat =
 	| 'bfwar'
 	| 'bfres'
 	| 'fsb5'
+	| 'aurora-erf'
 	| 'gfpak'
 	| 'pkz'
 	| 'platinum-dat'
@@ -885,6 +894,7 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 			: '';
 	if (m4 === 'PFS0') return 'pfs0';
 	if (m4 === 'pkzl') return 'pkz';
+	if (isAuroraErf(head)) return 'aurora-erf';
 	if (m4 === 'FSB5') return 'fsb5';
 	if (m4 === 'DAT\0') return 'platinum-dat';
 	if (m4 === 'WTB\0') return 'platinum-wtb';
@@ -1582,6 +1592,28 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		extensions: ['fsb'],
 		sniff: ['fsb5'],
 		build: (a) => makeFsb5Node(a.id, a.name, a.blob),
+	},
+	{
+		// Registers itself so `data/*.bif` can name their entries.
+		format: 'AURORA-KEY',
+		extensions: ['key'],
+		build: async (a) => {
+			const head = new Uint8Array(await a.blob.slice(0, 8).arrayBuffer());
+			if (isAuroraKey(head)) registerAuroraKey(a.id.slice(0, a.id.lastIndexOf('/')), a.blob);
+			return genericFileNode(a.id, a.name, a.blob, isAuroraKey(head) ? 'AURORA-KEY' : 'KEY');
+		},
+	},
+	{
+		format: 'AURORA-BIF',
+		extensions: ['bif'],
+		build: (a) => makeAuroraArchiveNode(a.id, a.name, a.blob, a.ctx, 'AURORA-BIF'),
+	},
+	{
+		// `.mod` is also tracker music elsewhere: only claimed by magic (sniff).
+		format: 'AURORA-ERF',
+		extensions: ['erf', 'rim', 'sav'],
+		sniff: ['aurora-erf'],
+		build: (a) => makeAuroraArchiveNode(a.id, a.name, a.blob, a.ctx, 'AURORA-ERF'),
 	},
 	{
 		format: 'TRPFS',
@@ -5542,6 +5574,37 @@ async function gfpakEntriesToNodes(
 		return [...dirNodes, ...files];
 	};
 	return toNodes(id, root);
+}
+
+// ----- BioWare Aurora (KotOR): BIF / ERF / RIM / MOD -----
+
+function makeAuroraArchiveNode(id: string, name: string, blob: Blob, ctx: ArchiveContext, format: 'AURORA-BIF' | 'AURORA-ERF'): Node {
+	return {
+		id,
+		name,
+		kind: 'file',
+		isContainer: true,
+		size: blob.size,
+		format,
+		blob: async () => blob,
+		getChildren: async () => {
+			const list: AuroraResource[] = format === 'AURORA-BIF' ? await bifResources(id, blob) : await erfResources(blob);
+			const used = new Set<string>();
+			const nodes = await Promise.all(
+				list.map(async (r, i) => {
+					let leaf = r.name;
+					if (used.has(leaf)) leaf = `${r.resref}_${i}.${r.name.split('.').pop()}`;
+					used.add(leaf);
+					const childId = `${id}/${leaf}`;
+					const data = blob.slice(r.offset, r.offset + r.size);
+					if (r.type === 2002) return { ...genericFileNode(childId, leaf, data, 'KotOR MDL'), meta: { kotorModel: true } };
+					if (r.type === 3008) return genericFileNode(childId, leaf, data, 'KotOR MDX');
+					return childNodeFor(childId, leaf, data, ctx);
+				}),
+			);
+			return nodes.sort((a, b) => humanCompare(a.name, b.name));
+		},
+	};
 }
 
 // ----- Game Freak Trinity file system (TRPFS / TRPFD) -----
