@@ -154,9 +154,6 @@ export function buildGoldeneyeModel(bytes: Uint8Array): GoldeneyeModel {
 
 	const matrices = new Map<number, [number, number, number]>();
 	const nodeMatrix = new Map<number, number>();
-	const prims = new Map<string, Prim>();
-	const order: Prim[] = [];
-	const textureIds = new Set<number>();
 	let nodeCount = 0;
 
 	const ownMatrixIndex = (node: number): number | null => {
@@ -178,115 +175,19 @@ export function buildGoldeneyeModel(bytes: Uint8Array): GoldeneyeModel {
 	};
 	const translation = (idx: number): [number, number, number] => matrices.get(idx) ?? [0, 0, 0];
 
-	const prim = (tex: number, lit: boolean, ws: GoldeneyeWrap, wt: GoldeneyeWrap): Prim => {
-		const key = `${tex},${lit},${ws},${wt}`;
-		let p = prims.get(key);
-		if (!p) {
-			p = { tex, lit, ws, wt, verts: [], remap: new Map(), tris: [] };
-			prims.set(key, p);
-			order.push(p);
-		}
-		return p;
-	};
-
+	const drawer = new RareListDrawer();
 	const runDL = (dlAddr: number, vtxTable: number | null, nodeMtx: number) => {
-		const cache: (Vtx | undefined)[] = new Array(16);
-		let mtx = nodeMtx;
-		let geometryMode = 0;
-		let tex = -1;
-		let ws: GoldeneyeWrap = 'repeat', wt: GoldeneyeWrap = 'repeat';
-		let scaleS = 1, scaleT = 1;
-		const resolve = (addr: number): number | null => {
+		const start = off(dlAddr);
+		if (start === null) return;
+		drawer.draw(d, start, (addr) => {
 			const seg = addr >>> 24;
-			if (seg === 4) return vtxTable === null ? null : vtxTable + (addr & 0xffffff);
-			if (seg === 5) return off(addr);
+			if (seg === 4) return vtxTable === null ? null : { buf: d, o: vtxTable + (addr & 0xffffff) };
+			if (seg === 5) {
+				const o = off(addr);
+				return o === null ? null : { buf: d, o };
+			}
 			return null;
-		};
-		const emit = (a: number, b: number, c: number) => {
-			const vs = [cache[a], cache[b], cache[c]];
-			if (!vs[0] || !vs[1] || !vs[2]) return;
-			const p = prim(tex, vs[0].lit, ws, wt);
-			const ids: number[] = [];
-			for (const v of vs as Vtx[]) {
-				const key = `${v.x},${v.y},${v.z},${v.s},${v.t},${v.c.join(',')}`;
-				let j = p.remap.get(key);
-				if (j === undefined) {
-					j = p.verts.length;
-					p.remap.set(key, j);
-					p.verts.push(v);
-				}
-				ids.push(j);
-			}
-			if ((geometryMode & G_CULL_FRONT) && !(geometryMode & G_CULL_BACK)) p.tris.push(ids[2]!, ids[1]!, ids[0]!);
-			else p.tris.push(ids[0]!, ids[1]!, ids[2]!);
-		};
-		const run = (start: number | null, depth: number) => {
-			if (start === null || depth > 10) return;
-			for (let o = start, steps = 0; o + 8 <= d.length && steps < 8192; o += 8, steps++) {
-				const w0 = u32(d, o), w1 = u32(d, o + 4);
-				switch (w0 >>> 24) {
-					case 0xb8: // G_ENDDL
-						return;
-					case 0x06: // G_DL
-						run(resolve(w1), depth + 1);
-						if ((w0 >>> 16) & 0xff) return; // branch
-						break;
-					case 0x01: // G_MTX: segment 3 holds the runtime matrix array
-						if (w1 >>> 24 === 3) mtx = (w1 & 0xffffff) >> 6;
-						break;
-					case 0x04: {
-						// G_VTX (F3D): byte 1 = (n-1)<<4 | v0
-						const n = ((w0 >>> 20) & 0xf) + 1;
-						const v0 = (w0 >>> 16) & 0xf;
-						const at = resolve(w1);
-						if (at === null) break;
-						const [tx, ty, tz] = translation(mtx);
-						const lit = (geometryMode & G_LIGHTING) !== 0;
-						for (let i = 0; i < n && v0 + i < 16; i++) {
-							const p = at + i * 16;
-							if (p + 16 > d.length) break;
-							cache[v0 + i] = {
-								x: s16(d, p) + tx, y: s16(d, p + 2) + ty, z: s16(d, p + 4) + tz,
-								s: s16(d, p + 8) * scaleS, t: s16(d, p + 10) * scaleT,
-								c: [u8(d, p + 12), u8(d, p + 13), u8(d, p + 14), u8(d, p + 15)],
-								lit,
-							};
-						}
-						break;
-					}
-					case 0xbf: // G_TRI1: indices ×10
-						emit(((w1 >>> 16) & 0xff) / 10, ((w1 >>> 8) & 0xff) / 10, (w1 & 0xff) / 10);
-						break;
-					case 0xb1: // G_TRI4
-						for (let i = 0; i < 4; i++) {
-							const x = (w1 >>> (i * 8)) & 0xf, y = (w1 >>> (i * 8 + 4)) & 0xf, z = (w0 >>> (i * 4)) & 0xf;
-							if (x === 0 && y === 0 && z === 0) continue;
-							emit(x, y, z);
-						}
-						break;
-					case 0xb7: // G_SETGEOMETRYMODE
-						geometryMode = (geometryMode | w1) >>> 0;
-						break;
-					case 0xb6: // G_CLEARGEOMETRYMODE
-						geometryMode = (geometryMode & ~w1) >>> 0;
-						break;
-					case 0xc0: // G_SETTEX: global texture number + tile modes
-						tex = w1 & 0xfff;
-						ws = wrapOf((w0 >>> 22) & 3);
-						wt = wrapOf((w0 >>> 20) & 3);
-						textureIds.add(tex);
-						break;
-					case 0xbb: {
-						// G_TEXTURE: 0.16 s/t scale (0xFFFF ≈ 1)
-						const ss = w1 >>> 16, st = w1 & 0xffff;
-						scaleS = ss === 0xffff ? 1 : ss / 65536;
-						scaleT = st === 0xffff ? 1 : st / 65536;
-						break;
-					}
-				}
-			}
-		};
-		run(off(dlAddr), 0);
+		}, (mtx) => translation(mtx < 0 ? nodeMtx : mtx), nodeMtx);
 	};
 
 	// Depth-first walk (child, then next), computing group matrices on the way down.
@@ -339,24 +240,149 @@ export function buildGoldeneyeModel(bytes: Uint8Array): GoldeneyeModel {
 	};
 	visit(top, 0);
 
-	const primitives: GoldeneyePrimitive[] = [];
-	for (const p of order) {
-		if (p.tris.length === 0) continue;
-		const n = p.verts.length;
-		const positions = new Float32Array(n * 3);
-		const texels = new Float32Array(n * 2);
-		const normals = p.lit ? new Float32Array(n * 3) : null;
-		const colors = p.lit ? null : new Uint8Array(n * 4);
-		p.verts.forEach((v, i) => {
-			positions.set([v.x, v.y, v.z], i * 3);
-			texels.set([v.s / 32, v.t / 32], i * 2);
-			if (normals) {
-				const nx = (v.c[0] << 24) >> 24, ny = (v.c[1] << 24) >> 24, nz = (v.c[2] << 24) >> 24;
-				const len = Math.hypot(nx, ny, nz) || 1;
-				normals.set([nx / len, ny / len, nz / len], i * 3);
-			} else colors!.set(v.c, i * 4);
-		});
-		primitives.push({ textureId: p.tex, wrapS: p.ws, wrapT: p.wt, positions, texels, normals, colors, indices: Uint32Array.from(p.tris) });
+	const primitives = drawer.finish();
+	return { primitives, nodeCount, textureIds: [...drawer.textureIds].sort((a, b) => a - b), warnings };
+}
+
+/**
+ * Runs Rare F3D display lists (GoldenEye models and level rooms) into
+ * de-duplicated primitives. `resolve` maps a segmented address to a
+ * buffer and offset; `translate` gives the translation for a matrix
+ * index (`G_MTX` through segment 3), or the default (`-1`).
+ */
+export class RareListDrawer {
+	readonly textureIds = new Set<number>();
+	private prims = new Map<string, Prim>();
+	private order: Prim[] = [];
+
+	private prim(tex: number, lit: boolean, ws: GoldeneyeWrap, wt: GoldeneyeWrap): Prim {
+		const key = `${tex},${lit},${ws},${wt}`;
+		let p = this.prims.get(key);
+		if (!p) {
+			p = { tex, lit, ws, wt, verts: [], remap: new Map(), tris: [] };
+			this.prims.set(key, p);
+			this.order.push(p);
+		}
+		return p;
 	}
-	return { primitives, nodeCount, textureIds: [...textureIds].sort((a, b) => a - b), warnings };
+
+	draw(dl: Uint8Array, start: number, resolve: (addr: number) => { buf: Uint8Array; o: number } | null, translate: (mtx: number) => [number, number, number], initialMtx = -1): void {
+		const cache: (Vtx | undefined)[] = new Array(16);
+		let mtx = initialMtx;
+		let geometryMode = 0;
+		let tex = -1;
+		let ws: GoldeneyeWrap = 'repeat', wt: GoldeneyeWrap = 'repeat';
+		let scaleS = 1, scaleT = 1;
+		const emit = (a: number, b: number, c: number) => {
+			const vs = [cache[a], cache[b], cache[c]];
+			if (!vs[0] || !vs[1] || !vs[2]) return;
+			const p = this.prim(tex, vs[0].lit, ws, wt);
+			const ids: number[] = [];
+			for (const v of vs as Vtx[]) {
+				const key = `${v.x},${v.y},${v.z},${v.s},${v.t},${v.c.join(',')}`;
+				let j = p.remap.get(key);
+				if (j === undefined) {
+					j = p.verts.length;
+					p.remap.set(key, j);
+					p.verts.push(v);
+				}
+				ids.push(j);
+			}
+			if ((geometryMode & G_CULL_FRONT) && !(geometryMode & G_CULL_BACK)) p.tris.push(ids[2]!, ids[1]!, ids[0]!);
+			else p.tris.push(ids[0]!, ids[1]!, ids[2]!);
+		};
+		const run = (d: Uint8Array, start: number, depth: number) => {
+			if (depth > 10) return;
+			for (let o = start, steps = 0; o + 8 <= d.length && steps < 16384; o += 8, steps++) {
+				const w0 = u32(d, o), w1 = u32(d, o + 4);
+				switch (w0 >>> 24) {
+					case 0xb8: // G_ENDDL
+						return;
+					case 0x06: { // G_DL
+						const r = resolve(w1);
+						if (r) run(r.buf, r.o, depth + 1);
+						if ((w0 >>> 16) & 0xff) return; // branch
+						break;
+					}
+					case 0x01: // G_MTX: segment 3 holds the runtime matrix array
+						if (w1 >>> 24 === 3) mtx = (w1 & 0xffffff) >> 6;
+						break;
+					case 0x04: {
+						// G_VTX (F3D): byte 1 = (n-1)<<4 | v0
+						const n = ((w0 >>> 20) & 0xf) + 1;
+						const v0 = (w0 >>> 16) & 0xf;
+						const r = resolve(w1);
+						if (!r) break;
+						const [tx, ty, tz] = translate(mtx);
+						const lit = (geometryMode & G_LIGHTING) !== 0;
+						const vb = r.buf;
+						for (let i = 0; i < n && v0 + i < 16; i++) {
+							const p = r.o + i * 16;
+							if (p + 16 > vb.length) break;
+							cache[v0 + i] = {
+								x: s16(vb, p) + tx, y: s16(vb, p + 2) + ty, z: s16(vb, p + 4) + tz,
+								s: s16(vb, p + 8) * scaleS, t: s16(vb, p + 10) * scaleT,
+								c: [u8(vb, p + 12), u8(vb, p + 13), u8(vb, p + 14), u8(vb, p + 15)],
+								lit,
+							};
+						}
+						break;
+					}
+					case 0xbf: // G_TRI1: indices ×10
+						emit(((w1 >>> 16) & 0xff) / 10, ((w1 >>> 8) & 0xff) / 10, (w1 & 0xff) / 10);
+						break;
+					case 0xb1: // G_TRI4
+						for (let i = 0; i < 4; i++) {
+							const x = (w1 >>> (i * 8)) & 0xf, y = (w1 >>> (i * 8 + 4)) & 0xf, z = (w0 >>> (i * 4)) & 0xf;
+							if (x === 0 && y === 0 && z === 0) continue;
+							emit(x, y, z);
+						}
+						break;
+					case 0xb7: // G_SETGEOMETRYMODE
+						geometryMode = (geometryMode | w1) >>> 0;
+						break;
+					case 0xb6: // G_CLEARGEOMETRYMODE
+						geometryMode = (geometryMode & ~w1) >>> 0;
+						break;
+					case 0xc0: // G_SETTEX: global texture number + tile modes
+						tex = w1 & 0xfff;
+						ws = wrapOf((w0 >>> 22) & 3);
+						wt = wrapOf((w0 >>> 20) & 3);
+						this.textureIds.add(tex);
+						break;
+					case 0xbb: {
+						// G_TEXTURE: 0.16 s/t scale (0xFFFF ≈ 1)
+						const ss = w1 >>> 16, st = w1 & 0xffff;
+						scaleS = ss === 0xffff ? 1 : ss / 65536;
+						scaleT = st === 0xffff ? 1 : st / 65536;
+						break;
+					}
+				}
+			}
+		};
+		run(dl, start, 0);
+	}
+
+	finish(): GoldeneyePrimitive[] {
+		const primitives: GoldeneyePrimitive[] = [];
+		for (const p of this.order) {
+			if (p.tris.length === 0) continue;
+			const n = p.verts.length;
+			const positions = new Float32Array(n * 3);
+			const texels = new Float32Array(n * 2);
+			const normals = p.lit ? new Float32Array(n * 3) : null;
+			const colors = p.lit ? null : new Uint8Array(n * 4);
+			p.verts.forEach((v, i) => {
+				positions.set([v.x, v.y, v.z], i * 3);
+				texels.set([v.s / 32, v.t / 32], i * 2);
+				if (normals) {
+					const nx = (v.c[0] << 24) >> 24, ny = (v.c[1] << 24) >> 24, nz = (v.c[2] << 24) >> 24;
+					const len = Math.hypot(nx, ny, nz) || 1;
+					normals.set([nx / len, ny / len, nz / len], i * 3);
+				} else colors!.set(v.c, i * 4);
+			});
+			primitives.push({ textureId: p.tex, wrapS: p.ws, wrapT: p.wt, positions, texels, normals, colors, indices: Uint32Array.from(p.tris) });
+		}
+		return primitives;
+	}
 }

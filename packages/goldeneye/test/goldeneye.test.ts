@@ -124,3 +124,35 @@ describe('textures', () => {
 		expect(offs).toHaveLength(601);
 	});
 });
+
+import { buildGoldeneyeLevel, isGoldeneyeLevel } from '../src/index.js';
+
+describe('levels', () => {
+	it('draws each room at its position, with vertices from segment 0x0E', async () => {
+		// Room table at 0x20: entry 0 empty, entry 1 → blocks "V" (vertices) and "D" (list), pos (100, 0, 0).
+		const bg = new Uint8Array(0x80);
+		const dv = new DataView(bg.buffer);
+		dv.setUint32(4, 0x0f000020);
+		dv.setUint32(0x20 + 24, 0x0f000060); // point table
+		dv.setUint32(0x20 + 28, 0x0f000070); // primary list
+		dv.setFloat32(0x20 + 36, 100);
+		expect(isGoldeneyeLevel(bg)).toBe(true);
+		const vtx = new Uint8Array(48);
+		const vv = new DataView(vtx.buffer);
+		[[0, 0, 0], [4, 0, 0], [0, 4, 0]].forEach(([x, y, z], i) => {
+			vv.setInt16(i * 16, x!);
+			vv.setInt16(i * 16 + 2, y!);
+			vv.setInt16(i * 16 + 4, z!);
+		});
+		const dl = new Uint8Array(24);
+		const ld = new DataView(dl.buffer);
+		ld.setUint32(0, 0x04200030); // G_VTX 3 @ 0, segment 0x0E
+		ld.setUint32(4, 0x0e000000);
+		ld.setUint32(8, 0xb1000002); // G_TRI4 (0, 1, 2)
+		ld.setUint32(12, 0x00000010);
+		ld.setUint32(16, 0xb8000000);
+		const level = await buildGoldeneyeLevel(bg, async (_b, o) => (o === 0x60 ? vtx : dl));
+		expect(level.rooms).toBe(1);
+		expect(Array.from(level.primitives[0]!.positions)).toEqual([100, 0, 0, 104, 0, 0, 100, 4, 0]);
+	});
+});
