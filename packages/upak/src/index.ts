@@ -798,7 +798,11 @@ export async function readUpakEntry(
 		// UE splits a file into N blocks of `compressionBlockSize`
 		// each; the final block holds whatever's left of
 		// `uncompressedSize`.
-		const fullBlockSize = entry.compressionBlockSize;
+		// A single block always holds the whole file: the encoded index's
+		// 6-bit block-size field can't express every size, so for
+		// one-block entries it may read 0 or a rounded value.
+		const fullBlockSize =
+			entry.compressionBlocks.length === 1 ? entry.uncompressedSize : entry.compressionBlockSize || entry.uncompressedSize;
 		for (let i = 0; i < entry.compressionBlocks.length; i++) {
 			const block = entry.compressionBlocks[i]!;
 			const remaining = entry.uncompressedSize - i * fullBlockSize;
