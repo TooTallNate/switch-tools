@@ -436,7 +436,7 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 		}
 		case 'goldeneye-model': {
 			const v = await loadGoldeneyeModelView(node);
-			return asset(v.mesh.lods[0]!, []);
+			return asset(v.mesh.lods[0]!, v.texturedSlots > 0 ? v.textures : []);
 		}
 		case 'trinity-terrain': {
 			const v = await loadTrinityTerrainView(node, root);

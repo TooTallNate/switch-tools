@@ -15297,12 +15297,12 @@ function GoldeneyeModelPreview({ node }: { node: Node }) {
         <h2 className="font-heading text-sm font-medium">GoldenEye 007 Model</h2>
         <p className="text-xs text-muted-foreground">
           {v.vertices.toLocaleString()} vertices · {v.triangles.toLocaleString()} triangles ·{" "}
-          {v.model.textureIds.length} texture references (not decoded yet) · rest pose as authored ·
-          drag to orbit, scroll to zoom
+          {v.model.textureIds.length} texture{v.model.textureIds.length === 1 ? "" : "s"} · rest pose as
+          authored · drag to orbit, scroll to zoom
         </p>
       </div>
       <div className="flex-1 p-3">
-        <MeshViewer mesh={v.mesh} materialDiffuseTextures={[]} baseName={node.name} />
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name} />
       </div>
     </div>
   )
