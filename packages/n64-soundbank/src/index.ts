@@ -485,3 +485,5 @@ export function encodeWav(
 	}
 	return out;
 }
+
+export * from './libaudio.js';
