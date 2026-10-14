@@ -412,6 +412,9 @@ importers:
       '@tootallnate/idtech-resources':
         specifier: workspace:*
         version: link:../../packages/idtech-resources
+      '@tootallnate/idtech3':
+        specifier: workspace:*
+        version: link:../../packages/idtech3
       '@tootallnate/iostore':
         specifier: workspace:*
         version: link:../../packages/iostore
@@ -1240,6 +1243,12 @@ importers:
         version: 5.9.3
 
   packages/idtech-resources:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/idtech3:
     devDependencies:
       typescript:
         specifier: ^5.3.3
