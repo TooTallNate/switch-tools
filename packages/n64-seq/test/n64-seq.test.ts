@@ -75,3 +75,21 @@ describe('n64-seq', () => {
 		expect(String.fromCharCode(...wav.subarray(0, 4))).toBe('RIFF');
 	});
 });
+
+describe('z64 dialect', () => {
+	it('loads layers with 0x88, follows relative jumps and uses decay-index releases', async () => {
+		const { z64DecayRate } = await import('../src/index.js');
+		const { entry, tbl } = bankFixture();
+		const s = new Uint8Array(0x60);
+		// seq: tempo 120; ldchan 0 @0x20; rjump +1 (skip a 0xff); delay 96; end
+		s.set([0xdd, 120, 0x90, 0x00, 0x20, 0xf4, 0x01, 0xff, 0xfd, 96, 0xff], 0);
+		// chan: noshort (large notes), instr 0, ldlayer 0 @0x40, end
+		s.set([0xc4, 0xc1, 0x00, 0x88, 0x00, 0x40, 0xff], 0x20);
+		// layer: release (decay index 0x20), note key 39, delay 48, vel 127, gate 0; end
+		s.set([0xcf, 0x20, 39, 48, 127, 0, 0xff], 0x40);
+		const r = runM64(s, [parseSeqBank(entry, tbl)], { dialect: 'z64' });
+		expect(r.events).toHaveLength(1);
+		expect(r.events[0]!.release).toBeCloseTo(z64DecayRate(0x20));
+		expect(r.events[0]!.duration).toBeCloseTo(0.5); // gate 0 = the whole delay
+	});
+});

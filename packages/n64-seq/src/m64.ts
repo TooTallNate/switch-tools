@@ -44,6 +44,15 @@ export interface SeqRenderOptions {
 	maxSeconds?: number;
 	/** Seconds to keep playing after the sequence loops (default 0 = stop at the loop). */
 	afterLoopSeconds?: number;
+	/**
+	 * `sm64` (Super Mario 64 / Mario Kart 64, the default) or `z64`
+	 * (Ocarina of Time / Majora's Mask: relocated low-range channel and
+	 * sequence commands, relative branches F2–F4, and release rates
+	 * that are decay-table indices).
+	 */
+	dialect?: 'sm64' | 'z64';
+	/** For `z64`: Majora's Mask gives 0xA0–0xA8 arguments and changes 0xBD / 0xBE. */
+	z64Variant?: 'oot' | 'mm';
 	/** Called when a script stops on a command it doesn't know (diagnostics). */
 	onUnknown?: (level: 'seq' | 'channel' | 'layer', cmd: number, pc: number) => void;
 }
@@ -75,6 +84,8 @@ interface Layer {
 	pan: number | null;
 	instrument: number | null;
 	lastDelay: number;
+	envelope: SeqEnvelopePoint[] | null;
+	release: number | null;
 }
 
 interface Channel {
@@ -90,7 +101,32 @@ interface Channel {
 	releaseRate: number;
 	bend: number;
 	envelope: SeqEnvelopePoint[] | null;
+	/** `chan_setdyntable`: sequence offset of a table of u16 script pointers. */
+	dynTable: number | null;
 }
+
+/**
+ * Zelda's release "rates" index a decay table (`AudioHeap_InitAdsrDecayTable`):
+ * the release lasts `scaleInv` updates. Returned as this synth's rate
+ * (decrement per update out of 32767, × 24).
+ */
+export function z64DecayRate(index: number): number {
+	let scaleInv: number;
+	if (index === 0) return 0;
+	if (index >= 251) scaleInv = [0.75, 0.66, 0.5, 0.33, 0.25][index - 251]!;
+	else if (index >= 128) scaleInv = 251 - index;
+	else if (index >= 16) scaleInv = 4 * (143 - index);
+	else scaleInv = 60 * (23 - index);
+	return 32767 / (24 * Math.max(0.25, scaleInv));
+}
+
+/** OoT `sSeqInstructionArgsTable`: argument sizes (bytes) for channel commands 0xB0–0xF1. */
+const Z64_CHAN_ARGS: readonly number[][] = [
+	[2], [], [2], [1], [], [], [], [2], [1], [1], [1], [1, 2], [2], [2, 2], [], [], [],
+	[1], [2], [], [], [], [1], [1, 2], [1], [1], [1], [2], [1], [1], [2], [2], [1], [1], [1], [1], [1],
+	[1], [1], [1], [1], [1], [2], [1], [1], [1], [2], [1], [1], [3], [3], [1], [], [1], [1], [2], [1, 1, 1],
+	[1], [], [1, 1], [], [1], [1], [2, 1], [], [1],
+];
 
 const newScript = (pc: number): Script => ({ pc, stack: [], delay: 0, value: 0, done: false });
 
@@ -101,6 +137,11 @@ const newScript = (pc: number): Script => ({ pc, stack: [], delay: 0, value: 0, 
  */
 export function runM64(seq: Uint8Array, banks: SeqBank[], options: SeqRenderOptions = {}): { events: SeqNoteEvent[]; length: number; looped: boolean } {
 	const maxSeconds = options.maxSeconds ?? 180;
+	const z64 = options.dialect === 'z64';
+	const mm = z64 && options.z64Variant === 'mm';
+	/** MM `sSeqInstructionArgsTable` differences (argument bytes). */
+	const MM_CHAN_ARGS: Record<number, number> = { 0xa0: 2, 0xa1: 0, 0xa2: 2, 0xa3: 0, 0xa4: 1, 0xa5: 0, 0xa6: 3, 0xa7: 1, 0xa8: 4, 0xbd: 2, 0xbe: 1 };
+	const releaseOf = (r: number) => (z64 ? z64DecayRate(r) : r);
 	const after = options.afterLoopSeconds ?? 0;
 	const events: SeqNoteEvent[] = [];
 	const rd = (o: number) => seq[o] ?? 0;
@@ -111,6 +152,15 @@ export function runM64(seq: Uint8Array, banks: SeqBank[], options: SeqRenderOpti
 		return a & 0x80 ? ((a & 0x7f) << 8) | rd(s.pc++) : a;
 	};
 	const defaultBank = banks.length - 1;
+	const readEnvelope = (t: number): SeqEnvelopePoint[] => {
+		const e: SeqEnvelopePoint[] = [];
+		for (let o = t; e.length < 32 && o + 4 <= seq.length; o += 4) {
+			const delay = u16(o), arg = u16(o + 2);
+			e.push({ delay, arg });
+			if (delay === 0 || delay >= 0xfffd) break;
+		}
+		return e;
+	};
 	const seqState = { s: newScript(0), tempo: 120, volume: 127, transpose: 0, velTable: VEL_TABLE as readonly number[], durTable: DUR_TABLE as readonly number[] };
 	const channels: (Channel | null)[] = new Array(16).fill(null);
 	let time = 0;
@@ -120,6 +170,18 @@ export function runM64(seq: Uint8Array, banks: SeqBank[], options: SeqRenderOpti
 
 	/** Shared flow commands; returns true when handled. */
 	const flow = (s: Script, cmd: number, seqLevel = false): boolean => {
+		if (z64 && cmd >= 0xf2 && cmd <= 0xf4) {
+			const rel = s8(rd(s.pc++));
+			const take = cmd === 0xf4 || (cmd === 0xf2 ? s.value < 0 : s.value === 0);
+			if (take) {
+				if (seqLevel && cmd === 0xf4 && rel < 0 && visited.has(s.pc + rel) && !looped) {
+					looped = true;
+					stopAt = Math.min(stopAt, time + after);
+				}
+				s.pc += rel;
+			}
+			return true;
+		}
 		switch (cmd) {
 			case 0xf5: { const t = u16(s.pc); s.pc += 2; if (s.value >= 0) s.pc = t; return true; }
 			case 0xf9: { const t = u16(s.pc); s.pc += 2; if (s.value < 0) s.pc = t; return true; }
@@ -179,7 +241,7 @@ export function runM64(seq: Uint8Array, banks: SeqBank[], options: SeqRenderOpti
 				const key = cmd & 0x3f;
 				const ticks = gate === 0 ? delay : (gate * delay) / 256;
 				const tickSec = 60 / (seqState.tempo * 48);
-				let sound: SeqSound | null = null, freq = 1, pan = ch.pan, envelope = ch.envelope ?? DEFAULT_ENVELOPE, release = ch.releaseRate;
+				let sound: SeqSound | null = null, freq = 1, pan = ch.pan, envelope = L.envelope ?? ch.envelope ?? DEFAULT_ENVELOPE, release = L.release ?? ch.releaseRate;
 				const bank = banks[ch.bank] ?? banks[defaultBank];
 				const inst = L.instrument ?? ch.instrument;
 				if (inst === 0x7f) {
@@ -190,7 +252,7 @@ export function runM64(seq: Uint8Array, banks: SeqBank[], options: SeqRenderOpti
 						freq = drum.sound.tuning;
 						pan = drum.pan / 128;
 						envelope = drum.envelope.length ? drum.envelope : envelope;
-						release = drum.releaseRate || release;
+						release = L.release ?? (drum.releaseRate || release);
 					}
 				} else {
 					const k = key + seqState.transpose + ch.transpose + L.transpose;
@@ -200,7 +262,7 @@ export function runM64(seq: Uint8Array, banks: SeqBank[], options: SeqRenderOpti
 						sound ??= ins.normal;
 						if (sound) freq = noteFrequency(k) * sound.tuning;
 						envelope = ins.envelope.length ? ins.envelope : envelope;
-						release = ins.releaseRate || release;
+						release = L.release ?? (ins.releaseRate || release);
 					}
 				}
 				if (L.pan !== null) pan = L.pan / 128;
@@ -213,7 +275,7 @@ export function runM64(seq: Uint8Array, banks: SeqBank[], options: SeqRenderOpti
 						volume: ((vel * vel) / (127 * 127)) * ch.volume * ch.volumeScale * (seqState.volume / 127),
 						pan,
 						envelope,
-						release,
+						release: releaseOf(release),
 						channel: ci,
 					});
 				}
@@ -224,12 +286,14 @@ export function runM64(seq: Uint8Array, banks: SeqBank[], options: SeqRenderOpti
 				case 0xc1: L.velocity = rd(s.pc++); break;
 				case 0xc2: L.transpose = s8(rd(s.pc++)); break;
 				case 0xc3: L.shortDefault = readVar(s); break;
-				case 0xc4: case 0xc5: case 0xc8: case 0xcc: break;
+				case 0xc4: case 0xc5: case 0xc8: case 0xcc: case 0xf0: break;
 				case 0xc6: { const v = rd(s.pc++); L.instrument = v === 0xff ? null : v; break; }
 				case 0xc7: { const mode = rd(s.pc++); s.pc++; if (mode & 0x80) s.pc++; else readVar(s); break; } // portamento
 				case 0xc9: L.noteDuration = rd(s.pc++); break;
 				case 0xca: L.pan = rd(s.pc++); break;
-				case 0xcb: s.pc += 2; break; // envelope + release (US: setenvelope / release)
+				case 0xcb: { const t = u16(s.pc); s.pc += 2; L.envelope = readEnvelope(t); L.release = rd(s.pc++); break; } // envelope + release
+				case 0xcd: case 0xce: s.pc++; break; // z64: stereo, fine bend
+				case 0xcf: L.release = rd(s.pc++); break; // z64: release (decay index)
 				default:
 					if ((cmd & 0xf0) === 0xd0) L.velocity = seqState.velTable[cmd & 0xf] ?? 127;
 					else if ((cmd & 0xf0) === 0xe0) L.noteDuration = seqState.durTable[cmd & 0xf] ?? 0x80;
@@ -248,6 +312,57 @@ export function runM64(seq: Uint8Array, banks: SeqBank[], options: SeqRenderOpti
 			const cmd = rd(s.pc++);
 			if (flow(s, cmd)) continue;
 			const hi = cmd & 0xf0, lo = cmd & 0x0f;
+			const dyn = () => (ch.dynTable !== null && s.value >= 0 ? u16(ch.dynTable + s.value * 2) : null);
+			if (cmd === 0xc2) { ch.dynTable = u16(s.pc); s.pc += 2; continue; }
+			if (cmd === 0xc5) { const t = dyn(); if (t !== null) ch.dynTable = t; continue; } // dynsetdyntable / dyntbllookup
+			if (cmd === 0xe4) { const t = dyn(); if (t !== null) { s.stack.push({ pc: s.pc, loop: 0, loopPc: 0 }); s.pc = t; } continue; } // dyncall
+			if (z64 && (cmd & 0xf8) === 0x98) {
+				const t = dyn();
+				const n = (cmd & 7) < 4 ? cmd & 7 : 0;
+				if (t !== null) ch.layers[n] = { s: newScript(t), transpose: 0, velocity: 0, noteDuration: 0x80, playPercentage: 0, shortDefault: 0x80, pan: null, instrument: null, lastDelay: 0, envelope: null, release: null };
+				continue;
+			}
+			if (!z64 && hi === 0xb0) {
+				// dynsetlayer (US): layer pc from the dyn table
+				const t = dyn();
+				if (t !== null) ch.layers[lo & 3] = { s: newScript(t), transpose: 0, velocity: 0, noteDuration: 0x80, playPercentage: 0, shortDefault: 0x80, pan: null, instrument: null, lastDelay: 0, envelope: null, release: null };
+				continue;
+			}
+			if (mm && cmd in MM_CHAN_ARGS) { s.pc += MM_CHAN_ARGS[cmd]!; continue; }
+			if (z64 && cmd === 0xb8) { const n = rd(s.pc++); s.value = n ? Math.floor(Math.random() * n) : 0; continue; } // rand
+			if (z64 && cmd < 0xb0) {
+				const newLayer = (pc: number) => ({ s: newScript(pc), transpose: 0, velocity: 0, noteDuration: 0x80, playPercentage: 0, shortDefault: 0x80, pan: null, instrument: null, lastDelay: 0, envelope: null, release: null });
+				if (cmd >= 0x70) {
+					const l3 = cmd & 7, n = l3 < 4 ? l3 : 0;
+					switch (cmd & 0xf8) {
+						case 0x70: break; // stio
+						case 0x78: { const rel = (u16(s.pc) << 16) >> 16; s.pc += 2; ch.layers[n] = newLayer(s.pc + rel); break; }
+						case 0x80: s.value = ch.layers[n] ? (ch.layers[n]!.s.done ? 1 : 0) : -1; break;
+						case 0x88: { const t = u16(s.pc); s.pc += 2; ch.layers[n] = newLayer(t); break; }
+						case 0x90: ch.layers[n] = null; break;
+						case 0x98: break; // dynldlayer (dynamic table) — not modelled
+					}
+					continue;
+				}
+				switch (hi) {
+					case 0x00: s.delay = lo; break; // cdelay
+					case 0x20: { const t = u16(s.pc); s.pc += 2; startChannel(lo, t); break; }
+					case 0x30: case 0x40: s.pc++; if (hi === 0x40) s.value = 0; break;
+					case 0x60: s.value = 0; break;
+				}
+				continue;
+			}
+			if (z64 && cmd >= 0xb0 && cmd < 0xf2 && ![0xc1, 0xc3, 0xc4, 0xc6, 0xc8, 0xc9, 0xcb, 0xcc, 0xd3, 0xd9, 0xda, 0xdb, 0xdd, 0xdf, 0xe0, 0xea, 0xeb].includes(cmd)) {
+				for (const n of Z64_CHAN_ARGS[cmd - 0xb0] ?? []) s.pc += n;
+				continue;
+			}
+			if (z64 && cmd === 0xeb) {
+				const idx = rd(s.pc++);
+				ch.bank = Math.max(0, banks.length - 1 - idx);
+				ch.instrument = rd(s.pc++);
+				continue;
+			}
+			if (z64 && cmd === 0xea) { s.done = true; continue; }
 			if (cmd < 0x10) { s.value = ch.layers[lo & 3]?.s.done !== false ? 1 : 0; continue; }
 			if (hi === 0x10) { const t = u16(s.pc); s.pc += 2; startChannel(lo, t); continue; }
 			if (hi === 0x20) { channels[lo] = null; continue; }
@@ -256,17 +371,14 @@ export function runM64(seq: Uint8Array, banks: SeqBank[], options: SeqRenderOpti
 			if (hi === 0x90) {
 				const t = u16(s.pc);
 				s.pc += 2;
-				ch.layers[lo & 3] = { s: newScript(t), transpose: 0, velocity: 0, noteDuration: 0x80, playPercentage: 0, shortDefault: 0x80, pan: null, instrument: null, lastDelay: 0 };
+				ch.layers[lo & 3] = { s: newScript(t), transpose: 0, velocity: 0, noteDuration: 0x80, playPercentage: 0, shortDefault: 0x80, pan: null, instrument: null, lastDelay: 0, envelope: null, release: null };
 				continue;
 			}
 			if (hi === 0xa0) { ch.layers[lo & 3] = null; continue; }
-			if (hi === 0xb0) continue;
 			switch (cmd) {
 				case 0xc1: ch.instrument = rd(s.pc++); break;
-				case 0xc2: s.pc += 2; break;
 				case 0xc3: ch.largeNotes = false; break;
 				case 0xc4: ch.largeNotes = true; break;
-				case 0xc5: break;
 				case 0xc6: {
 					const idx = rd(s.pc++);
 					ch.bank = Math.max(0, banks.length - 1 - idx);
@@ -282,7 +394,7 @@ export function runM64(seq: Uint8Array, banks: SeqBank[], options: SeqRenderOpti
 				case 0xd2: s.pc++; break; // sustain
 				case 0xd3: ch.bend = s8(rd(s.pc++)); break;
 				case 0xd9: ch.releaseRate = rd(s.pc++); break;
-				case 0xda: { const t = u16(s.pc); s.pc += 2; const e: SeqEnvelopePoint[] = []; for (let o = t; e.length < 32; o += 4) { const delay = u16(o), arg = u16(o + 2); e.push({ delay, arg }); if (delay === 0 || delay >= 0xfffd) break; } ch.envelope = e; break; }
+				case 0xda: { const t = u16(s.pc); s.pc += 2; ch.envelope = readEnvelope(t); break; }
 				case 0xdb: ch.transpose = s8(rd(s.pc++)); break;
 				case 0xdc: s.pc++; break;
 				case 0xdd: ch.pan = rd(s.pc++) / 128; break;
@@ -290,7 +402,6 @@ export function runM64(seq: Uint8Array, banks: SeqBank[], options: SeqRenderOpti
 				case 0xdf: ch.volume = rd(s.pc++) / 127; break;
 				case 0xe0: ch.volumeScale = rd(s.pc++) / 128; break;
 				case 0xe1: case 0xe2: s.pc += 3; break;
-				case 0xe4: break;
 				case 0xf1: break;
 				case 0xf2: s.pc++; break;
 				case 0xf3: s.done = true; break;
@@ -313,7 +424,7 @@ export function runM64(seq: Uint8Array, banks: SeqBank[], options: SeqRenderOpti
 			prev.layers = [null, null, null, null];
 			return;
 		}
-		channels[n] = { s: newScript(pc), layers: [null, null, null, null], instrument: 0, bank: defaultBank, volume: 1, volumeScale: 1, pan: 0.5, transpose: 0, largeNotes: false, releaseRate: 0x20, bend: 0, envelope: null };
+		channels[n] = { s: newScript(pc), layers: [null, null, null, null], instrument: 0, bank: defaultBank, volume: 1, volumeScale: 1, pan: 0.5, transpose: 0, largeNotes: false, releaseRate: 0x20, bend: 0, envelope: null, dynTable: null };
 	};
 
 	const stepSeq = () => {
@@ -323,6 +434,23 @@ export function runM64(seq: Uint8Array, banks: SeqBank[], options: SeqRenderOpti
 			const cmd = rd(s.pc++);
 			if (flow(s, cmd, true)) continue;
 			const hi = cmd & 0xf0, lo = cmd & 0x0f;
+			if (z64 && cmd < 0xc0) {
+				switch (hi) {
+					case 0x00: s.value = channels[lo] ? 0 : 1; break;
+					case 0x40: channels[lo] = null; break;
+					case 0x60: s.pc += 2; break; // ldres
+					case 0x80: s.value = 0; break;
+					case 0x90: { const t = u16(s.pc); s.pc += 2; startChannel(lo, t); break; }
+					case 0xa0: { const rel = (u16(s.pc) << 16) >> 16; s.pc += 2; startChannel(lo, s.pc + rel); break; }
+					case 0xb0: s.pc += 3; break; // ldseq
+				}
+				continue;
+			}
+			if (z64) {
+				const skip: Record<number, number> = { 0xc4: 2, 0xc5: 2, 0xc7: 3, 0xcd: 2, 0xce: 1, 0xd9: 1, 0xda: 3, 0xef: 3, 0xf0: 0, 0xf1: 1 };
+				if (cmd in skip) { s.pc += skip[cmd]!; continue; }
+				if (cmd === 0xc6) { s.done = true; continue; }
+			}
 			if (cmd < 0x10) { s.value = channels[lo] ? 0 : 1; continue; }
 			if (hi === 0x50) { s.value -= 0; continue; }
 			if (hi === 0x70 || hi === 0x80) { if (hi === 0x80) s.value = 0; continue; }
