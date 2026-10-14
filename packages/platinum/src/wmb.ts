@@ -26,7 +26,7 @@
  * - **Bones** store local and world transforms; rotations are Euler
  *   angles applied X, then Y, then Z (matrix `Rz·Ry·Rx`). Animations
  *   address bones by id, resolved through the 3-level, 16-way bone index
- *   translate table.
+ *   translate table (see `boneIndexForId`).
  */
 
 export interface WmbBone {
@@ -151,17 +151,18 @@ export function parseWmb(bytes: Uint8Array): Wmb {
 		});
 	}
 
-	// Three levels of 16 entries: [id>>8 & 0xf] → [(id>>4) & 0xf] → [id & 0xf].
+	// One i16 array of 16-entry blocks, each entry an absolute index into the
+	// same array: t[t[t[(id >> 8) & 0xf] + ((id >> 4) & 0xf)] + (id & 0xf)].
+	const ttCount = u32(H + 12);
+	const tt = (i: number) => (i >= 0 && i < ttCount && ttOff + i * 2 + 2 <= bytes.length ? dv.getInt16(ttOff + i * 2, true) : -1);
 	const boneIndexForId = (id: number): number => {
 		if (!ttOff || id < 0 || id > 0xfff) return -1;
-		const first = dv.getInt16(ttOff + ((id >> 8) & 0xf) * 2, true);
-		if (first < 0) return -1;
-		let firstCount = 0;
-		for (let i = 0; i < 16; i++) if (dv.getInt16(ttOff + i * 2, true) !== -1) firstCount++;
-		const second = dv.getInt16(ttOff + 32 + (first * 16 + ((id >> 4) & 0xf)) * 2, true);
-		if (second < 0) return -1;
-		const third = dv.getInt16(ttOff + 32 + firstCount * 32 + (second * 16 + (id & 0xf)) * 2, true);
-		return third < 0 || third >= bones.length ? -1 : third;
+		const a = tt((id >> 8) & 0xf);
+		if (a < 0) return -1;
+		const b = tt(a + ((id >> 4) & 0xf));
+		if (b < 0) return -1;
+		const c = tt(b + (id & 0xf));
+		return c < 0 || c >= bones.length ? -1 : c;
 	};
 
 	const vertexGroups: WmbVertexGroup[] = [];

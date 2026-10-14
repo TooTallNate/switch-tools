@@ -171,14 +171,13 @@ function buildWmb(): Uint8Array {
 	};
 	bone(0, 0, -1, 0, 0);
 	bone(1, 5, 0, 1, 1);
-	// Translate table: id 5 → first[0]=0, second[0*16+0]=0, third[0*16+5]=1.
+	// Translate table: id 5 → t[0] = 16 → t[16 + 0] = 32 → t[32 + 5] = bone 1.
 	const tt = 0x300;
 	pair(1, tt, 48);
 	for (let i = 0; i < 48; i++) w.i16(tt + i * 2, -1);
-	w.i16(tt, 0);
-	w.i16(tt + 32, 0);
+	w.i16(tt, 16);
+	w.i16(tt + 32, 32);
 	w.i16(tt + 64 + 5 * 2, 1);
-	w.i16(tt + 64, 0);
 	// Vertex group, flags 7: 28-byte vertex, 12-byte extra (uv2, normal).
 	const vg = 0x400;
 	pair(2, vg, 1);
