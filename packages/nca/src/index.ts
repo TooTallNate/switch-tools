@@ -53,6 +53,14 @@ export {
 	parseBucketTreeHeader,
 } from './bucket-tree.js';
 export {
+	createPatchedSectionReader,
+	readPatchInfo,
+	rangeBlob,
+	type PatchInfo,
+	type PatchedSectionOptions,
+	type RangeReader,
+} from './bktr.js';
+export {
 	readCompressionInfo,
 	type CompressionInfoFields,
 	COMPRESSION_INFO_OFFSET,

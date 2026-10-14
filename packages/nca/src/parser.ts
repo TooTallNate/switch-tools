@@ -19,6 +19,7 @@ import { aesCtrEncrypt, aesEcbDecrypt, buildNcaCtr } from './crypto.js';
 import type { KeySet } from './keys.js';
 import { NcaContentType } from './index.js';
 import { BucketTreeReader } from './bucket-tree.js';
+import { createPatchedSectionReader, rangeBlob } from './bktr.js';
 import {
 	readCompressionInfo,
 	type CompressionInfoFields,
@@ -131,6 +132,11 @@ export interface NcaSection {
 	 * need to look at this; it's exposed for diagnostics.
 	 */
 	compressed?: boolean;
+	/**
+	 * `true` when this is a BKTR (Update) section whose `data` is the
+	 * patched view over the base NCA passed as `ParseNcaOptions.base`.
+	 */
+	patched?: boolean;
 }
 
 export interface ParsedNca {
@@ -287,6 +293,13 @@ export interface ParseNcaOptions {
 	 * and surface a "needs titlekey" error to the user.
 	 */
 	encryptedTitleKey?: Uint8Array;
+	/**
+	 * The parsed base-game NCA, for Update NCAs. BKTR (patch) sections
+	 * are a patched view over the base NCA's matching section, so they
+	 * can only be decoded with it (see `bktr.ts`). Without it, reads
+	 * from a BKTR section throw.
+	 */
+	base?: ParsedNca;
 }
 
 /**
@@ -504,7 +517,7 @@ export async function parseNca(
 		// Build the lazy section blob. If we don't have the right key,
 		// reads from the section will throw with this message instead of
 		// silently returning garbage.
-		const sectionData = createLazySectionBlob({
+		let sectionData = createLazySectionBlob({
 			source: blob,
 			start: mediaStartOffset,
 			end: mediaEndOffset,
@@ -518,6 +531,33 @@ export async function parseNca(
 			missingKeyDetail:
 				cryptType === NCA_CRYPT_NONE ? null : missingKeyDetail,
 		});
+
+		// BKTR patch section + base NCA: replace the section with the
+		// patched virtual view over the base section.
+		let patched = false;
+		if (cryptType === NCA_CRYPT_BKTR && options.base && !missingKeyDetail && !plaintext) {
+			const baseSection =
+				options.base.sections.find(
+					(s) => s.index === i && s.cryptType !== NCA_CRYPT_BKTR,
+				) ??
+				options.base.sections.find(
+					(s) => s.fsType === NCA_FS_TYPE_ROMFS && s.cryptType !== NCA_CRYPT_BKTR,
+				);
+			if (baseSection) {
+				const { reader, size } = createPatchedSectionReader({
+					source: blob,
+					sectionStart: mediaStartOffset,
+					sectionSize: mediaEndOffset - mediaStartOffset,
+					fsHeader,
+					sectionCtr,
+					sectionKey,
+					base: baseSection.data,
+					crypto,
+				});
+				sectionData = rangeBlob(reader, await size());
+				patched = true;
+			}
+		}
 
 		// If CompressionInfo is populated, the FS-data region (RomFS
 		// for IVFC sections, PFS0 for PFS0 sections) is encoded as a
@@ -560,6 +600,7 @@ export async function parseNca(
 			fsHeader,
 			data: sectionData,
 		};
+		if (patched) section.patched = true;
 
 		if (pfs0Offset !== undefined && pfs0Size !== undefined) {
 			let pfs0Data = sectionData.slice(pfs0Offset, pfs0Offset + pfs0Size);
@@ -924,7 +965,7 @@ function createLazySectionBlob(params: LazySectionParams): Blob {
 	if (cryptType === NCA_CRYPT_BKTR) {
 		return makeFailingBlob(
 			sectionSize,
-			'BKTR patch section: this section is part of an Update NCA and references data in the base NCA, which would need to be supplied separately. Decoding patch sections standalone is not supported.',
+			'BKTR patch section: this section is part of an Update NCA and references data in the base game NCA. Open the base game alongside the update (for example, select the folder containing both) to decode it.',
 		);
 	}
 
