@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/goldeneye",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "GoldenEye 007 (N64) file table and model node trees, flattened to bind-posed meshes.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/goldeneye"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
