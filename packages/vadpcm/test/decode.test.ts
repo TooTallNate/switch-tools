@@ -418,3 +418,15 @@ describe('AIFC container', () => {
 		expect(() => parseAifc(new Uint8Array(32))).toThrow(/signature/i);
 	});
 });
+
+describe('small (2-bit) VADPCM', () => {
+	it('decodes 5-byte frames with residuals scaled by scale + 2', () => {
+		// order 1, 1 predictor, all-zero coefficients: output = residual << (scale + 2)
+		const book = { order: 1, npredictors: 1, vectors: new Int16Array(8) };
+		// header: scale 0, predictor 0; residuals 01 11 10 00 … (1, -1, -2, 0)
+		const frame = Uint8Array.from([0x00, 0b01111000, 0, 0, 0]);
+		const r = decodeVadpcm(frame, book, { bits: 2 });
+		expect(r.frames).toBe(1);
+		expect(Array.from(r.samples.subarray(0, 4))).toEqual([4, -4, -8, 0]);
+	});
+});

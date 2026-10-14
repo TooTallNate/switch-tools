@@ -155,6 +155,13 @@ export interface DecodeVadpcmOptions {
 	 * mid-sample.
 	 */
 	state?: Int16Array;
+	/**
+	 * Residual width: 4 (default; 9-byte frames) or 2 ("small" ADPCM,
+	 * 5-byte frames, used by Majora's Mask). 2-bit residuals sit in the
+	 * top bits of a 16-bit word like 4-bit ones, so they scale by
+	 * `scale + 2` (audio HLE `adpcm_get_predicted_frame_2bits`).
+	 */
+	bits?: 2 | 4;
 }
 
 export interface VadpcmDecodeResult {
@@ -187,7 +194,9 @@ export function decodeVadpcm(
 	options: DecodeVadpcmOptions = {},
 ): VadpcmDecodeResult {
 	const { order, npredictors, vectors } = book;
-	const available = Math.floor(data.length / VADPCM_FRAME_SIZE);
+	const small = options.bits === 2;
+	const frameSize = small ? 5 : VADPCM_FRAME_SIZE;
+	const available = Math.floor(data.length / frameSize);
 	const frames = Math.max(
 		0,
 		Math.min(options.frames ?? available, available),
@@ -204,9 +213,9 @@ export function decodeVadpcm(
 	let outPos = 0;
 
 	for (let frame = 0; frame < frames; frame++) {
-		const base = frame * VADPCM_FRAME_SIZE;
+		const base = frame * frameSize;
 		const header = data[base];
-		const scale = header >> 4;
+		const scale = (header >> 4) + (small ? 2 : 0);
 		// Clamp the predictor index into the codebook: a corrupt or
 		// mismatched frame must not read outside the vectors array.
 		const predictor = Math.min(header & 0x0f, npredictors - 1);
@@ -216,9 +225,15 @@ export function decodeVadpcm(
 			// Unpack this vector's 8 residual nibbles.
 			for (let i = 0; i < VECTOR_SIZE; i++) {
 				const nibbleIndex = half * VECTOR_SIZE + i;
-				const byte = data[base + 1 + (nibbleIndex >> 1)];
-				const raw = nibbleIndex & 1 ? byte & 0x0f : byte >> 4;
-				residual[i] = raw >= 8 ? raw - 16 : raw;
+				if (small) {
+					const byte = data[base + 1 + (nibbleIndex >> 2)];
+					const raw = (byte >> (6 - 2 * (nibbleIndex & 3))) & 3;
+					residual[i] = raw >= 2 ? raw - 4 : raw;
+				} else {
+					const byte = data[base + 1 + (nibbleIndex >> 1)];
+					const raw = nibbleIndex & 1 ? byte & 0x0f : byte >> 4;
+					residual[i] = raw >= 8 ? raw - 16 : raw;
+				}
 			}
 
 			// Step 1-2: seed the accumulator from the last `order`
