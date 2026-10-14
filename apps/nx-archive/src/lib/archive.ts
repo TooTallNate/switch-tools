@@ -1491,7 +1491,13 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 	{
 		format: 'SEAD-AUDIO',
 		extensions: ['sab', 'mab', 'sabf', 'mabf'],
-		build: (a) => makeSeadAudioNode(a.id, a.name, a.blob, a.ctx),
+		build: async (a) => {
+			// `.sab` is also Jedi Academy's saber definitions (text): only
+			// claim files that carry the SEAD magic.
+			const head = new TextDecoder().decode(new Uint8Array(await a.blob.slice(0, 4).arrayBuffer()));
+			if (head !== 'sabf' && head !== 'mabf') return genericFileNode(a.id, a.name, a.blob, a.name.split('.').pop()!.toUpperCase());
+			return makeSeadAudioNode(a.id, a.name, a.blob, a.ctx);
+		},
 	},
 
 	// --- Square Enix ---
