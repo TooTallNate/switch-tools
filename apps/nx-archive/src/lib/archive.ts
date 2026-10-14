@@ -57,6 +57,7 @@ import { makeN64MusicDir } from './n64-music';
 import { findSeqLibrary } from '@tootallnate/n64-seq';
 import { SM64_SEQUENCE_NAMES } from '@tootallnate/sm64';
 import { findZ64Objects, makeZ64ObjectsDir, makeZ64SceneDirs } from './z64-objects';
+import { makeZ64MusicDir } from './z64-music';
 import { makeStadium2ModelDirs } from './pokestadium';
 import { GFPAK_INFO_VERSION, gfpakEntryInfo, parseGfpak, type GfpakEntryInfo } from '@tootallnate/gfpak';
 import { parseAkpk } from '@tootallnate/wwise-pck';
@@ -8263,6 +8264,7 @@ function makeN64RomNode(
 					);
 					// Scenes are levels: room files are drawn through their scene.
 					if (z64.scenes.length) children.push(...makeZ64SceneDirs(id, normBlob, fs, z64.scenes));
+					children.push(makeZ64MusicDir(`${id}/music`, normBlob, fs, z64.code, z64.mm));
 				}
 				// Scene and room files are covered by scenes/; skip their raw
 				// scan. Rooms follow their scene in dmadata, so everything

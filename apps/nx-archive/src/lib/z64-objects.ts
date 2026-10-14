@@ -82,6 +82,10 @@ function fileBytes(ctx: RomContext, vrom: number): Promise<Uint8Array> {
 export interface Z64Tables {
 	objects: { id: number; name: string; entry: DmaEntry }[];
 	scenes: { id: number; name: string; entry: DmaEntry }[];
+	/** The `code` file the tables came from. */
+	code: DmaEntry;
+	/** Majora's Mask (vs Ocarina of Time), by object table size. */
+	mm: boolean;
 }
 
 export async function findZ64Objects(romBlob: Blob, fs: Z64Fs): Promise<Z64Tables | null> {
@@ -104,7 +108,7 @@ export async function findZ64Objects(romBlob: Blob, fs: Z64Fs): Promise<Z64Table
 			const entry = t ? byVrom.get(t.vromStart) : undefined;
 			if (entry && !entry.deleted) scenes.push({ id, name: sceneNames[id] ?? `scene_${id.toString(16)}`, entry });
 		});
-		return { objects: out, scenes };
+		return { objects: out, scenes, code: e, mm: table.length > 500 };
 	}
 	return null;
 }
