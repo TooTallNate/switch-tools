@@ -7,8 +7,7 @@
  * big-endian magic `0x1172`. Despite a long-standing reputation as
  * a bespoke Rare scheme, the payload is simply a **raw DEFLATE
  * stream** (RFC 1951, no zlib or gzip wrapper) — so it decodes with
- * the platform's own `DecompressionStream('deflate-raw')`, no WASM
- * and no hand-written LZ decoder.
+ * any inflate implementation (we use fflate; see {@link inflateRaw}).
  *
  * Layout:
  *
@@ -29,6 +28,8 @@
  * makes the false-positive rate negligible.
  */
 
+import { inflateSync } from 'fflate';
+
 /** Big-endian magic introducing a Rare 1172 container. */
 export const RARE_1172_MAGIC = 0x1172;
 
@@ -43,65 +44,18 @@ export function isRare1172(bytes: Uint8Array, offset = 0): boolean {
 }
 
 /**
- * Inflate a raw DEFLATE stream using the platform's
- * `DecompressionStream`.
+ * Inflate a raw DEFLATE stream with fflate.
  *
- * Both ends of the transform can reject independently — a malformed
- * stream surfaces on the reader while the writer rejects separately
- * — so the writer's rejection is absorbed to avoid an unhandled
- * rejection escaping the call.
+ * fflate stops at the final block and ignores whatever follows,
+ * which a length-less format needs: callers pass spans that run past
+ * the stream (padding, or the rest of the ROM). The platform
+ * `DecompressionStream` can't be used for this. Chrome rejects
+ * trailing bytes ("Junk found after end of compressed data") and
+ * drops the output, which made every padded GoldenEye file vanish in
+ * the browser. It is also much slower for thousands of small files.
  */
-async function inflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
-	if (typeof DecompressionStream === 'undefined') {
-		throw new Error(
-			'Rare 1172: DecompressionStream is unavailable in this environment',
-		);
-	}
-	const stream = new DecompressionStream('deflate-raw');
-	const writer = stream.writable.getWriter();
-	const pump = (async () => {
-		// Cast: lib.dom types `BufferSource` as ArrayBuffer-backed,
-		// but a Uint8Array parameter is `ArrayBufferLike`. A slice of
-		// a ROM buffer is never SharedArrayBuffer-backed in practice.
-		await writer.write(bytes as unknown as BufferSource);
-		await writer.close();
-	})().catch(() => {
-		// Surfaced on the reader instead.
-	});
-
-	const reader = stream.readable.getReader();
-	const chunks: Uint8Array[] = [];
-	let total = 0;
-	try {
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			chunks.push(value);
-			total += value.length;
-		}
-	} catch (err: unknown) {
-		// Some `DecompressionStream` implementations (Node.js ≥ v21)
-		// reject when bytes follow the DEFLATE stream's final block.
-		// The Rare 1172 format is length-less and relies on DEFLATE's
-		// self-termination, so callers routinely pass a buffer that
-		// extends past the stream.  If we already collected output, the
-		// stream was valid — treat trailing-data errors as a clean EOF.
-		const isTrailingJunk =
-			total > 0 &&
-			err instanceof TypeError &&
-			/trailing/i.test(err.message);
-		if (!isTrailingJunk) throw err;
-	} finally {
-		await pump;
-	}
-
-	const out = new Uint8Array(total);
-	let position = 0;
-	for (const chunk of chunks) {
-		out.set(chunk, position);
-		position += chunk.length;
-	}
-	return out;
+function inflateRaw(bytes: Uint8Array): Uint8Array {
+	return inflateSync(bytes);
 }
 
 export interface DecompressRare1172Options {

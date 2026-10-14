@@ -8,8 +8,7 @@ import {
 
 /**
  * Build a Rare 1172 container around `payload` using the platform's
- * CompressionStream — the mirror of the decoder's
- * DecompressionStream, so no ROM data is needed.
+ * CompressionStream (raw DEFLATE), so no ROM data is needed.
  */
 async function makeContainer(payload: Uint8Array): Promise<Uint8Array> {
 	const stream = new CompressionStream('deflate-raw');
@@ -60,6 +59,17 @@ describe('isRare1172', () => {
 });
 
 describe('decompressRare1172', () => {
+	it('ignores bytes after the stream (padding, the next file)', async () => {
+		// Chrome's DecompressionStream rejects trailing data ("Junk found
+		// after end of compressed data"); real ROM spans always have some.
+		const original = payload(2048);
+		const container = await makeContainer(original);
+		const padded = new Uint8Array(container.length + 64).fill(0xab);
+		padded.set(container);
+		const out = await decompressRare1172(padded);
+		expect(Array.from(out)).toEqual(Array.from(original));
+	});
+
 	it('round-trips a payload', async () => {
 		const original = payload(4096);
 		const container = await makeContainer(original);
