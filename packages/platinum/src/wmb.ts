@@ -17,8 +17,9 @@
  *   Half floats are IEEE binary16. Bayonetta 3 keeps the highest LOD's
  *   groups in a separate `.wme` stream (their offsets here are 0); we
  *   use the groups that have inline data.
- * - **Batches** slice a vertex group (index ranges are absolute in the
- *   group) and name a bone set.
+ * - **Batches** slice a vertex group (index values are absolute in the
+ *   group; a batch's declared vertex range can be the whole group, so we
+ *   emit only the vertices its indices use) and name a bone set.
  * - **LODs** list batch infos (vertex group, mesh, material) for a run of
  *   batches; LOD 0 is the full-detail model.
  * - **Skinning**: a vertex's bone index k → `boneSets[batch.boneSet][k]`
@@ -339,13 +340,34 @@ export function buildWmbMesh(bytes: Uint8Array, wmb: Wmb, lodIndex?: number): Wm
 	let skipped = 0;
 	let nv = 0;
 	let ni = 0;
+	const wide = (wmb.flags & 0x8) !== 0;
+	const readIndex = (g: WmbVertexGroup, i: number) => {
+		const io = g.indexOffset + i * (wide ? 4 : 2);
+		return wide ? dv.getUint32(io, true) : dv.getUint16(io, true);
+	};
+	// Vertex range each batch's indices actually use: some batches declare
+	// their whole vertex group, which would duplicate it per batch.
+	const ranges = new Map<number, [number, number]>();
 	for (const bi of infos) {
 		const b = wmb.batches[bi.batch];
 		if (!b || !usable(bi)) {
 			skipped++;
 			continue;
 		}
-		nv += b.numVertices;
+		const g = wmb.vertexGroups[b.vertexGroup]!;
+		let lo = Infinity;
+		let hi = -1;
+		for (let k = 0; k < b.numIndices; k++) {
+			const v = readIndex(g, b.indexStart + k);
+			if (v < lo) lo = v;
+			if (v > hi) hi = v;
+		}
+		if (hi < 0 || hi >= g.numVertices) {
+			skipped++;
+			continue;
+		}
+		ranges.set(bi.batch, [lo, hi]);
+		nv += hi - lo + 1;
 		ni += b.numIndices;
 	}
 	const positions = new Float32Array(nv * 3);
@@ -357,17 +379,19 @@ export function buildWmbMesh(bytes: Uint8Array, wmb: Wmb, lodIndex?: number): Wm
 	const skinWeights = new Float32Array(nv * 4);
 	const indices = new Uint32Array(ni);
 	const sections: WmbMeshData['sections'] = [];
-	const wide = (wmb.flags & 0x8) !== 0;
 	let vBase = 0;
 	let iBase = 0;
 	for (const bi of infos) {
 		const b = wmb.batches[bi.batch];
-		if (!b || !usable(bi)) continue;
+		const range = ranges.get(bi.batch);
+		if (!b || !range) continue;
+		const [lo, hi] = range;
+		const count = hi - lo + 1;
 		const g = wmb.vertexGroups[b.vertexGroup]!;
 		const L = layoutFor(g.flags)!;
 		const set = b.boneSet >= 0 ? wmb.boneSets[b.boneSet] : undefined;
-		for (let k = 0; k < b.numVertices; k++) {
-			const v = b.vertexStart + k;
+		for (let k = 0; k < count; k++) {
+			const v = lo + k;
 			const vo = g.vertexOffset + v * g.vertexSize;
 			const eo = g.exOffset + v * g.exSize;
 			const o = vBase + k;
@@ -406,18 +430,14 @@ export function buildWmbMesh(bytes: Uint8Array, wmb: Wmb, lodIndex?: number): Wm
 				if (total > 0) for (let j = 0; j < 4; j++) skinWeights[o * 4 + j] /= total;
 			}
 		}
-		for (let k = 0; k < b.numIndices; k++) {
-			const io = g.indexOffset + (b.indexStart + k) * (wide ? 4 : 2);
-			const idx = wide ? dv.getUint32(io, true) : dv.getUint16(io, true);
-			indices[iBase + k] = vBase + (idx - b.vertexStart);
-		}
+		for (let k = 0; k < b.numIndices; k++) indices[iBase + k] = vBase + (readIndex(g, b.indexStart + k) - lo);
 		const last = sections[sections.length - 1];
 		if (last && last.material === bi.material && last.mesh === bi.mesh && last.firstIndex + last.numTriangles * 3 === iBase) {
 			last.numTriangles += Math.floor(b.numIndices / 3);
 		} else {
 			sections.push({ material: bi.material, mesh: bi.mesh, firstIndex: iBase, numTriangles: Math.floor(b.numIndices / 3) });
 		}
-		vBase += b.numVertices;
+		vBase += count;
 		iBase += b.numIndices;
 	}
 	return { positions, normals, uvs, colors: anyColor ? colors : undefined, indices, skinBones, skinWeights, sections, skipped };
