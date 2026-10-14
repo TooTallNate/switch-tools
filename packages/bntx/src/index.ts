@@ -52,7 +52,7 @@ import {
 } from './decode-bc.js';
 import { decodeBC7 } from './decode-bc7.js';
 
-export { formatName, type FormatInfo } from './format.js';
+export { formatInfo, formatName, type FormatInfo } from './format.js';
 export { deswizzle, type DeswizzleOptions, pickBlockHeight } from './swizzle.js';
 export { decodeBC1, decodeBC2, decodeBC3, decodeBC4, decodeBC5 } from './decode-bc.js';
 export { decodeBC7 } from './decode-bc7.js';
