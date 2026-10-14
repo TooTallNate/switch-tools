@@ -542,6 +542,16 @@ function readArray(r: Reader, parsed: ParsedUasset, ctx: ValueCtx): UValue {
 		const hasGuid = r.u8();
 		if (hasGuid !== 0) r.skip(16);
 		const values: UValue[] = [];
+		// Some cooks write material parameter values as bare native
+		// structs (no property tags): FMaterialParameterInfo (FName +
+		// u8 association + i32 index), the value, then the expression
+		// GUID — seen in the GTA Definitive Editions (UE 4.26). Tagged
+		// elements are always larger than these fixed sizes.
+		const nativeParam = NATIVE_PARAMETER_SIZES[structName];
+		if (nativeParam && count > 0 && ctx.valueEnd - r.pos === count * nativeParam) {
+			for (let i = 0; i < count; i++) values.push(readNativeParameterValue(r, parsed, structName));
+			return { kind: 'array', innerType: 'StructProperty', values };
+		}
 		for (let i = 0; i < count; i++) {
 			if (r.pos >= ctx.valueEnd) break;
 			values.push(readStructBody(r, parsed, structName, ctx.valueEnd));
@@ -595,6 +605,37 @@ function readMap(r: Reader, parsed: ParsedUasset, ctx: ValueCtx): UValue {
 		valueType: ctx.valueType ?? '',
 		entries,
 		keysToRemove,
+	};
+}
+
+const NATIVE_PARAMETER_SIZES: Record<string, number> = {
+	ScalarParameterValue: 13 + 4 + 16,
+	TextureParameterValue: 13 + 4 + 16,
+	VectorParameterValue: 13 + 16 + 16,
+};
+
+/** One natively-serialised material parameter value, shaped like the tagged form. */
+function readNativeParameterValue(r: Reader, parsed: ParsedUasset, structName: string): UValue {
+	const prop = (name: string, type: string, value: UValue): UProperty => ({ name, type, arrayIndex: 0, value, propertyGuid: null });
+	const name = resolveFName(r.fname(), parsed.names);
+	r.u8(); // association
+	r.i32(); // index
+	let value: UValue;
+	if (structName === 'TextureParameterValue') value = { kind: 'object', index: r.i32(), resolved: '' };
+	else if (structName === 'ScalarParameterValue') value = { kind: 'float', value: r.f32() };
+	else value = { kind: 'struct', structName: 'LinearColor', native: readNativeStruct(r, 'LinearColor')! };
+	r.skip(16); // ExpressionGUID
+	return {
+		kind: 'struct',
+		structName,
+		properties: [
+			prop('ParameterInfo', 'StructProperty', {
+				kind: 'struct',
+				structName: 'MaterialParameterInfo',
+				properties: [prop('Name', 'NameProperty', { kind: 'name', value: name })],
+			}),
+			prop('ParameterValue', structName === 'TextureParameterValue' ? 'ObjectProperty' : structName === 'ScalarParameterValue' ? 'FloatProperty' : 'StructProperty', value),
+		],
 	};
 }
 

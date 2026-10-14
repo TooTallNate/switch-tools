@@ -786,3 +786,14 @@ function bytesToHex(bytes: Uint8Array): string {
 	}
 	return s;
 }
+
+// SkeletalMesh cooked geometry + reference skeleton.
+export {
+	parseSkeletalMesh,
+	parseSkeletalMeshFromTail,
+	SkeletalMeshParseError,
+	type LoadedSkeletalMesh,
+	type SkeletalBone,
+	type SkeletalMeshLOD,
+	type SkeletalMeshSection,
+} from './skeletal-mesh.js';

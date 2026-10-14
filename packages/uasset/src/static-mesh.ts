@@ -238,7 +238,8 @@ function readRenderData(r: Reader): RenderData {
 	return { bounds, lods };
 }
 
-function readBoxSphereBounds(r: Reader): FBoxSphereBounds {
+/** @internal shared with `skeletal-mesh.ts`. */
+export function readBoxSphereBounds(r: Reader): FBoxSphereBounds {
 	return {
 		originX: r.f32(), originY: r.f32(), originZ: r.f32(),
 		extentX: r.f32(), extentY: r.f32(), extentZ: r.f32(),
@@ -559,7 +560,8 @@ interface PositionBuffer {
 	positions: Float32Array;
 }
 
-function readPositionVertexBuffer(r: Reader): PositionBuffer {
+/** @internal shared with `skeletal-mesh.ts`. */
+export function readPositionVertexBuffer(r: Reader): PositionBuffer {
 	const stride = r.i32();
 	const numVertices = r.i32();
 	if (stride !== 12) {
@@ -588,7 +590,8 @@ interface VertexBuffer {
 	uvs: Float32Array[];
 }
 
-function readStaticMeshVertexBuffer(r: Reader): VertexBuffer {
+/** @internal shared with `skeletal-mesh.ts`. */
+export function readStaticMeshVertexBuffer(r: Reader): VertexBuffer {
 	r.skipStripFlags();
 	const numTexCoords = r.i32();
 	const numVertices = r.i32();
@@ -692,7 +695,8 @@ function readStaticMeshVertexBuffer(r: Reader): VertexBuffer {
 	return { numVertices, numTexCoords, normals, tangents, uvs };
 }
 
-function readColorVertexBuffer(r: Reader): Uint8Array | null {
+/** @internal shared with `skeletal-mesh.ts`. */
+export function readColorVertexBuffer(r: Reader): Uint8Array | null {
 	r.skipStripFlags();
 	r.i32(); // Stride (always 4)
 	const numVertices = r.i32();
@@ -804,7 +808,8 @@ interface StripFlags {
 	classBit(bit: number): boolean;
 }
 
-class Reader {
+/** @internal shared with `skeletal-mesh.ts`. */
+export class Reader {
 	pos = 0;
 	#buf: Uint8Array;
 	#view: DataView;
