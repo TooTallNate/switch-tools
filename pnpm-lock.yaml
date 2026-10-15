@@ -310,6 +310,9 @@ importers:
       '@tootallnate/dds':
         specifier: workspace:*
         version: link:../../packages/dds
+      '@tootallnate/drp':
+        specifier: workspace:*
+        version: link:../../packages/drp
       '@tootallnate/dsp-adpcm':
         specifier: workspace:*
         version: link:../../packages/dsp-adpcm
@@ -490,6 +493,12 @@ importers:
       '@tootallnate/nsp':
         specifier: workspace:*
         version: link:../../packages/nsp
+      '@tootallnate/nu3':
+        specifier: workspace:*
+        version: link:../../packages/nu3
+      '@tootallnate/nus3':
+        specifier: workspace:*
+        version: link:../../packages/nus3
       '@tootallnate/oodle-wasm':
         specifier: workspace:*
         version: link:../../packages/oodle-wasm
@@ -958,6 +967,16 @@ importers:
       vitest:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
+
+  packages/drp:
+    dependencies:
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.2
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
 
   packages/dsp-adpcm:
     devDependencies:
@@ -1478,6 +1497,26 @@ importers:
       typescript:
         specifier: ^5.3.3
         version: 5.3.3
+
+  packages/nu3:
+    dependencies:
+      '@tootallnate/bcn':
+        specifier: workspace:*
+        version: link:../bcn
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/nus3:
+    dependencies:
+      '@tootallnate/dsp-adpcm':
+        specifier: workspace:*
+        version: link:../dsp-adpcm
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
 
   packages/oodle-wasm:
     devDependencies:

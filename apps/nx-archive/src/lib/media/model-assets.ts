@@ -62,6 +62,7 @@ import {
 import { createAssetResolver } from '../uasset-resolver';
 import { loadHaloModelView, type HaloModelRef } from '../halo';
 import { loadPlatinumModelView } from '../platinum';
+import { loadNu3ModelView } from '../pokken';
 import { loadIdTechModelView, poseIdTechView } from '../idtech';
 import { loadIdtech3ModelView } from '../idtech3';
 import { loadKotorModelView } from '../kotor';
@@ -106,6 +107,7 @@ export const HEADLESS_MODEL_KINDS = new Set([
 	'z64-scene',
 	'sm64-model',
 	'platinum-model',
+	'nu3-model',
 	'idtech-model',
 	'idtech3-model',
 	'kotor-model',
@@ -525,6 +527,10 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 				lod = { ...lod, positions, normals: normals ?? undefined };
 			}
 			return asset(lod, v.textures, { texturesFound: [v.texturesFound, v.texturesWanted], animations: v.clips.length, pose: clip?.name }, 'z-up');
+		}
+		case 'nu3-model': {
+			const v = await loadNu3ModelView(node, root);
+			return asset(v.mesh.lods[0]!, v.textures, { texturesFound: [v.texturesFound, v.texturesWanted] });
 		}
 		case 'platinum-model': {
 			const v = await loadPlatinumModelView(node, root);

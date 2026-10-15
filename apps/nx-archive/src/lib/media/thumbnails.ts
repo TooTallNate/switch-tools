@@ -34,9 +34,10 @@ import { loadThumb, saveThumb, type ThumbRecord } from './cache';
 import { canLoadModelHeadless, loadModelAsset, modelAssetToExportMeshes, type ModelAsset } from './model-assets';
 import type { ExportMaterial } from '../mesh-export';
 import type { MediaInfo, MediaItem, MediaKind, MediaStatus } from './types';
+import { makeObjectUrl } from '../object-url';
 
 /** Bump to regenerate cached thumbnails. */
-export const THUMB_VERSION = 18;
+export const THUMB_VERSION = 19;
 const SIZE = 256;
 
 export interface ThumbResult {
@@ -339,8 +340,18 @@ async function fontThumb(node: Node): Promise<{ png: Blob; family?: string }> {
 
 // ---- video ----
 
-async function videoThumb(blob: Blob): Promise<{ png: Blob; durationSec: number; width: number; height: number }> {
-	const url = URL.createObjectURL(blob);
+function videoMime(name: string): string {
+	const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
+	if (ext === 'webm') return 'video/webm';
+	if (ext === 'mov') return 'video/quicktime';
+	if (ext === 'ogv') return 'video/ogg';
+	return 'video/mp4';
+}
+
+async function videoThumb(blob: Blob, name: string): Promise<{ png: Blob; durationSec: number; width: number; height: number }> {
+	// `blob` is often a lazy facade (files inside an NCA RomFS), which
+	// `URL.createObjectURL` rejects; `makeObjectUrl` streams it instead.
+	const { url, dispose } = await makeObjectUrl(blob, videoMime(name), name);
 	try {
 		const video = document.createElement('video');
 		video.muted = true;
@@ -359,7 +370,7 @@ async function videoThumb(blob: Blob): Promise<{ png: Blob; durationSec: number;
 		ctx2d(c).drawImage(video, 0, 0, c.width, c.height);
 		return { png: await toPng(c), durationSec: video.duration, width: video.videoWidth, height: video.videoHeight };
 	} finally {
-		URL.revokeObjectURL(url);
+		dispose();
 	}
 }
 
@@ -547,7 +558,7 @@ export class ThumbnailService {
 					return { png, info: { durationSec: frameCount / fps, width, height } };
 				}
 				if (item.previewKind !== 'video') return {};
-				const r = await videoThumb(await node.blob!());
+				const r = await videoThumb(await node.blob!(), node.name);
 				return { png: r.png, info: { durationSec: r.durationSec, width: r.width, height: r.height } };
 			}
 		}

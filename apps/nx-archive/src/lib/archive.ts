@@ -67,6 +67,7 @@ import { isMtArc, mtArcTableSize, parseMtArc } from '@tootallnate/mtf';
 import { isErf as isAuroraErf, isKey as isAuroraKey, type AuroraResource } from '@tootallnate/aurora';
 import { catalogFolders, nameModelFolder, openTrinityFs, type TrinityFs } from './trinity-fs';
 import { datEntryBytes, listDat, pkzEntryBytes, readPkz, registerPkzChild, textureBankChildren } from './platinum';
+import { makeDrpNode, makeNus3BankNode, makeNutNode } from './pokken';
 import { parseAkpk } from '@tootallnate/wwise-pck';
 import { parseBnk } from '@tootallnate/wwise-bnk';
 import {
@@ -310,6 +311,12 @@ export type NodeKind =
 	| 'pkz'
 	| 'platinum-dat'
 	| 'platinum-wtb'
+	/** Bandai Namco DRP archive (Pokkén Tournament DX); see `./pokken`. */
+	| 'drp'
+	/** Bandai Namco NUT texture pack (NTWD / NTP3). */
+	| 'nut'
+	/** Bandai Namco NUS3BANK sound bank. */
+	| 'nus3bank'
 	| 'wwise-pck'
 	| 'wwise-bnk'
 	| 'fmod-bank'
@@ -712,6 +719,9 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	bea: 'BEA', // Bezel Engine Archive (magic SCNE) — zstd-compressed asset bundle
 	gfpak: 'GFPAK', // Game Freak archive
 	pkz: 'PKZ', // PlatinumGames package (Bayonetta 3, Astral Chain)
+	drp: 'DRP', // Bandai Namco encrypted archive (Pokkén Tournament DX)
+	nut: 'NUT', // Bandai Namco texture pack (NTWD / NTP3)
+	nus3bank: 'NUS3BANK', // Bandai Namco sound bank
 	trpfs: 'TRPFS', // Game Freak Trinity file system (Scarlet / Violet)
 	key: 'AURORA-KEY', // BioWare chitin.key (KotOR)
 	bif: 'AURORA-BIF', // BioWare resource archive (KotOR)
@@ -845,6 +855,8 @@ type SniffedFormat =
 	| 'aurora-erf'
 	| 'gfpak'
 	| 'pkz'
+	| 'nut'
+	| 'nus3bank'
 	| 'platinum-dat'
 	| 'platinum-wtb'
 	| 'wwise-pck'
@@ -896,6 +908,8 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 			: '';
 	if (m4 === 'PFS0') return 'pfs0';
 	if (m4 === 'pkzl') return 'pkz';
+	if (m4 === 'NTWD' || m4 === 'NTP3') return 'nut';
+	if (m4 === 'NUS3' && headLen >= 12 && new TextDecoder().decode(head.subarray(8, 12)) === 'BANK') return 'nus3bank';
 	if (isAuroraErf(head)) return 'aurora-erf';
 	if (m4 === 'FSB5') return 'fsb5';
 	if (m4 === 'DAT\0') return 'platinum-dat';
@@ -1637,6 +1651,24 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		extensions: ['pkz'],
 		sniff: ['pkz'],
 		build: (a) => makePkzNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		// Encrypted, so there's no magic to sniff.
+		format: 'DRP',
+		extensions: ['drp'],
+		build: (a) => makeDrpNode(a.id, a.name, a.blob, { childFor: (id, name, blob) => childNodeFor(id, name, blob, a.ctx) }),
+	},
+	{
+		format: 'NUT',
+		extensions: ['nut'],
+		sniff: ['nut'],
+		build: (a) => makeNutNode(a.id, a.name, async () => new Uint8Array(await a.blob.arrayBuffer()), a.blob.size),
+	},
+	{
+		format: 'NUS3BANK',
+		extensions: ['nus3bank'],
+		sniff: ['nus3bank'],
+		build: (a) => makeNus3BankNode(a.id, a.name, a.blob),
 	},
 	{
 		// `.dat` itself is claimed by HSD, whose builder hands `DAT\0` files here.

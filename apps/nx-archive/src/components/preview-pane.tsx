@@ -270,9 +270,11 @@ import {
 } from "~/lib/highlight"
 import { useTheme } from "next-themes"
 import { isBlobFacade, realBlob } from "~/lib/blob-facade"
+import { makeObjectUrl, toNativeBlob } from "~/lib/object-url"
 import { loadStadiumModelView } from "~/lib/pokestadium"
 import { loadGoldeneyeLevelView, loadGoldeneyeModelView } from "~/lib/goldeneye"
 import { loadPlatinumModelView } from "~/lib/platinum"
+import { loadNu3ModelView } from "~/lib/pokken"
 import { PlatinumModelViewer } from "./platinum-model-viewer"
 import { loadIdTechModelView } from "~/lib/idtech"
 import { loadIdtech3ModelView } from "~/lib/idtech3"
@@ -1997,6 +1999,8 @@ function FilePreview({
       return <HaloModelPreview node={node} />
     case "platinum-model":
       return <PlatinumModelPreview node={node} root={root} />
+    case "nu3-model":
+      return <Nu3ModelPreview node={node} root={root} />
     case "idtech-model":
       return <IdTechModelPreview node={node} root={root} />
     case "idtech3-model":
@@ -2131,128 +2135,10 @@ function useAsyncWithProgress<T>(
 
 // -------- Specific previews --------
 
-/**
- * Build a `URL.createObjectURL`-compatible `Blob` from anything
- * `node.blob()` returns, preserving laziness when we can.
- *
- * `node.blob()` may return either a real `Blob` (most common —
- * RomFS slices, decrypted NCA sections, NSP entries) or a duck-
- * typed lazy facade from `makeLazyBlob` (ZIP entries with
- * deferred DEFLATE, UnityFS LZ4 / LZMA streams).
- * `URL.createObjectURL` does a real `instanceof Blob` check and
- * rejects facades, so we have to detect and handle each case
- * differently:
- *
- *   - Real `Blob` (size already known, bytes randomly
- *     accessible): re-tag the MIME via `Blob.slice(0, size, mime)`
- *     — this is a view, no copy. The <audio> / <video> element
- *     will stream from it via Range requests; the whole file
- *     never sits in memory.
- *   - Lazy facade: there's no Range-readable backing storage,
- *     so we have to materialise. Force the full bytes through
- *     `arrayBuffer()`, then build a fresh real `Blob`. Memory
- *     cost ≈ file size. The caller is expected to gate this
- *     behind a size check appropriate to the preview kind.
- */
-async function makePreviewBlob(
-  blob: Blob,
-  mime: string,
-  onProgress?: (bytesRead: number, bytesTotal: number) => void,
-): Promise<Blob> {
-  // `instanceof Blob` works for genuine Blob / File subclass
-  // instances. Our lazy facade fails this check despite being
-  // structurally Blob-shaped.
-  if (typeof Blob !== "undefined" && blob instanceof Blob) {
-    // Real Blob — no materialisation needed. Report completion so
-    // the UI can transition out of "preparing" immediately even
-    // though there was no actual work.
-    onProgress?.(blob.size, blob.size)
-    return blob.type === mime ? blob : blob.slice(0, blob.size, mime)
-  }
-  // Lazy facade — materialise its stream chunk-by-chunk, reporting
-  // progress as bytes flow through. This is the slow path for NCA
-  // sections (multi-hundred-MB AES-CTR decryption) and ZIP /
-  // UnityFS entries (DEFLATE / LZ4 decompression).
-  const total = blob.size
-  if (typeof blob.stream !== "function") {
-    // No stream() — fall back to a non-progressive arrayBuffer.
-    const buf = await blob.arrayBuffer()
-    onProgress?.(total, total)
-    return new Blob([buf], { type: mime })
-  }
-  const chunks: Uint8Array[] = []
-  let bytesRead = 0
-  const reader = blob.stream().getReader()
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    if (value) {
-      chunks.push(value)
-      bytesRead += value.byteLength
-      onProgress?.(bytesRead, total)
-    }
-  }
-  return new Blob(chunks as BlobPart[], { type: mime })
-}
-
-/**
- * Return a URL for previewing `blob` with the given `mime`.
- *
- * Three paths, in preference order:
- *
- *   1. **Real `Blob`** — `URL.createObjectURL(blob.slice(0, size,
- *      mime))`. Browser-native Range support, zero copy. This is
- *      the fast path for files that come out of RomFS / NSP /
- *      already-decrypted sources.
- *   2. **Lazy facade + service worker available** — register the
- *      facade as a `/vfs/<id>` resource. The browser streams via
- *      HTTP Range requests against the SW, which pulls bytes from
- *      the facade as needed. <video> seek works on multi-GB
- *      files; downloads stream straight to disk; peak memory is
- *      one chunk regardless of file size.
- *   3. **Lazy facade + no service worker** (older browser, page
- *      load race, registration failed) — materialise the facade
- *      chunk-by-chunk into a real Blob and use
- *      `URL.createObjectURL`. Reports byte progress through
- *      `onProgress` so the UI can show a progress bar. This is
- *      the path that's slow for big files; the SW eliminates it.
- *
- * Returns `{ url, dispose }`: callers must invoke `dispose()`
- * when the URL is no longer needed (unmount, node change) so
- * the underlying registration or blob URL is released.
- */
-async function makePreviewUrl(
-  blob: Blob,
-  mime: string,
-  filename: string,
-  onProgress?: (bytesRead: number, bytesTotal: number) => void,
-): Promise<{ url: string; dispose: () => void }> {
-  // Path 1: real Blob — direct blob URL is cheapest and already
-  // supports Range requests natively via the browser's blob
-  // machinery. No vfs overhead.
-  if (typeof Blob !== "undefined" && blob instanceof Blob) {
-    onProgress?.(blob.size, blob.size)
-    const typed = blob.type === mime ? blob : blob.slice(0, blob.size, mime)
-    const url = URL.createObjectURL(typed)
-    return { url, dispose: () => URL.revokeObjectURL(url) }
-  }
-  // Path 2: lazy facade + SW — let the SW serve byte ranges on
-  // demand. No materialisation, no progress (because there's no
-  // upfront work — the SW pulls bytes as the consumer requests
-  // them).
-  if (isVfsAvailable()) {
-    const url = registerBlobAsVfsResource(blob, mime, filename)
-    if (url) {
-      onProgress?.(blob.size, blob.size)
-      return { url, dispose: () => unregisterVfsResource(url) }
-    }
-  }
-  // Path 3: lazy facade + no SW — fall back to materialising.
-  // This is the slow path the SW exists to avoid.
-  const real = await makePreviewBlob(blob, mime, onProgress)
-  const url = URL.createObjectURL(real)
-  return { url, dispose: () => URL.revokeObjectURL(url) }
-}
+// `makePreviewBlob` / `makePreviewUrl`: see `~/lib/object-url` for why
+// `node.blob()` values can't always go straight to `URL.createObjectURL`.
+const makePreviewBlob = toNativeBlob
+const makePreviewUrl = makeObjectUrl
 
 function ImagePreview({ node }: { node: Node }) {
   // Resolve to a `{url, dispose}` pair. When the SW is active
@@ -15437,6 +15323,30 @@ function IdTechModelPreview({ node, root }: { node: Node; root: Node | null }) {
       </div>
       <div className="flex-1 p-3">
         <IdTechModelViewer node={node} view={v} />
+      </div>
+    </div>
+  )
+}
+
+function Nu3ModelPreview({ node, root }: { node: Node; root: Node | null }) {
+  const { loading, data, error } = useAsync(() => loadNu3ModelView(node, root), [node.id])
+  if (loading) return <LoadingFiller label="Decoding model…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  const lod = v.mesh.lods[0]!
+  const tris = lod.sections.reduce((n, s) => n + s.numTriangles, 0)
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">Bandai Namco NUD Model</h2>
+        <p className="text-xs text-muted-foreground">
+          {v.nud.meshes.length} mesh{v.nud.meshes.length === 1 ? "" : "es"}
+          {v.hidden ? ` (${v.hidden} alternative face${v.hidden === 1 ? "" : "s"} hidden)` : ""} · {lod.numVertices.toLocaleString()} vertices ·{" "}
+          {tris.toLocaleString()} triangles · {v.texturesFound}/{v.texturesWanted} textured · bind pose · drag to orbit, scroll to zoom
+        </p>
+      </div>
+      <div className="flex-1 p-3">
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name.replace(/\.[^.]+$/, "")} />
       </div>
     </div>
   )

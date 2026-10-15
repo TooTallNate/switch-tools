@@ -313,6 +313,7 @@ export type PreviewKind =
 	| 'z64-scene'
 	| 'sm64-model'
 	| 'platinum-model'
+	| 'nu3-model'
 	| 'idtech-model'
 	| 'idtech3-model'
 	| 'kotor-model'
@@ -597,6 +598,8 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.haloModel) return 'halo-model';
 	// PlatinumGames WMB3 model (Bayonetta 3).
 	if (node.meta?.platinumModel) return 'platinum-model';
+	// Bandai Namco NUD model (Pokkén Tournament DX), inside a DRP.
+	if (node.meta?.nu3Model) return 'nu3-model';
 	// DOOM 3 BFG compiled model / MD5 mesh / map render world.
 	if (node.meta?.idtechModel) return 'idtech-model';
 	// KotOR binary model (inside a BIF / ERF / RIM).
