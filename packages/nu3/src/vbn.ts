@@ -3,7 +3,7 @@
  * Bandai Namco's NU3 engine.
  *
  *     0x00  magic   0x04  2 × s16 (version)
- *     0x08  bone count   0x0C  4 × per-type bone counts
+ *     0x08  bone count   0x0C  4 × per-type bone counts (bones start at 0x1C)
  *
  * Then per bone: a 64-byte name, type, parent index (0x0FFFFFFF or
  * negative = root) and bone ID (u32s). After all of those, per bone,
@@ -40,9 +40,9 @@ export function parseVbn(bytes: Uint8Array): VbnBone[] {
 	const le = bytes[0] === 0x20;
 	const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	const count = dv.getUint32(0x08, le);
-	if (0x18 + count * (0x4c + 36) > bytes.byteLength) throw new Error('VBN: bone table is out of bounds');
+	if (0x1c + count * (0x4c + 36) > bytes.byteLength) throw new Error('VBN: bone table is out of bounds');
 	const bones: VbnBone[] = [];
-	let o = 0x18;
+	let o = 0x1c;
 	for (let i = 0; i < count; i++, o += 0x4c) {
 		let end = o;
 		while (end < o + 64 && bytes[end] !== 0) end++;
@@ -113,4 +113,79 @@ export function vbnWorldMatrices(bones: VbnBone[]): Mat4[] {
 		return world;
 	};
 	return bones.map((_, i) => visit(i, 0));
+}
+
+/** Per-bone channel overrides, keyed by `VbnBone.id` (e.g. an OMO sample). */
+export interface BonePose {
+	t?: [number, number, number];
+	/** Quaternion (x, y, z, w). */
+	r?: [number, number, number, number];
+	s?: [number, number, number];
+}
+
+/** `T · R(q) · S` as a column-major matrix. */
+function composeQuat(t: readonly number[], q: readonly number[], s: readonly number[]): Mat4 {
+	const [x, y, z, w] = q as [number, number, number, number];
+	const xx = x * x, yy = y * y, zz = z * z, xy = x * y, xz = x * z, yz = y * z, wx = w * x, wy = w * y, wz = w * z;
+	const [kx, ky, kz] = s as [number, number, number];
+	return new Float32Array([
+		(1 - 2 * (yy + zz)) * kx, 2 * (xy + wz) * kx, 2 * (xz - wy) * kx, 0,
+		2 * (xy - wz) * ky, (1 - 2 * (xx + zz)) * ky, 2 * (yz + wx) * ky, 0,
+		2 * (xz + wy) * kz, 2 * (yz - wx) * kz, (1 - 2 * (xx + yy)) * kz, 0,
+		t[0]!, t[1]!, t[2]!, 1,
+	]);
+}
+
+/** The bind rotation as a quaternion (Rz · Ry · Rx). */
+function eulerQuat(r: readonly number[]): [number, number, number, number] {
+	const [x, y, z] = r as [number, number, number];
+	const cx = Math.cos(x / 2), sx = Math.sin(x / 2), cy = Math.cos(y / 2), sy = Math.sin(y / 2), cz = Math.cos(z / 2), sz = Math.sin(z / 2);
+	return [sx * cy * cz - cx * sy * sz, cx * sy * cz + sx * cy * sz, cx * cy * sz - sx * sy * cz, cx * cy * cz + sx * sy * sz];
+}
+
+/**
+ * World matrices for a pose: each bone's local transform takes the
+ * override's channels where present and the bind values otherwise.
+ */
+export function vbnPoseMatrices(bones: VbnBone[], pose: Map<number, BonePose> | null): Mat4[] {
+	const out: (Mat4 | undefined)[] = new Array(bones.length);
+	const visit = (i: number, depth: number): Mat4 => {
+		const cached = out[i];
+		if (cached) return cached;
+		const b = bones[i]!;
+		const p = pose?.get(b.id);
+		const local = p ? composeQuat(p.t ?? b.position, p.r ?? eulerQuat(b.rotation), p.s ?? b.scale) : vbnLocalMatrix(b);
+		const world = b.parent >= 0 && depth < 512 ? multiply(visit(b.parent, depth + 1), local) : local;
+		out[i] = world;
+		return world;
+	};
+	return bones.map((_, i) => visit(i, 0));
+}
+
+/** Inverse of an affine column-major matrix. */
+export function invertAffine(m: Mat4): Mat4 {
+	const [a, b, c, , d, e, f, , g, h, i] = m as unknown as number[];
+	const det = a! * (e! * i! - f! * h!) - d! * (b! * i! - c! * h!) + g! * (b! * f! - c! * e!);
+	const inv = det === 0 ? 0 : 1 / det;
+	const r = new Float32Array(16);
+	r[0] = (e! * i! - f! * h!) * inv;
+	r[1] = (c! * h! - b! * i!) * inv;
+	r[2] = (b! * f! - c! * e!) * inv;
+	r[4] = (f! * g! - d! * i!) * inv;
+	r[5] = (a! * i! - c! * g!) * inv;
+	r[6] = (c! * d! - a! * f!) * inv;
+	r[8] = (d! * h! - e! * g!) * inv;
+	r[9] = (b! * g! - a! * h!) * inv;
+	r[10] = (a! * e! - b! * d!) * inv;
+	const tx = m[12]!, ty = m[13]!, tz = m[14]!;
+	r[12] = -(r[0] * tx + r[4] * ty + r[8] * tz);
+	r[13] = -(r[1] * tx + r[5] * ty + r[9] * tz);
+	r[14] = -(r[2] * tx + r[6] * ty + r[10] * tz);
+	r[15] = 1;
+	return r;
+}
+
+/** Skinning matrices `pose · bind⁻¹` (identity in the bind pose). */
+export function skinMatrices(bindWorld: Mat4[], poseWorld: Mat4[]): Mat4[] {
+	return poseWorld.map((p, i) => multiply(p, invertAffine(bindWorld[i]!)));
 }

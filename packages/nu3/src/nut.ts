@@ -25,6 +25,9 @@
  *
  * Pixel formats: 0 / 1 / 2 = BC1 / BC2 / BC3, 8 = RGB565, 12 = RGBA16,
  * 14 / 17 = 8-bit RGBA stored ARGB, 16 = ABGR, 21 = BC4, 22 = BC5.
+ * Pokkén DX also uses 47 for BC4 (its bitmap-font glyph atlases: the
+ * data is exactly 4 bits per pixel and decodes cleanly as BC4), and
+ * surfaces of exactly w × h × 4 bytes are plain RGBA8 whatever the code.
  * Switch (Pokkén DX) data is linear, not Tegra-swizzled.
  *
  * Source: Smash Forge `Filetypes/Textures/NUT.cs` (`ReadNTP3`).
@@ -118,7 +121,7 @@ export interface NutImage {
 /** Human-readable name for a NUT pixel format code. */
 export function nutFormatName(format: number): string {
 	return (
-		{ 0: 'BC1', 1: 'BC2', 2: 'BC3', 8: 'RGB565', 12: 'RGBA16', 14: 'RGBA8', 16: 'ABGR8', 17: 'RGBA8', 21: 'BC4', 22: 'BC5' }[format] ??
+		{ 0: 'BC1', 1: 'BC2', 2: 'BC3', 8: 'RGB565', 12: 'RGBA16', 14: 'RGBA8', 16: 'ABGR8', 17: 'RGBA8', 21: 'BC4', 22: 'BC5', 47: 'BC4' }[format] ??
 		`format ${format}`
 	);
 }
@@ -129,6 +132,11 @@ export function decodeNutTexture(bytes: Uint8Array, tex: NutTexture, surface = 0
 	const s = tex.surfaces[surface] ?? tex.surfaces[0]!;
 	const data = bytes.subarray(s.offset, Math.min(bytes.byteLength, s.offset + s.size));
 	const n = width * height;
+	// Pokkén DX reuses some codes for uncompressed 32-bit RGBA (its button
+	// font atlas says 21 but holds w × h × 4 bytes): trust the data size.
+	if (s.size === n * 4 && tex.format !== 14 && tex.format !== 16 && tex.format !== 17) {
+		return { width, height, pixels: data.slice(0, n * 4) };
+	}
 	switch (tex.format) {
 		case 0:
 			return decodeBC1(data, width, height);
@@ -137,6 +145,7 @@ export function decodeNutTexture(bytes: Uint8Array, tex: NutTexture, surface = 0
 		case 2:
 			return decodeBC3(data, width, height);
 		case 21:
+		case 47:
 			return grey(decodeBC4(data, width, height));
 		case 22:
 			return decodeBC5(data, width, height);
