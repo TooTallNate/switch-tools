@@ -59,7 +59,7 @@ const AUDIO_KINDS = new Set([
 
 const VIDEO_KINDS = new Set(['video', 'usm-video', 'bink1-video', 'bink2-video', 'thp-video', 'mth-video', 'psx-str']);
 
-const FONT_KINDS = new Set(['bfttf-info', 'font-info', 'bffnt-info', 'bmfont-info', 'spritefont-info', 'idfont']);
+const FONT_KINDS = new Set(['bfttf-info', 'font-info', 'bffnt-info', 'bmfont-info', 'spritefont-info', 'idfont', 'nu3-font']);
 
 const IMAGE_KINDS = new Set([
 	'image',
@@ -114,6 +114,7 @@ function formatFor(node: Node, previewKind: string): string {
 		'halo-model': 'Halo model',
 		'platinum-model': 'PlatinumGames model',
 		'nu3-model': 'Bandai Namco NUD model',
+		'nu3-font': 'Bandai Namco bitmap font',
 		'idtech-model': 'DOOM 3 model',
 		'idtech3-model': 'id Tech 3 model',
 		'kotor-model': 'KotOR model',
@@ -174,6 +175,9 @@ export function classifyNode(node: Node, path: string): Classification {
 		// PlatinumGames texture pixels / streamed LODs / motions, read
 		// through their model (`.wmb`) or texture bank (`.wta`).
 		if (/\.(wtp|wme|mot)$/i.test(node.name) && /\.(dat|dtt|pkz)\//i.test(node.id)) return { type: 'known', previewKind };
+		// Bandai Namco skeletons and animation clips, played on their NUD
+		// model in the viewer.
+		if (/\.(vbn|omo)$/i.test(node.name) && /\.drp\//i.test(node.id)) return { type: 'known', previewKind };
 		// PlayStation / PSP system files: boot config, executables, PARAM.SFO.
 		if (/^(system\.cnf|param\.sfo|data\.psp|[a-z]{4}_\d{3}\.\d{2})$/i.test(node.name)) return { type: 'known', previewKind };
 		return { type: 'unknown' };

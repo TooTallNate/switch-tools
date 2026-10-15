@@ -68,6 +68,7 @@ import { isErf as isAuroraErf, isKey as isAuroraKey, type AuroraResource } from 
 import { catalogFolders, nameModelFolder, openTrinityFs, type TrinityFs } from './trinity-fs';
 import { datEntryBytes, listDat, pkzEntryBytes, readPkz, registerPkzChild, textureBankChildren } from './platinum';
 import { makeDrpNode, makeNus3BankNode, makeNutNode } from './pokken';
+import { registerExefsMain } from './title-exefs';
 import { parseAkpk } from '@tootallnate/wwise-pck';
 import { parseBnk } from '@tootallnate/wwise-bnk';
 import {
@@ -2429,6 +2430,15 @@ function ncaSectionNodes(
 	ctx: ArchiveContext,
 	tikMap?: TikMap,
 ): Node[] {
+	// Program NCAs: make the exefs `main` findable from their RomFS (some
+	// formats need tables from the game's code; see `./title-exefs`).
+	const exefs = parsed.contentType === NcaContentType.Program ? parsed.sections.find((s) => s.fsType === NCA_FS_TYPE_PFS0 && s.pfs0Data) : undefined;
+	if (exefs) {
+		registerExefsMain(parentId, async () => {
+			const files = (await parseNsp(exefs.pfs0Data!)).files;
+			return files.get('main')?.data ?? null;
+		});
+	}
 	// The NCA's structured header info is shown directly when the user
 	// selects the NCA node in the tree (see `NcaPreview` in
 	// `preview-pane.tsx`), so the children are just the real sections —

@@ -118,6 +118,8 @@ export type PreviewKind =
 	| 'bmfont-info'
 	/** DirectXTK SpriteFont (`.spritefont`, `DXTKfont` magic) — bitmap-atlas font. */
 	| 'spritefont-info'
+	/** Bandai Namco NUF bitmap font (Pokkén DX), atlas in the same DRP entry. */
+	| 'nu3-font'
 	/** Switch / Wii U single-shot audio (BFWAV / BFSTP, also BARS-embedded FWAVs). */
 	| 'bfwav-audio'
 	/** Nintendo BWAV (newer than BFWAV; BotW 2 / TotK / Wonder era). */
@@ -600,6 +602,7 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.platinumModel) return 'platinum-model';
 	// Bandai Namco NUD model (Pokkén Tournament DX), inside a DRP.
 	if (node.meta?.nu3Model) return 'nu3-model';
+	if (node.meta?.nu3Font) return 'nu3-font';
 	// DOOM 3 BFG compiled model / MD5 mesh / map render world.
 	if (node.meta?.idtechModel) return 'idtech-model';
 	// KotOR binary model (inside a BIF / ERF / RIM).

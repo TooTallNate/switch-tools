@@ -62,7 +62,7 @@ import {
 import { createAssetResolver } from '../uasset-resolver';
 import { loadHaloModelView, type HaloModelRef } from '../halo';
 import { loadPlatinumModelView } from '../platinum';
-import { loadNu3ModelView } from '../pokken';
+import { loadNu3ModelView, nu3PoseMatrices, skinNu3 } from '../pokken';
 import { loadIdTechModelView, poseIdTechView } from '../idtech';
 import { loadIdtech3ModelView } from '../idtech3';
 import { loadKotorModelView } from '../kotor';
@@ -530,7 +530,20 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 		}
 		case 'nu3-model': {
 			const v = await loadNu3ModelView(node, root);
-			return asset(v.mesh.lods[0]!, v.textures, { texturesFound: [v.texturesFound, v.texturesWanted] });
+			let lod = v.mesh.lods[0]!;
+			// Characters open on their idle clip rather than the bind pose.
+			const clip = v.skin && v.skin.defaultClip >= 0 ? v.skin.skeleton.clips[v.skin.defaultClip] : undefined;
+			if (v.skin && clip) {
+				const positions = new Float32Array(lod.positions.length);
+				const normals = new Float32Array(lod.positions.length);
+				skinNu3(v.skin, nu3PoseMatrices(v.skin.skeleton, await clip.load(), 0), positions, normals);
+				lod = { ...lod, positions, normals };
+			}
+			return asset(lod, v.textures, {
+				texturesFound: [v.texturesFound, v.texturesWanted],
+				animations: v.skin?.skeleton.clips.length ?? 0,
+				pose: clip?.name,
+			});
 		}
 		case 'platinum-model': {
 			const v = await loadPlatinumModelView(node, root);

@@ -274,8 +274,9 @@ import { makeObjectUrl, toNativeBlob } from "~/lib/object-url"
 import { loadStadiumModelView } from "~/lib/pokestadium"
 import { loadGoldeneyeLevelView, loadGoldeneyeModelView } from "~/lib/goldeneye"
 import { loadPlatinumModelView } from "~/lib/platinum"
-import { loadNu3ModelView } from "~/lib/pokken"
+import { loadNu3FontView, loadNu3ModelView, onDark } from "~/lib/pokken"
 import { PlatinumModelViewer } from "./platinum-model-viewer"
+import { Nu3ModelViewer } from "./nu3-model-viewer"
 import { loadIdTechModelView } from "~/lib/idtech"
 import { loadIdtech3ModelView } from "~/lib/idtech3"
 import { loadKotorModelView } from "~/lib/kotor"
@@ -2001,6 +2002,8 @@ function FilePreview({
       return <PlatinumModelPreview node={node} root={root} />
     case "nu3-model":
       return <Nu3ModelPreview node={node} root={root} />
+    case "nu3-font":
+      return <Nu3FontPreview node={node} root={root} />
     case "idtech-model":
       return <IdTechModelPreview node={node} root={root} />
     case "idtech3-model":
@@ -15328,6 +15331,46 @@ function IdTechModelPreview({ node, root }: { node: Node; root: Node | null }) {
   )
 }
 
+function Nu3FontPreview({ node, root }: { node: Node; root: Node | null }) {
+  const { loading, data, error } = useAsync(async () => {
+    const v = await loadNu3FontView(node, root)
+    const png = async (img: { width: number; height: number; pixels: Uint8Array }) =>
+      URL.createObjectURL(new Blob([(await encodePng(img.width, img.height, img.pixels)) as BlobPart], { type: "image/png" }))
+    return { v, sample: await png(onDark(v.sample)), atlas: await png(v.color ? onDark(v.atlas) : v.atlas) }
+  }, [node.id])
+  useEffect(
+    () => () => {
+      if (data) {
+        URL.revokeObjectURL(data.sample)
+        URL.revokeObjectURL(data.atlas)
+      }
+    },
+    [data],
+  )
+  if (loading) return <LoadingFiller label="Decoding font…" />
+  if (error) return <ErrorFiller error={error} />
+  const { v, sample, atlas } = data!
+  return (
+    <div className="flex h-full flex-col overflow-auto">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">Bandai Namco Bitmap Font</h2>
+        <p className="text-xs text-muted-foreground">
+          {v.font.name}
+          {v.font.style ? ` ${v.font.style}` : ""} · {v.font.size} px · {v.font.glyphs.size.toLocaleString()} glyphs · atlas {v.atlasFormat}
+          {v.color ? " · colour icons" : ""}
+        </p>
+      </div>
+      <div className="space-y-4 p-4">
+        <img src={sample} alt="Sample text" className="max-w-full rounded border" style={{ imageRendering: "pixelated" }} />
+        <div>
+          <p className="mb-1 text-xs text-muted-foreground">Glyph atlas</p>
+          <img src={atlas} alt="Glyph atlas" className="max-w-full rounded border bg-black" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Nu3ModelPreview({ node, root }: { node: Node; root: Node | null }) {
   const { loading, data, error } = useAsync(() => loadNu3ModelView(node, root), [node.id])
   if (loading) return <LoadingFiller label="Decoding model…" />
@@ -15342,11 +15385,12 @@ function Nu3ModelPreview({ node, root }: { node: Node; root: Node | null }) {
         <p className="text-xs text-muted-foreground">
           {v.nud.meshes.length} mesh{v.nud.meshes.length === 1 ? "" : "es"}
           {v.hidden ? ` (${v.hidden} alternative face${v.hidden === 1 ? "" : "s"} hidden)` : ""} · {lod.numVertices.toLocaleString()} vertices ·{" "}
-          {tris.toLocaleString()} triangles · {v.texturesFound}/{v.texturesWanted} textured · bind pose · drag to orbit, scroll to zoom
+          {tris.toLocaleString()} triangles · {v.texturesFound}/{v.texturesWanted} textured ·{" "}
+          {v.skin ? `${v.skin.skeleton.bones.length} bones · ${v.skin.skeleton.clips.length} clips` : "bind pose"} · drag to orbit, scroll to zoom
         </p>
       </div>
       <div className="flex-1 p-3">
-        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name.replace(/\.[^.]+$/, "")} />
+        <Nu3ModelViewer node={node} view={v} />
       </div>
     </div>
   )

@@ -35,9 +35,10 @@ import { canLoadModelHeadless, loadModelAsset, modelAssetToExportMeshes, type Mo
 import type { ExportMaterial } from '../mesh-export';
 import type { MediaInfo, MediaItem, MediaKind, MediaStatus } from './types';
 import { makeObjectUrl } from '../object-url';
+import { loadNu3FontView, onDark } from '../pokken';
 
 /** Bump to regenerate cached thumbnails. */
-export const THUMB_VERSION = 19;
+export const THUMB_VERSION = 20;
 const SIZE = 256;
 
 export interface ThumbResult {
@@ -537,6 +538,10 @@ export class ThumbnailService {
 				return { png: r.png, info: { durationSec: r.durationSec } };
 			}
 			case 'font': {
+				if (item.previewKind === 'nu3-font') {
+					const v = await loadNu3FontView(node, this.root);
+					return { png: await rgbaThumb(onDark(v.sample)) };
+				}
 				if (item.previewKind !== 'bfttf-info' && item.previewKind !== 'font-info') return {};
 				const r = await fontThumb(node);
 				return { png: r.png };
