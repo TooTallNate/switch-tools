@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/drp",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Decrypts and parses Bandai Namco DRP archives (Pokkén Tournament / Pokkén Tournament DX).",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": ["drp", "pokken", "bandai-namco"],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/drp"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
