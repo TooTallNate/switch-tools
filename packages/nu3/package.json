@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/nu3",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Parsers for Bandai Namco NU3 formats: NUT textures, NUD models and VBN skeletons (Pokkén Tournament, Smash 4).",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": ["nut", "nud", "vbn", "ntwd", "ndwd", "ntp3", "ndp3", "pokken", "smash", "bandai-namco"],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/nu3"
+  },
+  "dependencies": {
+    "@tootallnate/bcn": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
