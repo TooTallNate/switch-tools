@@ -251,6 +251,20 @@ describe('exportMeshFromThree', () => {
     expect(out.materials![1]!.useVertexColors).toBe(true)
     expect(out.uvs?.length).toBe(8)
     expect(out.colors?.length).toBe(12)
+    // Double-sided by default: no culling flag.
+    expect(out.materials![0]!.backFaceCulled).toBeUndefined()
+  })
+
+  it('carries front-side-only textured materials over as back-face culled', () => {
+    const geom = new THREE.BufferGeometry()
+    const q = quad()
+    geom.setAttribute('position', new THREE.BufferAttribute(q.positions, 3))
+    geom.setAttribute('uv', new THREE.BufferAttribute(q.uvs!, 2))
+    geom.setIndex(new THREE.BufferAttribute(q.indices, 1))
+    const map = new THREE.DataTexture(new Uint8Array([1, 2, 3, 255]), 1, 1)
+    const mesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ map, side: THREE.FrontSide }))
+    mesh.updateMatrixWorld(true)
+    expect(exportMeshFromThree(mesh)!.materials![0]!.backFaceCulled).toBe(true)
   })
 })
 

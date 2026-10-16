@@ -56,7 +56,15 @@ function exportMaterialOf(m: THREE.Material | undefined): ExportMaterial {
 		const hex = any.color.getHex(); // sRGB-encoded
 		baseColor = [(hex >> 16) & 0xff, (hex >> 8) & 0xff, hex & 0xff];
 	}
-	return { texture, useVertexColors: Boolean(m.vertexColors), baseColor, ...(m.userData?.decal && { decal: true }) };
+	return {
+		texture,
+		useVertexColors: Boolean(m.vertexColors),
+		baseColor,
+		...(m.userData?.decal && { decal: true }),
+		// Front-side-only textured slots mirror an engine that culls back
+		// faces (Let's Go): the exporter looks through their eye lids.
+		...(texture && m.side === THREE.FrontSide && { backFaceCulled: true }),
+	};
 }
 
 /**
