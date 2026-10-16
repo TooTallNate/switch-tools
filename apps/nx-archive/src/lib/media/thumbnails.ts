@@ -38,7 +38,7 @@ import { makeObjectUrl } from '../object-url';
 import { loadNu3FontView, onDark } from '../pokken';
 
 /** Bump to regenerate cached thumbnails. */
-export const THUMB_VERSION = 20;
+export const THUMB_VERSION = 21;
 const SIZE = 256;
 
 export interface ThumbResult {
@@ -218,7 +218,7 @@ function materialFor(m: ExportMaterial | undefined, hasColors: boolean, owned: T
 		tex.flipY = t.flipY ?? false;
 		tex.needsUpdate = true;
 		owned.push(tex);
-		return new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide, alphaTest: 0.5 });
+		return new THREE.MeshLambertMaterial({ map: tex, side: m?.backFaceCulled ? THREE.FrontSide : THREE.DoubleSide, alphaTest: 0.5 });
 	}
 	if (m?.baseColor) {
 		const [r, g, b] = m.baseColor;

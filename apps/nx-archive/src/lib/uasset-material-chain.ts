@@ -73,6 +73,12 @@ export interface DecodedTexture {
 	wrapT?: 'repeat' | 'clamp' | 'mirror';
 	/** Overlay on a coplanar surface (e.g. painted-on eyes); see `ExportMaterial.decal`. */
 	decal?: boolean;
+	/**
+	 * Draw front faces only, as the source engine does (default: both
+	 * sides). Some models rely on it: Let's Go eyes hide their pupils
+	 * behind an inward-facing eye-white shell the game culls.
+	 */
+	backFaceCulled?: boolean;
 }
 
 /**

@@ -618,6 +618,7 @@ export function modelAssetToExportMeshes(a: ModelAsset): ExportMesh[] {
 			materials.push({
 				texture: { pixels: t.pixels, width: t.width, height: t.height, wrapS: t.wrapS ?? 'repeat', wrapT: t.wrapT ?? 'repeat', flipY: t.flipY ?? true },
 				...(t.decal && { decal: true }),
+				...(t.backFaceCulled && { backFaceCulled: true }),
 			});
 			continue;
 		}

@@ -553,6 +553,9 @@ export async function parseGfbmdlForView(node: Node, root: Node | null): Promise
 				flipY: false,
 				wrapS: map.wrapS,
 				wrapT: map.wrapT,
+				// CullMode 0 culls back faces in the game (it's what reveals
+				// the pupils behind the inward-facing eye-white shells).
+				...((mat.common.values.CullMode ?? 0) === 0 && { backFaceCulled: true }),
 			};
 		}),
 	);

@@ -71,6 +71,8 @@ export interface ExportMaterial {
 	 * onto the surface beneath instead.
 	 */
 	decal?: boolean;
+	/** Front faces only, as in the source engine (see `DecodedTexture.backFaceCulled`). */
+	backFaceCulled?: boolean;
 }
 
 /** Rigid skeleton hints for structural supports (see `mesh-supports.ts`). */

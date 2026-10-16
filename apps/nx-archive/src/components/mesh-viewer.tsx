@@ -542,7 +542,9 @@ export function MeshViewer({
         materials.push(
           new THREE.MeshStandardMaterial({
             map: tex,
-            side: THREE.DoubleSide,
+            // Engines that cull back faces can hide geometry behind them
+            // (Let's Go eyes); everything else stays double-sided.
+            side: decoded.backFaceCulled ? THREE.FrontSide : THREE.DoubleSide,
             wireframe: showWireframe,
             roughness: 0.85,
             metalness: 0,
