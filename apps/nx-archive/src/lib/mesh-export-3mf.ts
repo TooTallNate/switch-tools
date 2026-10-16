@@ -58,6 +58,8 @@
 
 import { strToU8, zipSync } from 'fflate';
 
+import { findSeeThroughLids, rayTriHit, type SeeThrough } from './mesh-see-through';
+
 import {
 	loopSubdivide,
 	weldByPositionTracked,
@@ -681,6 +683,33 @@ export interface TriSource {
 	decals?: DecalTri[];
 	/** Corner positions (9), for decal lookups. */
 	pos?: Float64Array;
+	/** A see-through lid: painted with what lies behind it (see `mesh-see-through.ts`). */
+	through?: ThroughSource;
+}
+
+/** What a see-through lid shows: the input mesh behind it, in input space. */
+export interface ThroughSource {
+	info: SeeThrough;
+	mesh: ExportMesh;
+	/** Colour sources of hit triangles, built on first use. */
+	cache: Map<number, TriSource>;
+}
+
+/** Colour seen from `q` looking along the lid's view direction, or false. */
+function sampleThrough(th: ThroughSource, q: readonly number[], out: Uint8Array): boolean {
+	const { info, mesh } = th;
+	const P = mesh.positions, I = mesh.indices;
+	const d = info.dir;
+	let best: { tri: number; t: number; u: number; v: number } | null = null;
+	// Candidates already face back at the viewer (the game culls the rest).
+	for (const tri of info.candidates) {
+		const h = rayTriHit(P, I, tri, q, d);
+		if (h && h.t > 0 && h.t <= info.reach && (!best || h.t < best.t)) best = { tri, ...h };
+	}
+	if (!best) return false;
+	let src = th.cache.get(best.tri);
+	if (!src) th.cache.set(best.tri, (src = triSourceOf(mesh, best.tri)));
+	return sampleSource(src, best.u, best.v, out);
 }
 
 /**
@@ -695,6 +724,11 @@ export function sampleSource(src: TriSource, s: number, t: number, out: Uint8Arr
 		const p = src.pos;
 		const q = [r * p[0]! + s * p[3]! + t * p[6]!, r * p[1]! + s * p[4]! + t * p[7]!, r * p[2]! + s * p[5]! + t * p[8]!];
 		if (sampleDecals(src.decals, q, out)) return true;
+	}
+	if (src.through && src.pos) {
+		const p = src.pos;
+		const q = [r * p[0]! + s * p[3]! + t * p[6]!, r * p[1]! + s * p[4]! + t * p[7]!, r * p[2]! + s * p[5]! + t * p[8]!];
+		if (sampleThrough(src.through, q, out)) return true;
 	}
 	if (src.kind === KIND_TEXTURE) {
 		const tex = src.texture!;
@@ -795,6 +829,8 @@ export function buildPainted3MF(
 				};
 	const reports: RepairReport[] = [];
 	const shapes = inputs.map((inp) => trackShape(inp, passes, repairOpt, reports));
+	// Lids the source engine looks through (found in input space and winding).
+	const lids = inputs.map((inp) => findSeeThroughLids(inp));
 
 	let vertTotal = 0;
 	for (const s of shapes) vertTotal += s.mesh.positions.length / 3;
@@ -803,7 +839,8 @@ export function buildPainted3MF(
 	const sources: TriSource[] = [];
 
 	let vBase = 0;
-	for (const s of shapes) {
+	for (const [si, s] of shapes.entries()) {
+		const lidMap = lids[si]!;
 		const p = s.mesh.positions;
 		for (let v = 0; v < p.length / 3; v++) {
 			const x = p[v * 3]!;
@@ -844,6 +881,13 @@ export function buildPainted3MF(
 				const sp = s.mesh.positions;
 				const ia = idx[t * 3]! * 3, ib = idx[t * 3 + 1]! * 3, ic = idx[t * 3 + 2]! * 3;
 				attachDecals(src, Float64Array.of(sp[ia]!, sp[ia + 1]!, sp[ia + 2]!, sp[ib]!, sp[ib + 1]!, sp[ib + 2]!, sp[ic]!, sp[ic + 1]!, sp[ic + 2]!), options.decals);
+			}
+			const lid = lidMap.get(st);
+			if (lid) {
+				const sp = s.mesh.positions;
+				const ia = idx[t * 3]! * 3, ib = idx[t * 3 + 1]! * 3, ic = idx[t * 3 + 2]! * 3;
+				src.pos ??= Float64Array.of(sp[ia]!, sp[ia + 1]!, sp[ia + 2]!, sp[ib]!, sp[ib + 1]!, sp[ib + 2]!, sp[ic]!, sp[ic + 1]!, sp[ic + 2]!);
+				src.through = { info: lid, mesh: inp, cache: new Map() };
 			}
 			sources.push(src);
 		}
@@ -946,8 +990,8 @@ export function buildPainted3MF(
 	for (let t = 0; t < triCount; t++) {
 		const src = sources[t]!;
 		let depth = 0;
-		if (src.decals) {
-			// Decal detail lives inside this triangle; resolve it fully.
+		if (src.decals || src.through) {
+			// Decal / see-through detail lives inside this triangle; resolve it fully.
 			depth = maxDepth;
 		} else if (src.kind === KIND_TEXTURE) {
 			const a = src.attr;
