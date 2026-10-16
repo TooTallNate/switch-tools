@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 
 import { emitBinarySTL, signedVolume, type ExportMesh } from '~/lib/mesh-export'
-import { buildPainted3MF, encodePaintLeaf, encodePaintTree, splitDecals } from '~/lib/mesh-export-3mf'
+import { buildPainted3MF, encodePaintLeaf, encodePaintTree, reducePalette, splitDecals } from '~/lib/mesh-export-3mf'
 import { exportMeshFromThree } from '~/lib/three-export'
 
 const modelXml = (bytes: Uint8Array) => strFromU8(unzipSync(bytes)['3D/3dmodel.model']!)
@@ -32,6 +32,61 @@ const quad = (): Pick<ExportMesh, 'positions' | 'indices' | 'uvs'> => ({
 })
 const tex = (pixels: number[], width: number, height: number, flipY = false) => ({
   pixels: new Uint8Array(pixels), width, height, wrapS: 'clamp' as const, wrapT: 'clamp' as const, flipY,
+})
+
+describe('reducePalette', () => {
+  /** A 15-bit histogram from `[r, g, b, weight]` entries. */
+  const hist = (entries: [number, number, number, number][]) => {
+    const sums = new Float64Array((1 << 15) * 4)
+    for (const [r, g, b, w] of entries) {
+      const o = (((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3)) * 4
+      sums[o] += r * w
+      sums[o + 1] += g * w
+      sums[o + 2] += b * w
+      sums[o + 3] += w
+    }
+    return sums
+  }
+  const near = (p: number[][], c: number[]) => p.some((q) => Math.hypot(q[0]! - c[0]!, q[1]! - c[1]!, q[2]! - c[2]!) < 40)
+
+  it('keeps small distinct colours over extra shades of a big one', () => {
+    // Mostly white and light greys, a yellow body, small black and red.
+    const sums = hist([
+      [235, 237, 242, 600],
+      [205, 210, 220, 150],
+      [178, 181, 193, 110],
+      [242, 223, 107, 180],
+      [83, 83, 81, 6],
+      [212, 87, 102, 5],
+    ])
+    const p = reducePalette(sums, 4)
+    expect(p).toHaveLength(4)
+    for (const c of [[235, 237, 242], [242, 223, 107], [83, 83, 81], [212, 87, 102]]) expect(near(p, c)).toBe(true)
+  })
+
+  it('never spends a slot on a blend of two chosen colours while a distinct one is left', () => {
+    // Yellow, black, the brown fringe between them, and a little blue.
+    const sums = hist([
+      [240, 220, 60, 500],
+      [20, 20, 20, 300],
+      [130, 120, 40, 60],
+      [40, 90, 200, 10],
+    ])
+    const p = reducePalette(sums, 3)
+    expect(near(p, [40, 90, 200])).toBe(true)
+    expect(near(p, [130, 120, 40])).toBe(false)
+  })
+
+  it('ignores filtering noise and fills spare slots with shades', () => {
+    const sums = hist([
+      [240, 240, 240, 1000],
+      [200, 200, 200, 300],
+      [255, 0, 0, 0.5], // < 0.1%: noise
+    ])
+    const p = reducePalette(sums, 4)
+    expect(near(p, [255, 0, 0])).toBe(false)
+    expect(p).toHaveLength(2)
+  })
 })
 
 describe('buildPainted3MF', () => {

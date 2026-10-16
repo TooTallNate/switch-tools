@@ -13,9 +13,10 @@
  *      and the barycentric position of its corners within it. Welding
  *      destroys UV / colour seams, so per-corner attributes are always
  *      looked up through the source triangle.
- *   2. Build an area-weighted colour histogram of the surface and
- *      reduce it to N colours (k-means in CIELAB). N = number of
- *      filaments / toolheads.
+ *   2. Build an area-weighted colour histogram of the surface and pick
+ *      N distinct colours from it (see {@link reducePalette}: colour
+ *      families in CIELAB, chosen by distinctness, not area). N =
+ *      number of filaments / toolheads.
  *   3. For every triangle, build an Orca/Bambu "paint tree": the
  *      triangle is recursively split 4-ways (to ~1 texel for textures,
  *      or until a vertex-colour gradient resolves), each leaf takes the
@@ -250,115 +251,128 @@ function binKey(r: number, g: number, b: number): number {
 const BIN_COUNT = 1 << 15;
 
 // ---------------------------------------------------------------------------
-// Palette reduction (weighted k-means over a 15-bit histogram)
+// Palette reduction (distinct colour families over a 15-bit histogram)
 // ---------------------------------------------------------------------------
 
+/** Bins within this CIELAB distance of a family's seed join that family. */
+const FAMILY_RADIUS = 14;
+/** Families covering less of the surface than this are filtering noise. */
+const MIN_FAMILY_SHARE = 0.001;
+
+/** Squared distance from Lab point `p` to the segment `a`–`b`. */
+function segmentDist2(p: ArrayLike<number>, a: ArrayLike<number>, b: ArrayLike<number>): number {
+	const abx = b[0]! - a[0]!, aby = b[1]! - a[1]!, abz = b[2]! - a[2]!;
+	const apx = p[0]! - a[0]!, apy = p[1]! - a[1]!, apz = p[2]! - a[2]!;
+	const len2 = abx * abx + aby * aby + abz * abz;
+	const t = len2 > 0 ? Math.max(0, Math.min(1, (apx * abx + apy * aby + apz * abz) / len2)) : 0;
+	const dx = apx - abx * t, dy = apy - aby * t, dz = apz - abz * t;
+	return dx * dx + dy * dy + dz * dz;
+}
+
 /**
- * Reduce a weighted colour histogram to at most `k` colours.
- * `sums` holds, per 15-bit bin, `[Σr, Σg, Σb, Σweight]`.
- * Deterministic: seeding is greedy farthest-point (k-means++ without
- * randomness), followed by weighted Lloyd iterations in CIELAB.
+ * Reduce a weighted colour histogram to at most `k` colours, favouring
+ * *distinct* colours over large areas. `sums` holds, per 15-bit bin,
+ * `[Σr, Σg, Σb, Σweight]`.
+ *
+ * A filament is a colour the print can show, so a small but distinct
+ * feature (red eyes, a black stripe) must not lose its slot to a third
+ * shade of white. Area-weighted k-means does exactly that, so instead:
+ *
+ *  1. Bins group into perceptual families (heaviest first; a bin joins
+ *     the first family whose seed is within {@link FAMILY_RADIUS} in
+ *     CIELAB). A family's colour is the mean of its own members, so
+ *     black stays black instead of averaging with a neighbouring grey.
+ *  2. Families under {@link MIN_FAMILY_SHARE} of the surface are
+ *     dropped as texture-filtering noise.
+ *  3. The palette starts from the largest family, then greedily adds
+ *     the family farthest from what's chosen: from every chosen colour
+ *     and every segment between two of them, so a blend of two chosen
+ *     colours (the brown fringe between yellow and black) never takes
+ *     a slot until the distinct colours run out. Area only breaks
+ *     near-ties (a mild log factor). Spare filaments then go to the
+ *     farthest remaining shades.
+ *
+ * Deterministic. Colours come back largest-area first.
  */
 export function reducePalette(sums: Float64Array, k: number): Rgb[] {
 	const bins: number[] = [];
-	for (let i = 0; i < BIN_COUNT; i++) if (sums[i * 4 + 3]! > 0) bins.push(i);
-	if (bins.length === 0) return [DEFAULT_BASE];
-
-	const n = bins.length;
-	const lab = new Float64Array(n * 3);
-	const w = new Float64Array(n);
-	for (let j = 0; j < n; j++) {
-		const o = bins[j]! * 4;
-		const wt = sums[o + 3]!;
-		w[j] = wt;
-		rgbToLab(
-			Math.round(sums[o]! / wt),
-			Math.round(sums[o + 1]! / wt),
-			Math.round(sums[o + 2]! / wt),
-			lab,
-			j * 3,
-		);
+	let total = 0;
+	for (let i = 0; i < BIN_COUNT; i++) {
+		const wt = sums[i * 4 + 3]!;
+		if (wt > 0) {
+			bins.push(i);
+			total += wt;
+		}
 	}
-	k = Math.max(1, Math.min(k, n));
+	if (bins.length === 0) return [DEFAULT_BASE];
+	bins.sort((x, y) => sums[y * 4 + 3]! - sums[x * 4 + 3]!);
 
-	// Seed: heaviest bin, then repeatedly the bin maximising w·D².
-	const centers = new Float64Array(k * 3);
-	let heaviest = 0;
-	for (let j = 1; j < n; j++) if (w[j]! > w[heaviest]!) heaviest = j;
-	centers.set(lab.subarray(heaviest * 3, heaviest * 3 + 3), 0);
-	const d2 = new Float64Array(n).fill(Infinity);
-	for (let c = 1; c < k; c++) {
-		let best = -1;
-		let bestScore = -1;
-		for (let j = 0; j < n; j++) {
-			const dl = lab[j * 3]! - centers[(c - 1) * 3]!;
-			const da = lab[j * 3 + 1]! - centers[(c - 1) * 3 + 1]!;
-			const db = lab[j * 3 + 2]! - centers[(c - 1) * 3 + 2]!;
+	// 1. Families.
+	const binLab = new Float64Array(3);
+	const families: { seed: Float64Array; acc: Float64Array; weight: number }[] = [];
+	const r2 = FAMILY_RADIUS * FAMILY_RADIUS;
+	for (const bin of bins) {
+		const o = bin * 4;
+		const wt = sums[o + 3]!;
+		rgbToLab(Math.round(sums[o]! / wt), Math.round(sums[o + 1]! / wt), Math.round(sums[o + 2]! / wt), binLab, 0);
+		let fam = null as (typeof families)[number] | null;
+		let best = r2;
+		for (const f of families) {
+			const dl = binLab[0]! - f.seed[0]!, da = binLab[1]! - f.seed[1]!, db = binLab[2]! - f.seed[2]!;
 			const d = dl * dl + da * da + db * db;
-			if (d < d2[j]!) d2[j] = d;
-			const score = w[j]! * d2[j]!;
+			if (d <= best) {
+				best = d;
+				fam = f;
+			}
+		}
+		if (!fam) {
+			fam = { seed: Float64Array.from(binLab), acc: new Float64Array(3), weight: 0 };
+			families.push(fam);
+		}
+		fam.acc[0] += binLab[0]! * wt;
+		fam.acc[1] += binLab[1]! * wt;
+		fam.acc[2] += binLab[2]! * wt;
+		fam.weight += wt;
+	}
+
+	// 2. Significant families, as (mean Lab, share).
+	let cands = families
+		.map((f) => ({ lab: [f.acc[0]! / f.weight, f.acc[1]! / f.weight, f.acc[2]! / f.weight], share: f.weight / total }))
+		.filter((f) => f.share >= MIN_FAMILY_SHARE);
+	if (cands.length === 0) cands = [{ lab: Array.from(families[0]!.seed), share: 1 }];
+	cands.sort((x, y) => y.share - x.share);
+
+	// 3. Greedy distinct selection.
+	const chosen = [cands[0]!];
+	const rest = cands.slice(1);
+	while (chosen.length < k && rest.length > 0) {
+		let bestI = -1;
+		let bestScore = 0;
+		for (let i = 0; i < rest.length; i++) {
+			const c = rest[i]!;
+			let d2 = Infinity;
+			for (let a = 0; a < chosen.length; a++) {
+				const p = chosen[a]!.lab;
+				const dl = c.lab[0]! - p[0]!, da = c.lab[1]! - p[1]!, db = c.lab[2]! - p[2]!;
+				d2 = Math.min(d2, dl * dl + da * da + db * db);
+				for (let b = a + 1; b < chosen.length; b++) d2 = Math.min(d2, segmentDist2(c.lab, p, chosen[b]!.lab));
+			}
+			const score = Math.sqrt(d2) * (1 + 0.1 * Math.log10(c.share / MIN_FAMILY_SHARE));
 			if (score > bestScore) {
 				bestScore = score;
-				best = j;
+				bestI = i;
 			}
 		}
-		if (bestScore <= 0) {
-			k = c;
-			break;
-		}
-		centers.set(lab.subarray(best * 3, best * 3 + 3), c * 3);
+		// Once only shades of chosen colours are left, spare filaments
+		// still take the farthest of them (shading detail).
+		if (bestI < 0) break;
+		chosen.push(rest.splice(bestI, 1)[0]!);
 	}
 
-	const assign = new Int32Array(n);
-	const acc = new Float64Array(k * 4);
-	for (let iter = 0; iter < 24; iter++) {
-		acc.fill(0);
-		let changed = false;
-		for (let j = 0; j < n; j++) {
-			let best = 0;
-			let bestD = Infinity;
-			for (let c = 0; c < k; c++) {
-				const dl = lab[j * 3]! - centers[c * 3]!;
-				const da = lab[j * 3 + 1]! - centers[c * 3 + 1]!;
-				const db = lab[j * 3 + 2]! - centers[c * 3 + 2]!;
-				const d = dl * dl + da * da + db * db;
-				if (d < bestD) {
-					bestD = d;
-					best = c;
-				}
-			}
-			if (assign[j] !== best) changed = true;
-			assign[j] = best;
-			acc[best * 4] += lab[j * 3]! * w[j]!;
-			acc[best * 4 + 1] += lab[j * 3 + 1]! * w[j]!;
-			acc[best * 4 + 2] += lab[j * 3 + 2]! * w[j]!;
-			acc[best * 4 + 3] += w[j]!;
-		}
-		for (let c = 0; c < k; c++) {
-			const wt = acc[c * 4 + 3]!;
-			if (wt > 0) {
-				centers[c * 3] = acc[c * 4]! / wt;
-				centers[c * 3 + 1] = acc[c * 4 + 1]! / wt;
-				centers[c * 3 + 2] = acc[c * 4 + 2]! / wt;
-			}
-		}
-		if (!changed && iter > 0) break;
-	}
-
-	const out: { rgb: Rgb; weight: number }[] = [];
-	for (let c = 0; c < k; c++) {
-		const wt = acc[c * 4 + 3]!;
-		if (wt <= 0) continue;
-		out.push({
-			rgb: labToRgb(centers[c * 3]!, centers[c * 3 + 1]!, centers[c * 3 + 2]!),
-			weight: wt,
-		});
-	}
-	out.sort((a, b) => b.weight - a.weight);
-	// Drop exact duplicates that can appear after rounding to bytes.
+	chosen.sort((x, y) => y.share - x.share);
 	const seen = new Set<string>();
-	return out
-		.map((e) => e.rgb)
+	return chosen
+		.map((c) => labToRgb(c.lab[0]!, c.lab[1]!, c.lab[2]!))
 		.filter((c) => {
 			const key = c.join(',');
 			if (seen.has(key)) return false;
