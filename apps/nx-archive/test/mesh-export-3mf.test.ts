@@ -255,14 +255,16 @@ describe('exportMeshFromThree', () => {
     expect(out.materials![0]!.backFaceCulled).toBeUndefined()
   })
 
-  it('carries front-side-only textured materials over as back-face culled', () => {
+  it('carries the viewer\'s back-face-culled flag over', () => {
     const geom = new THREE.BufferGeometry()
     const q = quad()
     geom.setAttribute('position', new THREE.BufferAttribute(q.positions, 3))
     geom.setAttribute('uv', new THREE.BufferAttribute(q.uvs!, 2))
     geom.setIndex(new THREE.BufferAttribute(q.indices, 1))
     const map = new THREE.DataTexture(new Uint8Array([1, 2, 3, 255]), 1, 1)
-    const mesh = new THREE.Mesh(geom, new THREE.MeshBasicMaterial({ map, side: THREE.FrontSide }))
+    const mat = new THREE.MeshBasicMaterial({ map, side: THREE.FrontSide })
+    mat.userData.backFaceCulled = true
+    const mesh = new THREE.Mesh(geom, mat)
     mesh.updateMatrixWorld(true)
     expect(exportMeshFromThree(mesh)!.materials![0]!.backFaceCulled).toBe(true)
   })

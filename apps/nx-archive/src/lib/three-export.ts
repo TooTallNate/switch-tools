@@ -61,9 +61,10 @@ function exportMaterialOf(m: THREE.Material | undefined): ExportMaterial {
 		useVertexColors: Boolean(m.vertexColors),
 		baseColor,
 		...(m.userData?.decal && { decal: true }),
-		// Front-side-only textured slots mirror an engine that culls back
-		// faces (Let's Go): the exporter looks through their eye lids.
-		...(texture && m.side === THREE.FrontSide && { backFaceCulled: true }),
+		// Set by the mesh viewer for engines that cull back faces (Let's
+		// Go): the exporter looks through their eye lids. (Not `side`:
+		// Three.js defaults to FrontSide, so it says nothing on its own.)
+		...(texture && m.userData?.backFaceCulled && { backFaceCulled: true }),
 	};
 }
 

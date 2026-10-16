@@ -564,6 +564,7 @@ export function MeshViewer({
           }),
         )
         if (decoded.decal) materials[materials.length - 1]!.userData.decal = true
+        if (decoded.backFaceCulled) materials[materials.length - 1]!.userData.backFaceCulled = true
       } else if (!forceNormalShading && materialBaseColors?.[i]) {
         const c = materialBaseColors[i]!
         materials.push(flatMaterial(new THREE.Color().setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace), showWireframe))
