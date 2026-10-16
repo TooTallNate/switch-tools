@@ -256,8 +256,8 @@ const BIN_COUNT = 1 << 15;
 
 /** Bins within this CIELAB distance of a family's seed join that family. */
 const FAMILY_RADIUS = 14;
-/** Families covering less of the surface than this are filtering noise. */
-const MIN_FAMILY_SHARE = 0.001;
+/** Families covering less of the surface than this are filtering noise (tiny real features, like eyes on a big-winged model, are larger). */
+const MIN_FAMILY_SHARE = 0.0002;
 
 /** Squared distance from Lab point `p` to the segment `a`–`b`. */
 function segmentDist2(p: ArrayLike<number>, a: ArrayLike<number>, b: ArrayLike<number>): number {
@@ -282,7 +282,7 @@ function segmentDist2(p: ArrayLike<number>, a: ArrayLike<number>, b: ArrayLike<n
  *     the first family whose seed is within {@link FAMILY_RADIUS} in
  *     CIELAB). A family's colour is the mean of its own members, so
  *     black stays black instead of averaging with a neighbouring grey.
- *  2. Families under {@link MIN_FAMILY_SHARE} of the surface are
+ *  2. Families under {@link MIN_FAMILY_SHARE} (0.02%) of the surface are
  *     dropped as texture-filtering noise.
  *  3. The palette starts from the largest family, then greedily adds
  *     the family farthest from what's chosen: from every chosen colour

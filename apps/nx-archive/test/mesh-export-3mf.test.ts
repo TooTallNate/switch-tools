@@ -81,7 +81,7 @@ describe('reducePalette', () => {
     const sums = hist([
       [240, 240, 240, 1000],
       [200, 200, 200, 300],
-      [255, 0, 0, 0.5], // < 0.1%: noise
+      [255, 0, 0, 0.1], // < 0.02%: noise
     ])
     const p = reducePalette(sums, 4)
     expect(near(p, [255, 0, 0])).toBe(false)

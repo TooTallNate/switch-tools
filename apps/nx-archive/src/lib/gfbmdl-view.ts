@@ -13,8 +13,12 @@
  *    `bin/field/model/<area>/` — the textures in
  *    `bin/archive/field/<area>.gfpak`.
  *  - **Textures.** Each material's albedo is decoded once. Texture
- *    alpha is only kept where the material alpha-tests (`DiscardEnable`);
- *    elsewhere it's a shader mask and is forced opaque. Eyes composite
+ *    alpha is kept where the material alpha-tests (`DiscardEnable`), and
+ *    on alpha-blended materials (`BlendMode` ≠ 0) whose alpha is a real
+ *    cut-out (eye highlights); elsewhere it's a shader mask and is
+ *    forced opaque. Blended materials whose albedo is fully transparent
+ *    are effect shells (the `ParasMask` layers over Paras' and
+ *    Venomoth's eyes) and are hidden like shadow casters. Eyes composite
  *    the iris layer (`L1ColTex` on trainers, `LyCol0Tex` on Pokémon)
  *    under the eye texture's alpha cut-out, baked on the CPU.
  *  - **UVs.** The game samples at `scale · (uv + translate + base)` in
@@ -348,6 +352,80 @@ function bakeLayer1(
 	return out;
 }
 
+/**
+ * How a blended material's albedo alpha behaves: `none` when it's
+ * transparent everywhere (an effect shell), `cutout` when it has both
+ * clear and solid regions (a highlight decal), else `soft` (uniformly
+ * translucent: drawn opaque, which also suits printing).
+ */
+function alphaCoverage(pixels: Uint8Array): 'none' | 'cutout' | 'soft' {
+	let max = 0, clear = 0, solid = 0;
+	const n = pixels.length / 4;
+	for (let k = 3; k < pixels.length; k += 4) {
+		const a = pixels[k]!;
+		if (a > max) max = a;
+		if (a < 16) clear++;
+		else if (a > 240) solid++;
+	}
+	if (max < 8) return 'none';
+	return clear > n * 0.02 && solid > n * 0.002 ? 'cutout' : 'soft';
+}
+
+/**
+ * Whether material `mi` is an overlay shell: almost all of its vertices
+ * lie close (3% of the model's size) to other drawn geometry, and it's
+ * a small part of the surface (under a tenth), unlike a wing or a fin.
+ */
+function isOverlay(
+	mesh: GfbmdlRenderMesh,
+	drawn: { materialIndex: number; firstVertex: number; numVertices: number; firstIndex: number; numTriangles: number }[],
+	mi: number,
+): boolean {
+	const P = mesh.positions;
+	const box = (secs: typeof drawn) => {
+		const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+		for (const s of secs) for (let v = s.firstVertex; v < s.firstVertex + s.numVertices; v++) for (let c = 0; c < 3; c++) {
+			lo[c] = Math.min(lo[c]!, P[v * 3 + c]!);
+			hi[c] = Math.max(hi[c]!, P[v * 3 + c]!);
+		}
+		return Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!);
+	};
+	const mine = drawn.filter((s) => s.materialIndex === mi);
+	const others = drawn.filter((s) => s.materialIndex !== mi);
+	if (mine.length === 0 || others.length === 0) return false;
+	const size = box(drawn);
+	const area = (secs: typeof drawn) => {
+		let sum = 0;
+		for (const s of secs) {
+			for (let t = 0; t < s.numTriangles; t++) {
+				const a = mesh.indices[s.firstIndex + t * 3]! * 3, b = mesh.indices[s.firstIndex + t * 3 + 1]! * 3, c = mesh.indices[s.firstIndex + t * 3 + 2]! * 3;
+				const ux = P[b]! - P[a]!, uy = P[b + 1]! - P[a + 1]!, uz = P[b + 2]! - P[a + 2]!;
+				const vx = P[c]! - P[a]!, vy = P[c + 1]! - P[a + 1]!, vz = P[c + 2]! - P[a + 2]!;
+				sum += 0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+			}
+		}
+		return sum;
+	};
+	if (!(size > 0) || area(mine) > area(drawn) * 0.1) return false;
+	const r2 = (size * 0.03) ** 2;
+	let near = 0, total = 0;
+	for (const s of mine) {
+		for (let a = s.firstVertex; a < s.firstVertex + s.numVertices; a++, total++) {
+			const ax = P[a * 3]!, ay = P[a * 3 + 1]!, az = P[a * 3 + 2]!;
+			search: for (const o of others) {
+				for (let b = o.firstVertex; b < o.firstVertex + o.numVertices; b++) {
+					const dx = P[b * 3]! - ax, dy = P[b * 3 + 1]! - ay, dz = P[b * 3 + 2]! - az;
+					if (dx * dx + dy * dy + dz * dz < r2) {
+						near++;
+						break search;
+					}
+				}
+			}
+		}
+	}
+	return near >= total * 0.9;
+}
+
 /** Mean baked sample coordinate (s, t) of a material's vertices. */
 function meanSample(mesh: GfbmdlRenderMesh, uv: Float32Array, materialIndex: number): [number, number] {
 	let su = 0, sv = 0, n = 0;
@@ -406,19 +484,8 @@ export async function parseGfbmdlForView(node: Node, root: Node | null): Promise
 	const mesh = g.buildGfbmdlMesh(model);
 	if (mesh.numVertices === 0) throw new Error('This GFBMDL contains no drawable geometry');
 
-	// Visible sections + compacted index buffer.
 	const hints = model.materials.map((m) => g.materialHints(m));
 	const visible = mesh.sections.filter((s) => !hints[s.materialIndex]?.hidden);
-	let total = 0;
-	for (const s of visible) total += s.numTriangles * 3;
-	const indices = new Uint32Array(total);
-	const sections: GfbmdlModelView['sections'] = [];
-	let o = 0;
-	for (const s of visible) {
-		indices.set(mesh.indices.subarray(s.firstIndex, s.firstIndex + s.numTriangles * 3), o);
-		sections.push({ materialIndex: s.materialIndex, firstIndex: o, numTriangles: s.numTriangles });
-		o += s.numTriangles * 3;
-	}
 
 	const uvTransforms = model.materials.map((m) => g.colorUvTransform(m));
 	const uv = mesh.uv0 ? new Float32Array(mesh.uv0.length) : undefined;
@@ -439,6 +506,8 @@ export async function parseGfbmdlForView(node: Node, root: Node | null): Promise
 	};
 
 	const usedMaterials = new Set(visible.map((s) => s.materialIndex));
+	const invisible = new Set<number>();
+	const cutouts = new Set<number>();
 	let wanted = 0, found = 0;
 	const textures: (DecodedTexture | null)[] = await Promise.all(
 		model.materials.map(async (mat: GfbmdlMaterial, i): Promise<DecodedTexture | null> => {
@@ -450,6 +519,15 @@ export async function parseGfbmdlForView(node: Node, root: Node | null): Promise
 			if (!d) return null;
 			found++;
 			let pixels = d.pixels;
+			const blended = (mat.common.values.BlendMode ?? 0) !== 0;
+			const alpha = blended ? alphaCoverage(pixels) : null;
+			if (alpha === 'cutout') cutouts.add(i);
+			if (alpha === 'none') {
+				// A blended layer that draws nothing: an effect shell.
+				invisible.add(i);
+				found--;
+				return null;
+			}
 			const l1 = g.layer1TextureMap(mat);
 			const l1d = l1 ? await decodeByName(l1.texture) : null;
 			if (l1 && l1d && uv) {
@@ -458,7 +536,7 @@ export async function parseGfbmdlForView(node: Node, root: Node | null): Promise
 					periodOf(ms, map.wrapS),
 					periodOf(mt, map.wrapT),
 				]);
-			} else if (!hints[i].alphaTest) {
+			} else if (!hints[i].alphaTest && alpha !== 'cutout') {
 				// Alpha is a shader mask here, not coverage.
 				pixels = Uint8Array.from(pixels);
 				for (let k = 3; k < pixels.length; k += 4) pixels[k] = 255;
@@ -478,6 +556,23 @@ export async function parseGfbmdlForView(node: Node, root: Node | null): Promise
 			};
 		}),
 	);
+	// Visible sections (minus invisible effect shells) + compacted index buffer.
+	const drawn = visible.filter((s) => !invisible.has(s.materialIndex));
+	let total = 0;
+	for (const s of drawn) total += s.numTriangles * 3;
+	const indices = new Uint32Array(total);
+	const sections: GfbmdlModelView['sections'] = [];
+	let o = 0;
+	for (const s of drawn) {
+		indices.set(mesh.indices.subarray(s.firstIndex, s.firstIndex + s.numTriangles * 3), o);
+		sections.push({ materialIndex: s.materialIndex, firstIndex: o, numTriangles: s.numTriangles });
+		o += s.numTriangles * 3;
+	}
+	if (invisible.size > 0) wanted -= invisible.size;
+	// Small blended cut-outs hugging other geometry are overlays (eye
+	// highlights): decals, so exports paint them onto what's beneath.
+	for (const i of cutouts) if (textures[i] && isOverlay(mesh, drawn, i)) textures[i] = { ...textures[i]!, decal: true };
+
 	const baseColors = model.materials.map((m, i): [number, number, number] | null => {
 		if (textures[i]) return null;
 		const c = m.colors.ConstantColor ?? m.colors.ConstantColor0;
@@ -533,7 +628,7 @@ export async function parseGfbmdlForView(node: Node, root: Node | null): Promise
 		uvTransforms,
 		clips,
 		defaultClip,
-		hiddenMaterials: model.materials.filter((_, i) => hints[i].hidden && mesh.sections.some((s) => s.materialIndex === i)).length,
+		hiddenMaterials: model.materials.filter((_, i) => (hints[i].hidden || invisible.has(i)) && mesh.sections.some((s) => s.materialIndex === i)).length,
 		textureNamesWanted: wanted,
 		textureNamesFound: found,
 	};
