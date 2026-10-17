@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/mtf",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Capcom MT Framework formats (Resident Evil 0 / 1 HD on Switch): ARC archives and TEX textures.",
   "main": "dist/index.js",

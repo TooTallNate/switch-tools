@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/nus3",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser for Bandai Namco NUS3BANK sound banks, with an IDSP (multi-channel DSP-ADPCM) decoder.",
   "main": "dist/index.js",
@@ -8,7 +8,14 @@
     "build": "tsc",
     "test": "vitest run"
   },
-  "keywords": ["nus3bank", "nus3", "idsp", "bandai-namco", "pokken", "smash"],
+  "keywords": [
+    "nus3bank",
+    "nus3",
+    "idsp",
+    "bandai-namco",
+    "pokken",
+    "smash"
+  ],
   "author": "Nathan Rajlich <n@n8.io>",
   "license": "MIT",
   "repository": {
