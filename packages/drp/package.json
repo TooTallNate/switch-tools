@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/drp",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Decrypts and parses Bandai Namco DRP archives (Pokkén Tournament / Pokkén Tournament DX).",
   "main": "dist/index.js",
@@ -8,7 +8,11 @@
     "build": "tsc",
     "test": "vitest run"
   },
-  "keywords": ["drp", "pokken", "bandai-namco"],
+  "keywords": [
+    "drp",
+    "pokken",
+    "bandai-namco"
+  ],
   "author": "Nathan Rajlich <n@n8.io>",
   "license": "MIT",
   "repository": {

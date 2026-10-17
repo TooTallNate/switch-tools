@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/n64-soundbank",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "description": "Extractor for N64 SDK ctl/tbl sound banks used by Super Mario 64 and others.",
   "main": "dist/index.js",

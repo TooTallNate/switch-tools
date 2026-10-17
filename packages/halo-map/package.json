@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/halo-map",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser for Halo: Combat Evolved cache files (.map): tag index, bitmaps, sounds and models.",
   "main": "dist/index.js",

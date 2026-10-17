@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/psx-str",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Decoders for PlayStation STR movies (MDEC v2 / v3 video) and CD-XA ADPCM audio.",
   "main": "dist/index.js",

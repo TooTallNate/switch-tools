@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/ff7-psx-model",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Decoders for Final Fantasy VII PlayStation 3D models: battle models (.LZS) and field characters (.BCX / .BSX), posed and triangulated with textures.",
   "main": "dist/index.js",

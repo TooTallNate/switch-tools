@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/platinum",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parsers for PlatinumGames formats (Bayonetta 3, Astral Chain, NieR): PKZ packages, DAT/DTT archives, WTA/WTP/WTB textures, WMB3 models and MOT animations.",
   "main": "dist/index.js",
