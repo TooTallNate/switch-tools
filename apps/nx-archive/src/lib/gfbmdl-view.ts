@@ -372,9 +372,18 @@ function alphaCoverage(pixels: Uint8Array): 'none' | 'cutout' | 'soft' {
 }
 
 /**
+ * How close (fraction of the model's size) an overlay's vertices must sit
+ * to other geometry. Highlight shells hug the surface (Paras: 0.04%);
+ * Psyduck's eyes are blended cut-outs too, but bulging caps whose middle
+ * stands ~2-4% proud. As decals the exporter couldn't reach the surface
+ * under them (and they'd lose their shape), so they must stay geometry.
+ */
+const OVERLAY_GAP = 0.005;
+
+/**
  * Whether material `mi` is an overlay shell: almost all of its vertices
- * lie close (3% of the model's size) to other drawn geometry, and it's
- * a small part of the surface (under a tenth), unlike a wing or a fin.
+ * lie very close (OVERLAY_GAP) to other drawn geometry, and it's a small
+ * part of the surface (under a tenth), unlike a wing or a fin.
  */
 function isOverlay(
 	mesh: GfbmdlRenderMesh,
@@ -407,7 +416,7 @@ function isOverlay(
 		return sum;
 	};
 	if (!(size > 0) || area(mine) > area(drawn) * 0.1) return false;
-	const r2 = (size * 0.03) ** 2;
+	const r2 = (size * OVERLAY_GAP) ** 2;
 	let near = 0, total = 0;
 	for (const s of mine) {
 		for (let a = s.firstVertex; a < s.firstVertex + s.numVertices; a++, total++) {
