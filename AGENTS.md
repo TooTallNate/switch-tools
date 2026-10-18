@@ -92,6 +92,17 @@ apps/nx-archive/
   `FILE_EXT_FORMATS` aliases the sniff key to its label; `test/dispatch.test.ts`
   checks that these stay consistent. Use sniff-only entries for ambiguous
   extensions (`.map`, `.bin`).
+- **Data leaves.** Leaves that aren't containers are tagged by magic in
+  `leafFormatOf` (`meta.leafFormat`: AAMP, BYML, Havok, BFEVFL, STAT, GX2, …),
+  whatever their extension; BotW alone uses dozens of extensions per format.
+  Their previews live in `components/data-previews.tsx`: a header table plus
+  highlighted text and/or rendered images. A file only stops being a gap once
+  its preview isn't hex.
+- **Title lookups.** Nested files can reach the rest of their title without
+  walking the tree from the root:
+  - `title-romfs.ts`: a RomFS file by path.
+  - `title-exefs.ts`: the exefs `main` and its identifier strings, used to
+    resolve hashed names such as AAMP keys from the user's own dump.
 - **Previews.**
   - **Leaves** pick a `PreviewKind` through `previewKindForNode`:
     `meta` flags first, then the file name.
@@ -103,6 +114,9 @@ apps/nx-archive/
   - **Model thumbnails and batch export** need a headless loader: add the kind to
     `HEADLESS_MODEL_KINDS` and a `case` in `loadModelAsset` (`model-assets.ts`).
   - **Image thumbnails:** add a `decodeImage` case in `thumbnails.ts`.
+  - **Partial / failed media** come from the thumbnail decoders. To see them
+    headlessly, run `media-scan --check`, which uses the same decoders via
+    `media/check.ts`.
 - **Duplicates.** The scanner folds identical copies; the kept item lists the
   others in `MediaItem.duplicates`. Virtual leaves that are expensive to
   decode must set `meta.contentKey` (a cheap stable identity) or
@@ -142,10 +156,13 @@ apps/nx-archive/
 
 ## Verifying
 
-- **Headless scan:** run `bun scripts/media-scan.ts <file> [--md out.md] [--json out.json] [--deep]`
+- **Headless scan:** run `bun scripts/media-scan.ts <file> [--md out.md] [--json out.json] [--deep] [--check] [--progress]`
   from `apps/nx-archive`.
   - It runs the same scanner as the Library and prints a summary line plus
     the gaps report.
+  - `--check` also runs the thumbnail decoders, so partial and failed media
+    are listed.
+  - `--progress` logs a line every 10 s, which is useful for background runs.
   - Switch content needs keys at `~/.switch/prod.keys`.
   - Oodle content (UE paks, newer GFPAKs) needs an `oodle.wasm` (see
     `packages/oodle-wasm/README.md`): `--oodle <path>`, `~/.switch/oodle.wasm`,
@@ -201,4 +218,16 @@ apps/nx-archive/
   blocks. The version key is recovered from the PGD MAC, so KEYS.BIN isn't
   required (`packages/pbp`).
 - **Duplicate folding** must never decode virtual leaves just to hash them.
-  Use `meta.contentKey` or `meta.decoded`; the pass also has a 20 s budget.
+  Use `meta.contentKey` or `meta.decoded`. In the browser the pass has a 20 s
+  budget; the CLI has none.
+- **Self-relative offset tables** often lie at the edges:
+  - VFXB: a last child's "next" offset is its own length, so bound each chain
+    by the parent's child count.
+  - BotW ecosystem: row offsets are in 2-byte units, and identical rows share
+    their runs.
+  - BFSTM: the block table can run past 0x40.
+- **Bun `new Blob([fileBackedSlice])`** silently yields an empty part. Read
+  small slices into bytes first.
+- **"Textures not found"** should mean a texture is bound and can't be found.
+  Placeholder bindings (`dummy`) and materials whose shader computes the
+  colour aren't missing anything.
