@@ -114,3 +114,32 @@ export function ukingBaseColor(
 	}
 	return albedo;
 }
+
+/**
+ * A two-colour gradient map applied to the albedo texture, or null.
+ *
+ * Breath of the Wild's Koroks have grayscale body masks: the shader's
+ * albedo is calc node `2xx` of type 6 with the albedo texture as operands
+ * A and C and two constant colours as B and D (Korok bodies: a dark and a
+ * lighter olive-brown). The texture is a black / white pattern of body
+ * markings, so we read type 6 as `mix(B, D, texture)`. That reading is
+ * inferred from these materials, not from the shader source. The colours
+ * are linear.
+ */
+export function ukingAlbedoGradient(
+	mat: BfresMaterial | undefined,
+): { from: [number, number, number]; to: [number, number, number] } | null {
+	const assign = mat?.shaderAssign;
+	if (!mat || !assign || !assign.shadingModel.startsWith('uking')) return null;
+	const opts = assign.options;
+	const n = Number(opts.uking_albedo_color);
+	if (!(n >= 200 && n < 300)) return null;
+	const node = n - 200;
+	if (opts[`uking_enable_calc_color${node}`] !== '1' || opts[`uking_color${node}_calc_type`] !== '6') return null;
+	// Operand selectors default to 0: the albedo texture.
+	const texOperand = (v: string | undefined) => (v ?? '0') === '0';
+	if (!texOperand(opts[`uking_color${node}_A`])) return null;
+	const from = selector(mat, opts[`uking_color${node}_B`]);
+	const to = selector(mat, opts[`uking_color${node}_D`]);
+	return from && to ? { from, to } : null;
+}

@@ -29,6 +29,7 @@ import {
   type BfresGeometry,
   type BfresMaterial,
   type BfresMaterialAnimFile,
+  type BfresShaderParamAnim,
   type BfresSkeletalAnim,
   type BfresSkeleton,
 } from "@tootallnate/bfres"
@@ -41,8 +42,14 @@ import {
 
 import type { Node } from "~/lib/archive"
 import { getAstcBlockDecoder } from "~/lib/astc"
-import { UKING_SHARED_TEXTURE_ARCHIVES, ukingAlbedoTexture, ukingBaseColor } from "~/lib/bfres-uking-shading"
+import {
+  UKING_SHARED_TEXTURE_ARCHIVES,
+  ukingAlbedoGradient,
+  ukingAlbedoTexture,
+  ukingBaseColor,
+} from "~/lib/bfres-uking-shading"
 import { romfsFileFor } from "~/lib/title-romfs"
+import { korokSkinColor } from "~/lib/uking-umii"
 import {
   bakeAlbedoLayers,
   bezelBaseColor,
@@ -436,6 +443,15 @@ async function titleModelDirs(selected: Node, exclude: Node | null): Promise<Nod
 interface CompanionBlobs {
   textures: Blob[]
   animations: Blob[]
+  /**
+   * Animation archives other models of the same family share (BotW's
+   * Koroks all play `UMii_Korogu_Body_M_Animation`). Their clips are kept
+   * only where they drive this model's skeleton; see
+   * {@link findSharedAnimationBlobs}.
+   */
+  sharedAnimations: Blob[]
+  /** Small family files that may hold colour-variant shader animations (see {@link findColorVariantBlobs}). */
+  variantBlobs: Blob[]
 }
 
 /**
@@ -501,11 +517,13 @@ async function findCompanionBfresBlobs(
   root: Node | null,
   selected: Node,
 ): Promise<CompanionBlobs> {
-  const empty: CompanionBlobs = { textures: [], animations: [] }
+  const empty: CompanionBlobs = { textures: [], animations: [], sharedAnimations: [], variantBlobs: [] }
   if (!root) return empty
   const dir = await findBfresSiblingDirectory(root, selected)
   const own = dir?.getChildren ? await childrenOf(dir).catch(() => [] as Node[]) : []
   const found = await companionsIn(own, selected)
+  found.sharedAnimations = await findSharedAnimationBlobs(own, selected)
+  found.variantBlobs = await findColorVariantBlobs(own, selected)
   // Nothing next to the model (e.g. a BotW event pack): look for the
   // same-named companions in the title's shared model folders.
   if (found.textures.length === 0) {
@@ -555,7 +573,115 @@ async function companionsIn(kids: Node[], selected: Node): Promise<CompanionBlob
     }),
   )
 
-  return { textures, animations }
+  return { textures, animations, sharedAnimations: [], variantBlobs: [] }
+}
+
+/** Name words too generic to tie two models together. */
+const GENERIC_STEM_WORDS = /^(npc|umii|obj|fldobj|twnobj|dgnobj|enemy|animal|item|weapon|armor|player|m|f|[a-z]|[a-z]?\d+|animation|anim|tex)$/i
+
+/** Cap on shared animation archives read per model. */
+const MAX_SHARED_ANIMATIONS = 6
+
+/**
+ * Animation archives a model may share with its family. BotW builds its
+ * Koroks (and other "UMii" NPCs) from parts at runtime: every
+ * `Npc_Korogu_M_###` plays the clips in `UMii_Korogu_Body_M_Animation`,
+ * and only `Npc_Korogu_M_000` has an `_Animation` file of its own. The
+ * game derives that name in code, so rather than hard-coding it this
+ * takes sibling `*_Animation` archives sharing a distinctive word with
+ * the model (`Korogu`). The merge then keeps only clips that drive this
+ * model's bones.
+ */
+async function findSharedAnimationBlobs(kids: Node[], selected: Node): Promise<Blob[]> {
+  const stem = stripBfresExt(selected.name)
+  const words = stem.split("_").filter((w) => !GENERIC_STEM_WORDS.test(w)).map((w) => w.toLowerCase())
+  if (words.length === 0) return []
+  const candidates = kids.filter((k) => {
+    if (!/\.s?bfres(\.zs)?$/i.test(k.name)) return false
+    const other = stripBfresExt(k.name)
+    const m = /^(.*?)(_Animation|_Anim|\.Animation)$/i.exec(other)
+    if (!m || m[1] === stem) return false
+    const otherWords = new Set(m[1]!.split("_").map((w) => w.toLowerCase()))
+    return words.some((w) => otherWords.has(w))
+  })
+  const blobs = await Promise.all(
+    candidates.slice(0, MAX_SHARED_ANIMATIONS).map((k) => unwrapInnerBfresBlob(k).catch(() => null)),
+  )
+  return blobs.filter((b): b is Blob => b !== null)
+}
+
+/** Family files at most this big are checked for colour variants. */
+const MAX_VARIANT_FILE = 32 * 1024
+
+/**
+ * Small, geometry-free family files that may carry colour variants as
+ * shader parameter animations. BotW keeps each Korok skin colour as one
+ * frame of `UMii_Korogu_Body_ColorChange_fcl` in `UMii_Korogu_Body.sbfres`.
+ * Candidates share a distinctive name word with the model, like
+ * {@link findSharedAnimationBlobs}; the material names decide later
+ * whether they apply.
+ */
+async function findColorVariantBlobs(kids: Node[], selected: Node): Promise<Blob[]> {
+  const stem = stripBfresExt(selected.name)
+  const words = stem.split("_").filter((w) => !GENERIC_STEM_WORDS.test(w)).map((w) => w.toLowerCase())
+  if (words.length === 0) return []
+  const candidates = kids.filter((k) => {
+    if (!/\.s?bfres(\.zs)?$/i.test(k.name) || (k.size ?? Infinity) > MAX_VARIANT_FILE) return false
+    const other = stripBfresExt(k.name)
+    if (other === stem || /(\.Tex\d?|_Animation|_Anim)$/i.test(other)) return false
+    const otherWords = new Set(other.split("_").map((w) => w.toLowerCase()))
+    return words.some((w) => otherWords.has(w))
+  })
+  const blobs = await Promise.all(candidates.slice(0, 8).map((k) => unwrapInnerBfresBlob(k).catch(() => null)))
+  return blobs.filter((b): b is Blob => b !== null)
+}
+
+/**
+ * Colour variants: shader parameter animations whose frames are
+ * alternative values for this model's materials. Returns the variant
+ * count and a function that writes variant `n` into the materials.
+ */
+async function collectColorVariants(
+  blobs: Blob[],
+  materials: BfresMaterial[][],
+): Promise<{ count: number; apply: (n: number) => void } | null> {
+  const names = new Set(materials.flat().map((m) => m.name))
+  const tracks: { material: string; param: BfresShaderParamAnim }[] = []
+  let count = 0
+  for (const b of blobs) {
+    const anims = await extractAnimations(b).catch(() => null)
+    for (const file of anims?.material ?? []) {
+      const useful = file.materialAnims.filter((m) => names.has(m.name) && m.shaderParams.length > 0)
+      if (!useful.length) continue
+      count = Math.max(count, file.frameCount + 1)
+      for (const m of useful) for (const p of m.shaderParams) tracks.push({ material: m.name, param: p })
+    }
+  }
+  if (!tracks.length || count < 2) return null
+  return {
+    count,
+    apply(n: number) {
+      for (const mat of materials.flat()) {
+        for (const t of tracks) {
+          if (t.material !== mat.name) continue
+          const param = mat.shaderParams?.[t.param.name]
+          if (!param) continue
+          const values = [...param.values]
+          for (const c of t.param.curves) values[c.animDataOffset / 4] = evaluateCurve(c, n)
+          for (const k of t.param.constants) values[k.offset / 4] = k.value
+          mat.shaderParams![t.param.name] = { ...param, values }
+        }
+      }
+    },
+  }
+}
+
+/** Whether most of a clip's bone tracks name bones of `bones`. */
+function clipFitsSkeleton(clip: { boneAnims: { name: string }[] }, bones: Set<string>): boolean {
+  if (clip.boneAnims.length === 0) return false
+  let hit = 0
+  for (const b of clip.boneAnims) if (bones.has(b.name)) hit++
+  return hit / clip.boneAnims.length >= 0.75
 }
 
 /** Resolved children of `node`, expanding (and caching) on first use. */
@@ -1364,7 +1490,40 @@ function pickAlbedo(
     }
   }
   if (!textureName) return null
+  // BotW gradient-mapped albedo (Korok bodies): recolour the mask.
+  const gradient = textureNameOverride ? null : ukingAlbedoGradient(materials[geom.modelIndex]?.[geom.materialIndex])
+  if (gradient) {
+    const key = `${textureName}@grad:${[...gradient.from, ...gradient.to].map((x) => x.toFixed(4)).join(",")}`
+    return getTextureByName(cache, key, pickWrapMode(geom))
+  }
   return getTextureByName(cache, textureName, pickWrapMode(geom))
+}
+
+/** Linear [0, 1] → sRGB byte. */
+function linearToSrgbByte(x: number): number {
+  const c = Math.max(0, Math.min(1, x))
+  return Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055))
+}
+
+/**
+ * Apply a `name@grad:r0,g0,b0,r1,g1,b1` gradient map (see
+ * `ukingAlbedoGradient`): each pixel's red channel picks between the two
+ * linear colours. The result is sRGB.
+ */
+function applyGradient(decoded: DecodedRgba, spec: string): DecodedRgba {
+  const v = spec.split(",").map(Number)
+  const srgbIn = decoded.srgb
+  const out = new Uint8ClampedArray(decoded.pixels.length)
+  for (let i = 0; i < out.length; i += 4) {
+    const m = decoded.pixels[i]! / 255
+    // The mask is stored sRGB-encoded when the texture is; use its linear value.
+    const t = srgbIn ? (m <= 0.04045 ? m / 12.92 : Math.pow((m + 0.055) / 1.055, 2.4)) : m
+    out[i] = linearToSrgbByte(v[0]! + (v[3]! - v[0]!) * t)
+    out[i + 1] = linearToSrgbByte(v[1]! + (v[4]! - v[1]!) * t)
+    out[i + 2] = linearToSrgbByte(v[2]! + (v[5]! - v[2]!) * t)
+    out[i + 3] = decoded.pixels[i + 3]!
+  }
+  return { pixels: out, width: decoded.width, height: decoded.height, srgb: true }
 }
 
 /**
@@ -1391,6 +1550,13 @@ function decodeTextureByName(
   textureName: string,
 ): DecodedRgba | null {
   if (cache.decoded.has(textureName)) return cache.decoded.get(textureName) ?? null
+  const grad = /^(.*)@grad:(.*)$/.exec(textureName)
+  if (grad) {
+    const base = decodeTextureByName(cache, grad[1]!)
+    const mapped = base ? applyGradient(base, grad[2]!) : null
+    cache.decoded.set(textureName, mapped)
+    return mapped
+  }
   let decoded: DecodedRgba | null = null
   const { name: baseName, layer } = splitLayeredTextureName(textureName)
   const found = findInBanks(cache.banks, baseName)
@@ -1781,6 +1947,9 @@ function bakeVisibleShapes(
 
 /** Everything the viewer builds from a BFRES before mounting a renderer. */
 export interface LoadedBfres {
+  /** Number of colour variants (0 when the model has none), and the one applied. */
+  colorVariants: number
+  colorVariant: number
   records: ShapeRecord[]
   skeletons: BfresSkeleton[]
   sceneSkeletons: FsklSceneSkeleton[]
@@ -1794,7 +1963,19 @@ export interface LoadedBfres {
  * banks) and build its Three.js shapes in bind pose. Shared by the
  * viewer and the media library's headless loader.
  */
-export async function loadBfresShapes(node: Node, root: Node | null): Promise<LoadedBfres> {
+export async function loadBfresShapes(
+  node: Node,
+  root: Node | null,
+  opts: {
+    colorVariant?: number
+    /**
+     * Without an explicit `colorVariant`, look up the one the game uses
+     * (`korokSkinColor`; slow the first time on a big title). The viewer
+     * turns this off and resolves it in the background instead.
+     */
+    resolveColorVariant?: boolean
+  } = {},
+): Promise<LoadedBfres> {
     const blob = await node.blob!()
     // Run primary extraction + companion search in parallel.
     // Companion search can be slow on huge archives because
@@ -1816,7 +1997,7 @@ export async function loadBfresShapes(node: Node, root: Node | null): Promise<Lo
       extractAnimations(blob),
       loadEmbeddedBntxTextures(blob),
       findCompanionBfresBlobs(root, node).catch(
-        (): CompanionBlobs => ({ textures: [], animations: [] }),
+        (): CompanionBlobs => ({ textures: [], animations: [], sharedAnimations: [], variantBlobs: [] }),
       ),
       findBeaCompanions(root, node).catch(
         (): BeaCompanions => ({ textureBanks: [], animations: [] }),
@@ -1826,6 +2007,18 @@ export async function loadBfresShapes(node: Node, root: Node | null): Promise<Lo
       throw new Error(
         "BFRES has no extractable geometry (no FMDL with triangle shapes).",
       )
+    }
+    // Colour variants (BotW Korok skin colours): apply the requested one,
+    // else the one the game uses for this model, else the first.
+    const variants = await collectColorVariants(companions.variantBlobs, materials)
+    let colorVariant = 0
+    if (variants) {
+      colorVariant =
+        opts.colorVariant ??
+        (opts.resolveColorVariant === false ? null : await korokSkinColor(node).catch(() => null)) ??
+        0
+      colorVariant = Math.max(0, Math.min(variants.count - 1, colorVariant))
+      variants.apply(colorVariant)
     }
 
     // Merge companion textures into the cache (or create a
@@ -1899,6 +2092,25 @@ export async function loadBfresShapes(node: Node, root: Node | null): Promise<Lo
       ...companions.animations,
       ...beaCompanions.animations,
     ]
+    let sharedClips: BfresAnimations["skeletal"] = []
+    if (companions.sharedAnimations.length > 0) {
+      // Family animations: only clips that drive this skeleton, and only
+      // names the model doesn't already have.
+      const bones = new Set(skeletons.flatMap((sk) => sk.bones.map((b) => b.name)))
+      const shared = await Promise.all(
+        companions.sharedAnimations.map((b) => extractAnimations(b).catch(() => null)),
+      )
+      const own = await Promise.all(companions.animations.map((b) => extractAnimations(b).catch(() => null)))
+      const have = new Set([...animations.skeletal, ...own.flatMap((a) => a?.skeletal ?? [])].map((c) => c.name))
+      const extra = shared
+        .flatMap((a) => a?.skeletal ?? [])
+        .filter((c) => {
+          if (have.has(c.name) || !clipFitsSkeleton(c, bones)) return false
+          have.add(c.name)
+          return true
+        })
+      sharedClips = extra
+    }
     if (companionAnimBlobs.length > 0) {
       const companionAnims = await Promise.all(
         companionAnimBlobs.map((b) =>
@@ -1941,6 +2153,8 @@ export async function loadBfresShapes(node: Node, root: Node | null): Promise<Lo
         ],
       }
     }
+    // Family clips go after the model's own.
+    if (sharedClips.length) mergedAnimations = { ...mergedAnimations, skeletal: [...mergedAnimations.skeletal, ...sharedClips] }
 
     // Build a Three.js scene-graph skeleton per FMDL — array of
     // `THREE.Bone`s parented in a hierarchy, plus an `Skeleton`
@@ -2165,6 +2379,8 @@ export async function loadBfresShapes(node: Node, root: Node | null): Promise<Lo
       }
     })
   return {
+    colorVariants: variants?.count ?? 0,
+    colorVariant,
     records,
     skeletons,
     sceneSkeletons,
@@ -2209,7 +2425,7 @@ interface BfresViewerProps {
 export function BfresViewer({ node, root }: BfresViewerProps) {
   return (
     <BfresViewerErrorBoundary>
-      <BfresViewerInner node={node} root={root ?? null} />
+      <BfresViewerInner key={node.id} node={node} root={root ?? null} />
     </BfresViewerErrorBoundary>
   )
 }
@@ -2230,6 +2446,9 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
   const textureCacheRef = useRef<BntxTextureCache | null>(null)
   const materialsRef = useRef<BfresMaterial[][] | null>(null)
   const [showSkeleton, setShowSkeleton] = useState(false)
+  // Colour variant (BotW Korok skin colours): null = the game's choice.
+  const [colorVariant, setColorVariant] = useState<number | null>(null)
+  const [colorVariants, setColorVariants] = useState<{ count: number; current: number } | null>(null)
   // Animation playback state. `currentAnim` indexes into
   // `animations.skeletal` (or -1 for "no animation, bind pose").
   const [currentAnim, setCurrentAnim] = useState<number>(-1)
@@ -2266,8 +2485,19 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
 
     void (async () => {
       try {
-        const loaded = await loadBfresShapes(node, root)
+        const loaded = await loadBfresShapes(node, root, {
+          colorVariant: colorVariant ?? undefined,
+          resolveColorVariant: false,
+        })
         if (cancelled) return
+        setColorVariants(loaded.colorVariants > 1 ? { count: loaded.colorVariants, current: loaded.colorVariant } : null)
+        // The game's colour for this model (Korok skin colours), found in
+        // the background: listing every actor is slow the first time.
+        if (loaded.colorVariants > 1 && colorVariant === null) {
+          void korokSkinColor(node).then((v) => {
+            if (!cancelled && v !== null && v !== loaded.colorVariant) setColorVariant(v)
+          }).catch(() => {})
+        }
         skeletonsRef.current = loaded.skeletons
         animationsRef.current = loaded.animations
         textureCacheRef.current = loaded.textureCache
@@ -2284,7 +2514,7 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
     return () => {
       cancelled = true
     }
-  }, [node.id, node])
+  }, [node.id, node, colorVariant])
 
   // ---- Set up Three.js renderer once shapes are ready ----
   useEffect(() => {
@@ -2805,6 +3035,22 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
           />
           <span>Show skeleton</span>
         </label>
+        {colorVariants ? (
+          <label className="flex items-center gap-1.5" title="Colour variants from the model's family (e.g. Korok skin colours)">
+            <span>Colour</span>
+            <select
+              value={colorVariants.current}
+              onChange={(e) => setColorVariant(Number(e.target.value))}
+              className="h-6 rounded border bg-background px-1 text-xs"
+            >
+              {Array.from({ length: colorVariants.count }, (_, i) => (
+                <option key={i} value={i}>
+                  Variant {i}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
       </MeshExportBar>
       <div className="grid grid-cols-1 gap-1 sm:grid-cols-2 lg:grid-cols-3">
         {shapes.map((r, i) => {

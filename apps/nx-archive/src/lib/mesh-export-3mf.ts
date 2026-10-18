@@ -260,6 +260,12 @@ const BIN_COUNT = 1 << 15;
 const FAMILY_RADIUS = 14;
 /** Families covering less of the surface than this are filtering noise (tiny real features, like eyes on a big-winged model, are larger). */
 const MIN_FAMILY_SHARE = 0.0002;
+/**
+ * Families covering more than this aren't treated as blends of two chosen
+ * colours: edge gradients are thin, but a Korok's tan body sits between
+ * its leaf green and berry red in CIELAB and still deserves a filament.
+ */
+const BLEND_MAX_SHARE = 0.05;
 
 /** Squared distance from Lab point `p` to the segment `a`–`b`. */
 function segmentDist2(p: ArrayLike<number>, a: ArrayLike<number>, b: ArrayLike<number>): number {
@@ -357,7 +363,9 @@ export function reducePalette(sums: Float64Array, k: number): Rgb[] {
 				const p = chosen[a]!.lab;
 				const dl = c.lab[0]! - p[0]!, da = c.lab[1]! - p[1]!, db = c.lab[2]! - p[2]!;
 				d2 = Math.min(d2, dl * dl + da * da + db * db);
-				for (let b = a + 1; b < chosen.length; b++) d2 = Math.min(d2, segmentDist2(c.lab, p, chosen[b]!.lab));
+				if (c.share < BLEND_MAX_SHARE) {
+					for (let b = a + 1; b < chosen.length; b++) d2 = Math.min(d2, segmentDist2(c.lab, p, chosen[b]!.lab));
+				}
 			}
 			const score = Math.sqrt(d2) * (1 + 0.1 * Math.log10(c.share / MIN_FAMILY_SHARE));
 			if (score > bestScore) {
