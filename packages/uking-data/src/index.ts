@@ -214,7 +214,11 @@ export function parseEco(bytes: Uint8Array): ParsedEco {
 		const out: [number, number][] = [];
 		const start = offsets[row]!;
 		const end = base + endOf.get(start)!;
-		for (let o = base + start; o + 4 <= end; o += 4) out.push([v.getUint16(o, true), v.getUint16(o + 2, true)]);
+		for (let o = base + start; o + 4 <= end; o += 4) {
+			const len = v.getUint16(o + 2, true);
+			// Zero-length runs are padding (after the last row, for one).
+			if (len) out.push([v.getUint16(o, true), len]);
+		}
 		return out;
 	};
 	let width = 0;
