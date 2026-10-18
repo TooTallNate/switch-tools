@@ -223,6 +223,9 @@ importers:
       '@tanstack/react-virtual':
         specifier: ^3.13.24
         version: 3.13.24(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@tootallnate/aamp':
+        specifier: workspace:*
+        version: link:../../packages/aamp
       '@tootallnate/acb':
         specifier: workspace:*
         version: link:../../packages/acb
@@ -1234,6 +1237,12 @@ importers:
       '@tootallnate/bcn':
         specifier: workspace:*
         version: link:../bcn
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/havok:
     devDependencies:
       typescript:
         specifier: ^5.3.3
