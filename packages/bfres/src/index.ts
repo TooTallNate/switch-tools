@@ -439,11 +439,23 @@ export interface BfresSkeletalAnim {
 }
 
 /** Per-FMAT material-parameter animation track in an FMAA. */
+/** One animated shader parameter of a material (FMAA ParamAnimInfo). */
+export interface BfresShaderParamAnim {
+	/** Shader parameter name, e.g. `const_color0`. */
+	name: string;
+	/** Curves into the parameter; `animDataOffset` is the byte offset of the component (0 = x / r, 4 = y / g, …). */
+	curves: BfresAnimCurve[];
+	/** Components held constant: `{ offset, value }`. */
+	constants: { offset: number; value: number }[];
+}
+
 export interface BfresMaterialAnim {
 	/** Bone/material this track binds to (matches a material name). */
 	name: string;
 	/** Curves: animated material parameters by name. */
 	curves: BfresAnimCurve[];
+	/** Animated shader parameters (colour variants, scrolling values, …). */
+	shaderParams: BfresShaderParamAnim[];
 	/** Texture-pattern keys: `samplerName -> [{ frame, textureIndex }]`.
 	 *  Used by FMAA's per-sampler texture flipbook animation. */
 	texturePatterns: Map<string, { frame: number; textureIndex: number }[]>;
@@ -2689,6 +2701,18 @@ function readSimpleAnimHeader(
  *   +0x38  2   numCurve
  *   +0x3A  6   reserved
  *
+ * Per-ParamAnimInfo (within `shaderParamAnimOff[]`), 0x18 bytes
+ * (after BfresLibrary's Switch layout):
+ *   +0x00  8   parameter-name string offset (e.g. `const_color0`)
+ *   +0x08  2   beginCurve (index into the material's curves)
+ *   +0x0A  2   floatCurveCount
+ *   +0x0C  2   intCurveCount
+ *   +0x0E  2   beginConstant
+ *   +0x10  2   constantCount
+ *   +0x12  2   subBindIndex
+ *   +0x14  4   reserved
+ * AnimConstant (within `constantsOff[]`): u32 animDataOffset, f32 / s32 value.
+ *
  * Per-PatternAnimInfo (within `texturePatternAnimOff[]`):
  *   +0x00  8   sampler-name string offset (e.g. `_a0`)
  *   +0x08  2   curveIndex (-1 if no curve)
@@ -2747,7 +2771,11 @@ function readMaterialAnim(
 			const matOff = matAnimArrOff + m * 0x40;
 			if (matOff + 0x40 > data.length) break;
 			const matNameOff = Number(v.getBigUint64(matOff + 0x00, true));
+			const paramAnimOff = Number(v.getBigUint64(matOff + 0x08, true));
 			const patternAnimOff = Number(v.getBigUint64(matOff + 0x10, true));
+			const constantsOff = Number(v.getBigUint64(matOff + 0x20, true));
+			const numParamAnimM = v.getUint16(matOff + 0x32, true);
+			const numConstantM = v.getUint16(matOff + 0x36, true);
 			const curveArrOff = Number(v.getBigUint64(matOff + 0x18, true));
 			const numPatternAnimM = v.getUint16(matOff + 0x34, true);
 			const numCurveM = v.getUint16(matOff + 0x38, true);
@@ -2810,9 +2838,38 @@ function readMaterialAnim(
 				}
 			}
 
+			// Shader parameter animations: each names a parameter and
+			// owns a run of the material's curves and constants.
+			const constants: { offset: number; value: number }[] = [];
+			if (constantsOff > 0) {
+				for (let c = 0; c < numConstantM && constantsOff + c * 8 + 8 <= data.length; c++) {
+					constants.push({
+						offset: v.getUint32(constantsOff + c * 8, true),
+						value: v.getFloat32(constantsOff + c * 8 + 4, true),
+					});
+				}
+			}
+			const shaderParams: BfresShaderParamAnim[] = [];
+			if (paramAnimOff > 0) {
+				for (let p = 0; p < numParamAnimM; p++) {
+					const pOff = paramAnimOff + p * 0x18;
+					if (pOff + 0x18 > data.length) break;
+					const beginCurve = v.getUint16(pOff + 0x08, true);
+					const curveCount = v.getUint16(pOff + 0x0a, true) + v.getUint16(pOff + 0x0c, true);
+					const beginConstant = v.getUint16(pOff + 0x0e, true);
+					const constantCount = v.getUint16(pOff + 0x10, true);
+					shaderParams.push({
+						name: readPoolString(data, Number(v.getBigUint64(pOff, true))),
+						curves: curves.slice(beginCurve, beginCurve + curveCount),
+						constants: constants.slice(beginConstant, beginConstant + constantCount),
+					});
+				}
+			}
+
 			materialAnims.push({
 				name: matName,
 				curves,
+				shaderParams,
 				texturePatterns,
 			});
 		}
