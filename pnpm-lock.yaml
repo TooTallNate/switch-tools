@@ -1012,6 +1012,12 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/evfl:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/f3dex:
     devDependencies:
       typescript:
