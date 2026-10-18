@@ -89,6 +89,14 @@ export interface ParsedBfstm {
 	channels: BfstmChannel[];
 	/** Lazy view of the file's `DATA` block. */
 	dataBlock: Blob;
+	/**
+	 * True for a BFSTP whose `PDAT` holds only the opening part of the
+	 * stream. The geometry fields (`totalSamples`, block counts) then
+	 * describe that part; `streamTotalSamples` is the full length.
+	 */
+	prefetchOnly: boolean;
+	/** Sample count of the complete stream (equals `totalSamples` unless `prefetchOnly`). */
+	streamTotalSamples: number;
 }
 
 export interface BfstmChannel {
@@ -145,6 +153,8 @@ export async function parseBfstm(blob: Blob): Promise<ParsedBfstm> {
 	let infoSize = 0;
 	let dataOffset = 0;
 	let dataSize = 0;
+	let pdatOffset = 0;
+	let pdatSize = 0;
 	for (let i = 0; i < numBlocks; i++) {
 		const o = 0x14 + i * 0x0c;
 		if (o + 0x0c > head.length) break;
@@ -157,9 +167,12 @@ export async function parseBfstm(blob: Blob): Promise<ParsedBfstm> {
 		} else if (id === 0x4002) {
 			dataOffset = off;
 			dataSize = size;
+		} else if (id === 0x4004) {
+			pdatOffset = off;
+			pdatSize = size;
 		}
 	}
-	if (!infoOffset || !infoSize || !dataOffset || !dataSize) {
+	if (!infoOffset || !infoSize || ((!dataOffset || !dataSize) && (!pdatOffset || !pdatSize))) {
 		throw new Error('BFSTM/BFSTP missing INFO or DATA block');
 	}
 
@@ -262,7 +275,7 @@ export async function parseBfstm(blob: Blob): Promise<ParsedBfstm> {
 		};
 	}
 
-	return {
+	const parsed: ParsedBfstm = {
 		magic,
 		endian,
 		version,
@@ -283,7 +296,67 @@ export async function parseBfstm(blob: Blob): Promise<ParsedBfstm> {
 		dataPayloadStart,
 		channels,
 		dataBlock: blob.slice(dataOffset, dataOffset + dataSize),
+		prefetchOnly: false,
+		streamTotalSamples: totalSamples,
 	};
+	if (!dataOffset || !dataSize) await usePrefetchData(blob, parsed, pdatOffset, pdatSize, isLittle);
+	return parsed;
+}
+
+/**
+ * Point a BFSTP's decode at its `PDAT` (prefetch data) block. Layout,
+ * from the files themselves: `PDAT`, u32 size, u32 entry count, then
+ * entries of { u32 start sample, u32 byte size, u32 pad, u16 type,
+ * u16 pad, s32 data offset relative to the entry }. The data is the
+ * stream's first interleave blocks, laid out exactly like `DATA`. The
+ * full stream is a separate `.bfstm` of the same name, which games
+ * ship next to the sound archive (BotW: `Sound/Resource/Stream/`).
+ *
+ * The bytes are rewrapped behind a synthetic `DATA` header so
+ * {@link decodeBfstmToPcm16} needs no special case. The geometry is
+ * clamped to the whole blocks present, unless the prefetch covers the
+ * entire (short) stream.
+ */
+async function usePrefetchData(
+	blob: Blob,
+	parsed: ParsedBfstm,
+	pdatOffset: number,
+	pdatSize: number,
+	isLittle: boolean,
+): Promise<void> {
+	const head = new Uint8Array(await blob.slice(pdatOffset, pdatOffset + 0x20).arrayBuffer());
+	const v = new DataView(head.buffer, head.byteOffset, head.byteLength);
+	if (head[0] !== 0x50 || head[1] !== 0x44 || head[2] !== 0x41 || head[3] !== 0x54) {
+		throw new Error('Bad BFSTP PDAT magic');
+	}
+	if (v.getUint32(0x08, isLittle) < 1) throw new Error('BFSTP PDAT has no prefetch entries');
+	const startSample = v.getUint32(0x0c, isLittle);
+	const size = v.getUint32(0x10, isLittle);
+	const start = pdatOffset + 0x0c + v.getInt32(0x1c, isLittle);
+	if (startSample !== 0 || start + size > pdatOffset + pdatSize || start + size > blob.size) {
+		throw new Error('BFSTP PDAT entry out of range');
+	}
+	const { numChannels: ch, interleaveBlockCount: count, interleaveBlockSize: blockSize } = parsed;
+	const fullBytes = (count - 1) * blockSize * ch + parsed.lastBlockSizeWithPadding * ch;
+	if (size < fullBytes) {
+		const blocks = Math.floor(size / (blockSize * ch));
+		if (blocks < 1) throw new Error('BFSTP prefetch holds no complete block');
+		parsed.prefetchOnly = true;
+		parsed.interleaveBlockCount = blocks;
+		parsed.lastBlockSamples = parsed.samplesPerBlock;
+		parsed.lastBlockSizeWithPadding = blockSize;
+		parsed.lastBlockSizeWithoutPadding = blockSize;
+		parsed.totalSamples = blocks * parsed.samplesPerBlock;
+		if (parsed.loopStart >= parsed.totalSamples) parsed.loopFlag = false;
+	}
+	// Read the (small) prefetch eagerly: Bun drops file-backed slices
+	// nested in `new Blob([...])`.
+	const block = new Uint8Array(0x20 + size);
+	block.set([0x44, 0x41, 0x54, 0x41]);
+	new DataView(block.buffer).setUint32(4, 0x20 + size, isLittle);
+	block.set(new Uint8Array(await blob.slice(start, start + size).arrayBuffer()), 0x20);
+	parsed.dataBlock = new Blob([block]);
+	parsed.dataPayloadStart = start;
 }
 
 /**
@@ -374,7 +447,7 @@ export async function decodeBfstmToPcm16(
 					Math.ceil(samplesThisBlock / DSP_SAMPLES_PER_FRAME) * 8
 					: sliceLen;
 				const blockBaseInDataBytes =
-					payloadOff + b * (sliceLen * numChannels);
+					payloadOff + b * (interleaveBlockSize * numChannels);
 
 				for (let c = 0; c < numChannels; c++) {
 					const chSliceStart = blockBaseInDataBytes + c * sliceLen;
@@ -404,7 +477,7 @@ export async function decodeBfstmToPcm16(
 				const isLast = b === interleaveBlockCount - 1;
 				const sliceLen = isLast ? lastBlockSizeWithPadding : interleaveBlockSize;
 				const samplesThisBlock = isLast ? lastBlockSamples : samplesPerBlock;
-				const blockBase = payloadOff + b * (sliceLen * numChannels);
+				const blockBase = payloadOff + b * (interleaveBlockSize * numChannels);
 				for (let c = 0; c < numChannels; c++) {
 					const chSliceStart = blockBase + c * sliceLen;
 					const dv = new DataView(
@@ -425,7 +498,7 @@ export async function decodeBfstmToPcm16(
 				const isLast = b === interleaveBlockCount - 1;
 				const sliceLen = isLast ? lastBlockSizeWithPadding : interleaveBlockSize;
 				const samplesThisBlock = isLast ? lastBlockSamples : samplesPerBlock;
-				const blockBase = payloadOff + b * (sliceLen * numChannels);
+				const blockBase = payloadOff + b * (interleaveBlockSize * numChannels);
 				for (let c = 0; c < numChannels; c++) {
 					const chSliceStart = blockBase + c * sliceLen;
 					const outOff = b * samplesPerBlock;
