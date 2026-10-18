@@ -322,6 +322,9 @@ importers:
       '@tootallnate/dxtk-font':
         specifier: workspace:*
         version: link:../../packages/dxtk-font
+      '@tootallnate/evfl':
+        specifier: workspace:*
+        version: link:../../packages/evfl
       '@tootallnate/f3dex':
         specifier: workspace:*
         version: link:../../packages/f3dex
@@ -397,6 +400,9 @@ importers:
       '@tootallnate/goldeneye':
         specifier: workspace:*
         version: link:../../packages/goldeneye
+      '@tootallnate/gx2':
+        specifier: workspace:*
+        version: link:../../packages/gx2
       '@tootallnate/halo-map':
         specifier: workspace:*
         version: link:../../packages/halo-map
@@ -505,6 +511,9 @@ importers:
       '@tootallnate/nus3':
         specifier: workspace:*
         version: link:../../packages/nus3
+      '@tootallnate/nvn-texture':
+        specifier: workspace:*
+        version: link:../../packages/nvn-texture
       '@tootallnate/oodle-wasm':
         specifier: workspace:*
         version: link:../../packages/oodle-wasm
@@ -580,6 +589,9 @@ importers:
       '@tootallnate/uasset':
         specifier: workspace:*
         version: link:../../packages/uasset
+      '@tootallnate/uking-data':
+        specifier: workspace:*
+        version: link:../../packages/uking-data
       '@tootallnate/uking-terrain':
         specifier: workspace:*
         version: link:../../packages/uking-terrain

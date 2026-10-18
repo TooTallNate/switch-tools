@@ -8,6 +8,7 @@
  * reopened file shows them instantly.
  */
 
+import { decodeDataTexture } from '~/lib/data-textures';
 import * as THREE from 'three';
 
 import type { Node } from '../archive';
@@ -131,6 +132,10 @@ async function decodeImage(node: Node, previewKind: string): Promise<(Rgba & { c
 		case 'dds-image': {
 			const d = parseDds(new Uint8Array(await blob.arrayBuffer()));
 			return { width: d.width, height: d.height, pixels: d.pixels };
+		}
+		case 'gx2-image':
+		case 'nvn-image': {
+			return decodeDataTexture(node);
 		}
 		case 'bti-image': {
 			const v = await parseBtiForView(blob);

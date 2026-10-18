@@ -9447,7 +9447,7 @@ async function childNodeFor(
 
 	// Data formats recognised by magic whatever their extension (BotW
 	// alone uses dozens of extensions for AAMP and BYML).
-	const leaf = await leafFormatOf(blob, name);
+	const leaf = ukingMiscByName(name, id) ? 'uking-misc' : await leafFormatOf(blob, name);
 	if (leaf) {
 		return {
 			id,
@@ -9482,7 +9482,26 @@ const TERRAIN_TILE_SIZE: Record<TerrainTileKind, number> = {
 };
 
 /** Leaf data formats identified by magic, see {@link leafFormatOf}. */
-export type LeafFormat = 'aamp' | 'byml' | 'havok' | 'uking-terrain' | 'tscb';
+export type LeafFormat =
+	| 'aamp'
+	| 'byml'
+	| 'havok'
+	| 'uking-terrain'
+	| 'tscb'
+	| 'evfl'
+	| 'stat'
+	| 'prod'
+	| 'eco'
+	| 'rstb'
+	| 'xlnk'
+	| 'gx2'
+	| 'nvn-texture'
+	| 'nw-binary'
+	| 'uking-sound'
+	| 'hash-list'
+	| 'uking-misc'
+	| 'xml'
+	| 'switch-ticket';
 
 const LEAF_FORMAT_LABEL: Record<LeafFormat, string> = {
 	aamp: 'AAMP',
@@ -9490,7 +9509,39 @@ const LEAF_FORMAT_LABEL: Record<LeafFormat, string> = {
 	havok: 'Havok',
 	'uking-terrain': 'BotW terrain',
 	tscb: 'TSCB',
+	evfl: 'BFEVFL',
+	stat: 'STAT',
+	prod: 'PrOD',
+	eco: 'Ecosystem',
+	rstb: 'RSTB',
+	xlnk: 'XLNK',
+	gx2: 'GX2',
+	'nvn-texture': 'NVN texture',
+	'nw-binary': 'NintendoWare',
+	'uking-sound': 'BotW sound config',
+	'hash-list': 'Hash list',
+	'uking-misc': 'BotW engine data',
+	xml: 'XML',
+	'switch-ticket': 'Ticket',
 };
+
+/**
+ * BotW engine files with no magic, identified by name. These get an
+ * identification page (what the file is, plus its strings and numbers)
+ * rather than a decoder. See `uking-misc` in `data-previews.tsx`.
+ */
+function ukingMiscByName(name: string, id: string): boolean {
+	const lower = name.toLowerCase();
+	return (
+		lower.endsWith('.brtcamera') ||
+		lower.endsWith('.skybin') ||
+		lower.endsWith('.bushvt') ||
+		(lower.endsWith('.raw') && /\/agl_resource\./i.test(id)) ||
+		(lower.endsWith('.bin') && /\/AnimationDrivenSpeed\//.test(id)) ||
+		// Switch SDK debug font companions (glyph code table, NVN shaders).
+		(lower.endsWith('.bin') && /\/nvn_font\//.test(id))
+	);
+}
 
 /**
  * Identify a leaf's data format from its first 16 bytes. Only checks
@@ -9500,11 +9551,29 @@ export async function leafFormatOf(blob: Blob, name = ''): Promise<LeafFormat | 
 	// BotW terrain tiles have no magic; the name and exact size identify them.
 	const tile = terrainTileKind(name);
 	if (tile && blob.size === TERRAIN_TILE_SIZE[tile]) return 'uking-terrain';
+	const lowerName = name.toLowerCase();
+	// Switch tickets / certificate chains at the top of an NSP.
+	if (lowerName.endsWith('.tik') && blob.size >= 0x2c0) return 'switch-ticket';
+	if (lowerName.endsWith('.cert') && blob.size >= 0x300) return 'switch-ticket';
+	if (lowerName.endsWith('.sfmc')) return 'hash-list';
 	if (blob.size < 16) return null;
 	const h = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
 	const m4 = String.fromCharCode(h[0]!, h[1]!, h[2]!, h[3]!);
 	if (m4 === 'AAMP') return 'aamp';
 	if (m4 === 'TSCB') return 'tscb';
+	const m8 = String.fromCharCode(...h.subarray(0, 8));
+	if (m8.startsWith('BFEVFL')) return 'evfl';
+	if (m4 === 'STAT') return 'stat';
+	if (m4 === 'PrOD') return 'prod';
+	if (m4 === 'RSTB') return 'rstb';
+	if (m4 === 'XLNK') return 'xlnk';
+	if (m4 === 'Gfx2') return 'gx2';
+	if (m4 === 'DFvN') return 'nvn-texture';
+	if (m8 === 'FSHA    ' || m4 === 'BAHS' || m4 === 'FWSD' || m4 === 'FGRP') return 'nw-binary';
+	if (m4 === 'AATN' || m4 === 'AROC' || m4 === 'AACL' || m4 === 'AGST' || m4 === 'BLAL') return 'uking-sound';
+	if (m4 === '<?xm') return 'xml';
+	// BotW ecosystem map: u32 0x00112233.
+	if (h[0] === 0x33 && h[1] === 0x22 && h[2] === 0x11 && h[3] === 0x00) return 'eco';
 	// Havok packfile: 0x57E0E057 0x10C0C010.
 	if (h[0] === 0x57 && h[1] === 0xe0 && h[2] === 0xe0 && h[3] === 0x57 && h[4] === 0x10 && h[5] === 0xc0 && h[6] === 0xc0 && h[7] === 0x10) return 'havok';
 	const m2 = m4.slice(0, 2);

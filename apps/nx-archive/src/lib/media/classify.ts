@@ -63,6 +63,8 @@ const FONT_KINDS = new Set(['bfttf-info', 'font-info', 'bffnt-info', 'bmfont-inf
 
 const IMAGE_KINDS = new Set([
 	'image',
+	'gx2-image',
+	'nvn-image',
 	'psx-tim',
 	'dds-image',
 	'tga-image',

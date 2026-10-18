@@ -255,6 +255,16 @@ export type PreviewKind =
 	| 'terrain-tile'
 	/** Breath of the Wild terrain scene table. */
 	| 'tscb-info'
+	/** Event flowcharts / timelines (BFEVFL). */
+	| 'evfl-info'
+	/** Game data with a rendered map (BotW STAT stats, ecosystem areas). */
+	| 'data-map'
+	/** Game data shown as structured text (PrOD, RSTB, XLNK, sound configs, …). */
+	| 'data-text'
+	/** GX2 (Wii U) texture. */
+	| 'gx2-image'
+	/** NVN texture (Switch SDK font). */
+	| 'nvn-image'
 	/** Nintendo texture format (BC1/3/4/5/7, RGBA8, etc.). */
 	| 'bntx-image'
 	/** Sony PhyreEngine (`.phyre`) texture — FFX/X-2 HD, FFXII TZA. */
@@ -611,6 +621,15 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.leafFormat === 'havok') return 'havok-info';
 	if (node.meta?.leafFormat === 'uking-terrain') return 'terrain-tile';
 	if (node.meta?.leafFormat === 'tscb') return 'tscb-info';
+	if (node.meta?.leafFormat === 'evfl') return 'evfl-info';
+	if (node.meta?.leafFormat === 'stat' || node.meta?.leafFormat === 'eco') return 'data-map';
+	if (node.meta?.leafFormat === 'gx2') return /\.gsh$/i.test(node.name) ? 'data-text' : 'gx2-image';
+	if (node.meta?.leafFormat === 'nvn-texture') return 'nvn-image';
+	if (node.meta?.leafFormat === 'xml') return 'text';
+	if (typeof node.meta?.leafFormat === 'string') {
+		const textual = ['prod', 'rstb', 'xlnk', 'nw-binary', 'uking-sound', 'hash-list', 'uking-misc', 'switch-ticket'];
+		if (textual.includes(node.meta.leafFormat)) return 'data-text';
+	}
 	if (node.meta?.haloModel) return 'halo-model';
 	// PlatinumGames WMB3 model (Bayonetta 3).
 	if (node.meta?.platinumModel) return 'platinum-model';
