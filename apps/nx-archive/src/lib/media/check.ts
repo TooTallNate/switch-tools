@@ -7,6 +7,9 @@
  *   - sounds and music: decode to WAV
  *   - images: decode to RGBA (plain browser images are skipped)
  *
+ * Items that turn out not to be models (texture- or animation-only BFRES)
+ * are dropped, and their parts promoted to items, as in the library.
+ *
  * Fonts and videos need a canvas or WebCodecs, so they're left unchecked.
  */
 import type { Node } from '../archive';
@@ -14,6 +17,7 @@ import { findNodeById } from '../unity-external';
 import { decodeAudioBlob } from './audio';
 import { canLoadModelHeadless, loadModelAsset } from './model-assets';
 import { decodeImage } from './thumbnails';
+import { dropItems } from './orphans';
 import type { MediaIndex, MediaItem } from './types';
 
 export interface CheckOptions {
@@ -55,18 +59,27 @@ export async function checkMediaItem(
 /** Check every primary item of an index in place (sets `status` / `note`, removes dropped items). */
 export async function checkMedia(index: MediaIndex, root: Node, opts: CheckOptions = {}): Promise<void> {
 	const kinds = opts.kinds ?? new Set(['model', 'sound', 'music', 'image']);
-	const todo = index.items.filter((i) => !i.partOf && kinds.has(i.kind));
-	const dropped = new Set<string>();
-	let done = 0;
-	for (const item of todo) {
-		const node = await findNodeById(root, item.id);
-		const r = node?.blob ? await checkMediaItem(item, node, root) : { status: 'error' as const, note: 'File not found in the tree' };
-		if (r && 'drop' in r) dropped.add(item.id);
-		else if (r) {
-			item.status = r.status;
-			item.note = r.note;
+	const checkAll = async (todo: MediaItem[]) => {
+		const dropped = new Set<string>();
+		let done = 0;
+		for (const item of todo) {
+			const node = await findNodeById(root, item.id);
+			const r = node?.blob ? await checkMediaItem(item, node, root) : { status: 'error' as const, note: 'File not found in the tree' };
+			if (r && 'drop' in r) dropped.add(item.id);
+			else if (r) {
+				item.status = r.status;
+				item.note = r.note;
+			}
+			opts.onProgress?.(++done, todo.length, item);
 		}
-		opts.onProgress?.(++done, todo.length, item);
+		return dropped;
+	};
+	const dropped = await checkAll(index.items.filter((i) => !i.partOf && kinds.has(i.kind)));
+	if (dropped.size) {
+		// Parts of dropped owners become items (as in the library); check them too.
+		const promoted = index.items.filter((i) => i.partOf && dropped.has(i.partOf));
+		index.items = dropItems(index.items, (id) => dropped.has(id));
+		const again = await checkAll(index.items.filter((i) => promoted.some((p) => p.id === i.id) && kinds.has(i.kind)));
+		if (again.size) index.items = dropItems(index.items, (id) => again.has(id));
 	}
-	if (dropped.size) index.items = index.items.filter((i) => !dropped.has(i.id));
 }

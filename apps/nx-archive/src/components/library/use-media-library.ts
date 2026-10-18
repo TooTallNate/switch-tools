@@ -8,6 +8,7 @@
  * blocks rendering; when workers are unavailable it falls back to the
  * in-thread scanner over the shared tree.
  */
+import { dropItems } from "~/lib/media/orphans"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import type { Node } from "~/lib/archive"
@@ -52,7 +53,8 @@ function applyPatches(index: MediaIndex, patches: Map<string, ItemPatch>): Media
   if (patches.size === 0) return index
   return {
     ...index,
-    items: index.items.filter((it) => !patches.get(it.id)?.drop).map((it) => {
+    // Parts of a dropped owner become items of their own (see `dropItems`).
+    items: dropItems(index.items, (id) => !!patches.get(id)?.drop).map((it) => {
       const p = patches.get(it.id)
       if (!p) return it
       return {
