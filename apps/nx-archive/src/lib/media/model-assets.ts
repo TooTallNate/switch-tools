@@ -332,7 +332,8 @@ async function loadBfres(node: Node, root: Node | null): Promise<ModelAsset> {
 		pose: 'bind',
 		triangles,
 		vertices,
-		texturesFound: [visible.filter((r) => r.hasAlbedo).length, visible.length],
+		// Flat-coloured materials sample no texture, so they count as complete.
+		texturesFound: [visible.filter((r) => r.hasAlbedo || r.flatColor).length, visible.length],
 		animations: loaded.animations.skeletal.length,
 	};
 }

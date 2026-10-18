@@ -41,6 +41,7 @@ import {
 
 import type { Node } from "~/lib/archive"
 import { getAstcBlockDecoder } from "~/lib/astc"
+import { ukingBaseColor } from "~/lib/bfres-uking-shading"
 import {
   bakeAlbedoLayers,
   bezelBaseColor,
@@ -105,6 +106,12 @@ interface ShapeRecord {
   visible: boolean
   /** Whether we successfully bound an albedo texture from the BNTX. */
   hasAlbedo: boolean
+  /**
+   * The material samples no albedo texture and draws a constant colour
+   * instead (e.g. BotW's untextured `uking_mat` shadow materials), so
+   * no texture is missing.
+   */
+  flatColor: boolean
   /**
    * Original bind-pose albedo for this shape. Captured at mount
    * time so the FMAA driver can restore it when material
@@ -1895,9 +1902,9 @@ export async function loadBfresShapes(node: Node, root: Node | null): Promise<Lo
       // alphaTest discards alpha<0.5 fragments in the GPU
       // before depth-write, also avoiding z-fighting between
       // the pupil mesh and surrounding eye geometry.
-      const baseColor = bezelBaseColor(
-        materials[g.modelIndex]?.[g.materialIndex],
-      )
+      const shapeMaterial = materials[g.modelIndex]?.[g.materialIndex]
+      const ukingColor = albedo ? null : ukingBaseColor(shapeMaterial, ALBEDO_SAMPLERS)
+      const baseColor = bezelBaseColor(shapeMaterial) ?? ukingColor
       const material: THREE.Material = albedo
         ? new THREE.MeshBasicMaterial({
             map: albedo,
@@ -2037,6 +2044,7 @@ export async function loadBfresShapes(node: Node, root: Node | null): Promise<Lo
         mesh,
         visible,
         hasAlbedo: !!albedo,
+        flatColor: !!ukingColor,
         bindAlbedo: albedo,
       }
     })
@@ -2705,6 +2713,13 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
                   title="Albedo texture bound from embedded BNTX"
                 >
                   Tex
+                </span>
+              ) : r.flatColor ? (
+                <span
+                  className="shrink-0 rounded-sm bg-muted px-1 text-[9px] font-medium uppercase tracking-wider text-muted-foreground"
+                  title="Untextured material: drawn with its constant shader colour"
+                >
+                  Flat
                 </span>
               ) : null}
               <span className="ml-auto shrink-0 font-mono text-muted-foreground">
