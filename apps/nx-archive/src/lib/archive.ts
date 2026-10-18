@@ -69,6 +69,7 @@ import { catalogFolders, nameModelFolder, openTrinityFs, type TrinityFs } from '
 import { datEntryBytes, listDat, pkzEntryBytes, readPkz, registerPkzChild, textureBankChildren } from './platinum';
 import { makeDrpNode, makeNus3BankNode, makeNutNode } from './pokken';
 import { registerExefsMain } from './title-exefs';
+import { registerRomfs, romfsFileFor } from './title-romfs';
 import { parseAkpk } from '@tootallnate/wwise-pck';
 import { parseBnk } from '@tootallnate/wwise-bnk';
 import {
@@ -2596,7 +2597,7 @@ function makeRomfsNode(
 	blob: Blob,
 	ctx: ArchiveContext,
 ): Node {
-	return {
+	const node: Node = {
 		id,
 		name,
 		kind: 'romfs',
@@ -2609,6 +2610,9 @@ function makeRomfsNode(
 			return romfsEntriesToNodes(id, root, ctx);
 		},
 	};
+	// Lets nested files find other files of the same title by path.
+	registerRomfs(node);
+	return node;
 }
 
 /**
@@ -5092,6 +5096,9 @@ async function barsEntriesToNodes(
 			if (used.has(leaf)) leaf = `${baseName}_${e.index}.${ext}`;
 			used.add(leaf);
 			const childId = `${parentId}/${leaf}`;
+			if (e.audio && e.audioKind === 'fstp') {
+				return withFullStream(await childNodeFor(childId, leaf, e.audio, ctx), baseName, e.audio);
+			}
 			if (e.audio) {
 				return childNodeFor(childId, leaf, e.audio, ctx);
 			}
@@ -5110,6 +5117,34 @@ async function barsEntriesToNodes(
 			};
 		}),
 	);
+}
+
+/**
+ * Where games keep the full streams for BARS prefetches, relative to the
+ * RomFS root. BotW (and other NintendoWare titles) use `Sound/Resource/Stream`.
+ */
+const PREFETCH_STREAM_DIRS = ['Sound/Resource/Stream'];
+
+/**
+ * A BARS `.bfstp` is a prefetch: just the opening blocks of a stream that
+ * the game plays in full from a `.bfstm` of the same name. Serve that
+ * stream when the title's RomFS has it, so the track plays to the end
+ * (and the library folds it together with the stream file). Otherwise
+ * fall back to the prefetch itself.
+ */
+function withFullStream(node: Node, streamName: string, prefetch: Blob): Node {
+	let resolved: Promise<Blob> | null = null;
+	return {
+		...node,
+		blob: () =>
+			(resolved ??= (async () => {
+				for (const dir of PREFETCH_STREAM_DIRS) {
+					const full = await romfsFileFor(node.id, `${dir}/${streamName}.bfstm`).catch(() => null);
+					if (full?.blob && !full.isContainer) return full.blob();
+				}
+				return prefetch;
+			})()),
+	};
 }
 
 // ----- AWB (CRI AFS2 audio wave bank) -----
