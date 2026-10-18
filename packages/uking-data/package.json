@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/uking-data",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Breath of the Wild engine data tables: STAT maps, PrOD placements, ecosystem maps, RSTB, XLNK.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/uking-data"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
