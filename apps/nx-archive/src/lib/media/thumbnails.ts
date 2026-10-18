@@ -122,7 +122,7 @@ async function bitmapThumb(blob: Blob): Promise<{ png: Blob; width: number; heig
 }
 
 /** Decode an image node to RGBA. Null when the format has no cheap decoder. */
-async function decodeImage(node: Node, previewKind: string): Promise<(Rgba & { count?: number }) | null> {
+export async function decodeImage(node: Node, previewKind: string): Promise<(Rgba & { count?: number }) | null> {
 	const blob = await node.blob!();
 	switch (previewKind) {
 		case 'bntx-image': {

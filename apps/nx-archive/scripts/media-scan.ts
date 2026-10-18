@@ -5,7 +5,7 @@
  *
  *   bun scripts/media-scan.ts <file|folder> [--keys ~/.switch/prod.keys] [--deep]
  *                                    [--oodle oodle.wasm]
- *                                    [--md report.md] [--json index.json] [--progress]
+ *                                    [--md report.md] [--json index.json] [--progress] [--check]
  *
  * `--oodle` defaults to `~/.switch/oodle.wasm`, then a local build at
  * `packages/oodle-wasm/src/oodle.wasm` (see its README); without one,
@@ -110,6 +110,24 @@ const index = await scanMedia(
 	},
 );
 if (process.stderr.isTTY) process.stderr.write('\r\x1b[2K');
+
+// --check: run the thumbnail decoders headlessly so partial / failed
+// media show up in the report as they would in the browser.
+if (process.argv.includes('--check')) {
+	const { checkMedia } = await import('../src/lib/media/check');
+	let lastCheck = 0;
+	await checkMedia(index, root, {
+		onProgress: (done, total, item) => {
+			if (Date.now() - lastCheck > (process.stderr.isTTY ? 200 : 10_000)) {
+				lastCheck = Date.now();
+				const line = `checking ${done.toLocaleString()} / ${total.toLocaleString()} ${item.path.slice(-70)}`;
+				if (process.stderr.isTTY) process.stderr.write(`\r\x1b[2K${line}`);
+				else console.error(`${new Date().toISOString()} ${line}`);
+			}
+		},
+	});
+	if (process.stderr.isTTY) process.stderr.write('\r\x1b[2K');
+}
 
 const s = summarize(index);
 console.error(
