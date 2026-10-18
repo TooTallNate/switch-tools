@@ -251,6 +251,10 @@ export type PreviewKind =
 	| 'aamp-tree'
 	/** Havok packfile (physics, navmesh, cloth): sections and classes. */
 	| 'havok-info'
+	/** Breath of the Wild terrain tile (height / material / grass / water map). */
+	| 'terrain-tile'
+	/** Breath of the Wild terrain scene table. */
+	| 'tscb-info'
 	/** Nintendo texture format (BC1/3/4/5/7, RGBA8, etc.). */
 	| 'bntx-image'
 	/** Sony PhyreEngine (`.phyre`) texture — FFX/X-2 HD, FFXII TZA. */
@@ -605,6 +609,8 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.leafFormat === 'aamp') return 'aamp-tree';
 	if (node.meta?.leafFormat === 'byml') return 'byaml-tree';
 	if (node.meta?.leafFormat === 'havok') return 'havok-info';
+	if (node.meta?.leafFormat === 'uking-terrain') return 'terrain-tile';
+	if (node.meta?.leafFormat === 'tscb') return 'tscb-info';
 	if (node.meta?.haloModel) return 'halo-model';
 	// PlatinumGames WMB3 model (Bayonetta 3).
 	if (node.meta?.platinumModel) return 'platinum-model';

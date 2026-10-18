@@ -144,6 +144,7 @@
     "@tootallnate/trpfs": "workspace:*",
     "@tootallnate/uasset": "workspace:*",
     "@tootallnate/unity-asset": "workspace:*",
+    "@tootallnate/uking-terrain": "workspace:*",
     "@tootallnate/upak": "workspace:*",
     "@tootallnate/usm": "workspace:*",
     "@tootallnate/vadpcm": "workspace:*",

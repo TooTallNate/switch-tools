@@ -37,7 +37,7 @@ import { Separator } from "~/components/ui/separator"
 import { Skeleton } from "~/components/ui/skeleton"
 import { Spinner } from "~/components/ui/spinner"
 import { BfresViewer } from "./bfres-viewer"
-import { AampPreview, HavokPreview, VfxbPreview } from "./data-previews"
+import { AampPreview, HavokPreview, TerrainTilePreview, TscbPreview, VfxbPreview } from "./data-previews"
 import { ObjectLabel, ObjectRootLabel } from "react-inspector"
 import { JsonInspector, UnityObjectInspector } from "./data-inspector"
 import {
@@ -1953,6 +1953,10 @@ function FilePreview({
       return <AampPreview node={node} />
     case "havok-info":
       return <HavokPreview node={node} />
+    case "terrain-tile":
+      return <TerrainTilePreview node={node} />
+    case "tscb-info":
+      return <TscbPreview node={node} />
     case "bntx-image":
       return <BntxPreview node={node} />
     case "phyre-image":

@@ -39,6 +39,7 @@ import { decompressYaz0 } from '@tootallnate/yaz0';
 import { decompressLz4, decodeBlock, type Lz4Variant } from '@tootallnate/lz4';
 import { parseBars, type BarsEntry } from '@tootallnate/bars';
 import { parseVfxb } from '@tootallnate/vfxb';
+import { terrainTileKind, type TerrainTileKind } from '@tootallnate/uking-terrain';
 import { parseAwb, readAwbHeader } from '@tootallnate/awb';
 import {
 	cueNamesForAwb,
@@ -9446,7 +9447,7 @@ async function childNodeFor(
 
 	// Data formats recognised by magic whatever their extension (BotW
 	// alone uses dozens of extensions for AAMP and BYML).
-	const leaf = await leafFormatOf(blob);
+	const leaf = await leafFormatOf(blob, name);
 	if (leaf) {
 		return {
 			id,
@@ -9473,24 +9474,37 @@ async function childNodeFor(
 
 }
 
+const TERRAIN_TILE_SIZE: Record<TerrainTileKind, number> = {
+	hght: 256 * 256 * 2,
+	mate: 256 * 256 * 4,
+	grass: 64 * 64 * 4,
+	water: 64 * 64 * 8,
+};
+
 /** Leaf data formats identified by magic, see {@link leafFormatOf}. */
-export type LeafFormat = 'aamp' | 'byml' | 'havok';
+export type LeafFormat = 'aamp' | 'byml' | 'havok' | 'uking-terrain' | 'tscb';
 
 const LEAF_FORMAT_LABEL: Record<LeafFormat, string> = {
 	aamp: 'AAMP',
 	byml: 'BYML',
 	havok: 'Havok',
+	'uking-terrain': 'BotW terrain',
+	tscb: 'TSCB',
 };
 
 /**
  * Identify a leaf's data format from its first 16 bytes. Only checks
  * strong magics, plus a header sanity check for BYML's two-letter magic.
  */
-export async function leafFormatOf(blob: Blob): Promise<LeafFormat | null> {
+export async function leafFormatOf(blob: Blob, name = ''): Promise<LeafFormat | null> {
+	// BotW terrain tiles have no magic; the name and exact size identify them.
+	const tile = terrainTileKind(name);
+	if (tile && blob.size === TERRAIN_TILE_SIZE[tile]) return 'uking-terrain';
 	if (blob.size < 16) return null;
 	const h = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
 	const m4 = String.fromCharCode(h[0]!, h[1]!, h[2]!, h[3]!);
 	if (m4 === 'AAMP') return 'aamp';
+	if (m4 === 'TSCB') return 'tscb';
 	// Havok packfile: 0x57E0E057 0x10C0C010.
 	if (h[0] === 0x57 && h[1] === 0xe0 && h[2] === 0xe0 && h[3] === 0x57 && h[4] === 0x10 && h[5] === 0xc0 && h[6] === 0xc0 && h[7] === 0x10) return 'havok';
 	const m2 = m4.slice(0, 2);

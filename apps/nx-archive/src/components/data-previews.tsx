@@ -9,6 +9,8 @@
  *    sections, object classes and stored names
  *  - VFXB particle effects (container landing page) → emitter sets and
  *    their emitters, plus the embedded resources
+ *  - BotW terrain tiles → rendered height / material / grass / water map,
+ *    and the TSCB scene table
  */
 import { useEffect, useState } from "react"
 import { useTheme } from "next-themes"
@@ -16,6 +18,7 @@ import { useTheme } from "next-themes"
 import { aampToText, parseAamp } from "@tootallnate/aamp"
 import { parseHavok } from "@tootallnate/havok"
 import { parseVfxb } from "@tootallnate/vfxb"
+import { parseTscb, renderTerrainTile, terrainTileKind } from "@tootallnate/uking-terrain"
 
 import type { Node } from "~/lib/archive"
 import { highlightCode } from "~/lib/highlight"
@@ -166,4 +169,81 @@ export async function loadVfxbView(node: Node): Promise<DataTextView> {
 
 export function VfxbPreview({ node }: { node: Node }) {
   return <DataTextPreview node={node} load={loadVfxbView} label="Reading VFXB…" />
+}
+
+const TILE_TITLES = {
+  hght: "Height map",
+  mate: "Material map",
+  grass: "Grass map",
+  water: "Water map",
+} as const
+
+/** Encode RGBA pixels as a PNG data URL through a canvas. */
+function pixelsToDataUrl(width: number, height: number, pixels: Uint8ClampedArray): string {
+  const canvas = document.createElement("canvas")
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext("2d")!
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(pixels), width, height), 0, 0)
+  return canvas.toDataURL("image/png")
+}
+
+export function TerrainTilePreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(async () => {
+    const kind = terrainTileKind(node.name)
+    if (!kind) throw new Error(`Not a terrain tile: ${node.name}`)
+    const img = renderTerrainTile(kind, await nodeBytes(node))
+    return { kind, img, url: pixelsToDataUrl(img.width, img.height, img.pixels) }
+  }, [node.id])
+  if (loading) return <LoadingFiller label="Rendering terrain tile…" />
+  if (error) return <ErrorFiller error={error} />
+  const { kind, img, url } = data!
+  return (
+    <ScrollArea className="h-full">
+      <div className="flex flex-col gap-5 p-5">
+        <SectionHeader title={`BotW terrain — ${TILE_TITLES[kind]}`} />
+        <KvBlock title="Tile">
+          <KvRow k="Area" v={node.name.split(".")[0]!} />
+          <KvRow k="Size" v={`${img.width} × ${img.height}`} />
+          {Object.entries(img.stats).map(([k, v]) => (
+            <KvRow key={k} k={k} v={String(v)} />
+          ))}
+        </KvBlock>
+        <img
+          src={url}
+          alt={node.name}
+          className="w-full max-w-[512px] rounded-md border bg-[repeating-conic-gradient(#8882_0_25%,transparent_0_50%)] bg-[length:16px_16px]"
+          style={{ imageRendering: "pixelated" }}
+        />
+      </div>
+    </ScrollArea>
+  )
+}
+
+export async function loadTscbView(node: Node): Promise<DataTextView> {
+  const t = parseTscb(await nodeBytes(node))
+  const lines = ["materials:"]
+  for (const m of t.materials) {
+    lines.push(`  - { index: ${m.index}, uv_scale: [${m.uScale.toPrecision(3)}, ${m.vScale.toPrecision(3)}], params: [${m.params.map((x) => x.toPrecision(3)).join(", ")}] }`)
+  }
+  lines.push("areas:")
+  for (const a of t.areas) {
+    lines.push(`  - { name: ${a.name}, x: ${a.x}, z: ${a.z}, edge: ${a.edge}, height: [${a.minHeight.toPrecision(4)}, ${a.maxHeight.toPrecision(4)}] }`)
+  }
+  return {
+    title: "TSCB — BotW terrain scene",
+    rows: [
+      ["World scale", String(t.worldScale)],
+      ["Max height", String(t.maxHeight)],
+      ["Tile size", String(t.tileSize)],
+      ["Materials", String(t.materials.length)],
+      ["Areas", String(t.areas.length)],
+    ],
+    text: lines.join("\n"),
+    lang: "yaml",
+  }
+}
+
+export function TscbPreview({ node }: { node: Node }) {
+  return <DataTextPreview node={node} load={loadTscbView} label="Reading terrain scene…" />
 }

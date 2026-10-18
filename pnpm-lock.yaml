@@ -580,6 +580,9 @@ importers:
       '@tootallnate/uasset':
         specifier: workspace:*
         version: link:../../packages/uasset
+      '@tootallnate/uking-terrain':
+        specifier: workspace:*
+        version: link:../../packages/uking-terrain
       '@tootallnate/unity-asset':
         specifier: workspace:*
         version: link:../../packages/unity-asset
