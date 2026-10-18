@@ -57,6 +57,11 @@ export interface ScanOptions {
 	sampleMagic?: boolean;
 	/** Fold identical copies into one item (reads candidate files). Default true. */
 	dedupe?: boolean;
+	/**
+	 * Time limit for hashing duplicate candidates (default 20 s, keeping
+	 * the browser responsive). The CLI passes Infinity to fold everything.
+	 */
+	dedupeBudgetMs?: number;
 }
 
 export interface ScanBase {
@@ -259,7 +264,7 @@ export async function scanMedia(root: Node, base: ScanBase, opts: ScanOptions = 
 	let index = snapshot(!signal?.aborted);
 	if (!signal?.aborted && opts.dedupe !== false) {
 		opts.onProgress?.(visited, 'Looking for duplicate files…');
-		index = await foldDuplicates(index, nodes, signal);
+		index = await foldDuplicates(index, nodes, signal, opts.dedupeBudgetMs ?? DEDUPE_BUDGET_MS);
 	}
 	opts.onUpdate?.(index);
 	return index;
@@ -269,7 +274,7 @@ export async function scanMedia(root: Node, base: ScanBase, opts: ScanOptions = 
 const FULL_HASH_MAX = 4 * 1024 * 1024;
 const WINDOW = 256 * 1024;
 
-/** Stop hashing after this long; whatever was found so far is still folded. */
+/** Default hashing time limit; whatever was found so far is still folded. */
 const DEDUPE_BUDGET_MS = 20_000;
 
 /**
@@ -308,7 +313,12 @@ async function fingerprint(node: Node): Promise<string | null> {
  * into one item that lists every location. Only top-level items are
  * considered; parts follow their owner.
  */
-async function foldDuplicates(index: MediaIndex, nodes: Map<string, Node>, signal?: AbortSignal): Promise<MediaIndex> {
+async function foldDuplicates(
+	index: MediaIndex,
+	nodes: Map<string, Node>,
+	signal: AbortSignal | undefined,
+	budgetMs: number,
+): Promise<MediaIndex> {
 	const groups = new Map<string, MediaItem[]>();
 	for (const item of index.items) {
 		if (item.partOf) continue;
@@ -321,7 +331,7 @@ async function foldDuplicates(index: MediaIndex, nodes: Map<string, Node>, signa
 	const hidden = new Set<string>();
 	const dupes = new Map<string, { id: string; path: string }[]>();
 	let lastYield = Date.now();
-	const deadline = Date.now() + DEDUPE_BUDGET_MS;
+	const deadline = Date.now() + budgetMs;
 	let partial = false;
 	for (const group of groups.values()) {
 		if (group.length < 2) continue;

@@ -96,6 +96,8 @@ const index = await scanMedia(
 	{ fileName: name, fileSize: totalSize, platform: root.format ?? 'file' },
 	{
 		deep: process.argv.includes('--deep'),
+		// No UI to keep responsive: fold every duplicate.
+		dedupeBudgetMs: Infinity,
 		onProgress: (visited, path) => {
 			if (process.stderr.isTTY && Date.now() - last > 200) {
 				last = Date.now();
