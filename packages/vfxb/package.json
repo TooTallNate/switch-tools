@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/vfxb",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Reader for NintendoWare VFXB particle effect files (PTCL).",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/vfxb"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

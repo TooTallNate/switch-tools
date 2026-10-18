@@ -400,6 +400,9 @@ importers:
       '@tootallnate/halo-map':
         specifier: workspace:*
         version: link:../../packages/halo-map
+      '@tootallnate/havok':
+        specifier: workspace:*
+        version: link:../../packages/havok
       '@tootallnate/hca':
         specifier: workspace:*
         version: link:../../packages/hca
@@ -592,6 +595,9 @@ importers:
       '@tootallnate/vbf':
         specifier: workspace:*
         version: link:../../packages/vbf
+      '@tootallnate/vfxb':
+        specifier: workspace:*
+        version: link:../../packages/vfxb
       '@tootallnate/wem':
         specifier: workspace:*
         version: link:../../packages/wem
@@ -1789,6 +1795,12 @@ importers:
       fflate:
         specifier: ^0.8.2
         version: 0.8.2
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/vfxb:
     devDependencies:
       typescript:
         specifier: ^5.3.3
