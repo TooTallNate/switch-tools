@@ -1,0 +1,22 @@
+{
+  "name": "@tootallnate/uking-terrain",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Breath of the Wild terrain: height, material and grass/water tiles, and the TSCB scene table.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/uking-terrain"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
