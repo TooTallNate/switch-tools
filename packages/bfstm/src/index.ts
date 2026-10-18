@@ -130,7 +130,9 @@ export async function parseBfstm(blob: Blob): Promise<ParsedBfstm> {
 			`Blob too small to be a BFSTM/BFSTP (${blob.size} bytes, need at least 0x40)`,
 		);
 	}
-	const head = new Uint8Array(await blob.slice(0, 0x40).arrayBuffer());
+	// The block table can outgrow 0x40 bytes: streams with a REGN (region)
+	// block have four entries, ending at 0x44.
+	const head = new Uint8Array(await blob.slice(0, Math.min(blob.size, 0x100)).arrayBuffer());
 	const magic = String.fromCharCode(head[0], head[1], head[2], head[3]);
 	if (magic !== BFSTM_MAGIC && magic !== BFSTP_MAGIC) {
 		throw new Error(`Bad BFSTM/BFSTP magic: "${magic}"`);

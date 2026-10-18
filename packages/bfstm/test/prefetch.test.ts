@@ -14,12 +14,14 @@ function buildBfstp(opts: {
 	lastBlockSamples: number;
 	prefetchBlocks: number;
 	sample: (c: number, i: number) => number;
+	/** Extra SEEK / REGN entries before PDAT, pushing the table past 0x40. */
+	extraBlocks?: boolean;
 }): Uint8Array {
 	const { channels, samplesPerBlock, blockCount, lastBlockSamples, prefetchBlocks } = opts;
 	const blockSize = samplesPerBlock * 2;
 	const lastPadded = Math.ceil((lastBlockSamples * 2) / 0x20) * 0x20;
 	const total = (blockCount - 1) * samplesPerBlock + lastBlockSamples;
-	const infoOff = 0x40;
+	const infoOff = opts.extraBlocks ? 0x60 : 0x40;
 	const infoSize = 0x100;
 	const pdatOff = infoOff + infoSize;
 	const blocks: number[] = [];
@@ -31,13 +33,16 @@ function buildBfstp(opts: {
 	const v = new DataView(out.buffer);
 	out.set([0x46, 0x53, 0x54, 0x50, 0xff, 0xfe]); // FSTP, LE BOM
 	v.setUint32(0x0c, out.length, true);
-	v.setUint16(0x10, 2, true);
-	v.setUint16(0x14, 0x4000, true);
-	v.setInt32(0x18, infoOff, true);
-	v.setUint32(0x1c, infoSize, true);
-	v.setUint16(0x20, 0x4004, true);
-	v.setInt32(0x24, pdatOff, true);
-	v.setUint32(0x28, pdatSize, true);
+	const entries: [number, number, number][] = [[0x4000, infoOff, infoSize]];
+	// SEEK / REGN entries point at the INFO bytes; only their presence matters.
+	if (opts.extraBlocks) entries.push([0x4001, infoOff, 0x20], [0x4003, infoOff, 0x20]);
+	entries.push([0x4004, pdatOff, pdatSize]);
+	v.setUint16(0x10, entries.length, true);
+	entries.forEach(([id, off, size], i) => {
+		v.setUint16(0x14 + i * 12, id, true);
+		v.setInt32(0x18 + i * 12, off, true);
+		v.setUint32(0x1c + i * 12, size, true);
+	});
 	// INFO
 	const I = infoOff;
 	out.set([0x49, 0x4e, 0x46, 0x4f], I);
@@ -96,6 +101,14 @@ describe('BFSTP prefetch (PDAT)', () => {
 			expect(samples[i * 2]).toBe(sample(0, i));
 			expect(samples[i * 2 + 1]).toBe(sample(1, i));
 		}
+	});
+
+	it('reads a block table longer than 0x40 bytes (SEEK + REGN)', async () => {
+		const file = buildBfstp({ channels: 1, samplesPerBlock: 256, blockCount: 3, lastBlockSamples: 50, prefetchBlocks: 1, sample, extraBlocks: true });
+		const p = await parseBfstm(new Blob([file]));
+		expect(p.prefetchOnly).toBe(true);
+		const { samples } = await decodeBfstmToPcm16(p);
+		for (let i = 0; i < 256; i++) expect(samples[i]).toBe(sample(0, i));
 	});
 
 	it('keeps the full geometry when the prefetch covers the whole stream', async () => {
