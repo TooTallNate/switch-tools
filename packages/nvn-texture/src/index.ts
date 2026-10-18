@@ -7,10 +7,11 @@
  *
  *   0x00 "DFvN", u32 header size (0x10), u32 texture count, u32
  *   0x10 "HBvN" texture block: u32 0x24, u32 block size (0x70), …
- *        0x3C u32 width, 0x40 u32 height, 0x50 u32 NVN format
+ *        0x40 u32 width, 0x44 u32 height, 0x48 u32 depth (layers),
+ *        0x4C u32 levels, 0x50 u32 NVN format, 0x58 u32 data size
  *   then another "HBvN" block whose u32 at +0x10 is its size. The texture
- *   data starts at its end (0x200), as Tegra block-linear layers of
- *   width × height, followed by a short trailer.
+ *   data starts at its end (0x200), Tegra block-linear (so padded to whole
+ *   GOB blocks), followed by a short trailer.
  *
  * NVN format numbers follow `nvn::Format` (R8 = 0x01, RGBA8 = 0x25,
  * RGBA8 sRGB = 0x38, DXT1/3/5 = 0x42–0x44 and 0x46–0x48 sRGB,
@@ -65,9 +66,11 @@ export function parseNvnTexture(bytes: Uint8Array): ParsedNvnTexture {
 	if (!isNvnTexture(bytes)) throw new Error('Not an NVN texture (bad magic)');
 	const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 	if (bytes.length < 0x80) throw new Error('NVN texture too small');
-	const width = v.getUint32(0x3c, true);
-	const height = v.getUint32(0x40, true);
+	const width = v.getUint32(0x40, true);
+	const height = v.getUint32(0x44, true);
+	const depth = Math.max(1, v.getUint32(0x48, true));
 	const format = v.getUint32(0x50, true);
+	const dataSize = v.getUint32(0x58, true);
 	const fmt = FORMATS[format];
 	if (!fmt) throw new Error(`Unsupported NVN format 0x${format.toString(16)}`);
 	// The data follows the last HBvN block.
@@ -80,10 +83,10 @@ export function parseNvnTexture(bytes: Uint8Array): ParsedNvnTexture {
 	}
 	if (!dataOffset || dataOffset >= bytes.length) throw new Error('NVN texture data not found');
 	const elems = fmt.block ? Math.ceil(width / 4) * Math.ceil(height / 4) : width * height;
-	const layerSize = elems * fmt.bytes;
-	const layers = Math.floor((bytes.length - dataOffset) / layerSize);
-	if (layers < 1) throw new Error('NVN texture data is truncated');
-	return { width, height, format, formatName: fmt.name, dataOffset, layerSize, layers };
+	// Layers are padded to whole block-linear blocks; the data size covers that.
+	const layerSize = Math.max(elems * fmt.bytes, Math.floor(dataSize / depth));
+	if (!width || !height || dataOffset + layerSize * depth > bytes.length) throw new Error('NVN texture data is truncated');
+	return { width, height, format, formatName: fmt.name, dataOffset, layerSize, layers: depth };
 }
 
 /** Decode one layer to RGBA8 (row 0 at the top). */

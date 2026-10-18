@@ -12,9 +12,12 @@ function build(width: number, height: number, layers: number[]): Uint8Array {
 	b.set(new TextEncoder().encode('HBvN'), 0x10);
 	v.setUint32(0x14, 0x24, true);
 	v.setUint32(0x18, 0x70, true);
-	v.setUint32(0x3c, width, true);
-	v.setUint32(0x40, height, true);
+	v.setUint32(0x40, width, true);
+	v.setUint32(0x44, height, true);
+	v.setUint32(0x48, layers.length, true);
+	v.setUint32(0x4c, 1, true);
 	v.setUint32(0x50, 0x01, true); // R8
+	v.setUint32(0x58, size * layers.length, true);
 	b.set(new TextEncoder().encode('HBvN'), 0xa4);
 	v.setUint32(0xa4 + 0x10, 0x200 - 0xa4, true);
 	layers.forEach((val, i) => b.fill(val, 0x200 + i * size, 0x200 + (i + 1) * size));
