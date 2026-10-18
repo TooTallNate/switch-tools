@@ -754,6 +754,12 @@ importers:
         specifier: 'catalog:'
         version: 5.9.3
 
+  packages/aamp:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/acb:
     devDependencies:
       typescript:
