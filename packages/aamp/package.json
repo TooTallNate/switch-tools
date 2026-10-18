@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/aamp",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser for Nintendo's AAMP (binary ParameterIO) format.",
   "main": "dist/index.js",

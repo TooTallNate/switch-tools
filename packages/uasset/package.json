@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/uasset",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "description": "Header-level parser for Unreal Engine `.uasset` / `.umap` packages.",
   "main": "dist/index.js",

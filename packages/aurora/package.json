@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/aurora",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "BioWare Aurora (Star Wars: Knights of the Old Republic I / II) formats: KEY / BIF, ERF / RIM / MOD archives, TPC textures and binary MDL / MDX models.",
   "main": "dist/index.js",

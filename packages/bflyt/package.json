@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/bflyt",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Structural parser for NintendoWare layout (.bflyt) and layout animation (.bflan) files.",
   "main": "dist/index.js",

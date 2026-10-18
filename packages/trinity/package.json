@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/trinity",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser for Game Freak's Trinity model formats (.trmdl, .trmsh, .trmbf, .trmtr, .trskl, .trmmt), as used by Pokémon Legends: Arceus.",
   "main": "dist/index.js",
