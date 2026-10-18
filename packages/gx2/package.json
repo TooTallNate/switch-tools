@@ -1,0 +1,25 @@
+{
+  "name": "@tootallnate/gx2",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Wii U GX2 (Gfx2) texture and shader files: block listing and tiled surface decoding.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/gx2"
+  },
+  "dependencies": {
+    "@tootallnate/bntx": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

@@ -1231,6 +1231,16 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/gx2:
+    dependencies:
+      '@tootallnate/bntx':
+        specifier: workspace:*
+        version: link:../bntx
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/hacbrewpack:
     dependencies:
       '@tootallnate/cnmt':
