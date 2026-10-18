@@ -5,7 +5,7 @@
  *
  *   bun scripts/media-scan.ts <file|folder> [--keys ~/.switch/prod.keys] [--deep]
  *                                    [--oodle oodle.wasm]
- *                                    [--md report.md] [--json index.json]
+ *                                    [--md report.md] [--json index.json] [--progress]
  *
  * `--oodle` defaults to `~/.switch/oodle.wasm`, then a local build at
  * `packages/oodle-wasm/src/oodle.wasm` (see its README); without one,
@@ -90,6 +90,7 @@ if (statSync(file).isDirectory()) {
 }
 
 let last = 0;
+const logProgress = process.argv.includes('--progress');
 const index = await scanMedia(
 	root,
 	{ fileName: name, fileSize: totalSize, platform: root.format ?? 'file' },
@@ -99,6 +100,11 @@ const index = await scanMedia(
 			if (process.stderr.isTTY && Date.now() - last > 200) {
 				last = Date.now();
 				process.stderr.write(`\r\x1b[2Kscanning ${visited.toLocaleString()} ${path.slice(-80)}`);
+			} else if (logProgress && Date.now() - last > 10_000) {
+				// Not a terminal (e.g. a background run): a line every 10 s,
+				// so a stall shows where it happened.
+				last = Date.now();
+				console.error(`${new Date().toISOString()} scanning ${visited.toLocaleString()} ${path}`);
 			}
 		},
 	},

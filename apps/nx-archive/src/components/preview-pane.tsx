@@ -37,6 +37,7 @@ import { Separator } from "~/components/ui/separator"
 import { Skeleton } from "~/components/ui/skeleton"
 import { Spinner } from "~/components/ui/spinner"
 import { BfresViewer } from "./bfres-viewer"
+import { AampPreview, HavokPreview, VfxbPreview } from "./data-previews"
 import { ObjectLabel, ObjectRootLabel } from "react-inspector"
 import { JsonInspector, UnityObjectInspector } from "./data-inspector"
 import {
@@ -455,6 +456,7 @@ function PreviewContent({
   const isHtdocs = node.kind === "htdocs"
   const isNca = node.kind === "nca"
   const isBars = node.kind === "bars"
+  const isVfxb = node.kind === "vfxb"
   const isBfsar = node.kind === "bfsar"
   const isBfres = node.kind === "bfres"
   const isAwb = node.kind === "awb"
@@ -480,6 +482,8 @@ function PreviewContent({
           <NcaPreview node={node} />
         ) : isBars ? (
           <BarsPreview node={node} />
+        ) : isVfxb ? (
+          <VfxbPreview node={node} />
         ) : isBfsar ? (
           <BfsarPreview node={node} />
         ) : isBfres ? (
@@ -1945,6 +1949,10 @@ function FilePreview({
       return <BnvibPreview node={node} />
     case "byaml-tree":
       return <ByamlPreview node={node} />
+    case "aamp-tree":
+      return <AampPreview node={node} />
+    case "havok-info":
+      return <HavokPreview node={node} />
     case "bntx-image":
       return <BntxPreview node={node} />
     case "phyre-image":

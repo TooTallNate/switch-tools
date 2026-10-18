@@ -38,6 +38,7 @@ import {
 import { decompressYaz0 } from '@tootallnate/yaz0';
 import { decompressLz4, decodeBlock, type Lz4Variant } from '@tootallnate/lz4';
 import { parseBars, type BarsEntry } from '@tootallnate/bars';
+import { parseVfxb } from '@tootallnate/vfxb';
 import { parseAwb, readAwbHeader } from '@tootallnate/awb';
 import {
 	cueNamesForAwb,
@@ -295,6 +296,8 @@ export type NodeKind =
 	| 'unity-asset'
 	| 'unity-object'
 	| 'bars'
+	/** NintendoWare particle effect file; children are its embedded resources. */
+	| 'vfxb'
 	| 'bfsar'
 	| 'bfwar'
 	| 'bfres'
@@ -712,6 +715,8 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	byaml: 'BYAML', // Nintendo binary YAML
 	byml: 'BYML',
 	bntx: 'BNTX', // Nintendo texture format (BC1/3/4/5/7, RGBA8, etc.)
+	vfxb: 'VFXB', // NintendoWare particle effects
+	ptcl: 'VFXB',
 	bfres: 'BFRES', // Nintendo 3D resource (FRES) — models + embedded BNTX
 	// Bezel Engine (`.bea`) titles store BFRES under per-role extensions.
 	fmdb: 'BFRES', // model
@@ -881,7 +886,8 @@ type SniffedFormat =
 	| 'gb'
 	| 'gba'
 	| 'n64'
-	| 'rvz';
+	| 'rvz'
+	| 'vfxb';
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -1001,6 +1007,8 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	if (head.length >= 8) {
 		const m8 = new TextDecoder().decode(head.subarray(0, 8));
 		if (m8 === 'GFLXPACK') return 'gfpak';
+		// NintendoWare particle effects (`.ptcl`, BotW `.sesetlist`).
+		if (m8 === 'VFXB    ') return 'vfxb';
 	}
 	// UnityFS bundle magic: NUL-terminated "UnityFS" (8 bytes including NUL).
 	if (
@@ -1261,6 +1269,14 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		extensions: ['sarc', 'pack'],
 		sniff: ['sarc'],
 		build: (a) => makeSarcNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		// NintendoWare particle effects: emitter definitions plus their
+		// embedded textures (BNTX), primitive models (BFRES) and shaders.
+		format: 'VFXB',
+		extensions: ['ptcl'],
+		sniff: ['vfxb'],
+		build: (a) => makeVfxbNode(a.id, a.name, a.blob, a.ctx),
 	},
 	{
 		format: 'SZS',
@@ -5144,6 +5160,45 @@ function withFullStream(node: Node, streamName: string, prefetch: Blob): Node {
 				}
 				return prefetch;
 			})()),
+	};
+}
+
+// ----- VFXB (NintendoWare particle effects) -----
+
+/** Child file names for VFXB resource sections. */
+const VFXB_RESOURCE_NAMES: Record<string, string> = {
+	GRTF: 'textures.bntx',
+	G3PR: 'primitives.bfres',
+	GRSN: 'shaders.bnsh',
+	GRSC: 'compute.bnsh',
+};
+
+/**
+ * A VFXB effect file. Its embedded resources become children, so the
+ * textures and primitive models show up like any other BNTX / BFRES. The
+ * landing page (`node.kind === 'vfxb'`) lists the emitter sets.
+ */
+function makeVfxbNode(id: string, name: string, blob: Blob, ctx: ArchiveContext): Node {
+	return {
+		id,
+		name,
+		kind: 'vfxb',
+		isContainer: true,
+		size: blob.size,
+		format: 'VFXB',
+		blob: async () => blob,
+		getChildren: async () => {
+			const parsed = parseVfxb(new Uint8Array(await blob.arrayBuffer()));
+			const used = new Set<string>();
+			return Promise.all(
+				parsed.resources.map((r, i) => {
+					let leaf = VFXB_RESOURCE_NAMES[r.section] ?? `${r.section.toLowerCase()}.${r.kind.toLowerCase()}`;
+					if (used.has(leaf)) leaf = leaf.replace(/\./, `_${i}.`);
+					used.add(leaf);
+					return childNodeFor(`${id}/${leaf}`, leaf, blob.slice(r.offset, r.offset + r.size), ctx);
+				}),
+			);
+		},
 	};
 }
 
@@ -9389,6 +9444,22 @@ async function childNodeFor(
 		});
 	}
 
+	// Data formats recognised by magic whatever their extension (BotW
+	// alone uses dozens of extensions for AAMP and BYML).
+	const leaf = await leafFormatOf(blob);
+	if (leaf) {
+		return {
+			id,
+			name,
+			kind: 'file',
+			isContainer: false,
+			size: blob.size,
+			format: LEAF_FORMAT_LABEL[leaf],
+			meta: { leafFormat: leaf },
+			blob: async () => blob,
+		};
+	}
+
 	// Generic file
 	return {
 		id,
@@ -9400,4 +9471,35 @@ async function childNodeFor(
 		blob: async () => blob,
 	};
 
+}
+
+/** Leaf data formats identified by magic, see {@link leafFormatOf}. */
+export type LeafFormat = 'aamp' | 'byml' | 'havok';
+
+const LEAF_FORMAT_LABEL: Record<LeafFormat, string> = {
+	aamp: 'AAMP',
+	byml: 'BYML',
+	havok: 'Havok',
+};
+
+/**
+ * Identify a leaf's data format from its first 16 bytes. Only checks
+ * strong magics, plus a header sanity check for BYML's two-letter magic.
+ */
+export async function leafFormatOf(blob: Blob): Promise<LeafFormat | null> {
+	if (blob.size < 16) return null;
+	const h = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+	const m4 = String.fromCharCode(h[0]!, h[1]!, h[2]!, h[3]!);
+	if (m4 === 'AAMP') return 'aamp';
+	// Havok packfile: 0x57E0E057 0x10C0C010.
+	if (h[0] === 0x57 && h[1] === 0xe0 && h[2] === 0xe0 && h[3] === 0x57 && h[4] === 0x10 && h[5] === 0xc0 && h[6] === 0xc0 && h[7] === 0x10) return 'havok';
+	const m2 = m4.slice(0, 2);
+	if (m2 === 'YB' || m2 === 'BY') {
+		const v = new DataView(h.buffer);
+		const le = m2 === 'YB';
+		const version = v.getUint16(2, le);
+		const offsets = [v.getUint32(4, le), v.getUint32(8, le), v.getUint32(12, le)];
+		if (version >= 1 && version <= 7 && offsets.every((o) => o < blob.size) && offsets[2]! > 0) return 'byml';
+	}
+	return null;
 }

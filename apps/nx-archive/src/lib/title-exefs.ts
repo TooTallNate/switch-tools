@@ -48,3 +48,46 @@ export async function nsoImage(blob: Blob): Promise<Uint8Array> {
 	}
 	return image;
 }
+
+const stringCache = new Map<() => Promise<Blob | null>, Promise<Set<string>>>();
+
+/**
+ * Identifier-like strings (`[A-Za-z0-9_]{2,64}`, NUL-terminated) from the
+ * title's `main`. Formats that store names only as hashes (AAMP's CRC32
+ * keys, for example) resolve them against these. The names are the
+ * game's own, read from the user's dump. Empty when there's no `main`.
+ * Cached per title.
+ */
+export function exefsStringsFor(nodeId: string): Promise<Set<string>> {
+	const get = exefsMainFor(nodeId);
+	if (!get) return Promise.resolve(new Set());
+	let cached = stringCache.get(get);
+	if (!cached) {
+		cached = (async () => {
+			const main = await get().catch(() => null);
+			if (!main) return new Set<string>();
+			return identifierStrings(await nsoImage(main));
+		})().catch(() => new Set<string>());
+		stringCache.set(get, cached);
+	}
+	return cached;
+}
+
+/** NUL-terminated runs of identifier characters, 2 to 64 long. */
+export function identifierStrings(bytes: Uint8Array): Set<string> {
+	const out = new Set<string>();
+	let start = -1;
+	for (let i = 0; i < bytes.length; i++) {
+		const c = bytes[i]!;
+		const ident = (c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a) || c === 0x5f;
+		if (ident) {
+			if (start < 0) start = i;
+			continue;
+		}
+		if (c === 0 && start >= 0 && i - start >= 2 && i - start <= 64) {
+			out.add(String.fromCharCode(...bytes.subarray(start, i)));
+		}
+		start = -1;
+	}
+	return out;
+}

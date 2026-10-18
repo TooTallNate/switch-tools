@@ -247,6 +247,10 @@ export type PreviewKind =
 	| 'bnvib-audio'
 	/** Nintendo binary YAML — game configs / data tables. */
 	| 'byaml-tree'
+	/** Nintendo AAMP ParameterIO (BotW actor configuration). */
+	| 'aamp-tree'
+	/** Havok packfile (physics, navmesh, cloth): sections and classes. */
+	| 'havok-info'
 	/** Nintendo texture format (BC1/3/4/5/7, RGBA8, etc.). */
 	| 'bntx-image'
 	/** Sony PhyreEngine (`.phyre`) texture — FFX/X-2 HD, FFXII TZA. */
@@ -597,6 +601,10 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.z64Object) return 'z64-object';
 	if (node.meta?.z64Scene) return 'z64-scene';
 	if (node.meta?.sm64Model) return 'sm64-model';
+	// Data formats recognised by magic at tree-build time.
+	if (node.meta?.leafFormat === 'aamp') return 'aamp-tree';
+	if (node.meta?.leafFormat === 'byml') return 'byaml-tree';
+	if (node.meta?.leafFormat === 'havok') return 'havok-info';
 	if (node.meta?.haloModel) return 'halo-model';
 	// PlatinumGames WMB3 model (Bayonetta 3).
 	if (node.meta?.platinumModel) return 'platinum-model';
