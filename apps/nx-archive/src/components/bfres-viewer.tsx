@@ -62,6 +62,21 @@ import { MeshExportBar } from "./mesh-export-bar"
 const ALBEDO_SAMPLERS = ["_albedo0", "_a0", "_a1", "_a2"]
 
 /**
+ * Placeholder texture names: the material is drawn with a texture chosen
+ * at runtime (BotW's particle primitives bind `dummy`; the emitter supplies
+ * the real one), so nothing is missing.
+ */
+function isPlaceholderTexture(name: string): boolean {
+  return /^dummy$/i.test(name)
+}
+
+/** The material's albedo bindings are all placeholders. */
+function hasOnlyPlaceholderAlbedo(mat: BfresMaterial | undefined): boolean {
+  const albedo = mat?.bindings.filter((b) => ALBEDO_SAMPLERS.includes(b.samplerName)) ?? []
+  return albedo.length > 0 && albedo.every((b) => isPlaceholderTexture(b.textureName))
+}
+
+/**
  * Error boundary that contains rendering exceptions to the BFRES
  * viewer pane instead of letting them blank the entire app.
  * Covers the long tail of Three.js / WebGL surprises that aren't
@@ -109,8 +124,9 @@ interface ShapeRecord {
   hasAlbedo: boolean
   /**
    * The material samples no albedo texture and draws a constant colour
-   * instead (e.g. BotW's untextured `uking_mat` shadow materials), so
-   * no texture is missing.
+   * instead (e.g. BotW's untextured `uking_mat` shadow materials,
+   * placeholder-textured particle primitives, or materials whose shader
+   * computes the colour, drawn neutral grey), so no texture is missing.
    */
   flatColor: boolean
   /**
@@ -728,7 +744,7 @@ async function resolveSharedTextureBanks(
       let classic = false
       for (const b of m.bindings) {
         if (ALBEDO_SAMPLERS.includes(b.samplerName)) {
-          wanted.add(b.textureName)
+          if (!isPlaceholderTexture(b.textureName)) wanted.add(b.textureName)
           classic = true
         }
       }
@@ -1991,7 +2007,19 @@ export async function loadBfresShapes(node: Node, root: Node | null): Promise<Lo
       // before depth-write, also avoiding z-fighting between
       // the pupil mesh and surrounding eye geometry.
       const shapeMaterial = materials[g.modelIndex]?.[g.materialIndex]
-      const ukingColor = albedo ? null : ukingBaseColor(shapeMaterial, ALBEDO_SAMPLERS)
+      const placeholder = !albedo && hasOnlyPlaceholderAlbedo(shapeMaterial)
+      // Materials that bind no albedo at all compute their colour in the
+      // shader; draw them neutral grey when no constant colour resolves.
+      const noAlbedoBinding =
+        !!shapeMaterial &&
+        !shapeMaterial.bindings.some((b) => ALBEDO_SAMPLERS.includes(b.samplerName)) &&
+        !ukingAlbedoTexture(shapeMaterial)
+      const ukingColor = albedo
+        ? null
+        : placeholder
+          ? ([1, 1, 1] as [number, number, number])
+          : (ukingBaseColor(shapeMaterial, ALBEDO_SAMPLERS) ??
+            (noAlbedoBinding ? ([0.72, 0.72, 0.72] as [number, number, number]) : null))
       const baseColor = bezelBaseColor(shapeMaterial) ?? ukingColor
       const material: THREE.Material = albedo
         ? new THREE.MeshBasicMaterial({

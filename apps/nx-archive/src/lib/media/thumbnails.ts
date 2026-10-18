@@ -499,7 +499,7 @@ export class ThumbnailService {
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			// Texture / animation-only BFRES files look like models by name.
-			if (/no extractable geometry/i.test(message)) {
+			if (/no extractable geometry|no BufferInfo block/i.test(message)) {
 				this.onPatch(item.id, { drop: true });
 				return { v: THUMB_VERSION, error: message };
 			}

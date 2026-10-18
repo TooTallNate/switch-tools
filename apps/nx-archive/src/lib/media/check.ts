@@ -47,7 +47,7 @@ export async function checkMediaItem(
 		return null;
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		if (/no extractable geometry/i.test(message)) return { drop: true };
+		if (/no extractable geometry|no BufferInfo block/i.test(message)) return { drop: true };
 		return { status: 'error', note: message };
 	}
 }
