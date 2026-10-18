@@ -41,7 +41,8 @@ import {
 
 import type { Node } from "~/lib/archive"
 import { getAstcBlockDecoder } from "~/lib/astc"
-import { ukingBaseColor } from "~/lib/bfres-uking-shading"
+import { UKING_SHARED_TEXTURE_ARCHIVES, ukingAlbedoTexture, ukingBaseColor } from "~/lib/bfres-uking-shading"
+import { romfsFileFor } from "~/lib/title-romfs"
 import {
   bakeAlbedoLayers,
   bezelBaseColor,
@@ -388,6 +389,30 @@ async function findBfresSiblingDirectory(
 }
 
 /**
+ * Model folders shared across a title, searched after the model's own
+ * folder. BotW keeps a model's textures apart from the model in two ways:
+ *
+ *   - Event packs (`Event/*.sbeventpack/Model/Foo.sbfres`) carry the
+ *     model but not its `Foo.Tex.sbfres`, which stays in the RomFS
+ *     `Model/`.
+ *   - Link's own textures (`Link_Skin_Alb`, `Link_Hair_Alb`, …), which
+ *     every armour piece binds, live in `Pack/TitleBG.pack/Model/Link.Tex.sbfres`.
+ *
+ * Found through the title's RomFS (see `~/lib/title-romfs`), so paths
+ * that don't exist in other games cost nothing.
+ */
+const TITLE_MODEL_DIRS = ["Model", "Pack/TitleBG.pack/Model"]
+
+async function titleModelDirs(selected: Node, exclude: Node | null): Promise<Node[]> {
+  const out: Node[] = []
+  for (const path of TITLE_MODEL_DIRS) {
+    const dir = await romfsFileFor(selected.id, path).catch(() => null)
+    if (dir?.getChildren && dir.id !== exclude?.id && !out.some((d) => d.id === dir.id)) out.push(dir)
+  }
+  return out
+}
+
+/**
  * Companion BFRES blobs sharing a name stem with the model file —
  * BotW / Splatoon / Odyssey split layouts where textures and
  * animations live next to the model rather than embedded.
@@ -463,16 +488,23 @@ async function findCompanionBfresBlobs(
   const empty: CompanionBlobs = { textures: [], animations: [] }
   if (!root) return empty
   const dir = await findBfresSiblingDirectory(root, selected)
-  if (!dir || !dir.getChildren) return empty
-  let kids = dir._children
-  if (!kids) {
-    try {
-      kids = await dir.getChildren()
-      dir._children = kids
-    } catch {
-      return empty
+  const own = dir?.getChildren ? await childrenOf(dir).catch(() => [] as Node[]) : []
+  const found = await companionsIn(own, selected)
+  // Nothing next to the model (e.g. a BotW event pack): look for the
+  // same-named companions in the title's shared model folders.
+  if (found.textures.length === 0) {
+    for (const extra of await titleModelDirs(selected, dir)) {
+      const more = await companionsIn(await childrenOf(extra).catch(() => [] as Node[]), selected)
+      found.textures.push(...more.textures)
+      if (found.animations.length === 0) found.animations.push(...more.animations)
+      if (found.textures.length > 0) break
     }
   }
+  return found
+}
+
+/** The `.Tex` / `_Animation` companions of `selected` among `kids`. */
+async function companionsIn(kids: Node[], selected: Node): Promise<CompanionBlobs> {
 
   // Find the entry that corresponds to `selected` so we can take
   // its stem. We can't just use `selected.name` directly because
@@ -497,7 +529,9 @@ async function findCompanionBfresBlobs(
       // otherwise we'd pick up unrelated siblings that happen to
       // end in `.Tex` (e.g. `OtherModel.Tex.sbfres` when we're
       // viewing `MyModel.sbfres`).
-      if (matched[1] !== selectedStem) return
+      // BotW splits big models into parts (`Foo-00`, `Foo-01`, …) that
+      // share one `Foo.Tex` / `Foo_Animation`.
+      if (matched[1] !== selectedStem && matched[1] !== selectedStem.replace(/-\d+$/, "")) return
       const blob = await unwrapInnerBfresBlob(k)
       if (!blob) return
       if (isTexture) textures.push(blob)
@@ -655,6 +689,30 @@ const MAX_LAZY_TEX_SCAN = 24
  * texture remaining. For models where the direct companion
  * already supplies everything (most cases), no extra work runs.
  */
+/**
+ * Banks loaded by the shared-texture search, by node id. Several models
+ * draw on the same archive (every BotW terrain-material object uses the
+ * 75 MB `Terrain.Tex`), so keep the last few rather than decompressing
+ * them again for each model.
+ */
+const sharedBanks = new Map<string, Promise<BntxBank | null>>()
+const SHARED_BANK_LIMIT = 3
+
+function sharedBank(node: Node): Promise<BntxBank | null> {
+  const hit = sharedBanks.get(node.id)
+  if (hit) {
+    sharedBanks.delete(node.id)
+    sharedBanks.set(node.id, hit)
+    return hit
+  }
+  const p = unwrapInnerBfresBlob(node)
+    .catch(() => null)
+    .then((blob) => (blob ? loadBntxBankFromBfres(blob) : null))
+  sharedBanks.set(node.id, p)
+  while (sharedBanks.size > SHARED_BANK_LIMIT) sharedBanks.delete(sharedBanks.keys().next().value!)
+  return p
+}
+
 async function resolveSharedTextureBanks(
   root: Node | null,
   selected: Node,
@@ -667,9 +725,15 @@ async function resolveSharedTextureBanks(
   const wanted = new Set<string>()
   for (const matsForModel of materials) {
     for (const m of matsForModel) {
+      let classic = false
       for (const b of m.bindings) {
-        if (ALBEDO_SAMPLERS.includes(b.samplerName)) wanted.add(b.textureName)
+        if (ALBEDO_SAMPLERS.includes(b.samplerName)) {
+          wanted.add(b.textureName)
+          classic = true
+        }
       }
+      const uking = classic ? null : ukingAlbedoTexture(m)
+      if (uking) wanted.add(uking.textureName)
     }
   }
   // Subtract names already provided by the existing cache banks.
@@ -683,22 +747,25 @@ async function resolveSharedTextureBanks(
   if (wanted.size === 0) return []
 
   const dir = await findBfresSiblingDirectory(root, selected)
-  if (!dir || !dir.getChildren) return []
-  let kids = dir._children
-  if (!kids) {
-    try {
-      kids = await dir.getChildren()
-      dir._children = kids
-    } catch {
-      return []
-    }
+  // Candidates come from the model's own folder and the title's shared
+  // model folders (Link's textures live in TitleBG.pack, for example).
+  const kids: Node[] = dir?.getChildren ? [...(await childrenOf(dir).catch(() => [] as Node[]))] : []
+  for (const extra of await titleModelDirs(selected, dir)) {
+    kids.push(...(await childrenOf(extra).catch(() => [] as Node[])))
   }
+  if (kids.length === 0) return []
 
   // Build the set of prefixes to score against. For each missing
   // name, take every possible underscore-delimited prefix in
   // descending specificity (longest first). E.g.
   // `Link_Belt_A_Alb` → [`Link_Belt_A_Alb`, `Link_Belt_A`,
   // `Link_Belt`, `Link`].
+  // Known homes of shared arrays (BotW terrain) win outright.
+  const hinted = new Set<string>()
+  for (const name of wanted) {
+    const home = UKING_SHARED_TEXTURE_ARCHIVES[name]
+    if (home) hinted.add(home.toLowerCase())
+  }
   const prefixes = new Set<string>()
   for (const name of wanted) {
     const parts = name.split("_")
@@ -725,6 +792,7 @@ async function resolveSharedTextureBanks(
     if (archiveStem === selectedStem) continue // already-merged direct companion
     let bestScore = 0
     const stemLower = archiveStem.toLowerCase()
+    if (hinted.has(stemLower)) bestScore = 1000
     for (const p of prefixes) {
       const pLower = p.toLowerCase()
       // Match if archive stem starts with the prefix AND the
@@ -751,9 +819,7 @@ async function resolveSharedTextureBanks(
     if (remaining.size === 0) break
     if (scanned >= MAX_LAZY_TEX_SCAN) break
     scanned++
-    const blob = await unwrapInnerBfresBlob(c.node).catch(() => null)
-    if (!blob) continue
-    const bank = await loadBntxBankFromBfres(blob)
+    const bank = await sharedBank(c.node)
     if (!bank) continue
     let hits = 0
     for (const name of remaining) {
@@ -1272,9 +1338,30 @@ function pickAlbedo(
         break
       }
     }
+    if (!textureName) {
+      // BotW: the shader's `_a0` routed to another sampler, often a
+      // layer of the terrain texture array, whose UVs tile.
+      const uking = ukingAlbedoTexture(mat)
+      if (uking) {
+        return getTextureByName(cache, layeredTextureName(uking.textureName, uking.layer), THREE.RepeatWrapping)
+      }
+    }
   }
   if (!textureName) return null
   return getTextureByName(cache, textureName, pickWrapMode(geom))
+}
+
+/**
+ * Cache key for one layer of a texture array: `Name#layer`. Layer 0
+ * keeps the plain name, so it shares the cache with ordinary lookups.
+ */
+function layeredTextureName(name: string, layer: number): string {
+  return layer > 0 ? `${name}#${layer}` : name
+}
+
+function splitLayeredTextureName(key: string): { name: string; layer: number } {
+  const m = /^(.*)#(\d+)$/.exec(key)
+  return m ? { name: m[1]!, layer: Number(m[2]) } : { name: key, layer: 0 }
 }
 
 /**
@@ -1289,10 +1376,11 @@ function decodeTextureByName(
 ): DecodedRgba | null {
   if (cache.decoded.has(textureName)) return cache.decoded.get(textureName) ?? null
   let decoded: DecodedRgba | null = null
-  const found = findInBanks(cache.banks, textureName)
-  if (found) {
+  const { name: baseName, layer } = splitLayeredTextureName(textureName)
+  const found = findInBanks(cache.banks, baseName)
+  if (found && layer < found.tex.arrayLength) {
     try {
-      const d = decodeBntxLayer(found.bytes, found.tex, 0, {
+      const d = decodeBntxLayer(found.bytes, found.tex, layer, {
         astcDecoder: cache.astcDecoder,
       })
       decoded = {
