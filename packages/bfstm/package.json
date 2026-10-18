@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/bfstm",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser and audio decoder for Nintendo's BFSTM / BFSTP streamed-audio format.",
   "main": "dist/index.js",

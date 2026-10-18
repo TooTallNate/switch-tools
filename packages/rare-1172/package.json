@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/rare-1172",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Decoder for the Rare 1172 deflate container used by GoldenEye 007 and Perfect Dark.",
   "main": "dist/index.js",

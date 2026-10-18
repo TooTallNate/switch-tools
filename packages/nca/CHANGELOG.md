@@ -1,5 +1,15 @@
 # @tootallnate/nca
 
+## 0.2.0
+
+### Minor Changes
+
+- 109bffe: Decode BKTR patch sections (the RomFS of Update NCAs). Pass the parsed base-game NCA as `parseNca(blob, { …, base })` and each BKTR section's `data` / `romfsData` becomes the patched view: the indirect table maps each range to the base section or the update's own data, which is decrypted per run with the AES-CTR-EX generation counter. `createPatchedSectionReader`, `readPatchInfo` and `rangeBlob` are exported for lower-level use.
+
+### Patch Changes
+
+- 0cc07b5: `@tootallnate/nca` now caches the imported AES-CTR key for each section instead of re-importing it on every read. Each re-import was a WebCrypto round trip, which dominated reading thousands of small files out of a RomFS in browsers. `parseGfpak` accepts `known` entry info from a previous `gfpakEntryInfo()` call, which skips sniffing, the step that decompresses every entry.
+
 ## 0.1.0
 
 ### Minor Changes

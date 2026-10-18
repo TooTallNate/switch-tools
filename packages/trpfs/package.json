@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/trpfs",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Game Freak Trinity virtual file system (Pokémon Scarlet / Violet, Legends: Arceus): .trpfd descriptors, .trpfs pack files, .trpak packs, and path-hash name recovery.",
   "main": "dist/index.js",

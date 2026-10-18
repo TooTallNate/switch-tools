@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/goldeneye",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "GoldenEye 007 (N64) file table and model node trees, flattened to bind-posed meshes.",
   "main": "dist/index.js",
