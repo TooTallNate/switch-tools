@@ -20,10 +20,13 @@ import {
 	decodeBffnt,
 	parseBffnt,
 	renderText,
+	codepointMap,
 	textureFormatName,
+	toBitmapFont,
 	type ParsedBffnt,
 	type RenderableBffnt,
 } from '@tootallnate/bffnt';
+import { bitmapFontToBmfontZip, bitmapFontToTtf, readBmfontFiles } from '@tootallnate/bitmap-font';
 import { parseBars, type ParsedBars } from '@tootallnate/bars';
 import { parseBfsar, type ParsedBfsar } from '@tootallnate/bfsar';
 import {
@@ -2191,10 +2194,7 @@ export async function parseBffntForView(blob: Blob): Promise<BffntView> {
 		(n, b) => n + (b.endIndex - b.startIndex + 1),
 		0,
 	);
-	let mappedCodepoints = 0;
-	for (const b of parsed.cmapBlocks) {
-		mappedCodepoints += b.codeEnd - b.codeBegin + 1;
-	}
+	const mappedCodepoints = codepointMap(parsed).size;
 	return {
 		parsed,
 		renderable,
@@ -2211,6 +2211,29 @@ export async function parseBffntForView(blob: Blob): Promise<BffntView> {
  * rasterise user-entered text without re-decoding the atlas.
  */
 export { renderText as renderBffntText };
+
+/** Family name for an exported font: the file name without its extension. */
+export function fontFamilyFromFileName(name: string): string {
+	return name.replace(/\.[^.]+$/, '') || name;
+}
+
+/** A BFFNT as a TrueType font, its glyphs traced into outlines. */
+export function bffntToTtf(view: BffntView, family: string): Uint8Array {
+	return bitmapFontToTtf(toBitmapFont(view.renderable, family));
+}
+
+/** A BFFNT as a zipped AngelCode BMFont (text `.fnt` + PNG pages). */
+export function bffntToBmfontZip(view: BffntView, family: string): Uint8Array {
+	return bitmapFontToBmfontZip(toBitmapFont(view.renderable, family), family);
+}
+
+/**
+ * A BMFont as a TrueType font. `files` holds the descriptor (under
+ * `descriptorName`) and its pages, by file name.
+ */
+export function bmfontToTtf(files: Map<string, Uint8Array>, descriptorName: string): Uint8Array {
+	return bitmapFontToTtf(readBmfontFiles(files, descriptorName));
+}
 
 // ----- BARS preview (Switch / Wii U audio resource archive) -----
 

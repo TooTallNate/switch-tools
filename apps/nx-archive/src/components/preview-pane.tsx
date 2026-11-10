@@ -158,7 +158,7 @@ import {
 } from "~/lib/htdocs"
 import type { RenderableBffnt } from "@tootallnate/bffnt"
 import {
-  parseBmfontBinary,
+  parseBmfont,
   type ParsedBmFont,
   type BmfChar,
 } from "@tootallnate/bmfont"
@@ -224,6 +224,10 @@ import {
   parseBarsForView,
   parseBarslistForView,
   parseBffntForView,
+  bffntToBmfontZip,
+  bffntToTtf,
+  bmfontToTtf,
+  fontFamilyFromFileName,
   parseBfsarForView,
   parseBfstmForAudioView,
   parseBfwavForAudioView,
@@ -3993,10 +3997,31 @@ function BffntPreview({ node }: { node: Node }) {
   const v = data!
   const { tglp, finf, header } = v.parsed
 
+  const family = fontFamilyFromFileName(node.name)
+
   return (
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-5 p-5">
         <SectionHeader title="BFFNT — Switch bitmap font" />
+
+        <div className="flex flex-wrap gap-2">
+          <FontExportButton
+            fileName={`${family}.ttf`}
+            label="Download as .ttf"
+            make={() => bffntToTtf(v, family)}
+          />
+          <FontExportButton
+            fileName={`${family}.zip`}
+            label="Download as BMFont (.fnt + .png)"
+            make={() => bffntToBmfontZip(v, family)}
+            variant="outline"
+          />
+        </div>
+        <p className="-mt-3 text-xs text-muted-foreground">
+          The .ttf has outlines traced from the glyph bitmaps, so it works in
+          CSS, canvas and design tools. BMFont is the common bitmap font
+          format read by game engines and libraries like Phaser and PixiJS.
+        </p>
 
         <KvBlock title="Font">
           <KvRow k="Cell size" v={`${tglp.cellWidth} × ${tglp.cellHeight} px`} />
@@ -4032,6 +4057,51 @@ function BffntPreview({ node }: { node: Node }) {
         <BffntAtlasSection font={v.renderable} formatName={v.formatName} />
       </div>
     </ScrollArea>
+  )
+}
+
+/**
+ * Download a font converted on demand (bitmap font → TTF / BMFont).
+ * Conversion takes a moment for big fonts, so the button shows a
+ * spinner and the result is reported in a toast.
+ */
+function FontExportButton({
+  fileName,
+  label,
+  make,
+  disabled,
+  variant = "default",
+}: {
+  fileName: string
+  label: string
+  make: () => Uint8Array | Promise<Uint8Array>
+  disabled?: boolean
+  variant?: "default" | "outline"
+}) {
+  const [busy, setBusy] = useState(false)
+  const onClick = async () => {
+    if (busy) return
+    setBusy(true)
+    const id = toast.loading(`Preparing ${fileName}…`)
+    try {
+      // Let the spinner paint before the (synchronous) conversion.
+      await new Promise((r) => setTimeout(r, 0))
+      downloadBlobBytes(await make(), fileName)
+      toast.success(`Downloaded ${fileName}`, { id })
+    } catch (err) {
+      toast.error(`Failed to prepare ${fileName}`, {
+        id,
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Button onClick={onClick} disabled={busy || disabled} variant={variant}>
+      {busy ? <Spinner data-icon="inline-start" /> : <DownloadIcon data-icon="inline-start" />}
+      {label}
+    </Button>
   )
 }
 
@@ -4213,6 +4283,9 @@ interface BmfontView {
   pageImages: (HTMLImageElement | null)[]
   /** Filename → blob URL of any pages we resolved automatically (cleaned up by the effect). */
   pageBlobUrls: string[]
+  /** The descriptor's bytes and the resolved page files (for the TTF export). */
+  descriptorBytes: Uint8Array
+  pageBlobs: (Blob | null)[]
   /** Map from codepoint → glyph for fast sample-text composition. */
   glyphIndex: Map<number, BmfChar>
 }
@@ -4232,12 +4305,13 @@ function BmfontPreview({
   const { loading, data, error } = useAsync(async () => {
     const blob = await node.blob!()
     const bytes = new Uint8Array(await blob.arrayBuffer())
-    const parsed = parseBmfontBinary(bytes)
+    const parsed = parseBmfont(bytes)
     const siblings = await resolveBmfontPages(node, root, parsed)
     const blobUrls: string[] = []
+    const pageBlobs: (Blob | null)[] = parsed.pages.map(() => null)
     const images: (HTMLImageElement | null)[] = await Promise.all(
-      parsed.pages.map(async (name) => {
-        const sibling = siblings.get(name.toLowerCase())
+      parsed.pages.map(async (name, i) => {
+        const sibling = siblings.get(bmfontPageKey(name))
         if (!sibling) return null
         // Page atlas blobs may come back as lazy facades (RomFS
         // / ZIP / IoStore entries) instead of real `Blob`
@@ -4247,6 +4321,7 @@ function BmfontPreview({
         // first via `makePreviewBlob`. The PNG atlases are
         // typically a few hundred KB — no progress UI needed.
         const real = await makePreviewBlob(sibling, "image/png")
+        pageBlobs[i] = real
         const url = URL.createObjectURL(real)
         blobUrls.push(url)
         return loadImage(url)
@@ -4258,6 +4333,8 @@ function BmfontPreview({
       parsed,
       pageImages: images,
       pageBlobUrls: blobUrls,
+      descriptorBytes: bytes,
+      pageBlobs,
       glyphIndex,
     }
     return view
@@ -4266,7 +4343,7 @@ function BmfontPreview({
   // Manually-loaded pages (when the auto-resolution misses one).
   // Keyed by page index, layered on top of `data.pageImages`.
   const [manualPages, setManualPages] = useState<
-    Map<number, { image: HTMLImageElement; url: string }>
+    Map<number, { image: HTMLImageElement; url: string; file: Blob }>
   >(new Map())
 
   // Cleanup blob URLs on unmount.
@@ -4300,6 +4377,27 @@ function BmfontPreview({
     <ScrollArea className="h-full">
       <div className="flex flex-col gap-5 p-5">
         <SectionHeader title="BMFont — AngelCode bitmap font" />
+
+        <div className="flex flex-wrap items-center gap-2">
+          <FontExportButton
+            fileName={`${fontFamilyFromFileName(node.name)}.ttf`}
+            label="Download as .ttf"
+            disabled={missingPageIndices.length > 0}
+            make={async () => {
+              const files = new Map<string, Uint8Array>([[node.name, v.descriptorBytes]])
+              for (let i = 0; i < v.parsed.pages.length; i++) {
+                const page = manualPages.get(i)?.file ?? v.pageBlobs[i]
+                if (page) files.set(v.parsed.pages[i], new Uint8Array(await page.arrayBuffer()))
+              }
+              return bmfontToTtf(files, node.name)
+            }}
+          />
+          <span className="text-xs text-muted-foreground">
+            {missingPageIndices.length > 0
+              ? "Needs every page atlas (see below)."
+              : "Outlines traced from the glyph bitmaps."}
+          </span>
+        </div>
 
         <KvBlock title="Font">
           <KvRow k="Face" v={v.parsed.info.face} />
@@ -4381,7 +4479,7 @@ function BmfontPreview({
               const next = new Map(prev)
               const old = next.get(pageIndex)
               if (old) URL.revokeObjectURL(old.url)
-              next.set(pageIndex, { image, url })
+              next.set(pageIndex, { image, url, file })
               return next
             })
           }}
@@ -4389,6 +4487,11 @@ function BmfontPreview({
       </div>
     </ScrollArea>
   )
+}
+
+/** Page file names are matched by base name, ignoring case (text descriptors may include a folder). */
+function bmfontPageKey(name: string): string {
+  return name.replace(/\\/g, "/").split("/").pop()!.toLowerCase()
 }
 
 /**
@@ -4430,11 +4533,11 @@ async function resolveBmfontPages(
   if (!parent || !parent.getChildren) return out
   const siblings =
     parent._children ?? (parent._children = await parent.getChildren())
-  const wanted = new Set(parsed.pages.map((n) => n.toLowerCase()))
+  const wanted = new Set(parsed.pages.map(bmfontPageKey))
   for (const k of siblings) {
-    if (k.blob && wanted.has(k.name.toLowerCase())) {
+    if (k.blob && wanted.has(bmfontPageKey(k.name))) {
       try {
-        out.set(k.name.toLowerCase(), await k.blob())
+        out.set(bmfontPageKey(k.name), await k.blob())
       } catch {
         /* ignore */
       }

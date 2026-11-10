@@ -45,6 +45,7 @@
     "@tootallnate/bfwar": "workspace:*",
     "@tootallnate/bfwav": "workspace:*",
     "@tootallnate/bimage": "workspace:*",
+    "@tootallnate/bitmap-font": "workspace:*",
     "@tootallnate/bmfont": "workspace:*",
     "@tootallnate/bntx": "workspace:*",
     "@tootallnate/bnvib": "workspace:*",
