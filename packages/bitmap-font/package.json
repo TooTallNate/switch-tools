@@ -1,0 +1,41 @@
+{
+  "name": "@tootallnate/bitmap-font",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Convert bitmap fonts to TrueType (traced outlines) and AngelCode BMFont, and read BMFont back.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "bitmap-font",
+    "bmfont",
+    "fnt",
+    "ttf",
+    "truetype",
+    "font",
+    "trace"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/bitmap-font"
+  },
+  "dependencies": {
+    "@tootallnate/bmfont": "workspace:*",
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "@types/fontkit": "^2.0.8",
+    "fontkit": "^2.0.4",
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.8"
+  }
+}
