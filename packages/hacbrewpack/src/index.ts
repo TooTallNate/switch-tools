@@ -189,6 +189,34 @@ async function mapToUint8Arrays(
 	return result;
 }
 
+async function createNativeAesXtsEncrypt(
+	headerKey: Uint8Array,
+	crypto: Crypto
+): Promise<AesXtsEncryptFn | undefined> {
+	try {
+		const key = await crypto.subtle.importKey(
+			'raw',
+			headerKey,
+			'AES-XTS' as AlgorithmIdentifier,
+			false,
+			['encrypt']
+		);
+		return (data, sectorSize, startSector) =>
+			crypto.subtle.encrypt(
+				{
+					name: 'AES-XTS',
+					sectorSize,
+					sector: startSector,
+					isNintendo: true,
+				} as AlgorithmIdentifier,
+				key,
+				data
+			);
+	} catch {
+		return undefined;
+	}
+}
+
 /**
  * Build an NSP (Nintendo Submission Package) from input files.
  *
@@ -228,6 +256,8 @@ export async function buildNsp(
 	} else {
 		keys = options.keys;
 	}
+	const effectiveAesXtsEncrypt =
+		aesXtsEncrypt ?? (await createNativeAesXtsEncrypt(keys.headerKey, crypto));
 
 	// Convert input files to Uint8Arrays
 	const exefsMap = await mapToUint8Arrays(options.exefs);
@@ -333,7 +363,7 @@ export async function buildNsp(
 		plaintext,
 		keys,
 		crypto,
-		aesXtsEncrypt,
+		aesXtsEncrypt: effectiveAesXtsEncrypt,
 	};
 
 	const programNca = await createProgramNca({
