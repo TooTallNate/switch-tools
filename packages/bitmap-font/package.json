@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/bitmap-font",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Convert bitmap fonts to TrueType (traced outlines) and AngelCode BMFont, and read BMFont back.",
   "main": "dist/index.js",

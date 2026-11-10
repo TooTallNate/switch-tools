@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/bmfont",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser and writer for AngelCode BMFont (.fnt) bitmap font descriptors: binary, text and XML.",
   "main": "dist/index.js",
