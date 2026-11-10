@@ -385,11 +385,15 @@ function parseCmap(
 		}
 		block = { type: 'table', codeBegin, codeEnd, indexTable };
 	} else if (mappingMethod === 2) {
+		// v4 entries are 8 bytes, after a padded count: u32 code
+		// point, u16 glyph index, u16 padding.
 		const numEntries = reader.readU16();
+		reader.skip(2);
 		const entries: Array<{ codepoint: number; glyphIndex: number }> = [];
 		for (let i = 0; i < numEntries; i++) {
-			const cp = reader.readU16();
+			const cp = reader.readU32();
 			const gi = reader.readU16();
+			reader.skip(2);
 			entries.push({ codepoint: cp, glyphIndex: gi });
 		}
 		block = { type: 'scan', codeBegin, codeEnd, entries };

@@ -59,3 +59,10 @@ export {
 	type GlyphRect,
 	type RenderableBffnt,
 } from './render.js';
+
+export {
+	codepointMap,
+	toBitmapFont,
+	type BffntBitmapFont,
+	type BffntBitmapGlyph,
+} from './bitmap-font.js';
