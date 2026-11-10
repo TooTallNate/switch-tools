@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/gfmsg",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser for Game Freak's encrypted message text (.dat) and AHTB label hash tables (.tbl), as used by Pokémon: Let's Go, Pikachu! / Eevee! and Sword / Shield.",
   "main": "dist/index.js",

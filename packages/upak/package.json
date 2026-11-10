@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/upak",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser for Unreal Engine PAK archives (format v11 / UE 5.x).",
   "main": "dist/index.js",

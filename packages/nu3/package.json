@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/nu3",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parsers for Bandai Namco NU3 formats: NUT textures, NUD models and VBN skeletons (Pokkén Tournament, Smash 4).",
   "main": "dist/index.js",
@@ -8,7 +8,18 @@
     "build": "tsc",
     "test": "vitest run"
   },
-  "keywords": ["nut", "nud", "vbn", "ntwd", "ndwd", "ntp3", "ndp3", "pokken", "smash", "bandai-namco"],
+  "keywords": [
+    "nut",
+    "nud",
+    "vbn",
+    "ntwd",
+    "ndwd",
+    "ntp3",
+    "ndp3",
+    "pokken",
+    "smash",
+    "bandai-namco"
+  ],
   "author": "Nathan Rajlich <n@n8.io>",
   "license": "MIT",
   "repository": {

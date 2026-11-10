@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/idtech3",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "id Tech 3-family formats (Quake III, Star Wars Jedi Knight II / Jedi Academy): MD3 models, Ghoul2 GLM meshes, IBSP / RBSP levels and .skin files.",
   "main": "dist/index.js",

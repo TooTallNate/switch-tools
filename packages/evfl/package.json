@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/evfl",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Reader for Nintendo BFEVFL event flowcharts and timelines.",
   "main": "dist/index.js",

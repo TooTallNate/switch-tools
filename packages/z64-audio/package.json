@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/z64-audio",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "description": "Extractor for Zelda 64 Audiobank soundfont samples and Audiotable audio.",
   "main": "dist/index.js",

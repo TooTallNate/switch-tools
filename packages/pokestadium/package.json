@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/pokestadium",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Pokémon Stadium 2 (N64) asset archives, PERS-SZP/Yay0 FRAGMENT modules, and Pokémon/arena models.",
   "main": "dist/index.js",

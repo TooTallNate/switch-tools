@@ -1,5 +1,15 @@
 # @tootallnate/bfstm
 
+## 0.1.0
+
+### Minor Changes
+
+- de07ddb: Decode BFSTP prefetch streams, whose audio sits in a `PDAT` block rather than `DATA`. New `prefetchOnly` / `streamTotalSamples` fields describe truncated prefetches. Also fix the offset of the final interleave block, which garbled the last moments of every multi-block stream. Decoding is now bit-exact with vgmstream.
+
+### Patch Changes
+
+- cd31d96: Read the whole block table: streams with a REGN block have four entries, and the DATA entry past 0x40 was being missed ("missing INFO or DATA block").
+
 ## 0.0.2
 
 ### Patch Changes

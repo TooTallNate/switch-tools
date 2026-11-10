@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/xiso",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser for Xbox / Xbox 360 XDVDFS disc images (.iso / .xiso), both extract-xiso and full redump layouts.",
   "main": "dist/index.js",

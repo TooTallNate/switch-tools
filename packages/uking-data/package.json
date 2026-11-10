@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/uking-data",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Breath of the Wild engine data tables: STAT maps, PrOD placements, ecosystem maps, RSTB, XLNK.",
   "main": "dist/index.js",

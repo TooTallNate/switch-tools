@@ -1,5 +1,25 @@
 # @tootallnate/bntx
 
+## 0.1.0
+
+### Minor Changes
+
+- e5029bb: Decode BC6H (HDR) textures, and more float formats. Used for Legends: Arceus light probes and terrain:
+
+  - **BC6H:** `decodeBC6H` and `decodeBC6HBlock`, ported from bcdec (MIT / Unlicense). The port matches bcdec exactly on 159,744 blocks from real game textures, for both signed and unsigned formats.
+  - **Images:** `decodeBntxLayer` now decodes BC6H, `R16_G16_B16_A16_FLOAT` and `R32_G32_B32_A32_FLOAT`, tone-mapped for display. `R16_FLOAT` and `R16_UNORM` decode to greyscale.
+
+- 5a61a3c: Decode three more texture formats, used by Legends: Arceus terrain:
+
+  - **`R32_FLOAT` and `R16_FLOAT`** (terrain heightmaps) decode to a normalized greyscale image.
+  - **`R10_G10_B10_A2_UNORM`** (terrain normal maps) is supported.
+  - **`deswizzleBntxLayer`:** new, returns a layer's raw texels so callers can read heights as numbers.
+
+### Patch Changes
+
+- 8f52079: Fix BC7 decoding for most blocks. The block mode was read from `Number()` of the block's low 64 bits, which rounds away the low byte for most blocks. Those blocks then decoded as the wrong mode or as transparent black, so many BC7 textures came out almost entirely black.
+- 9d0a351: Export `formatInfo`, so other texture containers that use Tegra surfaces (PlatinumGames XT1) can build a `BntxTexture` and decode it with `decodeBntxLayer`.
+
 ## 0.0.2
 
 ### Patch Changes

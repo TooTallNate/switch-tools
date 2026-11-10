@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/pbp",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser for PSP EBOOT.PBP files, including PlayStation (PS1) PSISOIMG / PSTITLEIMG disc images and PARAM.SFO.",
   "main": "dist/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/havok",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Reader for Havok binary packfiles: version, sections and object classes.",
   "main": "dist/index.js",

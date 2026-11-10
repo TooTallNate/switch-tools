@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/uking-terrain",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Breath of the Wild terrain: height, material and grass/water tiles, and the TSCB scene table.",
   "main": "dist/index.js",

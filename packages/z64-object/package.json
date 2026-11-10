@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/z64-object",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Zelda 64 (Ocarina of Time / Majora's Mask) object files: object table, skeletons and their bind-posed meshes.",
   "main": "dist/index.js",

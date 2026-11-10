@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/psx-tim",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Decoder for PlayStation TIM images (4 / 8 / 16 / 24 bpp), including a scanner for TIMs embedded in game archives.",
   "main": "dist/index.js",

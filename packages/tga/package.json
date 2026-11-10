@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/tga",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Truevision TGA image decoder (palette, true-colour and greyscale, raw or RLE).",
   "main": "dist/index.js",

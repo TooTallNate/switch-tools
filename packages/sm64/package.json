@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/sm64",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Super Mario 64 level scripts (segments, models, areas) and geo layouts, flattened to meshes.",
   "main": "dist/index.js",
