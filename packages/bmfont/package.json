@@ -2,7 +2,7 @@
   "name": "@tootallnate/bmfont",
   "version": "0.0.1",
   "type": "module",
-  "description": "Parser for AngelCode BMFont (.fnt) bitmap font descriptors.",
+  "description": "Parser and writer for AngelCode BMFont (.fnt) bitmap font descriptors: binary, text and XML.",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

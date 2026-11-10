@@ -7,19 +7,17 @@
  * pre-Slate, Godot, libGDX, etc. A complete font ships as a
  * descriptor file (`.fnt`) plus one or more PNG atlas pages.
  *
- * Three on-disk encodings exist for the descriptor:
+ * Three on-disk encodings exist for the descriptor, and all three
+ * parse to the same {@link ParsedBmFont} ({@link parseBmfont} picks
+ * the right one):
  *
- *   - **Binary** (`BMF\3`) — the format we parse here. Compact,
- *     fixed offsets, used by most modern toolchains.
- *   - **Text** (`info face=… size=…\n…`) — human-readable, line-
- *     based key/value pairs. Common in older Cocos2d projects.
- *   - **XML** (`<font><info ...></font>`) — most verbose; mostly
- *     legacy AngelCode-tool output.
- *
- * Only the binary format is implemented. The other two
- * encodings can be added later — the public types in this module
- * already mirror what they'd produce so swapping the parser
- * doesn't change the consumer-facing shape.
+ *   - **Binary** (`BMF\3`): compact, fixed offsets, used by many
+ *     game toolchains. Parsed in this module.
+ *   - **Text** (`info face=… size=…\n…`): human-readable, line-
+ *     based key/value pairs. The most widely supported encoding,
+ *     and the one {@link writeBmfontText} writes. See ./text.ts.
+ *   - **XML** (`<font><info ...></font>`): the same tags as XML
+ *     elements. See ./text.ts.
  *
  * Wire format (binary):
  *
@@ -148,6 +146,23 @@ export interface ParsedBmFont {
 }
 
 // ----- Public API -----
+
+import { isBmfontText, isBmfontXml, parseBmfontText, parseBmfontXml } from './text.js';
+
+export { isBmfontText, isBmfontXml, parseBmfontText, parseBmfontXml, writeBmfontText } from './text.js';
+
+/** True for a descriptor in any of the three encodings. */
+export function isBmfont(bytes: Uint8Array): boolean {
+	return isBmfontBinary(bytes) || isBmfontText(bytes) || isBmfontXml(bytes);
+}
+
+/** Parse a descriptor in any encoding (binary, text or XML). */
+export function parseBmfont(bytes: Uint8Array): ParsedBmFont {
+	if (isBmfontBinary(bytes)) return parseBmfontBinary(bytes);
+	if (isBmfontText(bytes)) return parseBmfontText(bytes);
+	if (isBmfontXml(bytes)) return parseBmfontXml(bytes);
+	throw new Error('Not a BMFont descriptor (expected binary "BMF", text "info …" or XML "<font>")');
+}
 
 /** Cheap (4-byte) magic check. */
 export function isBmfontBinary(bytes: Uint8Array): boolean {
