@@ -48,11 +48,13 @@ export {
 export {
 	interpretDisplayList,
 	f3dexMaterialTint,
+	f3dexCombineUsesTexture,
 	defaultSegmentResolver,
 	type F3dexMesh,
 	type F3dexGroup,
 	type F3dexMaterial,
 	type InterpretOptions,
+	type F3dexState,
 	type SegmentResolver,
 	type WrapMode,
 } from './interpret.js';

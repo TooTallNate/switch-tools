@@ -47,3 +47,34 @@ describe('F3DEX2 state', () => {
 		expect(f3dexMaterialTint(mat)).toEqual([255, 128, 0, 255]);
 	});
 });
+
+describe('F3D state (Super Mario 64)', () => {
+	const tri = [0x04200030, 0x00000100, 0xbf000000, 0x00000a14];
+	const textured = [0xfd100000, 0x00000180, 0xf2000000, 0x0001c01c];
+	// G_CC_MODULATERGB: (TEXEL0 − 0) · SHADE + 0, alpha SHADE.
+	const modulate = [0xfc127e24, 0xfffff3f9];
+	// G_CC_SHADE.
+	const shade = [0xfcffffff, 0xfffe793c];
+
+	it('draws untextured once the combiner stops reading the texture', () => {
+		const mesh = interpretDisplayList(buffer([...textured, ...modulate, ...tri, ...shade, ...tri, 0xb8000000, 0]), 0, { microcode: 'f3d' });
+		expect(mesh.groups.map((g) => mesh.materials[g.materialIndex]!.textureAddress)).toEqual([0x180, null]);
+	});
+
+	it('honours the G_TEXTURE on flag in the low byte of w0', () => {
+		const off = interpretDisplayList(buffer([...textured, ...modulate, 0xbb000000, 0xffffffff, ...tri, 0xb8000000, 0]), 0, { microcode: 'f3d' });
+		expect(off.materials[0]!.textureAddress).toBeNull();
+		const on = interpretDisplayList(buffer([...textured, ...modulate, 0xbb000001, 0xffffffff, ...tri, 0xb8000000, 0]), 0, { microcode: 'f3d' });
+		expect(on.materials[0]!.textureAddress).toBe(0x180);
+	});
+
+	it('carries lights from one list to the next through initialState', () => {
+		const first = buffer([0x03860010, 0x000001c0, 0x03880010, 0x000001d0, 0xb8000000, 0]);
+		first.set([200, 0, 0], 0x1c0); // light 1
+		first.set([20, 10, 0], 0x1d0); // ambient
+		// G_LIGHTING is state too: set by the first list, carried into the second.
+		const a = interpretDisplayList(first, 0, { microcode: 'f3d', initialGeometryMode: 0x20000 });
+		const b = interpretDisplayList(buffer([...tri, 0xb8000000, 0]), 0, { microcode: 'f3d', initialState: a.state });
+		expect(b.materials[0]!.lightColor).toEqual([220, 10, 0]);
+	});
+});

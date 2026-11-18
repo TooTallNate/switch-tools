@@ -183,6 +183,14 @@ export interface F3dexMesh {
 	invalidTriangles: number;
 	/** Nested display lists entered via `G_DL`. */
 	displayListCount: number;
+	/** Render state when the list ended; see {@link InterpretOptions.initialState}. */
+	state: F3dexState;
+	/**
+	 * 1 for vertices drawn with `G_TEXTURE_GEN` (environment mapping: the
+	 * RSP derives their texture coordinates from the normal, so `uvs` are
+	 * meaningless there); absent when the list never turns it on.
+	 */
+	texGen?: Uint8Array;
 	/** Set when interpretation stopped early (see `truncationReason`). */
 	truncated: boolean;
 	truncationReason?: string;
@@ -243,6 +251,57 @@ export interface InterpretOptions {
 	 * an init list (Super Mario 64 enables G_LIGHTING there).
 	 */
 	initialGeometryMode?: number;
+	/**
+	 * RSP / RDP state left by the previous display list ({@link F3dexMesh.state}).
+	 * State outlives a list: Super Mario 64 draws Mario's cap logo with the
+	 * lights the previous part loaded, and Metal Mario's limbs with the
+	 * texture the first part loaded.
+	 */
+	initialState?: F3dexState;
+}
+
+/** The render state a display list leaves behind (everything but the matrix). */
+export interface F3dexState {
+	geometryMode: number;
+	lights: ([number, number, number] | undefined)[];
+	timg: number | null;
+	timgFormat: number;
+	timgSize: number;
+	tileWidth: number | null;
+	tileHeight: number | null;
+	tlut: number | null;
+	tileFormat: number | null;
+	tileSize: number | null;
+	primColor: number | null;
+	envColor: number | null;
+	combine: [number, number] | null;
+	wrapS: WrapMode;
+	wrapT: WrapMode;
+	texScaleS: number;
+	texScaleT: number;
+	textureEnabled: boolean;
+	textureOn: boolean | null;
+}
+
+/**
+ * Whether a `G_SETCOMBINE` reads a texel in either cycle. A material that
+ * doesn't (`G_CC_SHADE`, `G_CC_PRIMITIVE`, …) draws untextured even when
+ * a texture image is still set from earlier in the list.
+ */
+export function f3dexCombineUsesTexture(combine: [number, number]): boolean {
+	const [w0, w1] = combine;
+	const tex = (v: number) => v === 1 || v === 2;
+	const colorC = (v: number) => tex(v) || v === 8 || v === 9;
+	const cycles = [
+		{ a: (w0 >>> 20) & 0xf, b: (w1 >>> 28) & 0xf, c: (w0 >>> 15) & 0x1f, d: (w1 >>> 15) & 0x7, aa: (w0 >>> 12) & 0x7, ab: (w1 >>> 12) & 0x7, ac: (w0 >>> 9) & 0x7, ad: (w1 >>> 9) & 0x7 },
+		{ a: (w0 >>> 5) & 0xf, b: (w1 >>> 24) & 0xf, c: w0 & 0x1f, d: (w1 >>> 6) & 0x7, aa: (w1 >>> 21) & 0x7, ab: (w1 >>> 3) & 0x7, ac: (w1 >>> 18) & 0x7, ad: w1 & 0x7 },
+	];
+	return cycles.some(
+		(k) =>
+			// (a − b) · c + d: a and b only matter when c isn't zero (c ≥ 16 and alpha c 7 are 0).
+			((tex(k.a) || tex(k.b)) && k.c < 16) || colorC(k.c) || tex(k.d) ||
+			((tex(k.aa) || tex(k.ab)) && k.ac !== 7) || tex(k.ac) || tex(k.ad),
+	);
 }
 
 /** One entry of the RSP vertex cache. */
@@ -441,6 +500,15 @@ export function interpretDisplayList(
 	let texScaleS = 1;
 	let texScaleT = 1;
 	let textureEnabled = false;
+	/** `G_TEXTURE`'s on flag, once the list has set it. */
+	let textureOn: boolean | null = null;
+	const texGen: number[] = [];
+	let anyTexGen = false;
+	if (options.initialState) {
+		const st = options.initialState;
+		({ geometryMode, timg, timgFormat, timgSize, tileWidth, tileHeight, tlut, tileFormat, tileSize, primColor, envColor, combine, wrapS, wrapT, texScaleS, texScaleT, textureEnabled, textureOn } = st);
+		lights.push(...st.lights);
+	}
 
 	const maxIdleCommands = options.maxIdleCommands ?? Infinity;
 	let idleCommands = 0;
@@ -536,7 +604,7 @@ export function interpretDisplayList(
 			prim: primColor,
 			env: envColor,
 			combine,
-			timg: textureEnabled ? timg : null,
+			timg: (textureOn ?? textureEnabled) && (!combine || f3dexCombineUsesTexture(combine)) ? timg : null,
 			format: tileFormat ?? timgFormat,
 			size: tileSize ?? timgSize,
 			width: tileWidth,
@@ -557,6 +625,8 @@ export function interpretDisplayList(
 		}
 		idleCommands = 0;
 		const mat = materials[materialIndex];
+		const gen = (geometryMode & GEOMETRY_MODE.G_TEXTURE_GEN) !== 0 && state.timg !== null;
+		if (gen) anyTexGen = true;
 		// Normalise UVs when we know the texture size. N64 vertex
 		// s/t are S10.5 texel coordinates, scaled by G_TEXTURE.
 		const uDiv = mat.width && mat.width > 0 ? mat.width : null;
@@ -570,6 +640,7 @@ export function interpretDisplayList(
 			const su = (v.s * texScaleS) / 32;
 			const tv = (v.t * texScaleT) / 32;
 			uvs.push(uDiv ? su / uDiv : su, vDiv ? tv / vDiv : tv);
+			texGen.push(gen ? 1 : 0);
 			indices.push(indices.length);
 		}
 		currentGroup!.numTriangles++;
@@ -843,8 +914,10 @@ export function interpretDisplayList(
 					// Round the common 0xFFFF case to exactly 1.
 					if (s >= 0xfffe) texScaleS = 1;
 					if (t >= 0xfffe) texScaleT = 1;
-					const on = microcode === 'f3dex2' ? (w0 >>> 1) & 0x7f : w1 & 0xff;
-					textureEnabled = microcode === 'f3dex2' ? on !== 0 : true;
+					// gbi.h gSPTexture: F3DEX2 packs `on` in w0 bits 1-7, F3D / F3DEX in the low byte.
+					const on = microcode === 'f3dex2' ? (w0 >>> 1) & 0x7f : w0 & 0xff;
+					textureOn = on !== 0;
+					textureEnabled = textureOn;
 					break;
 				}
 				case RDP.G_SETTIMG: {
@@ -939,6 +1012,8 @@ export function interpretDisplayList(
 		foreignVertexLoads,
 		invalidTriangles,
 		displayListCount,
+		state: { geometryMode, lights, timg, timgFormat, timgSize, tileWidth, tileHeight, tlut, tileFormat, tileSize, primColor, envColor, combine, wrapS, wrapT, texScaleS, texScaleT, textureEnabled, textureOn },
+		texGen: anyTexGen ? Uint8Array.from(texGen) : undefined,
 		truncated,
 		truncationReason,
 	};
