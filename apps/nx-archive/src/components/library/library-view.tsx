@@ -570,9 +570,11 @@ export function LibraryView({
   }, [visible])
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    const out = visible
-      .filter((i) => (kind === "all" ? true : kind === "issues" ? i.status !== "ok" : i.kind === kind))
-      .filter((i) => !q || i.title.toLowerCase().includes(q) || i.path.toLowerCase().includes(q) || i.format.toLowerCase().includes(q))
+    const ofKind = visible.filter((i) => (kind === "all" ? true : kind === "issues" ? i.status !== "ok" : i.kind === kind))
+    // Match names first: only fall back to the format when no name matches,
+    // so "mario" finds Mario rather than every "Super Mario 64 model".
+    const byName = q ? ofKind.filter((i) => i.title.toLowerCase().includes(q) || i.path.toLowerCase().includes(q)) : ofKind
+    const out = byName.length || !q ? byName : ofKind.filter((i) => i.format.toLowerCase().includes(q))
     // Scans emit items in library order; re-sort only if a patch changed a kind.
     return isMediaOrder(out) ? out : out.sort(compareMediaItems)
   }, [visible, kind, query])

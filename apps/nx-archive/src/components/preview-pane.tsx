@@ -299,6 +299,7 @@ import { IdTechModelViewer } from "./idtech-model-viewer"
 import { loadUeSkeletalView, skeletalMeshExportIndex } from "~/lib/unreal-skeletal"
 import { loadZ64ObjectModelView, loadZ64SceneView } from "~/lib/z64-objects"
 import { loadSm64ModelView } from "~/lib/sm64"
+import { SM64_ANIM_FLAG_NOLOOP } from "@tootallnate/sm64"
 import { cn, formatBytes } from "~/lib/utils"
 import {
   formatBytesShort,
@@ -15340,6 +15341,34 @@ function HaloModelPreview({ node }: { node: Node }) {
 
 function Sm64ModelPreview({ node }: { node: Node }) {
   const { loading, data, error } = useAsync(() => loadSm64ModelView(node), [node.id])
+  // Re-pose the same vertices on the CPU: each display list follows its
+  // animated part's matrix.
+  const drivers = useMemo((): MeshViewerAnimationDriver[] => {
+    if (!data || !data.animations.length) return []
+    const v = data
+    return [
+      {
+        category: "Animation",
+        // The game advances animations once per 30 Hz frame.
+        animations: v.animations.map((a) => ({
+          name: a.name,
+          frameCount: a.animation.frames,
+          loop: (a.animation.flags & SM64_ANIM_FLAG_NOLOOP) === 0,
+          fps: 30,
+        })),
+        defaultIndex: v.defaultAnimation,
+        sample: (index, frame, { geometry }) => {
+          const pos = geometry?.getAttribute("position") as THREE.BufferAttribute | undefined
+          if (!pos || pos.count !== v.vertices) return
+          const nrm = geometry!.getAttribute("normal") as THREE.BufferAttribute | undefined
+          v.animator.pose(index < 0 ? null : v.animations[index]!.animation, index < 0 ? 0 : frame, pos.array as Float32Array, nrm?.array as Float32Array | undefined)
+          pos.needsUpdate = true
+          if (nrm) nrm.needsUpdate = true
+          geometry!.computeBoundingSphere()
+        },
+      },
+    ]
+  }, [data])
   if (loading) return <LoadingFiller label="Building geo layout…" />
   if (error) return <ErrorFiller error={error} />
   const v = data!
@@ -15349,11 +15378,12 @@ function Sm64ModelPreview({ node }: { node: Node }) {
         <h2 className="font-heading text-sm font-medium">Super Mario 64 Model</h2>
         <p className="text-xs text-muted-foreground">
           {v.vertices.toLocaleString()} vertices · {v.triangles.toLocaleString()} triangles · {v.texturedMaterials} textures
-          {v.animatedParts > 0 ? ` · ${v.animatedParts} animated parts${v.posed ? " (posed)" : ""}` : ""} · drag to orbit, scroll to zoom
+          {v.animatedParts > 0 ? ` · ${v.animatedParts} animated parts` : ""}
+          {v.animations.length ? ` · ${v.animations.length} animation${v.animations.length === 1 ? "" : "s"}` : ""} · drag to orbit, scroll to zoom
         </p>
       </div>
       <div className="flex-1 p-3">
-        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name} />
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name.replace(/\.sm64mdl$/, "")} animationDrivers={drivers} />
       </div>
     </div>
   )

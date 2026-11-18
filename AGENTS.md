@@ -228,6 +228,11 @@ apps/nx-archive/
   - BFSTM: the block table can run past 0x40.
 - **Bun `new Blob([fileBackedSlice])`** silently yields an empty part. Read
   small slices into bytes first.
+- **N64 render state outlives a display list.** Super Mario 64 draws Mario's
+  cap logo with the previous part's lights and Metal Mario's limbs with the
+  previous part's texture, so `buildSm64Geo` runs the lists in the game's
+  layer order and passes `F3dexMesh.state` along. A texture image left set
+  doesn't mean the next triangles are textured: check the combiner.
 - **"Textures not found"** should mean a texture is bound and can't be found.
   Placeholder bindings (`dummy`) and materials whose shader computes the
   colour aren't missing anything.
