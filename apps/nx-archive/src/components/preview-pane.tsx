@@ -15295,7 +15295,7 @@ function HeightfieldPreview({ node, root }: { node: Node; root: Node | null }) {
   const [island, setIsland] = useState(false)
   useEffect(() => setIsland(false), [node.id])
   const { loading, data, error } = useAsync(
-    async (): Promise<HeightfieldView & { textures?: (DecodedTexture | null)[]; pieces?: number }> =>
+    async (): Promise<HeightfieldView & { textures?: (MeshDecodedTexture | null)[]; pieces?: number }> =>
       island ? loadIslandView(node, root, 512) : loadHeightfieldView(node, 768),
     [node.id, island],
   )
