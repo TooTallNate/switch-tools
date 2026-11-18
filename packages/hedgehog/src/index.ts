@@ -3,3 +3,5 @@ export * from './needle.js';
 export * from './model.js';
 export * from './material.js';
 export * from './texture-streaming.js';
+export * from './pxd.js';
+export * from './pose.js';

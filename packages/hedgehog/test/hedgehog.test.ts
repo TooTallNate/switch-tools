@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { assembleDds, ntspNameHash, parseHhMaterial, parseHhModel, parseNtsi, parseNtsp, readNeedleArchive } from '../src/index.js';
+import {
+	assembleDds,
+	hhSkinMatrices,
+	mat4InvertAffine,
+	ntspNameHash,
+	parseHhMaterial,
+	parseHhModel,
+	parseNtsi,
+	parseNtsp,
+	parsePxdAnimation,
+	parsePxdSkeleton,
+	pxdWorldMatrices,
+	readNeedleArchive,
+	sampleUncompressedPxd,
+} from '../src/index.js';
 
 /** A growable big-endian buffer with offset fix-ups. */
 class W {
@@ -319,5 +333,82 @@ describe('Needle texture streaming', () => {
 	it('hashes names like the game', () => {
 		// Java String.hashCode("chr_amy_fur_abd") & 0x7fffffff, as stored in character.ntsp.
 		expect(ntspNameHash('chr_amy_fur_abd')).toBe(65274531);
+	});
+});
+
+/** A BINA 2.1 file: 0x40 header, then `body` with u64 offsets relative to 0x40. */
+function bina(body: (dv: DataView, b: Uint8Array) => number): Uint8Array {
+	const b = new Uint8Array(0x800);
+	const dv = new DataView(b.buffer);
+	b.set(new TextEncoder().encode('BINA210L'), 0);
+	const end = body(dv, b);
+	dv.setUint32(8, end, true);
+	return b.slice(0, end);
+}
+
+describe('PXD skeletons and clips', () => {
+	// Two bones: root at the origin, child 1 up Y.
+	const skl = bina((dv, b) => {
+		b.set(new TextEncoder().encode('KSXP'), 0x40);
+		dv.setUint32(0x44, 0x200, true);
+		const P = 0x100, N = 0x120, X = 0x160, S = 0x200;
+		dv.setBigUint64(0x48, BigInt(P - 0x40), true);
+		dv.setBigUint64(0x50, 2n, true);
+		dv.setBigUint64(0x68, BigInt(N - 0x40), true);
+		dv.setBigUint64(0x88, BigInt(X - 0x40), true);
+		dv.setInt16(P, -1, true);
+		dv.setInt16(P + 2, 0, true);
+		b.set(new TextEncoder().encode('Root\0Child\0'), S);
+		dv.setBigUint64(N, BigInt(S - 0x40), true);
+		dv.setBigUint64(N + 16, BigInt(S + 5 - 0x40), true);
+		for (let i = 0; i < 2; i++) {
+			const t = X + i * 0x30;
+			dv.setFloat32(t + 4, i, true);
+			dv.setFloat32(t + 28, 1, true);
+			for (let k = 0; k < 3; k++) dv.setFloat32(t + 32 + k * 4, 1, true);
+		}
+		return 0x220;
+	});
+
+	it('reads bones', () => {
+		const s = parsePxdSkeleton(skl);
+		expect(s.bones.map((x) => [x.name, x.parent, x.translation[1]])).toEqual([
+			['Root', -1, 0],
+			['Child', 0, 1],
+		]);
+	});
+
+	it('samples an uncompressed clip and poses a model', () => {
+		// Two frames, two tracks; only Root's translation is keyed: y 0 → 2.
+		const anm = bina((dv, b) => {
+			b.set(new TextEncoder().encode('NAXP'), 0x40);
+			dv.setUint32(0x44, 0x200, true);
+			dv.setFloat32(0x58, 1 / 30, true);
+			dv.setUint32(0x5c, 2, true);
+			dv.setBigUint64(0x60, 2n, true);
+			const T = 0x100;
+			dv.setBigUint64(0x68, BigInt(T - 0x40), true);
+			const F = 0x200, V = 0x220;
+			dv.setBigUint64(T, 2n, true);
+			dv.setBigUint64(T + 8, BigInt(F - 0x40), true);
+			dv.setBigUint64(T + 16, BigInt(V - 0x40), true);
+			dv.setUint16(F + 2, 1, true);
+			dv.setFloat32(V + 16 + 4, 2, true);
+			return 0x260;
+		});
+		const s = parsePxdSkeleton(skl);
+		const a = parsePxdAnimation(anm);
+		expect([a.compressed, a.frameCount, a.trackCount, Math.round(a.fps)]).toEqual([false, 2, 2, 30]);
+		const t = sampleUncompressedPxd(anm, a, s);
+		// Frame 1, track 0: translation y = 2; track 1 keeps its bind translation y = 1.
+		expect(t[(1 * 2 + 0) * 12 + 5]).toBe(2);
+		expect(t[(1 * 2 + 1) * 12 + 5]).toBe(1);
+		// The child's world position follows: y = 3. Skin matrices are identity at bind.
+		const worlds = pxdWorldMatrices(s, t, 1, 2);
+		expect(worlds[1]![13]).toBeCloseTo(3);
+		const nodes = s.bones.map((b) => ({ name: b.name, parent: b.parent, inverseBind: mat4InvertAffine(pxdWorldMatrices(s, null)[s.bones.indexOf(b)]!) }));
+		const bind = hhSkinMatrices(nodes, s, pxdWorldMatrices(s, null));
+		expect(Array.from(bind[1]!).map((x) => Math.round(x * 1e6) / 1e6)).toEqual([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+		expect(hhSkinMatrices(nodes, s, worlds)[1]![13]).toBeCloseTo(2);
 	});
 });
