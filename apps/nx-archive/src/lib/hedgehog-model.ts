@@ -120,25 +120,51 @@ async function findParentFolder(pac: Node): Promise<Node | null> {
 }
 
 const isOutline = (material: string) => /outline/i.test(material);
+const isOccluder = (name: string) => /occlu|_occ(?:_|$)/i.test(name);
 
-export async function loadHhModelView(node: Node, root: Node | null, variantIndex = 0): Promise<HhModelView> {
-	const model = parseHhModel(await bytesOf(node), /\.terrain-model$/i.test(node.name) ? 'terrain' : 'skeletal');
-	const dir = root ? await findNodeById(root, parentIdOf(node.id)) : null;
-	const chain = await pacChain(dir);
-	const lookup = (file: string) => {
+/**
+ * Find a file for a model: its pac chain first, then, only when that
+ * misses, the other pacs of the same stage folder (`w1f01_*.pac`), which
+ * share textures without naming each other as parents.
+ */
+function stageLookup(dir: Node | null, chain: Map<string, Node>[]): (file: string) => Promise<Node | undefined> {
+	let extra: Promise<Map<string, Node>[]> | null = null;
+	const siblings = () =>
+		(extra ??= (async () => {
+			if (!dir || !/\/raw\/stage\//.test(dir.id)) return [];
+			const folder = await findParentFolder(dir);
+			const out: Map<string, Node>[] = [];
+			for (const sib of await kidsOf(folder)) {
+				if (sib === dir || sib.kind !== 'pacx') continue;
+				out.push(new Map((await kidsOf(sib).catch(() => [] as Node[])).map((k) => [k.name.toLowerCase(), k])));
+			}
+			return out;
+		})());
+	return async (file) => {
 		const key = file.toLowerCase();
 		for (const m of chain) {
 			const n = m.get(key);
 			if (n) return n;
 		}
+		for (const m of await siblings()) {
+			const n = m.get(key);
+			if (n) return n;
+		}
 		return undefined;
 	};
+}
+
+export async function loadHhModelView(node: Node, root: Node | null, variantIndex = 0): Promise<HhModelView> {
+	const model = parseHhModel(await bytesOf(node), /\.terrain-model$/i.test(node.name) ? 'terrain' : 'skeletal');
+	const dir = root ? await findNodeById(root, parentIdOf(node.id)) : null;
+	const chain = await pacChain(dir);
+	const lookup = stageLookup(dir, chain);
 
 	const materials = new Map<string, HhMaterial | null>();
 	const missing: string[] = [];
 	for (const m of model.meshes) {
 		if (materials.has(m.material)) continue;
-		const n = lookup(`${m.material}.material`);
+		const n = await lookup(`${m.material}.material`);
 		let mat: HhMaterial | null = null;
 		if (n) {
 			try {
@@ -159,8 +185,7 @@ export async function loadHhModelView(node: Node, root: Node | null, variantInde
 		const key = name.toLowerCase();
 		let p = textureCache.get(key);
 		if (!p) {
-			const n = lookup(`${key}.dds`);
-			p = n ? decodeTexture(n) : Promise.resolve(null);
+			p = lookup(`${key}.dds`).then((n) => (n ? decodeTexture(n) : null));
 			textureCache.set(key, p);
 		}
 		return p;
@@ -186,7 +211,8 @@ export async function loadHhModelView(node: Node, root: Node | null, variantInde
 			slot = slotTextures.length;
 			slotFor.set(key, slot);
 			slotTextures.push(tex ? texture(tex.texture) : Promise.resolve(null));
-			if (tex) wanted++;
+			// Occluders are never drawn, and bind textures that don't ship.
+			if (tex && !isOccluder(m.material)) wanted++;
 		}
 		const base = positions.length / 3;
 		const set = tex ? Math.min(tex.texcoord, m.uvs.length - 1) : 0;
@@ -288,7 +314,7 @@ export async function loadHhModelView(node: Node, root: Node | null, variantInde
 		variants,
 		variant,
 		texturesWanted: wanted,
-		texturesFound: textures.filter(Boolean).length,
+		texturesFound: Math.min(wanted, textures.filter(Boolean).length),
 		materialsMissing: missing,
 		animations,
 		defaultAnimation,
@@ -451,19 +477,18 @@ export async function loadHhSceneView(node: Node, root: Node | null): Promise<Hh
 	const instances = parsePointCloud(await bytesOf(node));
 	const dir = root ? await findNodeById(root, parentIdOf(node.id)) : null;
 	const chain = await pacChain(dir);
-	const lookup = (file: string) => {
-		const key = file.toLowerCase();
-		for (const m of chain) {
-			const n = m.get(key);
-			if (n) return n;
-		}
-		return undefined;
-	};
+	const lookup = stageLookup(dir, chain);
 	const views = new Map<string, HhModelView | null>();
 	const missing: string[] = [];
+	const skipOccluders = instances.some((p) => !isOccluder(p.resource));
 	for (const p of instances) {
 		if (views.has(p.resource)) continue;
-		const n = lookup(`${p.resource}.terrain-model`) ?? lookup(`${p.resource}.model`);
+		// Occlusion volumes aren't drawn in game (unless that's all the layout has).
+		if (skipOccluders && isOccluder(p.resource)) {
+			views.set(p.resource, null);
+			continue;
+		}
+		const n = (await lookup(`${p.resource}.terrain-model`)) ?? (await lookup(`${p.resource}.model`));
 		const v = n ? await cachedModelView(n, root) : null;
 		if (!v) missing.push(p.resource);
 		views.set(p.resource, v);
