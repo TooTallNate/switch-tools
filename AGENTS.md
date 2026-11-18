@@ -36,6 +36,8 @@ Platforms covered today include:
   STR video, XA audio, TIM images, FF7 PSX models.
 - **Xbox:** XISO, and Halo CE cache files.
 - **PC FF7 / FF8:** LGP and friends.
+- **Sega:** Sonic Frontiers (Hedgehog Engine 2): PACx archives, models with
+  skeletons and ACL-compressed animations, stage layouts, terrain heightfields.
 - **Engines:** Unity bundles and Unreal PAKs.
 
 The direction of travel: *open any game, see all of its media,
@@ -233,6 +235,15 @@ apps/nx-archive/
   previous part's texture, so `buildSm64Geo` runs the lists in the game's
   layer order and passes `F3dexMesh.state` along. A texture image left set
   doesn't mean the next triangles are textured: check the combiner.
+- **Sonic Frontiers (Hedgehog Engine 2):**
+  - Needle models keep big-endian values but store offsets as
+    little-endian and relative to the offset itself. `readMirage` votes
+    over the offset table to tell; a single entry can mislead.
+  - Many `.dds` files in a pac are `NTSI` stubs. The pixels live in
+    `raw/texture_streaming/*.ntsp`, and the pac node rebuilds them.
+  - Materials and textures often sit in parent pacs (`meta.pacxParents`),
+    and rigs sometimes sit in a neighbouring pac.
+  - The bind pose has the eyes closed. Open models on an idle clip.
 - **"Textures not found"** should mean a texture is bound and can't be found.
   Placeholder bindings (`dummy`) and materials whose shader computes the
   colour aren't missing anything.
