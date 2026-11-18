@@ -57,8 +57,7 @@ const DDPF_ALPHAPIXELS = 0x1;
 const DDPF_FOURCC = 0x4;
 const DDPF_RGB = 0x40;
 const DDPF_LUMINANCE = 0x20000;
-void DDPF_ALPHAPIXELS;
-void DDPF_LUMINANCE;
+
 
 export class DdsParseError extends Error {
 	constructor(message: string) {
@@ -204,14 +203,24 @@ function decodePixels(
 				return { pixels: decodeBC5(data, width, height).pixels, formatLabel: 'BC5U (ATI2)' };
 			case 'DX10':
 				return decodeDX10(width, height, dxgiFormat ?? 0, data);
-			default:
-				throw new DdsParseError(
-					`Unsupported DDS fourCC "${pf.fourCC}"`,
-				);
+			default: {
+				// Legacy D3DFORMAT codes stored as a number instead of four characters.
+				const code = pf.fourCC.charCodeAt(0) | (pf.fourCC.charCodeAt(1) << 8);
+				const legacy = D3DFMT_CHANNELS[code];
+				if (legacy && pf.fourCC.charCodeAt(2) === 0) return { pixels: decodeChannels(width, height, data, legacy), formatLabel: legacy.label };
+				throw new DdsParseError(`Unsupported DDS fourCC "${pf.fourCC}"`);
+			}
 		}
 	}
 	if (pf.flags & DDPF_RGB) {
 		return decodeUncompressedRgb(width, height, pf, data);
+	}
+	if (pf.flags & DDPF_LUMINANCE) {
+		const alpha = (pf.flags & DDPF_ALPHAPIXELS) !== 0;
+		const bpp = pf.rgbBitCount;
+		const layout: ChannelLayout | null =
+			bpp === 8 && !alpha ? { label: 'L8', type: 'u8', channels: 1 } : bpp === 16 && alpha ? { label: 'A8L8', type: 'u8', channels: 2, luminanceAlpha: true } : bpp === 16 ? { label: 'L16', type: 'u16', channels: 1 } : null;
+		if (layout) return { pixels: decodeChannels(width, height, data, layout), formatLabel: layout.label };
 	}
 	throw new DdsParseError(
 		`Unsupported DDS pixel format (flags=0x${pf.flags.toString(16)}, fourCC="${pf.fourCC}")`,
@@ -233,8 +242,8 @@ function decodeDX10(
 	//   83 / 84 = BC5_UNORM / BC5_SNORM
 	//   95 / 96 = BC6H_UF16 / BC6H_SF16 (tone-mapped to 8-bit)
 	//   98 / 99 = BC7_UNORM / BC7_UNORM_SRGB
-	//   87 = R8G8B8A8_UNORM,  88 = R8G8B8A8_UNORM_SRGB
-	//   28 = R8G8B8A8_UNORM (alt)
+	//   28 / 29 = R8G8B8A8_UNORM / _SRGB
+	//   87 / 91 = B8G8R8A8_UNORM / _SRGB, 88 = B8G8R8X8_UNORM
 	switch (dxgiFormat) {
 		case 71:
 		case 72:
@@ -257,18 +266,115 @@ function decodeDX10(
 		case 98:
 		case 99:
 			return { pixels: decodeBC7(data, width, height).pixels, formatLabel: `BC7 (DXGI ${dxgiFormat})` };
-		case 87:
-		case 88:
-		case 28: {
+		case 28:
+		case 29: {
 			const out = new Uint8Array(width * height * 4);
 			out.set(data.subarray(0, out.length));
 			return { pixels: out, formatLabel: 'RGBA8 (DX10)' };
 		}
+		case 87:
+		case 88:
+		case 91: {
+			// B8G8R8A8 (87/91 sRGB) and B8G8R8X8 (88).
+			const out = new Uint8Array(width * height * 4);
+			for (let i = 0; i < width * height && i * 4 + 3 < data.length; i++) {
+				out[i * 4] = data[i * 4 + 2]!;
+				out[i * 4 + 1] = data[i * 4 + 1]!;
+				out[i * 4 + 2] = data[i * 4]!;
+				out[i * 4 + 3] = dxgiFormat === 88 ? 255 : data[i * 4 + 3]!;
+			}
+			return { pixels: out, formatLabel: 'BGRA8 (DX10)' };
+		}
 		default:
+			if (DXGI_CHANNELS[dxgiFormat]) {
+				const l = DXGI_CHANNELS[dxgiFormat]!;
+				return { pixels: decodeChannels(width, height, data, l), formatLabel: l.label };
+			}
 			throw new DdsParseError(
 				`Unsupported DDS DX10 dxgiFormat ${dxgiFormat}`,
 			);
 	}
+}
+
+interface ChannelLayout {
+	label: string;
+	type: 'u8' | 'u16' | 'f16' | 'f32';
+	channels: 1 | 2 | 3 | 4;
+	/** Two channels are luminance + alpha rather than red + green. */
+	luminanceAlpha?: boolean;
+}
+
+/** D3DFMT codes found as numeric fourCCs. */
+const D3DFMT_CHANNELS: Record<number, ChannelLayout> = {
+	36: { label: 'A16B16G16R16', type: 'u16', channels: 4 },
+	111: { label: 'R16F', type: 'f16', channels: 1 },
+	112: { label: 'G16R16F', type: 'f16', channels: 2 },
+	113: { label: 'A16B16G16R16F', type: 'f16', channels: 4 },
+	114: { label: 'R32F', type: 'f32', channels: 1 },
+	115: { label: 'G32R32F', type: 'f32', channels: 2 },
+	116: { label: 'A32B32G32R32F', type: 'f32', channels: 4 },
+};
+
+/** Plain-channel DXGI formats (one value per channel, R first). */
+const DXGI_CHANNELS: Record<number, ChannelLayout> = {
+	2: { label: 'R32G32B32A32_FLOAT', type: 'f32', channels: 4 },
+	6: { label: 'R32G32B32_FLOAT', type: 'f32', channels: 3 },
+	10: { label: 'R16G16B16A16_FLOAT', type: 'f16', channels: 4 },
+	11: { label: 'R16G16B16A16_UNORM', type: 'u16', channels: 4 },
+	16: { label: 'R32G32_FLOAT', type: 'f32', channels: 2 },
+	34: { label: 'R16G16_FLOAT', type: 'f16', channels: 2 },
+	35: { label: 'R16G16_UNORM', type: 'u16', channels: 2 },
+	41: { label: 'R32_FLOAT', type: 'f32', channels: 1 },
+	49: { label: 'R8G8_UNORM', type: 'u8', channels: 2 },
+	54: { label: 'R16_FLOAT', type: 'f16', channels: 1 },
+	56: { label: 'R16_UNORM', type: 'u16', channels: 1 },
+	61: { label: 'R8_UNORM', type: 'u8', channels: 1 },
+	65: { label: 'A8_UNORM', type: 'u8', channels: 1 },
+};
+
+function half(h: number): number {
+	const s = h & 0x8000 ? -1 : 1, e = (h >> 10) & 0x1f, m = h & 0x3ff;
+	if (e === 0) return s * m * 2 ** -24;
+	if (e === 31) return m ? 0 : s * 65504;
+	return s * (1 + m / 1024) * 2 ** (e - 15);
+}
+
+/**
+ * Plain channels to RGBA8, values clamped to 0..1 (these are mostly data
+ * textures: lookup tables, vertex-animation positions). One channel is
+ * grey, two are red and green (or luminance and alpha).
+ */
+function decodeChannels(width: number, height: number, data: Uint8Array, l: ChannelLayout): Uint8Array {
+	const size = l.type === 'u8' ? 1 : l.type === 'f32' ? 4 : 2;
+	const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+	const read = (o: number) => {
+		if (o + size > data.length) return 0;
+		switch (l.type) {
+			case 'u8':
+				return data[o]! / 255;
+			case 'u16':
+				return dv.getUint16(o, true) / 65535;
+			case 'f16':
+				return half(dv.getUint16(o, true));
+			default:
+				return dv.getFloat32(o, true);
+		}
+	};
+	const to8 = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 255);
+	const out = new Uint8Array(width * height * 4);
+	for (let i = 0; i < width * height; i++) {
+		const o = i * l.channels * size;
+		const c = [0, 1, 2, 3].map((k) => (k < l.channels ? read(o + k * size) : 0));
+		let r: number, g: number, b: number, a: number;
+		if (l.channels === 1) [r, g, b, a] = [c[0]!, c[0]!, c[0]!, 1];
+		else if (l.channels === 2) [r, g, b, a] = l.luminanceAlpha ? [c[0]!, c[0]!, c[0]!, c[1]!] : [c[0]!, c[1]!, 0, 1];
+		else [r, g, b, a] = [c[0]!, c[1]!, c[2]!, l.channels === 4 ? c[3]! : 1];
+		out[i * 4] = to8(r);
+		out[i * 4 + 1] = to8(g);
+		out[i * 4 + 2] = to8(b);
+		out[i * 4 + 3] = to8(a);
+	}
+	return out;
 }
 
 function decodeUncompressedRgb(
