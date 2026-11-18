@@ -1,0 +1,31 @@
+{
+  "name": "@tootallnate/fbx",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Binary FBX reader: meshes, materials, skeletons, skins and animation stacks, posed on the CPU.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "fbx",
+    "autodesk",
+    "3d",
+    "skinning",
+    "animation"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/fbx"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
