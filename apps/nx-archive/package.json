@@ -99,6 +99,8 @@
     "@tootallnate/j3d": "workspace:*",
     "@tootallnate/lc-lz2": "workspace:*",
     "@tootallnate/lgp": "workspace:*",
+    "@tootallnate/pacx": "workspace:*",
+    "@tootallnate/hedgehog": "workspace:*",
     "@tootallnate/lz4": "workspace:^",
     "@tootallnate/lzma": "workspace:*",
     "@tootallnate/mio0": "workspace:*",

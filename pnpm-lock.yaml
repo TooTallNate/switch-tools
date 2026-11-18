@@ -454,6 +454,12 @@ importers:
       '@tootallnate/lgp':
         specifier: workspace:*
         version: link:../../packages/lgp
+      '@tootallnate/pacx':
+        specifier: workspace:*
+        version: link:../../packages/pacx
+      '@tootallnate/hedgehog':
+        specifier: workspace:*
+        version: link:../../packages/hedgehog
       '@tootallnate/lz4':
         specifier: workspace:^
         version: link:../../packages/lz4
@@ -1332,6 +1338,12 @@ importers:
         specifier: ^5.3.3
         version: 5.9.3
 
+  packages/hedgehog:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
   packages/hfs0:
     devDependencies:
       typescript:
@@ -1635,6 +1647,16 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.18)(lightningcss@1.32.0)(msw@2.14.3(@types/node@22.19.18)(typescript@5.9.3))
+
+  packages/pacx:
+    dependencies:
+      '@tootallnate/lz4':
+        specifier: workspace:*
+        version: link:../lz4
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
 
   packages/pbp:
     dependencies:

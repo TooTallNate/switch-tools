@@ -20,6 +20,9 @@ import { parseSarc, type SarcEntry } from '@tootallnate/sarc';
 import { thpRestuffJpeg } from '@tootallnate/thp';
 import { parseVbf, type VbfFileEntry } from '@tootallnate/vbf';
 import { parseLgp, type LgpEntry } from '@tootallnate/lgp';
+import { readPacx } from '@tootallnate/pacx';
+import { isNtsi } from '@tootallnate/hedgehog';
+import { resolveHedgehogDds } from './hedgehog-textures';
 import {
 	parseWd,
 	decodeWaveToWav,
@@ -277,6 +280,12 @@ export type NodeKind =
 	 * lazy slices into the archive.
 	 */
 	| 'lgp'
+	/**
+	 * Hedgehog Engine packfile (`.pac`, magic `PACx`): Sonic Forces
+	 * (v3) and Sonic Frontiers (v4, LZ4 chunks around v3 pacs and their
+	 * splits). See `@tootallnate/pacx`.
+	 */
+	| 'pacx'
 	/**
 	 * Final Fantasy VIII PC archive triplet (`.fs` + `.fi` + `.fl`).
 	 * The `.fs` (filesystem) is the payload; the `.fi` (file index)
@@ -774,6 +783,7 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	'unity-serialized': 'UNITY-ASSETS', // alias used by the magic sniffer (GUID-named SerializedFiles in a player's Data/)
 	phyre: 'Phyre', // Sony PhyreEngine container — FFX/X-2 HD, FFXII TZA
 	lgp: 'LGP', // Square LGP archive — FF7/FF8 PC
+	pacx: 'PACx', // Hedgehog Engine packfile — Sonic Forces / Frontiers
 	sf2: 'SF2', // SoundFont 2 — sample-based MIDI instrument bank
 	mid: 'MIDI', // Standard MIDI file
 	midi: 'MIDI',
@@ -885,6 +895,7 @@ type SniffedFormat =
 	| 'cd-raw'
 	| 'phyre'
 	| 'lgp'
+	| 'pacx'
 	| 'nes'
 	| 'gb'
 	| 'gba'
@@ -968,6 +979,7 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 		return 'lgp';
 	}
 	if (m4 === 'RARC') return 'rarc'; // GameCube/Wii JSystem archive
+	if (m4 === 'PACx' && head[7] === 0x4c) return 'pacx'; // Hedgehog Engine packfile (little-endian)
 	if (m4 === 'STRM') return 'ast'; // Nintendo streamed audio
 	if (m4 === 'THP\0') return 'thp'; // GameCube/Wii video
 	if (m4 === 'MTHP') return 'mth'; // Melee video
@@ -1580,6 +1592,13 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 		extensions: ['lgp'],
 		sniff: ['lgp'],
 		build: (a) => makeLgpNode(a.id, a.name, a.blob, a.ctx),
+	},
+	{
+		// `.pac` is used by unrelated formats, so sniff only.
+		format: 'PACx',
+		extensions: [],
+		sniff: ['pacx'],
+		build: (a) => makePacxNode(a.id, a.name, a.blob, a.ctx),
 	},
 	{
 		format: 'FF8-FS',
@@ -3463,6 +3482,46 @@ function ff8EntryToBlob(
 		return childFacade;
 	};
 	return facade;
+}
+
+function makePacxNode(id: string, name: string, blob: Blob, ctx: ArchiveContext): Node {
+	const node: Node = {
+		id,
+		name,
+		kind: 'pacx',
+		isContainer: true,
+		size: blob.size,
+		format: 'PACx',
+		blob: async () => blob,
+		getChildren: async () => {
+			const pac = readPacx(new Uint8Array(await blob.arrayBuffer()));
+			// Parent pacs (`stage\\w1_common`) hold shared materials and textures.
+			if (pac.parents.length) node.meta = { ...node.meta, pacxParents: pac.parents };
+			// A v4 root lists its split files as proxies; the splits carry the data.
+			const real = new Set(pac.entries.filter((e) => !e.proxy).map((e) => e.name));
+			const seen = new Set<string>();
+			const kids: Node[] = [];
+			for (const e of pac.entries) {
+				if (e.proxy && real.has(e.name)) continue;
+				if (seen.has(e.name)) continue;
+				seen.add(e.name);
+				if (e.proxy) continue;
+				const cid = `${id}/${e.name}`;
+				const child = await childNodeFor(cid, e.name, new Blob([e.data as BlobPart]), ctx, { parentArchiveName: name.toLowerCase() });
+				if (e.ext === 'model' || e.ext === 'terrain-model') child.meta = { ...child.meta, hhModel: true };
+				if (e.ext === 'dds' && isNtsi(e.data)) {
+					// A texture-streaming stub: the blob is the DDS rebuilt from the package.
+					const stub = e.data;
+					let full: Promise<Blob> | null = null;
+					child.blob = () => (full ??= resolveHedgehogDds(cid, e.name, stub).then((b) => new Blob([b as BlobPart], { type: 'image/vnd.ms-dds' })));
+					child.meta = { ...child.meta, contentKey: `ntsi:${name}/${e.name}` };
+				}
+				kids.push(child);
+			}
+			return kids.sort((a, b) => humanCompare(a.name, b.name));
+		},
+	};
+	return node;
 }
 
 function makeLgpNode(

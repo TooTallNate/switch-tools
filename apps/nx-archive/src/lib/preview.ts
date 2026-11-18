@@ -346,6 +346,8 @@ export type PreviewKind =
 	| 'ff7-psx-model'
 	/** Autodesk FBX (binary): meshes, skins, animation stacks. */
 	| 'fbx-model'
+	/** Hedgehog Engine `.model` / `.terrain-model` (Sonic Frontiers / Forces pacs). */
+	| 'hh-model'
 	/**
 	 * Nintendo BTI texture (`.bti`) — a bare GX texture header plus
 	 * tiled pixel data, as used all over GameCube/Wii JSystem titles.
@@ -586,6 +588,8 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	// generic for `detectPreviewKind` to route safely on name alone).
 	if (node.meta?.idfont) return 'idfont';
 	if (node.meta?.bimage) return 'bimage';
+	// Hedgehog Engine models inside a PACx (`.model` alone is too generic).
+	if (node.meta?.hhModel) return 'hh-model';
 	// FF7 PC field scenes (inside `flevel.lgp`) are detected at
 	// tree-build time — they have no extension.
 	if (node.meta?.ff7FieldScene) return 'ff7-field-scene';
