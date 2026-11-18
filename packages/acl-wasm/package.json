@@ -1,0 +1,38 @@
+{
+  "name": "@tootallnate/acl-wasm",
+  "version": "0.0.0",
+  "description": "Animation Compression Library (ACL 2.0) transform-track decompression compiled to WebAssembly.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./acl.wasm": "./dist/acl.wasm"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:wasm": "make",
+    "build:ts": "tsc",
+    "build": "tsc && cp src/acl.wasm dist/acl.wasm",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "acl",
+    "animation",
+    "compression",
+    "wasm"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/acl-wasm"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
