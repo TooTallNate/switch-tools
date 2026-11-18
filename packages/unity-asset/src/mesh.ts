@@ -17,9 +17,12 @@
  *   - 16/32-bit index buffers, `baseVertex`, and triangle/quad
  *     sub-meshes. Line and point topologies are skipped.
  *
- * Not handled: `m_CompressedMesh` (meshes built with Mesh
- * Compression), which throws a descriptive error. Blend shapes are
- * also skipped.
+ *   - `m_CompressedMesh` (Mesh Compression on): quantised
+ *     `PackedBitVector`s of positions, UVs, normals (x, y plus a z
+ *     sign), colours, skin weights and indices
+ *     ({@link decodeCompressedMesh}).
+ *
+ * Blend shapes are skipped.
  *
  * Coordinates are returned in Unity's native left-handed space (+X
  * right, +Y up, +Z forward). Callers targeting a right-handed
@@ -195,9 +198,7 @@ export function extractUnityMesh(
 	const vd = mesh.m_VertexData as Record<string, unknown> | undefined;
 	if (!vd) throw new Error('Mesh has no m_VertexData');
 	const vertexCount = num(vd.m_VertexCount);
-	if (compressed !== 0 && cmVerts > 0 && vertexCount === 0) {
-		throw new Error('Mesh uses Unity mesh compression (m_CompressedMesh), which is not supported yet');
-	}
+	if (compressed !== 0 && cmVerts > 0 && vertexCount === 0) return decodeCompressedMesh(mesh, cm!);
 
 	let data = bytesOf(vd.m_DataSize);
 	if (!data || data.length === 0) data = streamData ?? null;
@@ -420,4 +421,164 @@ export function toRightHanded(geom: UnityMeshGeometry): UnityMeshGeometry {
 	}
 	geom.bindPoses = geom.bindPoses.map(mirrorMatrixX);
 	return geom;
+}
+
+/**
+ * A `PackedBitVector`: `m_NumItems` values of `m_BitSize` bits, LSB
+ * first; floats map 0..2^bits−1 onto `m_Start` … `m_Start + m_Range`.
+ * `start` / `count` pick items (AssetStudio `PackedBitVector.cs`).
+ */
+function unpackBits(v: Record<string, unknown>, start = 0, count = num(v.m_NumItems) - start): Uint32Array {
+	const data = bytesOf(v.m_Data) ?? new Uint8Array(0);
+	const bits = num(v.m_BitSize);
+	const out = new Uint32Array(Math.max(0, count));
+	let bitPos = bits * start;
+	let index = bitPos >> 3;
+	bitPos &= 7;
+	for (let i = 0; i < out.length; i++) {
+		let x = 0, got = 0;
+		while (got < bits && index < data.length) {
+			x |= (data[index]! >> bitPos) << got;
+			const n = Math.min(bits - got, 8 - bitPos);
+			bitPos += n;
+			got += n;
+			if (bitPos === 8) {
+				index++;
+				bitPos = 0;
+			}
+		}
+		out[i] = bits >= 32 ? x >>> 0 : (x & ((1 << bits) - 1)) >>> 0;
+	}
+	return out;
+}
+
+function unpackFloats(v: Record<string, unknown>, start?: number, count?: number): Float32Array {
+	const raw = unpackBits(v, start, count);
+	const bits = num(v.m_BitSize);
+	const range = Number(v.m_Range ?? 0), base = Number(v.m_Start ?? 0);
+	const max = bits >= 32 ? 0xffffffff : (1 << bits) - 1;
+	const out = new Float32Array(raw.length);
+	for (let i = 0; i < raw.length; i++) out[i] = max ? (raw[i]! / max) * range + base : base;
+	return out;
+}
+
+/**
+ * Decode `m_CompressedMesh` (Mesh Compression), after AssetStudio's
+ * `Mesh.DecompressCompressedMesh` (MIT).
+ */
+export function decodeCompressedMesh(mesh: Record<string, unknown>, cm: Record<string, unknown>): UnityMeshGeometry {
+	const name = String(mesh.m_Name ?? '');
+	const vec = (k: string) => (cm[k] as Record<string, unknown> | undefined) ?? {};
+	const vertexCount = Math.floor(num(vec('m_Vertices').m_NumItems) / 3);
+	const positions = unpackFloats(vec('m_Vertices'), 0, vertexCount * 3);
+
+	// UVs: m_UVInfo packs 4 bits per channel (dimension − 1, "exists" flag).
+	let uv0: Float32Array | null = null;
+	const uvVec = vec('m_UV');
+	if (num(uvVec.m_NumItems) > 0) {
+		const info = num(cm.m_UVInfo);
+		if (info !== 0) {
+			let offset = 0;
+			for (let ch = 0; ch < 8; ch++) {
+				const b = (info >>> (ch * 4)) & 0xf;
+				if (!(b & 4)) continue;
+				const dim = 1 + (b & 3);
+				if (ch === 0) {
+					const raw = unpackFloats(uvVec, offset, dim * vertexCount);
+					uv0 = new Float32Array(vertexCount * 2);
+					for (let i = 0; i < vertexCount; i++) {
+						uv0[i * 2] = raw[i * dim]!;
+						uv0[i * 2 + 1] = dim > 1 ? raw[i * dim + 1]! : 0;
+					}
+				}
+				offset += dim * vertexCount;
+			}
+		} else {
+			uv0 = unpackFloats(uvVec, 0, vertexCount * 2);
+		}
+	}
+
+	// Normals: x and y, z from the unit length and a sign bit.
+	let normals: Float32Array | null = null;
+	const nVec = vec('m_Normals');
+	const nCount = Math.floor(num(nVec.m_NumItems) / 2);
+	if (nCount > 0) {
+		const xy = unpackFloats(nVec, 0, nCount * 2);
+		const signs = unpackBits(vec('m_NormalSigns'));
+		normals = new Float32Array(nCount * 3);
+		for (let i = 0; i < nCount; i++) {
+			let x = xy[i * 2]!, y = xy[i * 2 + 1]!, z = 0;
+			const zsq = 1 - x * x - y * y;
+			if (zsq >= 0) z = Math.sqrt(zsq);
+			else {
+				const l = Math.hypot(x, y) || 1;
+				x /= l;
+				y /= l;
+			}
+			if (signs[i] === 0) z = -z;
+			normals[i * 3] = x;
+			normals[i * 3 + 1] = y;
+			normals[i * 3 + 2] = z;
+		}
+		if (nCount !== vertexCount) normals = null;
+	}
+
+	const fc = vec('m_FloatColors');
+	const colorsRaw = num(fc.m_NumItems) > 0 ? unpackFloats(fc) : null;
+	const colors = colorsRaw && colorsRaw.length === vertexCount * 4 ? colorsRaw : null;
+
+	// Skin: weights in 31sts that sum to 31 per vertex (at most 4, the
+	// fourth implied when three don't reach 31).
+	let skin: UnityMeshSkin | null = null;
+	const wVec = vec('m_Weights');
+	if (num(wVec.m_NumItems) > 0) {
+		const w = unpackBits(wVec);
+		const bi = unpackBits(vec('m_BoneIndices'));
+		const weights = new Float32Array(vertexCount * 4);
+		const indices = new Uint16Array(vertexCount * 4);
+		let v = 0, j = 0, sum = 0, b = 0;
+		for (let i = 0; i < w.length && v < vertexCount; i++) {
+			weights[v * 4 + j] = w[i]! / 31;
+			indices[v * 4 + j] = bi[b++] ?? 0;
+			j++;
+			sum += w[i]!;
+			if (sum >= 31) {
+				v++;
+				j = 0;
+				sum = 0;
+			} else if (j === 3) {
+				weights[v * 4 + 3] = (31 - sum) / 31;
+				indices[v * 4 + 3] = bi[b++] ?? 0;
+				v++;
+				j = 0;
+				sum = 0;
+			}
+		}
+		skin = { weights, indices };
+	}
+	const bindPoses = ((mesh.m_BindPose as unknown[]) ?? []).map((m) => unityMatrixToColumnMajor(m as Record<string, unknown>));
+
+	// Indices: absolute, one int each; sub-mesh `firstByte` still counts
+	// in the declared index size.
+	const tri = unpackBits(vec('m_Triangles'));
+	const indexSize = num(mesh.m_IndexFormat) === 1 ? 4 : 2;
+	const out: number[] = [];
+	const subMeshes: UnityMeshSubMesh[] = [];
+	const rawSubMeshes = ((mesh.m_SubMeshes as unknown[]) ?? []).map((x) => x as Record<string, unknown>);
+	const list = rawSubMeshes.length ? rawSubMeshes : [{ firstByte: 0, indexCount: tri.length, topology: 0, baseVertex: 0 }];
+	for (const sm of list) {
+		const first = Math.floor(num(sm.firstByte) / indexSize);
+		const count = Math.min(num(sm.indexCount), Math.max(tri.length - first, 0));
+		const baseVertex = num(sm.baseVertex);
+		const start = out.length;
+		if (num(sm.topology) === 0) {
+			for (let i = 0; i + 2 < count; i += 3) out.push(tri[first + i]! + baseVertex, tri[first + i + 1]! + baseVertex, tri[first + i + 2]! + baseVertex);
+		}
+		subMeshes.push({ firstIndex: start, indexCount: out.length - start });
+	}
+	const indices = Uint32Array.from(out);
+	for (let i = 0; i < indices.length; i++) {
+		if (indices[i]! >= vertexCount) throw new Error(`Mesh index ${indices[i]} out of range (${vertexCount} vertices)`);
+	}
+	return { name, vertexCount, positions, normals, uv0, colors, indices, subMeshes, skin, bindPoses };
 }

@@ -126,3 +126,41 @@ describe('extractUnityMesh', () => {
 	})
 })
 
+
+describe('compressed meshes', () => {
+	// 8-bit packed vectors: value v ↦ start + v / 255 · range.
+	const packed = (values: number[], bits = 8, start = 0, range = 1) => ({
+		m_NumItems: values.length,
+		m_Range: range,
+		m_Start: start,
+		m_BitSize: bits,
+		m_Data: Uint8Array.from(values),
+	})
+
+	it('unpacks positions, UVs, normals and indices from m_CompressedMesh', () => {
+		const mesh = {
+			m_Name: 'tri',
+			m_MeshCompression: 2,
+			m_IndexFormat: 0,
+			m_VertexData: { m_VertexCount: 0, m_Channels: [], m_DataSize: new Uint8Array(0) },
+			m_SubMeshes: [{ firstByte: 0, indexCount: 3, topology: 0, baseVertex: 0 }],
+			m_CompressedMesh: {
+				// (0,0,0) (2,0,0) (0,2,0): range 2 over 255 steps.
+				m_Vertices: packed([0, 0, 0, 255, 0, 0, 0, 255, 0], 8, 0, 2),
+				m_UV: packed([0, 0, 255, 0, 0, 255]),
+				m_UVInfo: 0,
+				// Normals (0, 0, ±1): x = y = 0, signs 1 → +z.
+				m_Normals: packed([0, 0, 0, 0, 0, 0], 8, 0, 0),
+				m_NormalSigns: { m_NumItems: 3, m_BitSize: 1, m_Data: Uint8Array.from([0b111]) },
+				m_Triangles: { m_NumItems: 3, m_BitSize: 8, m_Data: Uint8Array.from([0, 1, 2]) },
+				m_Weights: { m_NumItems: 0, m_BitSize: 0, m_Data: new Uint8Array(0) },
+			},
+		}
+		const g = extractUnityMesh(mesh, '2021.3.15f1')
+		expect(g.vertexCount).toBe(3)
+		expect(Array.from(g.positions)).toEqual([0, 0, 0, 2, 0, 0, 0, 2, 0])
+		expect(Array.from(g.uv0!)).toEqual([0, 0, 1, 0, 0, 1])
+		expect(Array.from(g.normals!)).toEqual([0, 0, 1, 0, 0, 1, 0, 0, 1])
+		expect(Array.from(g.indices)).toEqual([0, 1, 2])
+	})
+})
