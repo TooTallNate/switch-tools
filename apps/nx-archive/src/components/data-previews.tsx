@@ -37,6 +37,7 @@ import {
 } from "@tootallnate/uking-data"
 import { decodeGx2Surface, parseGx2 } from "@tootallnate/gx2"
 import { decodeNvnTexture, parseNvnTexture } from "@tootallnate/nvn-texture"
+import { isPxdAnimation, isPxdSkeleton, parseHhMaterial, parsePxdAnimation, parsePxdSkeleton } from "@tootallnate/hedgehog"
 
 import type { Node } from "~/lib/archive"
 import { highlightCode } from "~/lib/highlight"
@@ -611,4 +612,63 @@ export async function loadDataTextView(node: Node): Promise<DataTextView> {
 
 export function DataTextLeafPreview({ node }: { node: Node }) {
   return <DataTextPreview node={node} load={loadDataTextView} label="Reading data…" />
+}
+
+/** Sonic Frontiers data that models use: materials, PXD skeletons and clips. */
+export async function loadHedgehogDataView(node: Node): Promise<DataTextView> {
+  const bytes = await nodeBytes(node)
+  const lower = node.name.toLowerCase()
+  if (lower.endsWith(".material")) {
+    const m = parseHhMaterial(bytes)
+    const params = Object.entries(m.params).map(([k, v]) => `  ${k}: [${v.map((x) => +x.toFixed(4)).join(", ")}]`)
+    return {
+      title: "Hedgehog Engine material",
+      rows: [
+        ["Version", String(m.version)],
+        ["Shader", m.subShader && m.subShader !== m.shader ? `${m.shader} (${m.subShader})` : m.shader],
+        ["Alpha threshold", String(m.alphaThreshold)],
+        ["Double-sided", m.doubleSided ? "yes" : "no"],
+        ["Additive", m.additive ? "yes" : "no"],
+      ],
+      text: [
+        "textures:",
+        ...m.textures.map((t) => `  - { type: ${t.type}, texture: ${t.texture}, uv: ${t.texcoord} }`),
+        "parameters:",
+        ...params,
+      ].join("\n"),
+      lang: "yaml",
+    }
+  }
+  if (isPxdSkeleton(bytes)) {
+    const s = parsePxdSkeleton(bytes)
+    const depth = (i: number): number => (s.bones[i]!.parent >= 0 && s.bones[i]!.parent < i ? depth(s.bones[i]!.parent) + 1 : 0)
+    return {
+      title: "PXD skeleton",
+      rows: [["Bones", String(s.bones.length)]],
+      text: s.bones.map((b, i) => `${"  ".repeat(depth(i))}- ${b.name}: [${b.translation.map((x) => +x.toFixed(4)).join(", ")}]`).join("\n"),
+      lang: "yaml",
+    }
+  }
+  if (isPxdAnimation(bytes)) {
+    const a = parsePxdAnimation(bytes)
+    return {
+      title: "PXD animation",
+      rows: [
+        ["Frames", String(a.frameCount)],
+        ["Frame rate", `${+a.fps.toFixed(2)} fps`],
+        ["Duration", `${+a.duration.toFixed(3)} s`],
+        ["Tracks", String(a.trackCount)],
+        ["Compression", a.compressed ? "ACL" : "none"],
+        ["Additive", a.additive ? "yes" : "no"],
+        ["Root motion", a.root ? "yes" : "no"],
+      ],
+      text: "# Plays on the model it belongs to: open the .model in this pac.",
+      lang: "yaml",
+    }
+  }
+  throw new Error("Not a Hedgehog Engine data file")
+}
+
+export function HedgehogDataPreview({ node }: { node: Node }) {
+  return <DataTextPreview node={node} load={loadHedgehogDataView} label="Reading…" />
 }

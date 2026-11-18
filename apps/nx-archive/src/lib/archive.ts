@@ -3512,6 +3512,7 @@ function makePacxNode(id: string, name: string, blob: Blob, ctx: ArchiveContext)
 				const child = await childNodeFor(cid, e.name, new Blob([(font ?? e.data) as BlobPart]), ctx, { parentArchiveName: name.toLowerCase() });
 				if (font) child.meta = { ...child.meta, sfntFont: true };
 				if (e.ext === 'model' || e.ext === 'terrain-model') child.meta = { ...child.meta, hhModel: true };
+				if (e.ext === 'material' || e.ext === 'skl.pxd' || e.ext === 'anm.pxd') child.meta = { ...child.meta, hhData: true };
 				// Stage layouts: instances of the pac's terrain models.
 				if (e.ext === 'pcmodel' && isPointCloud(e.data)) child.meta = { ...child.meta, hhScene: true };
 				if (e.ext === 'heightfield' && isHeightfield(e.data)) child.meta = { ...child.meta, hhHeightfield: true, decoded: true };

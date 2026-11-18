@@ -348,6 +348,8 @@ export type PreviewKind =
 	| 'fbx-model'
 	/** Hedgehog Engine `.model` / `.terrain-model` (Sonic Frontiers / Forces pacs). */
 	| 'hh-model'
+	/** Hedgehog Engine material, PXD skeleton or clip: an info page. */
+	| 'hh-data'
 	/** Hedgehog Engine point cloud (`.pcmodel`): a stage layout of placed terrain models. */
 	| 'hh-scene'
 	/** Sonic Frontiers open-zone terrain heightfield (`.heightfield`, `HTFD`). */
@@ -595,6 +597,7 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	// Hedgehog Engine models inside a PACx (`.model` alone is too generic).
 	if (node.meta?.sfntFont) return 'font-info';
 	if (node.meta?.hhModel) return 'hh-model';
+	if (node.meta?.hhData) return 'hh-data';
 	if (node.meta?.hhScene) return 'hh-scene';
 	if (node.meta?.hhHeightfield) return 'hh-heightfield';
 	// FF7 PC field scenes (inside `flevel.lgp`) are detected at

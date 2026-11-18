@@ -41,6 +41,7 @@ import {
   AampPreview,
   DataMapPreview,
   DataTextLeafPreview,
+  HedgehogDataPreview,
   EvflPreview,
   HavokPreview,
   TerrainTilePreview,
@@ -1981,6 +1982,8 @@ function FilePreview({
       return <DataMapPreview node={node} />
     case "data-text":
       return <DataTextLeafPreview node={node} />
+    case "hh-data":
+      return <HedgehogDataPreview node={node} />
     case "gx2-image":
     case "nvn-image":
       return <TexturePreview node={node} />
