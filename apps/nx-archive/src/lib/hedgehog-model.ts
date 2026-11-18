@@ -419,6 +419,27 @@ export interface HhSceneView {
 	texturesFound: number;
 }
 
+/**
+ * Recently built model views, by node id, shared by stage layouts: a
+ * stage's layouts reuse the same few hundred pieces. Small, since a view
+ * holds its vertex buffers and textures.
+ */
+const sceneViewCache = new Map<string, Promise<HhModelView | null>>();
+const SCENE_VIEW_CACHE = 48;
+
+function cachedModelView(n: Node, root: Node | null): Promise<HhModelView | null> {
+	let p = sceneViewCache.get(n.id);
+	if (p) {
+		sceneViewCache.delete(n.id);
+		sceneViewCache.set(n.id, p);
+		return p;
+	}
+	p = loadHhModelView(n, root).catch(() => null);
+	sceneViewCache.set(n.id, p);
+	while (sceneViewCache.size > SCENE_VIEW_CACHE) sceneViewCache.delete(sceneViewCache.keys().next().value!);
+	return p;
+}
+
 /** Instances past this are left out, to keep stage layouts loadable. */
 const SCENE_MAX_VERTICES = 4_000_000;
 
@@ -443,14 +464,7 @@ export async function loadHhSceneView(node: Node, root: Node | null): Promise<Hh
 	for (const p of instances) {
 		if (views.has(p.resource)) continue;
 		const n = lookup(`${p.resource}.terrain-model`) ?? lookup(`${p.resource}.model`);
-		let v: HhModelView | null = null;
-		if (n) {
-			try {
-				v = await loadHhModelView(n, root);
-			} catch {
-				v = null;
-			}
-		}
+		const v = n ? await cachedModelView(n, root) : null;
 		if (!v) missing.push(p.resource);
 		views.set(p.resource, v);
 	}
