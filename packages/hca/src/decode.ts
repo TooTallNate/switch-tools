@@ -62,12 +62,19 @@ export interface DecodedHca {
 }
 
 /**
- * Decode an HCA file end-to-end into a flat Float32 PCM buffer.
+ * Block-by-block HCA decoder, for long streams (movie audio) that
+ * shouldn't be held as one PCM buffer. Each block is 1024 samples per
+ * channel.
  */
-export function decodeHca(
-	bytes: Uint8Array,
-	options: DecodeOptions = {},
-): DecodedHca {
+export interface HcaStreamDecoder {
+	header: HcaHeader;
+	/** Blocks not yet decoded. */
+	remaining: number;
+	/** Decode up to `count` more blocks as interleaved PCM; null at the end. */
+	decodeBlocks(count: number): Float32Array | null;
+}
+
+export function createHcaDecoder(bytes: Uint8Array, options: DecodeOptions = {}): HcaStreamDecoder {
 	const volume = options.volume ?? 1.0;
 	const header = parseHca(bytes);
 
@@ -91,31 +98,52 @@ export function decodeHca(
 	}
 
 	const state = initDecode(header);
-
-	const samplesPerChannel = header.blockCount * 8 * 0x80;
-	const pcm = new Float32Array(samplesPerChannel * header.channelCount);
 	const baseVolume = (header.volume ?? 1.0) * volume;
-
+	let block = 0;
 	let address = header.dataOffset;
-	let n = 0;
-	for (let m = 0; m < header.blockCount; m++) {
-		decodeBlock(header, state, athTable, ciphTable, bytes, address);
-		// Interleave 8 × 128 per channel → flat output.
-		for (let i = 0; i < 8; i++) {
-			for (let j = 0; j < 0x80; j++) {
-				for (let k = 0; k < header.channelCount; k++) {
-					pcm[n++] = state.channels[k]!.wave[i]![j]! * baseVolume;
+	const decoder: HcaStreamDecoder = {
+		header,
+		remaining: header.blockCount,
+		decodeBlocks(count) {
+			const n = Math.min(count, header.blockCount - block);
+			if (n <= 0) return null;
+			const pcm = new Float32Array(n * 8 * 0x80 * header.channelCount);
+			let o = 0;
+			for (let m = 0; m < n; m++) {
+				decodeBlock(header, state, athTable, ciphTable, bytes, address);
+				// Interleave 8 × 128 per channel → flat output.
+				for (let i = 0; i < 8; i++) {
+					for (let j = 0; j < 0x80; j++) {
+						for (let k = 0; k < header.channelCount; k++) {
+							pcm[o++] = state.channels[k]!.wave[i]![j]! * baseVolume;
+						}
+					}
 				}
+				address += header.blockSize;
+				block++;
 			}
-		}
-		address += header.blockSize;
-	}
+			decoder.remaining = header.blockCount - block;
+			return pcm;
+		},
+	};
+	return decoder;
+}
 
+/**
+ * Decode an HCA file end-to-end into a flat Float32 PCM buffer.
+ */
+export function decodeHca(
+	bytes: Uint8Array,
+	options: DecodeOptions = {},
+): DecodedHca {
+	const d = createHcaDecoder(bytes, options);
+	const { header } = d;
+	const samplesPerChannel = header.blockCount * 8 * 0x80;
 	return {
 		channelCount: header.channelCount,
 		samplingRate: header.samplingRate,
 		samplesPerChannel,
-		pcm,
+		pcm: d.decodeBlocks(header.blockCount) ?? new Float32Array(0),
 		loopStart: header.loopStart,
 		loopEnd: header.loopEnd,
 	};
@@ -270,7 +298,9 @@ function initDecode(header: HcaHeader): DecoderState {
 	const r08 = isComp ? header.r08 : 0;
 	let r03 = header.r03;
 	if (!r03) r03 = 1;
-	if (!(header.r01 === 1 && header.r02 === 15)) {
+	// min/max resolution: 1/15 almost everywhere; newer encoders write
+	// 0/15 (Sonic Frontiers), which decodes the same (vgmstream clHCA).
+	if (!((header.r01 === 1 || header.r01 === 0) && header.r02 === 15)) {
 		throw new HcaParseError(
 			`Unsupported r01/r02 combination: ${header.r01}/${header.r02}`,
 		);
