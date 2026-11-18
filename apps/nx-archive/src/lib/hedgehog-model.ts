@@ -443,6 +443,9 @@ export interface HhSceneView {
 	vertices: number;
 	texturesWanted: number;
 	texturesFound: number;
+	/** Clusters of nearby instances, biggest first, then the whole layout. */
+	groups: string[];
+	group: number;
 }
 
 /**
@@ -466,6 +469,24 @@ function cachedModelView(n: Node, root: Node | null): Promise<HhModelView | null
 	return p;
 }
 
+const CLUSTER_GAP = 250;
+
+/** Single-link clusters of points (XZ distance), biggest first. */
+function clusterInstances(points: [number, number, number][]): number[][] {
+	const n = points.length;
+	if (n > 4000) return [points.map((_, i) => i)];
+	const parent = points.map((_, i) => i);
+	const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i]!)));
+	for (let i = 0; i < n; i++)
+		for (let j = i + 1; j < n; j++) {
+			const a = points[i]!, b = points[j]!;
+			if (Math.hypot(a[0] - b[0], a[2] - b[2]) < CLUSTER_GAP) parent[find(i)] = find(j);
+		}
+	const groups = new Map<number, number[]>();
+	for (let i = 0; i < n; i++) (groups.get(find(i)) ?? groups.set(find(i), []).get(find(i))!).push(i);
+	return [...groups.values()].sort((a, b) => b.length - a.length);
+}
+
 /** Instances past this are left out, to keep stage layouts loadable. */
 const SCENE_MAX_VERTICES = 4_000_000;
 
@@ -473,8 +494,15 @@ const SCENE_MAX_VERTICES = 4_000_000;
  * A point cloud (`.pcmodel`) assembled into one mesh: every instance's
  * model (from the same pac or its parents), placed with its transform.
  */
-export async function loadHhSceneView(node: Node, root: Node | null): Promise<HhSceneView> {
-	const instances = parsePointCloud(await bytesOf(node));
+export async function loadHhSceneView(node: Node, root: Node | null, groupIndex = 0): Promise<HhSceneView> {
+	const all = parsePointCloud(await bytesOf(node));
+	// Layouts often place several far-apart sites (one tower per island
+	// corner); one site at a time keeps each visible. Single-link clusters
+	// of instances closer than CLUSTER_GAP.
+	const clusters = clusterInstances(all.map((p) => p.position));
+	const groups = clusters.length > 1 ? [...clusters.map((c, i) => `Site ${i + 1} (${c.length} pieces)`), 'Whole layout'] : ['Whole layout'];
+	const group = Math.max(0, Math.min(groups.length - 1, groupIndex));
+	const instances = clusters.length > 1 && group < clusters.length ? clusters[group]!.map((i) => all[i]!) : all;
 	const dir = root ? await findNodeById(root, parentIdOf(node.id)) : null;
 	const chain = await pacChain(dir);
 	const lookup = stageLookup(dir, chain);
@@ -562,6 +590,8 @@ export async function loadHhSceneView(node: Node, root: Node | null): Promise<Hh
 		},
 		textures,
 		instances: instances.length,
+		groups,
+		group,
 		placed,
 		resources: views.size,
 		resourcesMissing: missing,

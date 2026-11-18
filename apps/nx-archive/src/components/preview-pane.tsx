@@ -15312,7 +15312,9 @@ function HeightfieldPreview({ node }: { node: Node }) {
 }
 
 function HhScenePreview({ node, root }: { node: Node; root: Node | null }) {
-  const { loading, data, error } = useAsync(() => loadHhSceneView(node, root), [node.id])
+  const [group, setGroup] = useState(0)
+  useEffect(() => setGroup(0), [node.id])
+  const { loading, data, error } = useAsync(() => loadHhSceneView(node, root, group), [node.id, group])
   if (loading) return <LoadingFiller label="Placing stage models…" />
   if (error) return <ErrorFiller error={error} />
   const v = data!
@@ -15325,6 +15327,18 @@ function HhScenePreview({ node, root }: { node: Node; root: Node | null }) {
           {v.triangles.toLocaleString()} triangles · drag to orbit, scroll to zoom
         </p>
         {v.resourcesMissing.length > 0 && <p className="text-xs text-muted-foreground">Models not found: {v.resourcesMissing.slice(0, 8).join(", ")}{v.resourcesMissing.length > 8 ? "…" : ""}</p>}
+        {v.groups.length > 1 && (
+          <label className="mt-1 flex items-center gap-2 text-xs">
+            Show
+            <select className="rounded border bg-background px-1 py-0.5" value={v.group} onChange={(e) => setGroup(Number(e.target.value))}>
+              {v.groups.map((x, i) => (
+                <option key={i} value={i}>
+                  {x}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
       <div className="flex-1 p-3">
         <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name.replace(/\.pcmodel$/i, "")} />
