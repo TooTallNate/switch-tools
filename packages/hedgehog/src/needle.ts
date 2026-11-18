@@ -41,10 +41,14 @@ export function readNeedleArchive(bytes: Uint8Array): NeedleEntry[] {
 	return out;
 }
 
-/** The highest-detail model of a `.model` file (a Needle archive or a bare mirage model). */
-export function primaryModelData(bytes: Uint8Array): Uint8Array {
+/**
+ * One level of detail of a `.model` file (a Needle archive or a bare
+ * mirage model): the highest by default, or the lowest.
+ */
+export function primaryModelData(bytes: Uint8Array, lod: 'highest' | 'lowest' = 'highest'): Uint8Array {
 	if (!isNeedleArchive(bytes)) return bytes;
-	const m = readNeedleArchive(bytes).find((e) => e.signature.startsWith('NEDMDL'));
+	const models = readNeedleArchive(bytes).filter((e) => e.signature.startsWith('NEDMDL'));
+	const m = lod === 'lowest' ? models[models.length - 1] : models[0];
 	if (!m) throw new Error('Needle archive has no model');
 	return m.data;
 }

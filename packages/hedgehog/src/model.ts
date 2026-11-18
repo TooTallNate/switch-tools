@@ -298,8 +298,8 @@ function readNodes(m: MirageData, count: number, nodesAt: number, matsAt: number
 }
 
 /** Parse a `.model` (skeletal) or `.terrain-model`, unwrapping Needle archives. */
-export function parseHhModel(bytes: Uint8Array, kind: 'skeletal' | 'terrain' = 'skeletal'): HhModel {
-	const m = readMirage(primaryModelData(bytes));
+export function parseHhModel(bytes: Uint8Array, kind: 'skeletal' | 'terrain' = 'skeletal', lod: 'highest' | 'lowest' = 'highest'): HhModel {
+	const m = readMirage(primaryModelData(bytes, lod));
 	const topology = findNode(m.nodes, 'Topology');
 	const strips = topology ? topology.value !== 3 : true;
 	const meshes: HhMesh[] = [];
