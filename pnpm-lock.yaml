@@ -457,6 +457,9 @@ importers:
       '@tootallnate/pacx':
         specifier: workspace:*
         version: link:../../packages/pacx
+      '@tootallnate/acl-wasm':
+        specifier: workspace:*
+        version: link:../../packages/acl-wasm
       '@tootallnate/hedgehog':
         specifier: workspace:*
         version: link:../../packages/hedgehog
@@ -800,6 +803,12 @@ importers:
         version: 5.9.3
 
   packages/acb:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/acl-wasm:
     devDependencies:
       typescript:
         specifier: ^5.3.3

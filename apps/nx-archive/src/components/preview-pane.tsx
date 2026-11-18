@@ -15291,6 +15291,27 @@ function HhModelPreview({ node, root }: { node: Node; root: Node | null }) {
   const [variant, setVariant] = useState(0)
   useEffect(() => setVariant(0), [node.id])
   const { loading, data, error } = useAsync(() => loadHhModelView(node, root, variant), [node.id, variant])
+  // CPU skinning from the PXD skeleton, one ACL-decoded clip at a time.
+  const drivers = useMemo((): MeshViewerAnimationDriver[] => {
+    if (!data || !data.animations.length) return []
+    const v = data
+    return [
+      {
+        category: "Animation",
+        animations: v.animations.map((a) => ({ name: a.name.replace(/^.*@/, ""), frameCount: a.frames, loop: /loop/i.test(a.name), fps: a.fps })),
+        defaultIndex: v.defaultAnimation,
+        sample: (index, frame, { geometry }) => {
+          const pos = geometry?.getAttribute("position") as THREE.BufferAttribute | undefined
+          if (!pos || pos.count !== v.vertices) return
+          const nrm = geometry!.getAttribute("normal") as THREE.BufferAttribute | undefined
+          v.pose(index, frame, pos.array as Float32Array, nrm?.array as Float32Array | undefined)
+          pos.needsUpdate = true
+          if (nrm) nrm.needsUpdate = true
+          geometry!.computeBoundingSphere()
+        },
+      },
+    ]
+  }, [data])
   if (loading) return <LoadingFiller label="Reading Hedgehog Engine model…" />
   if (error) return <ErrorFiller error={error} />
   const v = data!
@@ -15301,6 +15322,7 @@ function HhModelPreview({ node, root }: { node: Node; root: Node | null }) {
         <p className="text-xs text-muted-foreground">
           {v.vertices.toLocaleString()} vertices · {v.triangles.toLocaleString()} triangles
           {v.model.nodes.length ? ` · ${v.model.nodes.length} bones` : ""}
+          {v.animations.length ? ` · ${v.animations.length} animations` : ""}
           {v.texturesWanted ? ` · ${v.texturesFound}/${v.texturesWanted} textures` : ""} · drag to orbit, scroll to zoom
         </p>
         {v.materialsMissing.length > 0 && (
@@ -15320,7 +15342,7 @@ function HhModelPreview({ node, root }: { node: Node; root: Node | null }) {
         )}
       </div>
       <div className="flex-1 p-3">
-        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name.replace(/\.(terrain-)?model$/i, "")} />
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name.replace(/\.(terrain-)?model$/i, "")} animationDrivers={drivers} />
       </div>
     </div>
   )

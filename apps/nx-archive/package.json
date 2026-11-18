@@ -100,6 +100,7 @@
     "@tootallnate/lc-lz2": "workspace:*",
     "@tootallnate/lgp": "workspace:*",
     "@tootallnate/pacx": "workspace:*",
+    "@tootallnate/acl-wasm": "workspace:*",
     "@tootallnate/hedgehog": "workspace:*",
     "@tootallnate/lz4": "workspace:^",
     "@tootallnate/lzma": "workspace:*",

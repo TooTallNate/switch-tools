@@ -512,6 +512,8 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 			const v = await loadHhModelView(node, root);
 			return asset(v.mesh.lods[0]!, v.textures, {
 				texturesFound: [v.texturesFound, v.texturesWanted],
+				pose: v.animations[v.defaultAnimation]?.name.replace(/^.*@/, ''),
+				animations: v.animations.length || undefined,
 			}, v.mesh.upAxis);
 		}
 		case 'fbx-model': {
