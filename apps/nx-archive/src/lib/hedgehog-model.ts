@@ -154,8 +154,15 @@ function stageLookup(dir: Node | null, chain: Map<string, Node>[]): (file: strin
 	};
 }
 
-export async function loadHhModelView(node: Node, root: Node | null, variantIndex = 0): Promise<HhModelView> {
-	const model = parseHhModel(await bytesOf(node), /\.terrain-model$/i.test(node.name) ? 'terrain' : 'skeletal');
+export interface HhModelViewOptions {
+	/** Level of detail to read from Needle archives (default the highest). */
+	lod?: 'highest' | 'lowest';
+	/** Skip the rig and clips (static placement, e.g. stage layouts). */
+	static?: boolean;
+}
+
+export async function loadHhModelView(node: Node, root: Node | null, variantIndex = 0, options: HhModelViewOptions = {}): Promise<HhModelView> {
+	const model = parseHhModel(await bytesOf(node), /\.terrain-model$/i.test(node.name) ? 'terrain' : 'skeletal', options.lod);
 	const dir = root ? await findNodeById(root, parentIdOf(node.id)) : null;
 	const chain = await pacChain(dir);
 	const lookup = stageLookup(dir, chain);
@@ -234,7 +241,7 @@ export async function loadHhModelView(node: Node, root: Node | null, variantInde
 	const textures = await Promise.all(slotTextures);
 	const bindPositions = Float32Array.from(positions);
 	const bindNormals = allNormals ? Float32Array.from(normals) : null;
-	const anim = model.nodes.length ? await loadAnimations(node, dir, model, chain) : null;
+	const anim = model.nodes.length && !options.static ? await loadAnimations(node, dir, model, chain) : null;
 	const animations = anim?.clips.map((c) => ({ name: c.name, frames: c.frames, fps: c.fps })) ?? [];
 	const idle = animations.findIndex((a) => /@idle(_loop)?$/i.test(a.name));
 	const defaultAnimation = animations.length ? Math.max(0, idle >= 0 ? idle : animations.findIndex((a) => /idle/i.test(a.name))) : -1;
@@ -456,15 +463,16 @@ export interface HhSceneView {
 const sceneViewCache = new Map<string, Promise<HhModelView | null>>();
 const SCENE_VIEW_CACHE = 48;
 
-function cachedModelView(n: Node, root: Node | null): Promise<HhModelView | null> {
-	let p = sceneViewCache.get(n.id);
+function cachedModelView(n: Node, root: Node | null, options: HhModelViewOptions = {}): Promise<HhModelView | null> {
+	const key = `${n.id}\0${options.lod ?? ''}${options.static ? 's' : ''}`;
+	let p = sceneViewCache.get(key);
 	if (p) {
-		sceneViewCache.delete(n.id);
-		sceneViewCache.set(n.id, p);
+		sceneViewCache.delete(key);
+		sceneViewCache.set(key, p);
 		return p;
 	}
-	p = loadHhModelView(n, root).catch(() => null);
-	sceneViewCache.set(n.id, p);
+	p = loadHhModelView(n, root, 0, options).catch(() => null);
+	sceneViewCache.set(key, p);
 	while (sceneViewCache.size > SCENE_VIEW_CACHE) sceneViewCache.delete(sceneViewCache.keys().next().value!);
 	return p;
 }
@@ -494,7 +502,7 @@ const SCENE_MAX_VERTICES = 4_000_000;
  * A point cloud (`.pcmodel`) assembled into one mesh: every instance's
  * model (from the same pac or its parents), placed with its transform.
  */
-export async function loadHhSceneView(node: Node, root: Node | null, groupIndex = 0): Promise<HhSceneView> {
+export async function loadHhSceneView(node: Node, root: Node | null, groupIndex = 0, options: HhModelViewOptions & { maxVertices?: number } = {}): Promise<HhSceneView> {
 	const all = parsePointCloud(await bytesOf(node));
 	// Layouts often place several far-apart sites (one tower per island
 	// corner); one site at a time keeps each visible. Single-link clusters
@@ -517,7 +525,7 @@ export async function loadHhSceneView(node: Node, root: Node | null, groupIndex 
 			continue;
 		}
 		const n = (await lookup(`${p.resource}.terrain-model`)) ?? (await lookup(`${p.resource}.model`));
-		const v = n ? await cachedModelView(n, root) : null;
+		const v = n ? await cachedModelView(n, root, options) : null;
 		if (!v) missing.push(p.resource);
 		views.set(p.resource, v);
 	}
@@ -541,7 +549,7 @@ export async function loadHhSceneView(node: Node, root: Node | null, groupIndex 
 		const v = views.get(p.resource);
 		if (!v) continue;
 		const lod = v.mesh.lods[0]!;
-		if (positions.length / 3 + lod.numVertices > SCENE_MAX_VERTICES) break;
+		if (positions.length / 3 + lod.numVertices > (options.maxVertices ?? SCENE_MAX_VERTICES)) break;
 		const M = pointCloudMatrix(p);
 		const base = positions.length / 3;
 		const src = lod.positions, nrm = lod.normals;
@@ -715,5 +723,77 @@ export async function loadHeightfieldView(node: Node, grid = 512): Promise<Heigh
 		grid: G,
 		triangles: indices.length / 3,
 		vertices: positions.length / 3,
+	};
+}
+
+/**
+ * A whole open-zone island: the heightfield plus every stage layout in
+ * the stage's `_trr_s00` pac, at their lowest level of detail (the
+ * layouts are in the heightfield's world space). Ground vertices keep
+ * their splat colours; placed pieces are white so their textures show.
+ */
+export async function loadIslandView(node: Node, root: Node | null, grid = 512, maxVertices = 3_000_000): Promise<HeightfieldView & { textures: (DecodedTexture | null)[]; layouts: number; pieces: number }> {
+	const ground = await loadHeightfieldView(node, grid);
+	const g = ground.mesh.lods[0]!;
+	const folder = await findParentFolder({ id: parentIdOf(node.id) } as Node);
+	const trr = (await kidsOf(folder)).find((k) => /_trr_s00\.pac$/i.test(k.name));
+	// The sea plane and distant backdrop would hide everything.
+	const layouts = (await kidsOf(trr ?? null)).filter((k) => k.meta?.hhScene && !/ocean|water|_far\b|_far\.|sky|occlu/i.test(k.name));
+	const textures: (DecodedTexture | null)[] = [null];
+	const slot = new Map<string, number>();
+	const positions = Array.from(g.positions), normals = Array.from(g.normals ?? []), colors = Array.from(g.colors ?? []);
+	const uv: number[] = new Array(g.numVertices * 2).fill(0);
+	const indices = Array.from(g.indices);
+	const sections = g.sections.map((x) => ({ ...x }));
+	let pieces = 0;
+	for (const l of layouts) {
+		const left = maxVertices - positions.length / 3;
+		if (left <= 0) break;
+		const v = await loadHhSceneView(l, root, Number.MAX_SAFE_INTEGER, { lod: 'lowest', static: true, maxVertices: left }).catch(() => null);
+		if (!v) continue;
+		pieces += v.placed;
+		const lod = v.mesh.lods[0]!;
+		const base = positions.length / 3;
+		for (let i = 0; i < lod.numVertices; i++) {
+			positions.push(lod.positions[i * 3]!, lod.positions[i * 3 + 1]!, lod.positions[i * 3 + 2]!);
+			normals.push(lod.normals?.[i * 3] ?? 0, lod.normals?.[i * 3 + 1] ?? 1, lod.normals?.[i * 3 + 2] ?? 0);
+			colors.push(1, 1, 1);
+			uv.push(lod.uv?.[i * 2] ?? 0, lod.uv?.[i * 2 + 1] ?? 0);
+		}
+		for (const sec of lod.sections) {
+			const t = v.textures[sec.materialIndex] ?? null;
+			const key = t ? t.packagePath : `\0${l.id}/${sec.materialIndex}`;
+			let m = slot.get(key);
+			if (m === undefined) {
+				m = textures.length;
+				slot.set(key, m);
+				textures.push(t);
+			}
+			const first = indices.length;
+			for (let k = 0; k < sec.numTriangles * 3; k++) indices.push(base + lod.indices[sec.firstIndex + k]!);
+			sections.push({ materialIndex: m, firstIndex: first, numTriangles: sec.numTriangles });
+		}
+	}
+	return {
+		...ground,
+		mesh: {
+			lods: [
+				{
+					numVertices: positions.length / 3,
+					positions: Float32Array.from(positions),
+					normals: Float32Array.from(normals),
+					colors: Float32Array.from(colors),
+					uv: Float32Array.from(uv),
+					indices: Uint32Array.from(indices),
+					sections,
+				},
+			],
+			upAxis: 'y-up',
+		},
+		triangles: indices.length / 3,
+		vertices: positions.length / 3,
+		textures,
+		layouts: layouts.length,
+		pieces,
 	};
 }

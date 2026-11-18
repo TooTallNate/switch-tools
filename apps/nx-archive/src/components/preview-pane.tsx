@@ -358,7 +358,7 @@ import { applyPose, poseJoints } from "@tootallnate/ff7-psx-model"
 import { strFrameSource } from "~/lib/psx-str-source"
 import { usmMpegFrameSource } from "~/lib/usm-mpeg-source"
 import { FBX_FPS, loadFbxModelView } from "~/lib/fbx-model"
-import { loadHeightfieldView, loadHhModelView, loadHhSceneView } from "~/lib/hedgehog-model"
+import { loadHeightfieldView, loadHhModelView, loadHhSceneView, loadIslandView, type HeightfieldView } from "~/lib/hedgehog-model"
 import { decodeTim } from "@tootallnate/psx-tim"
 import { encodePng } from "~/lib/png"
 import { parseIdFont, type ParsedIdFont } from "@tootallnate/idfont"
@@ -2054,7 +2054,7 @@ function FilePreview({
     case "hh-model":
       return <HhModelPreview node={node} root={root} />
     case "hh-heightfield":
-      return <HeightfieldPreview node={node} />
+      return <HeightfieldPreview node={node} root={root} />
     case "hh-scene":
       return <HhScenePreview node={node} root={root} />
     case "trinity-model":
@@ -15291,9 +15291,15 @@ function J3dModelPreview({ node }: { node: Node }) {
   return <J3dModelViewer node={node} view={v} />
 }
 
-function HeightfieldPreview({ node }: { node: Node }) {
-  const { loading, data, error } = useAsync(() => loadHeightfieldView(node, 768), [node.id])
-  if (loading) return <LoadingFiller label="Building terrain…" />
+function HeightfieldPreview({ node, root }: { node: Node; root: Node | null }) {
+  const [island, setIsland] = useState(false)
+  useEffect(() => setIsland(false), [node.id])
+  const { loading, data, error } = useAsync(
+    async (): Promise<HeightfieldView & { textures?: (DecodedTexture | null)[]; pieces?: number }> =>
+      island ? loadIslandView(node, root, 512) : loadHeightfieldView(node, 768),
+    [node.id, island],
+  )
+  if (loading) return <LoadingFiller label={island ? "Placing the island's stage pieces…" : "Building terrain…"} />
   if (error) return <ErrorFiller error={error} />
   const v = data!
   return (
@@ -15301,11 +15307,16 @@ function HeightfieldPreview({ node }: { node: Node }) {
       <div className="border-b px-4 py-2">
         <h2 className="font-heading text-sm font-medium">Terrain heightfield</h2>
         <p className="text-xs text-muted-foreground">
-          {v.width.toLocaleString()} × {v.height.toLocaleString()} samples, shown at {v.grid} × {v.grid} · {v.triangles.toLocaleString()} triangles · coloured by its ground textures · drag to orbit, scroll to zoom
+          {v.width.toLocaleString()} × {v.height.toLocaleString()} samples, shown at {v.grid} × {v.grid} · {v.triangles.toLocaleString()} triangles
+          {v.pieces ? ` · ${v.pieces.toLocaleString()} stage pieces (lowest detail)` : ""} · coloured by its ground textures · drag to orbit, scroll to zoom
         </p>
+        <label className="mt-1 flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={island} onChange={(e) => setIsland(e.target.checked)} />
+          Place the stage's terrain pieces too (slow: loads every layout)
+        </label>
       </div>
       <div className="flex-1 p-3">
-        <MeshViewer mesh={v.mesh} materialDiffuseTextures={[null]} baseName={node.name.replace(/\.heightfield$/i, "")} />
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures ?? [null]} baseName={node.name.replace(/\.heightfield$/i, "")} />
       </div>
     </div>
   )
