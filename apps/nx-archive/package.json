@@ -69,6 +69,7 @@
     "@tootallnate/ff8-field": "workspace:*",
     "@tootallnate/ff8-fs": "workspace:*",
     "@tootallnate/ff8-model": "workspace:*",
+    "@tootallnate/fbx": "workspace:*",
     "@tootallnate/ffmpeg-bink-audio-wasm": "workspace:*",
     "@tootallnate/ffmpeg-bink-demuxer-wasm": "workspace:*",
     "@tootallnate/ffmpeg-bink-video-wasm": "workspace:*",

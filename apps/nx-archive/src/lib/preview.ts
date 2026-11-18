@@ -344,6 +344,8 @@ export type PreviewKind =
 	| 'psx-str'
 	| 'psx-tim'
 	| 'ff7-psx-model'
+	/** Autodesk FBX (binary): meshes, skins, animation stacks. */
+	| 'fbx-model'
 	/**
 	 * Nintendo BTI texture (`.bti`) — a bare GX texture header plus
 	 * tiled pixel data, as used all over GameCube/Wii JSystem titles.
@@ -799,6 +801,7 @@ export function detectPreviewKind(name: string): PreviewKind {
 	if (lower.endsWith('.bti')) return 'bti-image';
 	if (lower.endsWith('.tim')) return 'psx-tim';
 	if (lower.endsWith('.bcx')) return 'ff7-psx-model';
+	if (lower.endsWith('.fbx')) return 'fbx-model';
 	// J3D models. `.bdl` additionally carries a baked display list
 	// (MDL3) that we ignore — the geometry chunks are identical.
 	if (lower.endsWith('.bmd') || lower.endsWith('.bdl')) return 'j3d-model';

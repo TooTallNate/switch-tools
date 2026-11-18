@@ -357,6 +357,7 @@ import { TrinityFilePreview, TrinityModelPreview, TrinityTerrainPreview } from "
 import { applyPose, poseJoints } from "@tootallnate/ff7-psx-model"
 import { strFrameSource } from "~/lib/psx-str-source"
 import { usmMpegFrameSource } from "~/lib/usm-mpeg-source"
+import { FBX_FPS, loadFbxModelView } from "~/lib/fbx-model"
 import { decodeTim } from "@tootallnate/psx-tim"
 import { encodePng } from "~/lib/png"
 import { parseIdFont, type ParsedIdFont } from "@tootallnate/idfont"
@@ -2047,6 +2048,8 @@ function FilePreview({
       return <Idtech3ModelPreview node={node} root={root} />
     case "ff7-psx-model":
       return <Ff7PsxModelPreview node={node} root={root} />
+    case "fbx-model":
+      return <FbxModelPreview node={node} root={root} />
     case "trinity-model":
       return <TrinityModelPreview node={node} root={root} />
     case "trinity-file":
@@ -15279,6 +15282,63 @@ function J3dModelPreview({ node }: { node: Node }) {
     )
   }
   return <J3dModelViewer node={node} view={v} />
+}
+
+function FbxModelPreview({ node, root }: { node: Node; root: Node | null }) {
+  const [variant, setVariant] = useState(0)
+  useEffect(() => setVariant(0), [node.id])
+  const { loading, data, error } = useAsync(() => loadFbxModelView(node, root, variant), [node.id, variant])
+  // CPU skinning: re-pose every corner from the clip's bone matrices.
+  const drivers = useMemo((): MeshViewerAnimationDriver[] => {
+    if (!data || !data.animations.length) return []
+    const v = data
+    return [
+      {
+        category: "Animation",
+        animations: v.animations.map((a) => ({ name: a.name, frameCount: a.frames, loop: true, fps: FBX_FPS })),
+        defaultIndex: v.defaultAnimation,
+        sample: (index, frame, { geometry }) => {
+          const pos = geometry?.getAttribute("position") as THREE.BufferAttribute | undefined
+          if (!pos || pos.count !== v.vertices) return
+          const nrm = geometry!.getAttribute("normal") as THREE.BufferAttribute | undefined
+          v.pose(index, frame, pos.array as Float32Array, nrm?.array as Float32Array | undefined)
+          pos.needsUpdate = true
+          if (nrm) nrm.needsUpdate = true
+          geometry!.computeBoundingSphere()
+        },
+      },
+    ]
+  }, [data])
+  if (loading) return <LoadingFiller label="Reading FBX…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">FBX model</h2>
+        <p className="text-xs text-muted-foreground">
+          {v.vertices.toLocaleString()} vertices · {v.triangles.toLocaleString()} triangles
+          {v.texturesWanted ? ` · ${v.texturesFound}/${v.texturesWanted} textures` : ""}
+          {v.animations.length ? ` · ${v.animations.length} animation${v.animations.length === 1 ? "" : "s"}` : ""} · drag to orbit, scroll to zoom
+        </p>
+        {v.variants.length > 1 && (
+          <label className="mt-1 flex items-center gap-2 text-xs">
+            Variant
+            <select className="rounded border bg-background px-1 py-0.5" value={variant} onChange={(e) => setVariant(Number(e.target.value))}>
+              {v.variants.map((x, i) => (
+                <option key={i} value={i}>
+                  {x.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+      <div className="flex-1 p-3">
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name.replace(/\.fbx$/i, "")} animationDrivers={drivers} />
+      </div>
+    </div>
+  )
 }
 
 function Ff7PsxModelPreview({ node, root }: { node: Node; root: Node | null }) {
