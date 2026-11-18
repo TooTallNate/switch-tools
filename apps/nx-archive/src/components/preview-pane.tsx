@@ -15301,7 +15301,7 @@ function HeightfieldPreview({ node }: { node: Node }) {
       <div className="border-b px-4 py-2">
         <h2 className="font-heading text-sm font-medium">Terrain heightfield</h2>
         <p className="text-xs text-muted-foreground">
-          {v.width.toLocaleString()} × {v.height.toLocaleString()} samples, shown at {v.grid} × {v.grid} · {v.triangles.toLocaleString()} triangles · coloured by height and slope · drag to orbit, scroll to zoom
+          {v.width.toLocaleString()} × {v.height.toLocaleString()} samples, shown at {v.grid} × {v.grid} · {v.triangles.toLocaleString()} triangles · coloured by its ground textures · drag to orbit, scroll to zoom
         </p>
       </div>
       <div className="flex-1 p-3">
