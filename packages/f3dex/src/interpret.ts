@@ -186,11 +186,15 @@ export interface F3dexMesh {
 	/** Render state when the list ended; see {@link InterpretOptions.initialState}. */
 	state: F3dexState;
 	/**
-	 * 1 for vertices drawn with `G_TEXTURE_GEN` (environment mapping: the
-	 * RSP derives their texture coordinates from the normal, so `uvs` are
-	 * meaningless there); absent when the list never turns it on.
+	 * Per vertex, two numbers: for vertices drawn with `G_TEXTURE_GEN`
+	 * (environment mapping) the share of the texture's width and height
+	 * the RSP spreads the normal over (`gSPTexture` scale / 64 texels, over
+	 * the tile size: 0x07C0 on a 32×64 texture covers the top half), and
+	 * 0, 0 elsewhere. The RSP derives these vertices' texture coordinates
+	 * from the eye-space normal, so `uvs` are meaningless there and callers
+	 * map normals with them. Absent when the list never turns it on.
 	 */
-	texGen?: Uint8Array;
+	texGen?: Float32Array;
 	/** Set when interpretation stopped early (see `truncationReason`). */
 	truncated: boolean;
 	truncationReason?: string;
@@ -640,7 +644,8 @@ export function interpretDisplayList(
 			const su = (v.s * texScaleS) / 32;
 			const tv = (v.t * texScaleT) / 32;
 			uvs.push(uDiv ? su / uDiv : su, vDiv ? tv / vDiv : tv);
-			texGen.push(gen ? 1 : 0);
+			if (gen) texGen.push(uDiv ? (texScaleS * 65536) / 64 / uDiv : 1, vDiv ? (texScaleT * 65536) / 64 / vDiv : 1);
+			else texGen.push(0, 0);
 			indices.push(indices.length);
 		}
 		currentGroup!.numTriangles++;
@@ -1013,7 +1018,7 @@ export function interpretDisplayList(
 		invalidTriangles,
 		displayListCount,
 		state: { geometryMode, lights, timg, timgFormat, timgSize, tileWidth, tileHeight, tlut, tileFormat, tileSize, primColor, envColor, combine, wrapS, wrapT, texScaleS, texScaleT, textureEnabled, textureOn },
-		texGen: anyTexGen ? Uint8Array.from(texGen) : undefined,
+		texGen: anyTexGen ? Float32Array.from(texGen) : undefined,
 		truncated,
 		truncationReason,
 	};

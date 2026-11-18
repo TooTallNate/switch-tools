@@ -9,7 +9,7 @@ export function mergeF3dexMeshes(parts: F3dexMesh[]): Pick<F3dexMesh, 'positions
 	}
 	const positions = new Float32Array(nv * 3), normals = new Float32Array(nv * 3), colors = new Float32Array(nv * 3);
 	const alphas = new Float32Array(nv), uvs = new Float32Array(nv * 2), indices = new Uint32Array(ni);
-	const texGen = parts.some((m) => m.texGen) ? new Uint8Array(nv) : undefined;
+	const texGen = parts.some((m) => m.texGen) ? new Float32Array(nv * 2) : undefined;
 	const materials: F3dexMaterial[] = [];
 	const key = new Map<string, number>();
 	const byMaterial = new Map<number, number[]>();
@@ -20,7 +20,7 @@ export function mergeF3dexMeshes(parts: F3dexMesh[]): Pick<F3dexMesh, 'positions
 		colors.set(m.colors, vo * 3);
 		alphas.set(m.alphas, vo);
 		uvs.set(m.uvs, vo * 2);
-		if (texGen && m.texGen) texGen.set(m.texGen, vo);
+		if (texGen && m.texGen) texGen.set(m.texGen, vo * 2);
 		usesLighting ||= m.usesLighting;
 		for (const g of m.groups) {
 			const mat = m.materials[g.materialIndex]!;

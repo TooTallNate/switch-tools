@@ -77,4 +77,11 @@ describe('F3D state (Super Mario 64)', () => {
 		const b = interpretDisplayList(buffer([...tri, 0xb8000000, 0]), 0, { microcode: 'f3d', initialState: a.state });
 		expect(b.materials[0]!.lightColor).toEqual([220, 10, 0]);
 	});
+
+	it('records the share of the texture G_TEXTURE_GEN spreads normals over', () => {
+		// 32×64 tile, gSPTexture(0x07C0, 0x07C0, …, G_ON), G_TEXTURE_GEN on.
+		const words = [0xfd100000, 0x00000180, 0xf2000000, 0x0007c0fc, ...modulate, 0xbb000001, 0x07c007c0, 0xb7000000, 0x00040000, ...tri, 0xb8000000, 0];
+		const mesh = interpretDisplayList(buffer(words), 0, { microcode: 'f3d' });
+		expect(Array.from(mesh.texGen!.slice(0, 2))).toEqual([31 / 32, 31 / 64]);
+	});
 });
