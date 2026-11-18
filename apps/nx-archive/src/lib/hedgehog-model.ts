@@ -226,7 +226,9 @@ export async function loadHhModelView(node: Node, root: Node | null, variantInde
 	for (const m of model.meshes) {
 		if (skipOutlines && isOutline(m.material)) continue;
 		const mat = materials.get(m.material) ?? null;
-		const diffuse = mat?.textures.filter((t) => t.type === 'diffuse') ?? [];
+		// Emission-only shaders (the Ancients' glow) have no diffuse: show the emission.
+		const byType = (type: string) => mat?.textures.filter((t) => t.type === type) ?? [];
+		const diffuse = byType('diffuse').length ? byType('diffuse') : byType('emission');
 		const tex = (variant === 1 ? diffuse.find((t) => /_cyb_/i.test(t.texture)) : null) ?? diffuse.find((t) => !/_cyb_/i.test(t.texture)) ?? diffuse[0];
 		const key = tex?.texture ?? `\0${m.material}`;
 		let slot = slotFor.get(key);
