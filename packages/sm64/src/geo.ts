@@ -416,14 +416,16 @@ function place(local: F3dexMesh, m: M, positions: Float32Array, normals: Float32
 
 /**
  * `G_TEXTURE_GEN` texture coordinates: the RSP maps the eye-space normal
- * onto the texture (Metal Mario, the power star). A still model has no
- * eye, so map the model-space normal as seen from the front.
+ * onto the part of the texture `gSPTexture`'s scale covers (Metal Mario,
+ * the power star). A still model has no eye, so map the model-space
+ * normal as seen from the front.
  */
-function sphereMap(normals: Float32Array, texGen: Uint8Array, uvs: Float32Array) {
-	for (let v = 0; v < texGen.length; v++) {
-		if (!texGen[v]) continue;
-		uvs[v * 2] = 0.5 + normals[v * 3]! * 0.5;
-		uvs[v * 2 + 1] = 0.5 - normals[v * 3 + 1]! * 0.5;
+function sphereMap(normals: Float32Array, texGen: Float32Array, uvs: Float32Array) {
+	for (let v = 0; v < texGen.length / 2; v++) {
+		const su = texGen[v * 2]!, sv = texGen[v * 2 + 1]!;
+		if (!su && !sv) continue;
+		uvs[v * 2] = (0.5 + normals[v * 3]! * 0.5) * su;
+		uvs[v * 2 + 1] = (0.5 - normals[v * 3 + 1]! * 0.5) * sv;
 	}
 }
 
