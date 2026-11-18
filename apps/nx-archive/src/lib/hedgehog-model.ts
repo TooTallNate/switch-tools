@@ -533,6 +533,42 @@ export async function loadHhSceneView(node: Node, root: Node | null): Promise<Hh
 	};
 }
 
+/** Average linear colour of each material's base texture, by material entry. */
+async function terrainPalette(node: Node, materials: number[]): Promise<([number, number, number] | null)[]> {
+	if (!materials.length) return [];
+	const pacId = parentIdOf(node.id);
+	const folder = await findParentFolder({ id: pacId } as Node);
+	const height = (await kidsOf(folder)).find((k) => /_trr_height\.pac$/i.test(k.name));
+	const kids = await kidsOf(height ?? null).catch(() => [] as Node[]);
+	const cache = new Map<number, Promise<[number, number, number] | null>>();
+	const colour = (id: number) => {
+		let p = cache.get(id);
+		if (!p) {
+			const suffix = `_${String(id).padStart(3, '0')}_terrain_base_abd.dds`;
+			const n = kids.find((k) => k.name.toLowerCase().endsWith(suffix));
+			p = (async () => {
+				if (!n) return null;
+				try {
+					const d = parseDds(await bytesOf(n));
+					let r = 0, g = 0, b = 0;
+					const px = d.pixels, count = d.width * d.height;
+					for (let i = 0; i < count; i++) {
+						r += (px[i * 4]! / 255) ** 2.2;
+						g += (px[i * 4 + 1]! / 255) ** 2.2;
+						b += (px[i * 4 + 2]! / 255) ** 2.2;
+					}
+					return [r / count, g / count, b / count] as [number, number, number];
+				} catch {
+					return null;
+				}
+			})();
+			cache.set(id, p);
+		}
+		return p;
+	};
+	return Promise.all(materials.map(colour));
+}
+
 export interface HeightfieldView {
 	mesh: RenderableMesh;
 	width: number;
@@ -545,11 +581,13 @@ export interface HeightfieldView {
 /**
  * An open-zone heightfield as a mesh: resampled to at most `grid` × `grid`
  * vertices (the islands are 4096², which would be 33M triangles), holes
- * left open, and coloured by height and slope (sand, grass, rock, snow)
- * since the terrain's material layer isn't decoded yet.
+ * left open. Each vertex takes the average colour of its cell's terrain
+ * texture (`*_NNN_terrain_base_abd.dds` in the stage's `_trr_height`
+ * pac), or a height-and-slope colour when that isn't there.
  */
 export async function loadHeightfieldView(node: Node, grid = 512): Promise<HeightfieldView> {
 	const hf = parseHeightfield(await bytesOf(node));
+	const palette = await terrainPalette(node, hf.materials);
 	const G = Math.min(grid, hf.width, hf.height);
 	const sx = (hf.width - 1) / (G - 1), sz = (hf.height - 1) / (G - 1);
 	const index = new Int32Array(G * G).fill(-1);
@@ -571,6 +609,12 @@ export async function loadHeightfieldView(node: Node, grid = 512): Promise<Heigh
 			const len = Math.hypot(nx, ny, nz) || 1;
 			normals.push(nx / len, ny / len, nz / len);
 			const steep = 1 - ny / len;
+			const cell = hf.splat ? hf.splat[Math.min(hf.height - 2, Math.round(j * sz)) * (hf.width - 1) + Math.min(hf.width - 2, Math.round(i * sx))] : undefined;
+			const pc = cell !== undefined ? palette[cell] : undefined;
+			if (pc) {
+				colors.push(pc[0], pc[1], pc[2]);
+				continue;
+			}
 			const c = y < 3 ? [0.82, 0.76, 0.56] : steep > 0.35 ? [0.45, 0.42, 0.38] : y > 450 ? [0.92, 0.93, 0.95] : [0.33 + 0.1 * (y / 450), 0.5, 0.25];
 			// The viewer wants linear RGB.
 			colors.push(c[0]! ** 2.2, c[1]! ** 2.2, c[2]! ** 2.2);
