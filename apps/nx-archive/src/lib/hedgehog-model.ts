@@ -135,6 +135,26 @@ async function findParentFolder(pac: Node): Promise<Node | null> {
 	return romfsPath ? romfsFileFor(pac.id, romfsPath) : null;
 }
 
+/**
+ * Frontiers' eye shaders (`ChrEye*`) draw the pupil where the iris
+ * texture's alpha is low; the RGB there is just more iris. Bake that in
+ * (alpha → black) so the viewer shows a pupil instead of a hole.
+ */
+function bakeEyePupil(t: DecodedTexture): DecodedTexture {
+	const px = new Uint8Array(t.pixels);
+	for (let i = 0; i < px.length; i += 4) {
+		const a = px[i + 3]! / 255;
+		px[i] = Math.round(px[i]! * a);
+		px[i + 1] = Math.round(px[i + 1]! * a);
+		px[i + 2] = Math.round(px[i + 2]! * a);
+		px[i + 3] = 255;
+	}
+	return { ...t, pixels: px };
+}
+
+/** Hedgehog Engine sampler addressing: 0 repeat, 1 mirror, 2 (and up) clamp. */
+const wrapMode = (w: number): 'repeat' | 'mirror' | 'clamp' => (w === 0 ? 'repeat' : w === 1 ? 'mirror' : 'clamp');
+
 const isOutline = (material: string) => /outline/i.test(material);
 const isOccluder = (name: string) => /occlu|_occ(?:_|$)/i.test(name);
 
@@ -230,12 +250,18 @@ export async function loadHhModelView(node: Node, root: Node | null, variantInde
 		const byType = (type: string) => mat?.textures.filter((t) => t.type === type) ?? [];
 		const diffuse = byType('diffuse').length ? byType('diffuse') : byType('emission');
 		const tex = (variant === 1 ? diffuse.find((t) => /_cyb_/i.test(t.texture)) : null) ?? diffuse.find((t) => !/_cyb_/i.test(t.texture)) ?? diffuse[0];
-		const key = tex?.texture ?? `\0${m.material}`;
+		const key = tex ? `${tex.texture}\0${tex.wrapU},${tex.wrapV}` : `\0${m.material}`;
 		let slot = slotFor.get(key);
 		if (slot === undefined) {
 			slot = slotTextures.length;
 			slotFor.set(key, slot);
-			slotTextures.push(tex ? texture(tex.texture) : Promise.resolve(null));
+			// The material's sampler: eyes clamp, so the one iris isn't tiled over the eyeball.
+			const eye = /^ChrEye/i.test(mat?.shader ?? '');
+			slotTextures.push(
+				tex
+					? texture(tex.texture).then((t) => (t ? { ...(eye ? bakeEyePupil(t) : t), wrapS: wrapMode(tex.wrapU), wrapT: wrapMode(tex.wrapV) } : null))
+					: Promise.resolve(null),
+			);
 			// Occluders are never drawn, and bind textures that don't ship.
 			if (tex && !isOccluder(m.material)) wanted++;
 		}
@@ -580,7 +606,7 @@ export async function loadHhSceneView(node: Node, root: Node | null, groupIndex 
 	const textures: (DecodedTexture | null)[] = [];
 	const textureSlot = new Map<string, number>();
 	const slotOf = (t: DecodedTexture | null, key: string) => {
-		const k = t ? `t:${t.packagePath}` : `n:${key}`;
+		const k = t ? `t:${t.packagePath}:${t.wrapS},${t.wrapT}` : `n:${key}`;
 		let s = textureSlot.get(k);
 		if (s === undefined) {
 			s = textures.length;
@@ -809,7 +835,7 @@ export async function loadIslandView(node: Node, root: Node | null, grid = 512, 
 		}
 		for (const sec of lod.sections) {
 			const t = v.textures[sec.materialIndex] ?? null;
-			const key = t ? t.packagePath : `\0${l.id}/${sec.materialIndex}`;
+			const key = t ? `${t.packagePath}:${t.wrapS},${t.wrapT}` : `\0${l.id}/${sec.materialIndex}`;
 			let m = slot.get(key);
 			if (m === undefined) {
 				m = textures.length;
