@@ -358,7 +358,7 @@ import { applyPose, poseJoints } from "@tootallnate/ff7-psx-model"
 import { strFrameSource } from "~/lib/psx-str-source"
 import { usmMpegFrameSource } from "~/lib/usm-mpeg-source"
 import { FBX_FPS, loadFbxModelView } from "~/lib/fbx-model"
-import { loadHhModelView } from "~/lib/hedgehog-model"
+import { loadHhModelView, loadHhSceneView } from "~/lib/hedgehog-model"
 import { decodeTim } from "@tootallnate/psx-tim"
 import { encodePng } from "~/lib/png"
 import { parseIdFont, type ParsedIdFont } from "@tootallnate/idfont"
@@ -2053,6 +2053,8 @@ function FilePreview({
       return <FbxModelPreview node={node} root={root} />
     case "hh-model":
       return <HhModelPreview node={node} root={root} />
+    case "hh-scene":
+      return <HhScenePreview node={node} root={root} />
     case "trinity-model":
       return <TrinityModelPreview node={node} root={root} />
     case "trinity-file":
@@ -15285,6 +15287,28 @@ function J3dModelPreview({ node }: { node: Node }) {
     )
   }
   return <J3dModelViewer node={node} view={v} />
+}
+
+function HhScenePreview({ node, root }: { node: Node; root: Node | null }) {
+  const { loading, data, error } = useAsync(() => loadHhSceneView(node, root), [node.id])
+  if (loading) return <LoadingFiller label="Placing stage models…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">Hedgehog Engine stage layout</h2>
+        <p className="text-xs text-muted-foreground">
+          {v.placed.toLocaleString()} of {v.instances.toLocaleString()} instances placed · {v.resources} models · {v.vertices.toLocaleString()} vertices ·{" "}
+          {v.triangles.toLocaleString()} triangles · drag to orbit, scroll to zoom
+        </p>
+        {v.resourcesMissing.length > 0 && <p className="text-xs text-muted-foreground">Models not found: {v.resourcesMissing.slice(0, 8).join(", ")}{v.resourcesMissing.length > 8 ? "…" : ""}</p>}
+      </div>
+      <div className="flex-1 p-3">
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name.replace(/\.pcmodel$/i, "")} />
+      </div>
+    </div>
+  )
 }
 
 function HhModelPreview({ node, root }: { node: Node; root: Node | null }) {

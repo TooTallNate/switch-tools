@@ -20,7 +20,9 @@ import {
 	parseHhMaterial,
 	parseHhModel,
 	parsePxdAnimation,
+	parsePointCloud,
 	parsePxdSkeleton,
+	pointCloudMatrix,
 	pxdWorldMatrices,
 	sampleUncompressedPxd,
 	type HhMaterial,
@@ -161,8 +163,10 @@ export async function loadHhModelView(node: Node, root: Node | null, variantInde
 	const slotFor = new Map<string, number>();
 	let wanted = 0;
 	let allNormals = true;
+	// Outline-only models (fishing minigame) draw their outlines.
+	const skipOutlines = model.meshes.some((m) => !isOutline(m.material));
 	for (const m of model.meshes) {
-		if (isOutline(m.material)) continue;
+		if (skipOutlines && isOutline(m.material)) continue;
 		const mat = materials.get(m.material) ?? null;
 		const diffuse = mat?.textures.filter((t) => t.type === 'diffuse') ?? [];
 		const tex = (variant === 1 ? diffuse.find((t) => /_cyb_/i.test(t.texture)) : null) ?? diffuse.find((t) => !/_cyb_/i.test(t.texture)) ?? diffuse[0];
@@ -352,4 +356,131 @@ async function loadAnimations(
 		});
 	}
 	return { skeleton, clips };
+}
+
+export interface HhSceneView {
+	mesh: RenderableMesh;
+	textures: (DecodedTexture | null)[];
+	instances: number;
+	placed: number;
+	resources: number;
+	resourcesMissing: string[];
+	triangles: number;
+	vertices: number;
+	texturesWanted: number;
+	texturesFound: number;
+}
+
+/** Instances past this are left out, to keep stage layouts loadable. */
+const SCENE_MAX_VERTICES = 4_000_000;
+
+/**
+ * A point cloud (`.pcmodel`) assembled into one mesh: every instance's
+ * model (from the same pac or its parents), placed with its transform.
+ */
+export async function loadHhSceneView(node: Node, root: Node | null): Promise<HhSceneView> {
+	const instances = parsePointCloud(await bytesOf(node));
+	const dir = root ? await findNodeById(root, parentIdOf(node.id)) : null;
+	const chain = await pacChain(dir);
+	const lookup = (file: string) => {
+		const key = file.toLowerCase();
+		for (const m of chain) {
+			const n = m.get(key);
+			if (n) return n;
+		}
+		return undefined;
+	};
+	const views = new Map<string, HhModelView | null>();
+	const missing: string[] = [];
+	for (const p of instances) {
+		if (views.has(p.resource)) continue;
+		const n = lookup(`${p.resource}.terrain-model`) ?? lookup(`${p.resource}.model`);
+		let v: HhModelView | null = null;
+		if (n) {
+			try {
+				v = await loadHhModelView(n, root);
+			} catch {
+				v = null;
+			}
+		}
+		if (!v) missing.push(p.resource);
+		views.set(p.resource, v);
+	}
+
+	const textures: (DecodedTexture | null)[] = [];
+	const textureSlot = new Map<string, number>();
+	const slotOf = (t: DecodedTexture | null, key: string) => {
+		const k = t ? `t:${t.packagePath}` : `n:${key}`;
+		let s = textureSlot.get(k);
+		if (s === undefined) {
+			s = textures.length;
+			textureSlot.set(k, s);
+			textures.push(t);
+		}
+		return s;
+	};
+	const positions: number[] = [], normals: number[] = [], uv: number[] = [], indices: number[] = [];
+	const sections: { materialIndex: number; firstIndex: number; numTriangles: number }[] = [];
+	let placed = 0, allNormals = true;
+	for (const p of instances) {
+		const v = views.get(p.resource);
+		if (!v) continue;
+		const lod = v.mesh.lods[0]!;
+		if (positions.length / 3 + lod.numVertices > SCENE_MAX_VERTICES) break;
+		const M = pointCloudMatrix(p);
+		const base = positions.length / 3;
+		const src = lod.positions, nrm = lod.normals;
+		for (let i = 0; i < lod.numVertices; i++) {
+			const x = src[i * 3]!, y = src[i * 3 + 1]!, z = src[i * 3 + 2]!;
+			positions.push(M[0]! * x + M[4]! * y + M[8]! * z + M[12]!, M[1]! * x + M[5]! * y + M[9]! * z + M[13]!, M[2]! * x + M[6]! * y + M[10]! * z + M[14]!);
+			if (nrm) {
+				const a = nrm[i * 3]!, b = nrm[i * 3 + 1]!, c = nrm[i * 3 + 2]!;
+				const nx = M[0]! * a + M[4]! * b + M[8]! * c, ny = M[1]! * a + M[5]! * b + M[9]! * c, nz = M[2]! * a + M[6]! * b + M[10]! * c;
+				const l = Math.hypot(nx, ny, nz) || 1;
+				normals.push(nx / l, ny / l, nz / l);
+			}
+		}
+		if (!nrm) allNormals = false;
+		for (let i = 0; i < lod.numVertices * 2; i++) uv.push(lod.uv ? lod.uv[i]! : 0);
+		for (const s of lod.sections) {
+			const slot = slotOf(v.textures[s.materialIndex] ?? null, `${p.resource}/${s.materialIndex}`);
+			const last = sections[sections.length - 1];
+			const first = indices.length;
+			for (let k = 0; k < s.numTriangles * 3; k++) indices.push(base + lod.indices[s.firstIndex + k]!);
+			if (last && last.materialIndex === slot && last.firstIndex + last.numTriangles * 3 === first) last.numTriangles += s.numTriangles;
+			else sections.push({ materialIndex: slot, firstIndex: first, numTriangles: s.numTriangles });
+		}
+		placed++;
+	}
+	if (!indices.length) throw new Error(missing.length ? `None of this layout's models were found (${missing.slice(0, 3).join(', ')}…)` : 'This layout places no models');
+	let wanted = 0, found = 0;
+	for (const v of views.values()) {
+		if (!v) continue;
+		wanted += v.texturesWanted;
+		found += v.texturesFound;
+	}
+	return {
+		mesh: {
+			lods: [
+				{
+					numVertices: positions.length / 3,
+					positions: Float32Array.from(positions),
+					normals: allNormals ? Float32Array.from(normals) : undefined,
+					uv: Float32Array.from(uv),
+					indices: Uint32Array.from(indices),
+					sections,
+				},
+			],
+			upAxis: 'y-up',
+		},
+		textures,
+		instances: instances.length,
+		placed,
+		resources: views.size,
+		resourcesMissing: missing,
+		triangles: indices.length / 3,
+		vertices: positions.length / 3,
+		texturesWanted: wanted,
+		texturesFound: found,
+	};
 }
