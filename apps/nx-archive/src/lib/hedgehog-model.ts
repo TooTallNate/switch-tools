@@ -111,6 +111,22 @@ async function pacChain(pac: Node | null): Promise<Map<string, Node>[]> {
 	return out;
 }
 
+/** Re-index a clip's tracks for another skeleton (`remap[i]`: source track of bone i, or -1). */
+function remapClip(t: { transforms: Float32Array; tracks: number }, remap: number[], target: PxdSkeleton, frames: number): { transforms: Float32Array; tracks: number } {
+	const n = target.bones.length;
+	const out = new Float32Array(frames * n * 12);
+	for (let f = 0; f < frames; f++)
+		for (let i = 0; i < n; i++) {
+			const o = (f * n + i) * 12, src = remap[i]!;
+			if (src >= 0 && src < t.tracks) out.set(t.transforms.subarray((f * t.tracks + src) * 12, (f * t.tracks + src) * 12 + 12), o);
+			else {
+				const b = target.bones[i]!;
+				out.set([...b.rotation, ...b.translation, 0, ...b.scale, 0], o);
+			}
+		}
+	return { transforms: out, tracks: n };
+}
+
 /** The folder holding a pac (its parent directory node). */
 async function findParentFolder(pac: Node): Promise<Node | null> {
 	const at = pac.id.lastIndexOf('/');
@@ -410,31 +426,60 @@ async function loadAnimations(
 	const pick = named.length ? named : anims(own);
 	const acl = await getAclDecoder().catch(() => null);
 	const clips: ClipSource[] = [];
-	for (const f of pick) {
-		const bytes = await bytesOf(f);
-		if (!isPxdAnimation(bytes)) continue;
-		const a = parsePxdAnimation(bytes);
-		if (a.trackCount > skeleton.bones.length || (!named.length && a.trackCount !== skeleton.bones.length)) continue;
-		if (a.additive || !a.main || a.frameCount < 1) continue;
-		if (a.compressed && !acl) continue;
-		let cache: { transforms: Float32Array; tracks: number } | null | undefined;
-		clips.push({
-			name: f.name.replace(/\.anm\.pxd$/i, ''),
-			frames: a.frameCount,
-			fps: a.fps,
-			transforms: () => {
-				if (cache !== undefined) return cache;
-				try {
-					if (a.compressed) {
-						const c = acl!.decompress(a.main!);
-						cache = { transforms: c.transforms, tracks: c.tracks };
-					} else cache = { transforms: sampleUncompressedPxd(bytes, a, skeleton), tracks: a.trackCount };
-				} catch {
-					cache = null;
-				}
-				return cache;
-			},
-		});
+	/**
+	 * Add clips made for `source` (null: this skeleton). Clips of another
+	 * rig are remapped by bone name; bones it doesn't have keep their bind pose.
+	 */
+	const addClips = async (files: Node[], source: PxdSkeleton | null, strict: boolean) => {
+		const src = source ?? skeleton;
+		const remap = source ? skeleton.bones.map((b) => source.bones.findIndex((x) => x.name === b.name)) : null;
+		for (const f of files) {
+			const bytes = await bytesOf(f);
+			if (!isPxdAnimation(bytes)) continue;
+			const a = parsePxdAnimation(bytes);
+			if (a.trackCount > src.bones.length || (strict && a.trackCount !== src.bones.length)) continue;
+			if (a.additive || !a.main || a.frameCount < 1) continue;
+			if (a.compressed && !acl) continue;
+			let cache: { transforms: Float32Array; tracks: number } | null | undefined;
+			clips.push({
+				name: f.name.replace(/\.anm\.pxd$/i, ''),
+				frames: a.frameCount,
+				fps: a.fps,
+				transforms: () => {
+					if (cache !== undefined) return cache;
+					try {
+						let t: { transforms: Float32Array; tracks: number };
+						if (a.compressed) {
+							const c = acl!.decompress(a.main!);
+							t = { transforms: c.transforms, tracks: c.tracks };
+						} else t = { transforms: sampleUncompressedPxd(bytes, a, src), tracks: a.trackCount };
+						cache = remap ? remapClip(t, remap, skeleton, a.frameCount) : t;
+					} catch {
+						cache = null;
+					}
+					return cache;
+				},
+			});
+		}
+	};
+	await addClips(pick, null, !named.length);
+	// No clips of its own: an alternate look (`chr_amy_orig`, `chr_soniccyber`)
+	// borrows the base character's from the pac next to it.
+	if (!clips.length && dir) {
+		const base = stem.replace(/_(orig|cyber|cyb)$/i, '').replace(/cyber$/i, '');
+		if (base !== stem) {
+			const folder = await findParentFolder(dir);
+			for (const sib of await kidsOf(folder)) {
+				if (sib === dir || sib.kind !== 'pacx') continue;
+				const kids = await kidsOf(sib).catch(() => [] as Node[]);
+				const skl = kids.find((k) => k.name.toLowerCase() === `${base}.skl.pxd`);
+				if (!skl) continue;
+				const source = await tryRead(skl);
+				if (!source || coverage(source) < 0.5) continue;
+				await addClips(kids.filter((k) => k.name.toLowerCase().startsWith(`${base}@`) && /\.anm\.pxd$/i.test(k.name)), source, false);
+				break;
+			}
+		}
 	}
 	return { skeleton, clips };
 }
