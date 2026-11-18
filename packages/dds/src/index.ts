@@ -37,7 +37,7 @@
  *   off 120 u32 dwReserved2
  *
  * We support the most common formats — DXT1/3/5 + uncompressed
- * BGRA/RGBA, and DX10 BC1..BC5 and BC7 via the bcn package.
+ * BGRA/RGBA, and DX10 BC1..BC7 via the bcn package (BC6H tone-mapped).
  */
 
 import {
@@ -46,6 +46,7 @@ import {
 	decodeBC3,
 	decodeBC4,
 	decodeBC5,
+	decodeBC6H,
 	decodeBC7,
 } from '@tootallnate/bcn';
 
@@ -230,6 +231,7 @@ function decodeDX10(
 	//   77 / 78 = BC3_UNORM / BC3_UNORM_SRGB
 	//   80 / 81 = BC4_UNORM / BC4_SNORM
 	//   83 / 84 = BC5_UNORM / BC5_SNORM
+	//   95 / 96 = BC6H_UF16 / BC6H_SF16 (tone-mapped to 8-bit)
 	//   98 / 99 = BC7_UNORM / BC7_UNORM_SRGB
 	//   87 = R8G8B8A8_UNORM,  88 = R8G8B8A8_UNORM_SRGB
 	//   28 = R8G8B8A8_UNORM (alt)
@@ -249,6 +251,9 @@ function decodeDX10(
 		case 83:
 		case 84:
 			return { pixels: decodeBC5(data, width, height).pixels, formatLabel: `BC5 (DXGI ${dxgiFormat})` };
+		case 95:
+		case 96:
+			return { pixels: decodeBC6H(data, width, height, dxgiFormat === 96).pixels, formatLabel: `BC6H (DXGI ${dxgiFormat})` };
 		case 98:
 		case 99:
 			return { pixels: decodeBC7(data, width, height).pixels, formatLabel: `BC7 (DXGI ${dxgiFormat})` };

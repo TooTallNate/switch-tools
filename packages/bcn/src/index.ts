@@ -29,6 +29,7 @@
  *     our decoders' output.
  */
 
+import { decodeBC6H as decodeBC6HFloats } from './bc6.js';
 import { decodeBC7Pixels } from './bc7.js';
 
 /** Decoded RGBA8 image: pixel buffer + dimensions. */
@@ -443,6 +444,28 @@ function patchBC4ChannelInPlace(
  */
 export function decodeBC7(data: Uint8Array, width: number, height: number): DecodedImage {
 	return { width, height, pixels: decodeBC7Pixels(data, width, height) };
+}
+
+/**
+ * Decode a BC6H (BPTC float) image, tone-mapped to 8-bit sRGB with
+ * Reinhard (c / (1 + c)), as `@tootallnate/bntx` does. The decoder is
+ * shared with bntx (see `bc6.ts`).
+ */
+export function decodeBC6H(data: Uint8Array, width: number, height: number, signed = false): DecodedImage {
+	const f = decodeBC6HFloats(data, width, height, signed);
+	const pixels = new Uint8Array(width * height * 4);
+	const enc = (c: number) => {
+		if (!(c > 0)) return 0;
+		const t = c / (1 + c);
+		return Math.round((t <= 0.0031308 ? 12.92 * t : 1.055 * t ** (1 / 2.4) - 0.055) * 255);
+	};
+	for (let i = 0; i < width * height; i++) {
+		pixels[i * 4] = enc(f[i * 3]!);
+		pixels[i * 4 + 1] = enc(f[i * 3 + 1]!);
+		pixels[i * 4 + 2] = enc(f[i * 3 + 2]!);
+		pixels[i * 4 + 3] = 255;
+	}
+	return { width, height, pixels };
 }
 
 export type BcnFormat = 'BC1' | 'BC2' | 'BC3' | 'BC4' | 'BC5' | 'BC7';
