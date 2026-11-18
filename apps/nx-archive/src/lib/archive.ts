@@ -771,6 +771,7 @@ export const FILE_EXT_FORMATS: Record<string, string> = {
 	pbp: 'PBP',
 	'cd-raw': 'CD-BIN', // alias used by the magic sniffer (raw 2352-byte CD sectors)
 	'halo-map': 'HALO-MAP', // alias used by the magic sniffer (Halo cache files are `.map`, shared with FF7/FF8)
+	'unity-serialized': 'UNITY-ASSETS', // alias used by the magic sniffer (GUID-named SerializedFiles in a player's Data/)
 	phyre: 'Phyre', // Sony PhyreEngine container — FFX/X-2 HD, FFXII TZA
 	lgp: 'LGP', // Square LGP archive — FF7/FF8 PC
 	sf2: 'SF2', // SoundFont 2 — sample-based MIDI instrument bank
@@ -851,6 +852,7 @@ type SniffedFormat =
 	| 'sarc'
 	| 'szs'
 	| 'unityfs'
+	| 'unity-serialized'
 	| 'zip'
 	| 'lz4'
 	| 'nro'
@@ -889,6 +891,27 @@ type SniffedFormat =
 	| 'n64'
 	| 'rvz'
 	| 'vfxb';
+
+/**
+ * A Unity SerializedFile without a telling name (the GUID-named files
+ * in a player's `Data/` folder, e.g. Pokémon GO's 800 of them). There's
+ * no magic: the header is big-endian (metadata size, file size, version,
+ * data offset), and from version 22 the sizes move to 64-bit fields
+ * after zeroed 32-bit ones. Recognised by a plausible version and a
+ * file size that matches the blob's.
+ */
+async function isUnitySerializedFile(blob: Blob, head: Uint8Array): Promise<boolean> {
+	const u32 = (b: Uint8Array, o: number) => ((b[o]! << 24) | (b[o + 1]! << 16) | (b[o + 2]! << 8) | b[o + 3]!) >>> 0;
+	const version = u32(head, 8);
+	if (version < 9 || version > 50 || blob.size < 48) return false;
+	const h = new Uint8Array(await blob.slice(0, 48).arrayBuffer());
+	if (h[16]! > 1 || h[17] || h[18] || h[19]) return false;
+	if (version >= 22) {
+		if (u32(h, 0) || u32(h, 4)) return false;
+		return u32(h, 0x18) === 0 && u32(h, 0x1c) === blob.size && u32(h, 0x14) > 0;
+	}
+	return u32(h, 4) === blob.size && u32(h, 0) > 0 && u32(h, 0) < blob.size;
+}
 
 /**
  * Sniff magic bytes that live in the first 8 bytes of the file. Cheap
@@ -1025,6 +1048,7 @@ async function sniffMagicCheap(blob: Blob): Promise<SniffedFormat | null> {
 	) {
 		return 'unityfs';
 	}
+	if (head.length >= 12 && (await isUnitySerializedFile(blob, head))) return 'unity-serialized';
 	// ZIP local file header is "PK\x03\x04" — match raw bytes since
 	// the trailing two bytes aren't printable.
 	if (head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04) {
@@ -1606,6 +1630,7 @@ const CONTAINER_FORMATS: readonly ContainerFormat[] = [
 	{
 		format: 'UNITY-ASSETS',
 		extensions: ['assets'],
+		sniff: ['unity-serialized'],
 		build: (a) => makeUnitySerializedFileNode(a.id, a.name, a.blob, a.ctx),
 	},
 	{
@@ -2792,6 +2817,17 @@ async function zipEntriesToNodes(
 		treeId: string,
 		t: Tree,
 	): Promise<Node[]> => {
+		// Android Unity players store big SerializedFiles as `name.split0`,
+		// `name.split1`, … (to dodge APK compression limits); the player
+		// reads them back to back. Show the joined file under its real name.
+		for (const [base, parts] of splitFileGroups([...t.keys()])) {
+			if (t.has(base)) continue;
+			const files = parts.map((p) => t.get(p)!.file!).filter(Boolean);
+			if (files.length !== parts.length) continue;
+			const size = files.reduce((n, f) => n + f.size, 0);
+			t.set(base, { file: { ...files[0]!, name: base, size, isDirectory: false, data: async () => new Blob(await Promise.all(files.map((f) => f.data()))) } });
+			for (const p of parts) t.delete(p);
+		}
 		const names = [...t.keys()].sort((a, b) => {
 			const aIsDir = !!t.get(a)!.dir;
 			const bIsDir = !!t.get(b)!.dir;
@@ -2833,6 +2869,27 @@ async function zipEntriesToNodes(
 	};
 
 	return treeToNodes(parentId, root);
+}
+
+/**
+ * Unity's split files among `names`: base name → `base.split0` …
+ * `base.splitN` in order, when the run starts at 0 and has no gaps.
+ */
+export function splitFileGroups(names: readonly string[]): Map<string, string[]> {
+	const byBase = new Map<string, Map<number, string>>();
+	for (const n of names) {
+		const m = /^(.+)\.split(\d+)$/.exec(n);
+		if (!m) continue;
+		const parts = byBase.get(m[1]!) ?? byBase.set(m[1]!, new Map()).get(m[1]!)!;
+		parts.set(Number(m[2]), n);
+	}
+	const out = new Map<string, string[]>();
+	for (const [base, parts] of byBase) {
+		const list: string[] = [];
+		for (let i = 0; parts.has(i); i++) list.push(parts.get(i)!);
+		if (list.length === parts.size && list.length > 0) out.set(base, list);
+	}
+	return out;
 }
 
 /**
