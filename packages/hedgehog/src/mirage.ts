@@ -99,7 +99,9 @@ export function readMirage(bytes: Uint8Array): MirageData {
 		while (e < bytes.length && bytes[e] !== 0) e++;
 		return textDecoder.decode(bytes.subarray(o, e));
 	};
-	let data: number, version: number, base: number, nodes: SampleChunkNode[] = [], firstOffsetAt = -1;
+	let data: number, version: number, base: number, nodes: SampleChunkNode[] = [];
+	// Offset-table entries (positions of offsets), to tell the offset encoding apart.
+	const offsetSlots: number[] = [];
 	if (isSampleChunk(bytes)) {
 		const size = Math.min(bytes.length, u32(0) & 0x1fffffff);
 		nodes = readNodes(dv, 16, size);
@@ -109,21 +111,27 @@ export function readMirage(bytes: Uint8Array): MirageData {
 		version = ctx.value;
 		base = 16;
 		const table = u32(8) + 16, count = u32(12);
-		if (count && table + 4 <= bytes.length) firstOffsetAt = u32(table) + base;
+		for (let i = 0; i < Math.min(count, 64) && table + i * 4 + 4 <= bytes.length; i++) offsetSlots.push(u32(table + i * 4) + base);
 	} else {
 		if (!isMirage(bytes)) throw new Error('Not a Hedgehog Engine mirage file');
 		version = u32(4);
 		data = u32(12);
 		base = data;
 		const table = u32(16);
-		if (table && u32(table)) firstOffsetAt = u32(table + 4) + base;
+		const count = table && table + 4 <= bytes.length ? u32(table) : 0;
+		for (let i = 0; i < Math.min(count, 64) && table + 8 + i * 4 <= bytes.length; i++) offsetSlots.push(u32(table + 4 + i * 4) + base);
 	}
-	let selfRelative = false;
-	if (firstOffsetAt >= 0 && firstOffsetAt + 4 <= bytes.length) {
-		const be = u32(firstOffsetAt) + base;
-		const le = firstOffsetAt + dv.getInt32(firstOffsetAt, true);
-		selfRelative = (be >= bytes.length || be < 0) && le > 0 && le < bytes.length;
+	// Vote: which reading keeps more of the offsets inside the file?
+	let beOk = 0, leOk = 0;
+	for (const at of offsetSlots) {
+		if (at < 0 || at + 4 > bytes.length) continue;
+		const v = u32(at);
+		if (v === 0) continue;
+		if (v + base < bytes.length) beOk++;
+		const le = at + dv.getInt32(at, true);
+		if (le >= 0 && le < bytes.length) leOk++;
 	}
+	const selfRelative = leOk > beOk;
 	const off = selfRelative
 		? (o: number) => {
 				const v = dv.getInt32(o, true);

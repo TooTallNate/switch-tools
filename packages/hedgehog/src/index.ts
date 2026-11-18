@@ -5,3 +5,4 @@ export * from './material.js';
 export * from './texture-streaming.js';
 export * from './pxd.js';
 export * from './pose.js';
+export * from './pointcloud.js';
