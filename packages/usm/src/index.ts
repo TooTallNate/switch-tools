@@ -440,6 +440,10 @@ export interface UsmVideoStream {
   data: Blob
   /** Approximate uncompressed byte length of `data`. */
   dataSize: number
+  /** Source file name the stream was authored from (CRID directory), if listed. */
+  sourceName?: string
+  /** `mpeg_dcprec`: intra DC precision in bits for MPEG streams (8-11), if given. */
+  dcPrecision?: number
 }
 
 export type UsmAudioCodec = "hca" | "adx" | "pcm" | "unknown"
@@ -458,6 +462,12 @@ export interface UsmAudioStream {
    */
   data: Blob
   dataSize: number
+  /**
+   * Source file name the stream was authored from (CRID directory),
+   * e.g. `G:\\…\\wav\\DIALOG\\EN\\ev1020_en.wav.hca`. Multi-track movies
+   * use it to tell effects, music and per-language dialog apart.
+   */
+  sourceName?: string
 }
 
 export type UsmStream = UsmVideoStream | UsmAudioStream
@@ -512,6 +522,17 @@ export async function parseUsm(blob: Blob): Promise<UsmFile> {
     )
   }
 
+  // Source file names per (stream kind, channel), from the directory rows
+  // (`stmid` is the chunk fourcc as a big-endian u32).
+  const sourceNames = new Map<string, string>()
+  for (const row of dirTable.rows) {
+    const stmid = numField(row, "stmid")
+    const name = row.filename
+    if (!stmid || typeof name !== "string") continue
+    const fourcc = String.fromCharCode((stmid >>> 24) & 0xff, (stmid >>> 16) & 0xff, (stmid >>> 8) & 0xff, stmid & 0xff)
+    sourceNames.set(`${fourcc}:${numField(row, "chno")}`, name)
+  }
+
   // ---- collect per-channel header @UTF tables ----
   // For each top-level channel kind we look for the first
   // dataType=1 chunk on that channel; its payload is an @UTF
@@ -555,6 +576,8 @@ export async function parseUsm(blob: Blob): Promise<UsmFile> {
       totalFrames,
       data,
       dataSize,
+      sourceName: sourceNames.get(`${ChunkType.SFV}:0`),
+      dcPrecision: numField(row, "mpeg_dcprec") || undefined,
     })
   }
 
@@ -572,6 +595,12 @@ export async function parseUsm(blob: Blob): Promise<UsmFile> {
       ChunkType.SFA,
       channel,
     )
+    // The enum isn't consistent between SDK versions (Sonic Frontiers
+    // writes 4 for HCA), so trust the payload's own magic first:
+    // "HCA\0" (high bits may be set as masking) or ADX's 0x8000.
+    const magic = new Uint8Array(await data.slice(0, 4).arrayBuffer())
+    if ((magic[0]! & 0x7f) === 0x48 && (magic[1]! & 0x7f) === 0x43 && (magic[2]! & 0x7f) === 0x41) codec = "hca"
+    else if (magic[0] === 0x80 && magic[1] === 0x00) codec = "adx"
     streams.push({
       type: "audio",
       channel,
@@ -581,6 +610,7 @@ export async function parseUsm(blob: Blob): Promise<UsmFile> {
       totalSamples: numField(row, "total_samples"),
       data,
       dataSize,
+      sourceName: sourceNames.get(`${ChunkType.SFA}:${channel}`),
     })
   }
 
