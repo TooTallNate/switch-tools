@@ -13,6 +13,10 @@ import {
 	pxdWorldMatrices,
 	readNeedleArchive,
 	sampleUncompressedPxd,
+	HEIGHTFIELD_HOLE,
+	parseHeightfield,
+	parsePointCloud,
+	pointCloudMatrix,
 } from '../src/index.js';
 
 /** A growable big-endian buffer with offset fix-ups. */
@@ -410,5 +414,47 @@ describe('PXD skeletons and clips', () => {
 		const bind = hhSkinMatrices(nodes, s, pxdWorldMatrices(s, null));
 		expect(Array.from(bind[1]!).map((x) => Math.round(x * 1e6) / 1e6)).toEqual([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 		expect(hhSkinMatrices(nodes, s, worlds)[1]![13]).toBeCloseTo(2);
+	});
+});
+
+describe('Point clouds and heightfields', () => {
+	it('reads CPIC instances and builds their matrices', () => {
+		const b = bina((dv, u8) => {
+			u8.set(new TextEncoder().encode('CPIC'), 0x40);
+			dv.setUint32(0x44, 2, true);
+			dv.setBigUint64(0x48, BigInt(0x100 - 0x40), true);
+			dv.setBigUint64(0x50, 1n, true);
+			const o = 0x100;
+			u8.set(new TextEncoder().encode('inst_001\0rock\0'), 0x180);
+			dv.setBigUint64(o, BigInt(0x180 - 0x40), true);
+			dv.setBigUint64(o + 8, BigInt(0x189 - 0x40), true);
+			dv.setFloat32(o + 16, 10, true);
+			dv.setFloat32(o + 32, Math.PI / 2, true); // rotate 90° about Y
+			for (let k = 0; k < 3; k++) dv.setFloat32(o + 44 + k * 4, 2, true);
+			return 0x1a0;
+		});
+		const [p] = parsePointCloud(b);
+		expect(p!.name).toBe('inst_001');
+		expect(p!.resource).toBe('rock');
+		const m = pointCloudMatrix(p!);
+		// +X (scaled by 2) turns to −Z, then moves by +10 X.
+		expect([m[0], m[2], m[12]].map((x) => Math.round(x! * 1e5) / 1e5 + 0)).toEqual([0, -2, 10]);
+	});
+
+	it('reads HTFD heights', () => {
+		const w = 2, h = 2;
+		const b = new Uint8Array(0x2c + w * h * 2);
+		const dv = new DataView(b.buffer);
+		b.set(new TextEncoder().encode('HTFD'), 0);
+		dv.setUint32(0x14, w, true);
+		dv.setUint32(0x18, h, true);
+		dv.setFloat32(0x1c, 1, true);
+		dv.setFloat32(0x20, 1, true);
+		dv.setFloat32(0x24, 1000 / 32768, true);
+		[0, 16384, 32767, 0x8000].forEach((v, i) => dv.setUint16(0x2c + i * 2, v, true));
+		const f = parseHeightfield(b);
+		expect([f.width, f.height]).toEqual([2, 2]);
+		expect(f.heights[1]! * f.heightScale).toBe(500);
+		expect(f.heights[3]).toBe(HEIGHTFIELD_HOLE);
 	});
 });
