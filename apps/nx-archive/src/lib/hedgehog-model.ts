@@ -111,6 +111,14 @@ async function pacChain(pac: Node | null): Promise<Map<string, Node>[]> {
 	return out;
 }
 
+/** The folder holding a pac (its parent directory node). */
+async function findParentFolder(pac: Node): Promise<Node | null> {
+	const at = pac.id.lastIndexOf('/');
+	const id = pac.id.slice(0, at);
+	const romfsPath = id.includes('/raw/') ? id.slice(id.indexOf('/raw/') + 1) : null;
+	return romfsPath ? romfsFileFor(pac.id, romfsPath) : null;
+}
+
 const isOutline = (material: string) => /outline/i.test(material);
 
 export async function loadHhModelView(node: Node, root: Node | null, variantIndex = 0): Promise<HhModelView> {
@@ -311,31 +319,69 @@ async function loadAnimations(
 ): Promise<{ skeleton: PxdSkeleton; clips: ClipSource[] } | null> {
 	const stem = node.name.replace(/\.(terrain-)?model$/i, '').toLowerCase();
 	const own = chain[0] ?? new Map<string, Node>();
-	let sklNode = own.get(`${stem}.skl.pxd`);
-	if (!sklNode) {
-		const all = [...own.values()].filter((k) => /\.skl\.pxd$/i.test(k.name));
-		if (all.length === 1) sklNode = all[0];
+	const modelNames = model.nodes.map((n) => n.name);
+	// Fraction of the model's nodes a skeleton has; below half it's another rig.
+	const coverage = (sk: PxdSkeleton) => {
+		const names = new Set(sk.bones.map((b) => b.name));
+		return modelNames.filter((n) => names.has(n)).length / Math.max(1, modelNames.length);
+	};
+	const skeletonsIn = (pac: Map<string, Node>) => [...pac.values()].filter((k) => /\.skl\.pxd$/i.test(k.name));
+	const tryRead = async (n: Node) => {
+		try {
+			return parsePxdSkeleton(await bytesOf(n));
+		} catch {
+			return null;
+		}
+	};
+	// Skeleton search: the model's own name in its pac chain, then any
+	// skeleton there that fits, then the pacs next to this one (Frontiers'
+	// Koco variants share `kodamacommon.pac`'s rig).
+	let found: { skeleton: PxdSkeleton; pac: Map<string, Node>; stem: string } | null = null;
+	const consider = async (pac: Map<string, Node>, n: Node) => {
+		const sk = await tryRead(n);
+		if (!sk) return false;
+		const c = coverage(sk);
+		if (c < 0.5) return false;
+		if (!found || c > coverage(found.skeleton)) found = { skeleton: sk, pac, stem: n.name.replace(/\.skl\.pxd$/i, '').toLowerCase() };
+		return c > 0.95;
+	};
+	for (const pac of chain) {
+		const exact = pac.get(`${stem}.skl.pxd`);
+		if (exact && (await consider(pac, exact))) break;
 	}
-	if (!sklNode) return null;
-	let skeleton: PxdSkeleton;
-	try {
-		skeleton = parsePxdSkeleton(await bytesOf(sklNode));
-	} catch {
-		return null;
+	if (!found) for (const pac of chain) for (const n of skeletonsIn(pac)) await consider(pac, n);
+	const siblingPacs: Map<string, Node>[] = [];
+	if (!found && dir) {
+		const folder = await findParentFolder(dir);
+		for (const sib of await kidsOf(folder)) {
+			if (sib === dir || sib.kind !== 'pacx') continue;
+			const map = new Map((await kidsOf(sib).catch(() => [] as Node[])).map((k) => [k.name.toLowerCase(), k]));
+			siblingPacs.push(map);
+			if (!found || coverage((found as { skeleton: PxdSkeleton }).skeleton) <= 0.95) for (const n of skeletonsIn(map)) if (await consider(map, n)) break;
+		}
 	}
-	// Every model node needs a skeleton bone or a parent chain to one.
-	const names = new Set(skeleton.bones.map((b) => b.name));
-	if (!model.nodes.some((n) => names.has(n.name))) return null;
-	const files = [...own.values()].filter((k) => /\.anm\.pxd$/i.test(k.name));
-	const named = files.filter((k) => k.name.toLowerCase().startsWith(`${stem}@`));
-	const pick = named.length ? named : files;
+	if (!found) return null;
+	const { skeleton, pac: rigPac, stem: rigStem } = found as { skeleton: PxdSkeleton; pac: Map<string, Node>; stem: string };
+	// A rig borrowed from a neighbouring pac: its clips may be spread over several.
+	const rigPacs = siblingPacs.length ? [rigPac, ...siblingPacs.filter((p) => p !== rigPac && p.has(`${rigStem}.skl.pxd`))] : [rigPac];
+	// Clips named after the model, then after its rig; else every clip in its pac that fits.
+	const anims = (pac: Map<string, Node>) => [...pac.values()].filter((k) => /\.anm\.pxd$/i.test(k.name));
+	const seen = new Set<string>();
+	const named: Node[] = [];
+	for (const [pac, prefix] of [[own, stem], ...rigPacs.flatMap((p) => [[p, stem], [p, rigStem]] as const)] as const)
+		for (const k of anims(pac))
+			if (k.name.toLowerCase().startsWith(`${prefix}@`) && !seen.has(k.name)) {
+				seen.add(k.name);
+				named.push(k);
+			}
+	const pick = named.length ? named : anims(own);
 	const acl = await getAclDecoder().catch(() => null);
 	const clips: ClipSource[] = [];
-	for (const f of pick.sort((a, b) => a.name.localeCompare(b.name))) {
+	for (const f of pick) {
 		const bytes = await bytesOf(f);
 		if (!isPxdAnimation(bytes)) continue;
 		const a = parsePxdAnimation(bytes);
-		if (!named.length && a.trackCount !== skeleton.bones.length) continue;
+		if (a.trackCount > skeleton.bones.length || (!named.length && a.trackCount !== skeleton.bones.length)) continue;
 		if (a.additive || !a.main || a.frameCount < 1) continue;
 		if (a.compressed && !acl) continue;
 		let cache: { transforms: Float32Array; tracks: number } | null | undefined;
