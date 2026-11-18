@@ -7,3 +7,4 @@ export * from './pxd.js';
 export * from './pose.js';
 export * from './pointcloud.js';
 export * from './heightfield.js';
+export * from './scalable-font.js';
