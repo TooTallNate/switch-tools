@@ -20,6 +20,8 @@ import {
 	parseHhMaterial,
 	parseHhModel,
 	parsePxdAnimation,
+	HEIGHTFIELD_HOLE,
+	parseHeightfield,
 	parsePointCloud,
 	parsePxdSkeleton,
 	pointCloudMatrix,
@@ -482,5 +484,77 @@ export async function loadHhSceneView(node: Node, root: Node | null): Promise<Hh
 		vertices: positions.length / 3,
 		texturesWanted: wanted,
 		texturesFound: found,
+	};
+}
+
+export interface HeightfieldView {
+	mesh: RenderableMesh;
+	width: number;
+	height: number;
+	grid: number;
+	triangles: number;
+	vertices: number;
+}
+
+/**
+ * An open-zone heightfield as a mesh: resampled to at most `grid` × `grid`
+ * vertices (the islands are 4096², which would be 33M triangles), holes
+ * left open, and coloured by height and slope (sand, grass, rock, snow)
+ * since the terrain's material layer isn't decoded yet.
+ */
+export async function loadHeightfieldView(node: Node, grid = 512): Promise<HeightfieldView> {
+	const hf = parseHeightfield(await bytesOf(node));
+	const G = Math.min(grid, hf.width, hf.height);
+	const sx = (hf.width - 1) / (G - 1), sz = (hf.height - 1) / (G - 1);
+	const index = new Int32Array(G * G).fill(-1);
+	const positions: number[] = [], normals: number[] = [], colors: number[] = [];
+	const h = (x: number, z: number) => {
+		const v = hf.heights[Math.min(hf.height - 1, Math.round(z)) * hf.width + Math.min(hf.width - 1, Math.round(x))]!;
+		return v === HEIGHTFIELD_HOLE ? NaN : v * hf.heightScale;
+	};
+	for (let j = 0; j < G; j++)
+		for (let i = 0; i < G; i++) {
+			const y = h(i * sx, j * sz);
+			if (Number.isNaN(y)) continue;
+			index[j * G + i] = positions.length / 3;
+			positions.push((i * sx - hf.width / 2) * hf.cellX, y, (j * sz - hf.height / 2) * hf.cellZ);
+			const l = h(Math.max(0, i - 1) * sx, j * sz), r = h(Math.min(G - 1, i + 1) * sx, j * sz);
+			const d = h(i * sx, Math.max(0, j - 1) * sz), u = h(i * sx, Math.min(G - 1, j + 1) * sz);
+			const dx = (Number.isNaN(r) ? y : r) - (Number.isNaN(l) ? y : l), dz = (Number.isNaN(u) ? y : u) - (Number.isNaN(d) ? y : d);
+			const nx = -dx, ny = 2 * sx * hf.cellX, nz = -dz * (sx * hf.cellX) / (sz * hf.cellZ);
+			const len = Math.hypot(nx, ny, nz) || 1;
+			normals.push(nx / len, ny / len, nz / len);
+			const steep = 1 - ny / len;
+			const c = y < 3 ? [0.82, 0.76, 0.56] : steep > 0.35 ? [0.45, 0.42, 0.38] : y > 450 ? [0.92, 0.93, 0.95] : [0.33 + 0.1 * (y / 450), 0.5, 0.25];
+			// The viewer wants linear RGB.
+			colors.push(c[0]! ** 2.2, c[1]! ** 2.2, c[2]! ** 2.2);
+		}
+	const indices: number[] = [];
+	for (let j = 0; j + 1 < G; j++)
+		for (let i = 0; i + 1 < G; i++) {
+			const a = index[j * G + i]!, b = index[j * G + i + 1]!, c = index[(j + 1) * G + i]!, d = index[(j + 1) * G + i + 1]!;
+			if (a >= 0 && c >= 0 && b >= 0) indices.push(a, c, b);
+			if (b >= 0 && c >= 0 && d >= 0) indices.push(b, c, d);
+		}
+	if (!indices.length) throw new Error('This heightfield has no ground');
+	return {
+		mesh: {
+			lods: [
+				{
+					numVertices: positions.length / 3,
+					positions: Float32Array.from(positions),
+					normals: Float32Array.from(normals),
+					colors: Float32Array.from(colors),
+					indices: Uint32Array.from(indices),
+					sections: [{ materialIndex: 0, firstIndex: 0, numTriangles: indices.length / 3 }],
+				},
+			],
+			upAxis: 'y-up',
+		},
+		width: hf.width,
+		height: hf.height,
+		grid: G,
+		triangles: indices.length / 3,
+		vertices: positions.length / 3,
 	};
 }

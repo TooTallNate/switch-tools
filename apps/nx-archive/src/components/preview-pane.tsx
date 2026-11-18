@@ -358,7 +358,7 @@ import { applyPose, poseJoints } from "@tootallnate/ff7-psx-model"
 import { strFrameSource } from "~/lib/psx-str-source"
 import { usmMpegFrameSource } from "~/lib/usm-mpeg-source"
 import { FBX_FPS, loadFbxModelView } from "~/lib/fbx-model"
-import { loadHhModelView, loadHhSceneView } from "~/lib/hedgehog-model"
+import { loadHeightfieldView, loadHhModelView, loadHhSceneView } from "~/lib/hedgehog-model"
 import { decodeTim } from "@tootallnate/psx-tim"
 import { encodePng } from "~/lib/png"
 import { parseIdFont, type ParsedIdFont } from "@tootallnate/idfont"
@@ -2053,6 +2053,8 @@ function FilePreview({
       return <FbxModelPreview node={node} root={root} />
     case "hh-model":
       return <HhModelPreview node={node} root={root} />
+    case "hh-heightfield":
+      return <HeightfieldPreview node={node} />
     case "hh-scene":
       return <HhScenePreview node={node} root={root} />
     case "trinity-model":
@@ -15287,6 +15289,26 @@ function J3dModelPreview({ node }: { node: Node }) {
     )
   }
   return <J3dModelViewer node={node} view={v} />
+}
+
+function HeightfieldPreview({ node }: { node: Node }) {
+  const { loading, data, error } = useAsync(() => loadHeightfieldView(node, 768), [node.id])
+  if (loading) return <LoadingFiller label="Building terrain…" />
+  if (error) return <ErrorFiller error={error} />
+  const v = data!
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-2">
+        <h2 className="font-heading text-sm font-medium">Terrain heightfield</h2>
+        <p className="text-xs text-muted-foreground">
+          {v.width.toLocaleString()} × {v.height.toLocaleString()} samples, shown at {v.grid} × {v.grid} · {v.triangles.toLocaleString()} triangles · coloured by height and slope · drag to orbit, scroll to zoom
+        </p>
+      </div>
+      <div className="flex-1 p-3">
+        <MeshViewer mesh={v.mesh} materialDiffuseTextures={[null]} baseName={node.name.replace(/\.heightfield$/i, "")} />
+      </div>
+    </div>
+  )
 }
 
 function HhScenePreview({ node, root }: { node: Node; root: Node | null }) {

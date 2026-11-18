@@ -18,7 +18,7 @@ import { loadGoldeneyeLevelView, loadGoldeneyeModelView } from '../goldeneye';
 import { loadZ64ObjectModelView, loadZ64SceneView } from '../z64-objects';
 import { loadSm64ModelView } from '../sm64';
 import { loadFbxModelView } from '../fbx-model';
-import { loadHhModelView, loadHhSceneView } from '../hedgehog-model';
+import { loadHeightfieldView, loadHhModelView, loadHhSceneView } from '../hedgehog-model';
 import { GfbmdlPose, colorUvTransform, groupVisibility, materialValues } from '@tootallnate/gfbmdl';
 import { isDummyMch, parseMch } from '@tootallnate/ff8-model';
 import { parseDat } from '@tootallnate/ff8-battle';
@@ -118,6 +118,7 @@ export const HEADLESS_MODEL_KINDS = new Set([
 	'fbx-model',
 	'hh-model',
 	'hh-scene',
+	'hh-heightfield',
 	'j3d-model',
 	'ff7-hrc',
 	'ff7-battle-skeleton',
@@ -508,6 +509,10 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 				pose: v.clips[v.defaultClip]?.name,
 				animations: v.clips.length,
 			});
+		}
+		case 'hh-heightfield': {
+			const v = await loadHeightfieldView(node, 256);
+			return asset(v.mesh.lods[0]!, [null], {}, v.mesh.upAxis);
 		}
 		case 'hh-scene': {
 			const v = await loadHhSceneView(node, root);

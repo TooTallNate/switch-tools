@@ -21,7 +21,7 @@ import { thpRestuffJpeg } from '@tootallnate/thp';
 import { parseVbf, type VbfFileEntry } from '@tootallnate/vbf';
 import { parseLgp, type LgpEntry } from '@tootallnate/lgp';
 import { readPacx } from '@tootallnate/pacx';
-import { isNtsi, isPointCloud } from '@tootallnate/hedgehog';
+import { isHeightfield, isNtsi, isPointCloud } from '@tootallnate/hedgehog';
 import { resolveHedgehogDds } from './hedgehog-textures';
 import {
 	parseWd,
@@ -3511,6 +3511,7 @@ function makePacxNode(id: string, name: string, blob: Blob, ctx: ArchiveContext)
 				if (e.ext === 'model' || e.ext === 'terrain-model') child.meta = { ...child.meta, hhModel: true };
 				// Stage layouts: instances of the pac's terrain models.
 				if (e.ext === 'pcmodel' && isPointCloud(e.data)) child.meta = { ...child.meta, hhScene: true };
+				if (e.ext === 'heightfield' && isHeightfield(e.data)) child.meta = { ...child.meta, hhHeightfield: true, decoded: true };
 				if (e.ext === 'dds' && isNtsi(e.data)) {
 					// A texture-streaming stub: the blob is the DDS rebuilt from the package.
 					const stub = e.data;

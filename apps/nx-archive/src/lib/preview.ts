@@ -350,6 +350,8 @@ export type PreviewKind =
 	| 'hh-model'
 	/** Hedgehog Engine point cloud (`.pcmodel`): a stage layout of placed terrain models. */
 	| 'hh-scene'
+	/** Sonic Frontiers open-zone terrain heightfield (`.heightfield`, `HTFD`). */
+	| 'hh-heightfield'
 	/**
 	 * Nintendo BTI texture (`.bti`) — a bare GX texture header plus
 	 * tiled pixel data, as used all over GameCube/Wii JSystem titles.
@@ -593,6 +595,7 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	// Hedgehog Engine models inside a PACx (`.model` alone is too generic).
 	if (node.meta?.hhModel) return 'hh-model';
 	if (node.meta?.hhScene) return 'hh-scene';
+	if (node.meta?.hhHeightfield) return 'hh-heightfield';
 	// FF7 PC field scenes (inside `flevel.lgp`) are detected at
 	// tree-build time — they have no extension.
 	if (node.meta?.ff7FieldScene) return 'ff7-field-scene';
