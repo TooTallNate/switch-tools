@@ -593,6 +593,7 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.idfont) return 'idfont';
 	if (node.meta?.bimage) return 'bimage';
 	// Hedgehog Engine models inside a PACx (`.model` alone is too generic).
+	if (node.meta?.sfntFont) return 'font-info';
 	if (node.meta?.hhModel) return 'hh-model';
 	if (node.meta?.hhScene) return 'hh-scene';
 	if (node.meta?.hhHeightfield) return 'hh-heightfield';

@@ -21,7 +21,7 @@ import { thpRestuffJpeg } from '@tootallnate/thp';
 import { parseVbf, type VbfFileEntry } from '@tootallnate/vbf';
 import { parseLgp, type LgpEntry } from '@tootallnate/lgp';
 import { readPacx } from '@tootallnate/pacx';
-import { isHeightfield, isNtsi, isPointCloud } from '@tootallnate/hedgehog';
+import { extractScalableFont, isHeightfield, isNtsi, isPointCloud } from '@tootallnate/hedgehog';
 import { resolveHedgehogDds } from './hedgehog-textures';
 import {
 	parseWd,
@@ -3507,7 +3507,10 @@ function makePacxNode(id: string, name: string, blob: Blob, ctx: ArchiveContext)
 				seen.add(e.name);
 				if (e.proxy) continue;
 				const cid = `${id}/${e.name}`;
-				const child = await childNodeFor(cid, e.name, new Blob([e.data as BlobPart]), ctx, { parentArchiveName: name.toLowerCase() });
+				// Scalable fonts wrap a whole TrueType / OpenType file: expose that.
+				const font = e.ext === 'scfnt' ? extractScalableFont(e.data) : null;
+				const child = await childNodeFor(cid, e.name, new Blob([(font ?? e.data) as BlobPart]), ctx, { parentArchiveName: name.toLowerCase() });
+				if (font) child.meta = { ...child.meta, sfntFont: true };
 				if (e.ext === 'model' || e.ext === 'terrain-model') child.meta = { ...child.meta, hhModel: true };
 				// Stage layouts: instances of the pac's terrain models.
 				if (e.ext === 'pcmodel' && isPointCloud(e.data)) child.meta = { ...child.meta, hhScene: true };
