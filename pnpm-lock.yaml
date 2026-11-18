@@ -460,6 +460,9 @@ importers:
       '@tootallnate/mio0':
         specifier: workspace:*
         version: link:../../packages/mio0
+      '@tootallnate/mpeg1':
+        specifier: workspace:*
+        version: link:../../packages/mpeg1
       '@tootallnate/ms-adpcm':
         specifier: workspace:*
         version: link:../../packages/ms-adpcm
@@ -1422,6 +1425,12 @@ importers:
         version: 5.9.3
 
   packages/mio0:
+    devDependencies:
+      typescript:
+        specifier: ^5.3.3
+        version: 5.9.3
+
+  packages/mpeg1:
     devDependencies:
       typescript:
         specifier: ^5.3.3

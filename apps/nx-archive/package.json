@@ -101,6 +101,7 @@
     "@tootallnate/lz4": "workspace:^",
     "@tootallnate/lzma": "workspace:*",
     "@tootallnate/mio0": "workspace:*",
+    "@tootallnate/mpeg1": "workspace:*",
     "@tootallnate/ms-adpcm": "workspace:*",
     "@tootallnate/msbt": "workspace:*",
     "@tootallnate/mtf": "workspace:*",

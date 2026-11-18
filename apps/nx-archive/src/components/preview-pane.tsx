@@ -356,6 +356,7 @@ import { loadFf7PsxModelView } from "~/lib/ff7-psx"
 import { TrinityFilePreview, TrinityModelPreview, TrinityTerrainPreview } from "./trinity-previews"
 import { applyPose, poseJoints } from "@tootallnate/ff7-psx-model"
 import { strFrameSource } from "~/lib/psx-str-source"
+import { usmMpegFrameSource } from "~/lib/usm-mpeg-source"
 import { decodeTim } from "@tootallnate/psx-tim"
 import { encodePng } from "~/lib/png"
 import { parseIdFont, type ParsedIdFont } from "@tootallnate/idfont"
@@ -9442,6 +9443,8 @@ interface UsmPreviewState {
     | "ready"
     | "error"
     | "unsupported"
+    /** MPEG-1 video: played by {@link BinkPreview}'s TypeScript-decoder path. */
+    | "mpeg"
   /** Set as soon as parseUsm resolves; survives across all phases. */
   usm?: UsmFile
   /** Primary video stream (first one). */
@@ -9513,6 +9516,11 @@ function UsmPreview({ node }: { node: Node }) {
             reason: "USM contains no video stream.",
             error: new Error("USM contains no video stream."),
           })
+          return
+        }
+        if (video.codec.codec === "mpeg") {
+          // MPEG-1 decodes in TypeScript through the MP4 pipeline.
+          setState({ kind: "mpeg", usm, video })
           return
         }
         if (video.codec.codec !== "vp9") {
@@ -9589,14 +9597,17 @@ function UsmPreview({ node }: { node: Node }) {
     }
   }, [node.id, node.blob])
 
-  if (state.kind === "error" && !state.usm) {
-    return <ErrorFiller error={state.error!} />
-  }
-
   const downloadName = useMemo(() => {
     const stem = node.name.replace(/\.usm$/i, "")
     return `${stem}.webm`
   }, [node.name])
+
+  if (state.kind === "error" && !state.usm) {
+    return <ErrorFiller error={state.error!} />
+  }
+  if (state.kind === "mpeg") {
+    return <BinkPreview node={node} format="usm-mpeg" usm={state.usm} />
+  }
 
   const usm = state.usm
   const video = state.video
@@ -9804,10 +9815,16 @@ interface BinkPreviewState {
 function BinkPreview({
   node,
   format,
+  usm,
 }: {
   node: Node
-  /** `psx-str` decodes PlayStation STR movies in TypeScript, same pipeline. */
-  format: "bink1" | "bink2" | "psx-str"
+  /**
+   * `psx-str` (PlayStation STR) and `usm-mpeg` (Sofdec2 USMs with MPEG-1
+   * video) decode in TypeScript through the same pipeline.
+   */
+  format: "bink1" | "bink2" | "psx-str" | "usm-mpeg"
+  /** The parsed USM, for `usm-mpeg`. */
+  usm?: UsmFile
 }) {
   const [state, setState] = useState<BinkPreviewState>({ kind: "loading" })
   // Track active URLs so we can revoke them on unmount / reset.
@@ -9846,13 +9863,19 @@ function BinkPreview({
       try {
         const blob = await node.blob!()
         if (cancelled) return
-        const binkBytes = new Uint8Array(await blob.arrayBuffer())
+        // The USM source reads its streams from the Blob itself.
+        const binkBytes = format === "usm-mpeg" ? new Uint8Array(0) : new Uint8Array(await blob.arrayBuffer())
         if (cancelled) return
 
         handle = streamBinkToMp4({
-          format: format === "psx-str" ? "bink1" : format,
+          format: format === "bink2" ? "bink2" : "bink1",
           binkBytes,
-          source: format === "psx-str" ? async () => strFrameSource(binkBytes) : undefined,
+          source:
+            format === "psx-str"
+              ? async () => strFrameSource(binkBytes)
+              : format === "usm-mpeg"
+                ? async () => usmMpegFrameSource(blob, { usm })
+                : undefined,
           signal: aborter.signal,
           onProgress: (progress) => {
             if (cancelled) return
@@ -9914,8 +9937,9 @@ function BinkPreview({
   const info = state.info
   const progress = state.progress
   const pct = progress ? Math.round((progress.frame / progress.total) * 100) : 0
-  const label = format === "bink2" ? "Bink 2" : format === "psx-str" ? "PlayStation STR" : "Bink 1"
-  const downloadName = node.name.replace(/\.(bk2|bik|bk1|str)$/i, "") + ".mp4"
+  const label =
+    format === "bink2" ? "Bink 2" : format === "psx-str" ? "PlayStation STR" : format === "usm-mpeg" ? "Sofdec2 MPEG-1" : "Bink 1"
+  const downloadName = node.name.replace(/\.(bk2|bik|bk1|str|usm)$/i, "") + ".mp4"
   const isLoading = state.kind === "loading"
   const isEncoding = state.kind === "streaming"
   const durationMs = info ? Math.round(info.durationUs / 1000) : undefined
@@ -9964,7 +9988,7 @@ function BinkPreview({
             <KvRow
               k="Source format"
               v={label}
-              hint={format === "bink2" ? "KB2f..KB2n" : "BIK family"}
+              hint={format === "bink2" ? "KB2f..KB2n" : format === "bink1" ? "BIK family" : undefined}
             />
             <KvRow
               k="Resolution"
