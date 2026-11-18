@@ -29,6 +29,8 @@
  *     our decoders' output.
  */
 
+import { decodeBC7Pixels } from './bc7.js';
+
 /** Decoded RGBA8 image: pixel buffer + dimensions. */
 export interface DecodedImage {
 	/** Width in pixels. Equal to `paddedWidth` when the original was a multiple of 4. */
@@ -435,11 +437,19 @@ function patchBC4ChannelInPlace(
 // ---------------------------------------------------------------------------
 
 /** All BCn formats this package decodes. */
-export type BcnFormat = 'BC1' | 'BC2' | 'BC3' | 'BC4' | 'BC5';
+/**
+ * Decode a BC7 (BPTC) compressed image. The decoder is shared with
+ * `@tootallnate/bntx` (see `bc7.ts`).
+ */
+export function decodeBC7(data: Uint8Array, width: number, height: number): DecodedImage {
+	return { width, height, pixels: decodeBC7Pixels(data, width, height) };
+}
+
+export type BcnFormat = 'BC1' | 'BC2' | 'BC3' | 'BC4' | 'BC5' | 'BC7';
 
 /**
  * Dispatch a decode call by format name. Throws on unsupported formats
- * (BC6H and BC7 are out of scope for this package).
+ * (BC6H is out of scope for this package).
  */
 export function decodeBcn(
 	format: BcnFormat,
@@ -459,6 +469,8 @@ export function decodeBcn(
 			return decodeBC4(data, width, height, options);
 		case 'BC5':
 			return decodeBC5(data, width, height, options);
+		case 'BC7':
+			return decodeBC7(data, width, height);
 		default: {
 			const _exhaustive: never = format;
 			throw new Error(`Unsupported BCn format: ${_exhaustive as string}`);
