@@ -1,0 +1,29 @@
+{
+  "name": "@tootallnate/pacx",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Reader for Hedgehog Engine PACx packfiles (.pac): Sonic Forces v3 and Sonic Frontiers v4, LZ4 chunks and splits.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "pacx",
+    "hedgehog-engine",
+    "sonic"
+  ],
+  "author": "Nathan Rajlich <n@n8.io>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/switch-tools",
+    "directory": "packages/pacx"
+  },
+  "dependencies": {
+    "@tootallnate/lz4": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}
