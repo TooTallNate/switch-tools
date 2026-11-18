@@ -15383,7 +15383,13 @@ function Sm64ModelPreview({ node }: { node: Node }) {
         </p>
       </div>
       <div className="flex-1 p-3">
-        <MeshViewer mesh={v.mesh} materialDiffuseTextures={v.textures} baseName={node.name.replace(/\.sm64mdl$/, "")} animationDrivers={drivers} />
+        <MeshViewer
+          mesh={v.mesh}
+          materialDiffuseTextures={v.textures}
+          materialBaseColors={v.baseColors}
+          baseName={node.name.replace(/\.sm64mdl$/, "")}
+          animationDrivers={drivers}
+        />
       </div>
     </div>
   )

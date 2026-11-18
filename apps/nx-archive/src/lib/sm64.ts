@@ -29,7 +29,7 @@ import {
 } from '@tootallnate/sm64';
 import type { Node } from './archive';
 import type { RenderableMesh } from '~/components/mesh-viewer';
-import { decodeF3dexTextures, f3dexTintedLod } from './n64-mesh';
+import { decodeF3dexTextures, f3dexMaterialColors, f3dexTintedLod } from './n64-mesh';
 import type { DecodedTexture } from './uasset-material-chain';
 
 interface RomContext {
@@ -141,6 +141,8 @@ export interface Sm64AnimationClip {
 export interface Sm64ModelView {
 	mesh: RenderableMesh;
 	textures: (DecodedTexture | null)[];
+	/** Flat colours of untextured lit materials (the viewer lights them). */
+	baseColors: ([number, number, number] | null)[];
 	texturedMaterials: number;
 	triangles: number;
 	vertices: number;
@@ -185,10 +187,11 @@ export async function loadSm64ModelView(node: Node): Promise<Sm64ModelView> {
 		},
 	});
 	if (m.indices.length === 0) throw new Error('This model draws no geometry');
-	const textures = decodeF3dexTextures(m.data, m, { tint: true });
+	const textures = decodeF3dexTextures(m.data, m, { tint: true, combiner: true });
 	return {
-		mesh: { lods: [f3dexTintedLod(m)], upAxis: 'y-up' },
+		mesh: { lods: [f3dexTintedLod(m, { combiner: true })], upAxis: 'y-up' },
 		textures,
+		baseColors: f3dexMaterialColors(m, textures),
 		texturedMaterials: textures.filter(Boolean).length,
 		triangles: m.indices.length / 3,
 		vertices: m.positions.length / 3,

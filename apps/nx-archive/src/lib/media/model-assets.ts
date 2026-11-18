@@ -460,7 +460,7 @@ export async function loadModelAsset(node: Node, previewKind: string, root: Node
 		}
 		case 'sm64-model': {
 			const v = await loadSm64ModelView(node);
-			return asset(v.mesh.lods[0]!, v.texturedMaterials > 0 ? v.textures : []);
+			return asset(v.mesh.lods[0]!, v.texturedMaterials > 0 ? v.textures : [], { baseColors: v.baseColors });
 		}
 		case 'z64-scene': {
 			const v = await loadZ64SceneView(node);
