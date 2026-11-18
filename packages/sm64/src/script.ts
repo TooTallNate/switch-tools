@@ -17,6 +17,12 @@
  * branch with a copy of the segment map, and records each model / area
  * geo layout with the segments loaded at that point. A level is the
  * target of `JUMP_IF(OP_EQ, level)` / `JUMP_LINK_IF` in the main scripts.
+ *
+ * Actor models come from `script_func_global_1` … `_18` in segment 0x15
+ * (`levels/scripts.c`), one per actor group, which levels JUMP_LINK to.
+ * Their model IDs are reused between groups, so models remember which
+ * one loaded them: the functions sit in order at the end of the segment,
+ * so sorting the call targets numbers them.
  */
 
 import { decompressMio0Bytes } from '@tootallnate/mio0';
@@ -41,6 +47,8 @@ export interface Sm64ModelRef extends Sm64GeoRef {
 	modelId: number;
 	/** True for LOAD_MODEL_FROM_DL (a bare display list, no geo layout). */
 	displayList: boolean;
+	/** `script_func_global_N` that loaded it (1-18), when known. */
+	group?: number;
 }
 
 export interface Sm64AreaRef extends Sm64GeoRef {
@@ -69,10 +77,59 @@ export function findSm64Entry(rom: Uint8Array): number | null {
 	return null;
 }
 
+function findMio0(rom: Uint8Array, from: number, to: number): number | null {
+	for (let o = from; o + 16 <= Math.min(rom.length, to); o += 4) if (rom[o] === 0x4d && rom[o + 1] === 0x49 && rom[o + 2] === 0x4f && rom[o + 3] === 0x30) return o;
+	return null;
+}
+
 /** Bytes of a loaded segment (MIO0 decompressed), cached by ROM range. */
 export class Sm64SegmentCache {
 	private cache = new Map<string, Uint8Array>();
+	private buffers = new Map<string, { data: Uint8Array; resolve: (addr: number) => number | null }>();
 	constructor(private readonly rom: Uint8Array) {}
+
+	/**
+	 * Every loaded segment laid out in one buffer, with a resolver from
+	 * segmented addresses into it. Models in one level share a segment
+	 * map, so the last few are kept.
+	 */
+	buffer(segments: Sm64SegmentMap): { data: Uint8Array; resolve: (addr: number) => number | null } {
+		const key = [...segments].sort((a, b) => a[0] - b[0]).map(([k, v]) => `${k}:${v.romStart}:${v.romEnd}:${v.mio0}`).join(',');
+		const hit = this.buffers.get(key);
+		if (hit) {
+			this.buffers.delete(key);
+			this.buffers.set(key, hit);
+			return hit;
+		}
+		const bases = new Map<number, { base: number; len: number }>();
+		const parts: Uint8Array[] = [];
+		let total = 0;
+		for (const [seg, s] of segments) {
+			const b = this.get(s);
+			if (!b) continue;
+			bases.set(seg, { base: total, len: b.length });
+			parts.push(b);
+			total += b.length;
+		}
+		const data = new Uint8Array(total);
+		let o = 0;
+		for (const p of parts) {
+			data.set(p, o);
+			o += p.length;
+		}
+		const out = {
+			data,
+			resolve: (addr: number) => {
+				const b = bases.get(addr >>> 24);
+				const off = addr & 0xffffff;
+				return b && off < b.len ? b.base + off : null;
+			},
+		};
+		this.buffers.set(key, out);
+		if (this.buffers.size > 3) this.buffers.delete(this.buffers.keys().next().value!);
+		return out;
+	}
+
 	get(seg: Sm64Segment): Uint8Array | null {
 		const key = `${seg.romStart}:${seg.romEnd}:${seg.mio0}`;
 		let b = this.cache.get(key);
@@ -103,10 +160,11 @@ export function walkSm64Scripts(rom: Uint8Array, options: { entry?: number; maxS
 	const sig = (segs: Sm64SegmentMap) => [...segs].sort((a, b) => a[0] - b[0]).map(([k, v]) => `${k}:${v.romStart}`).join(',');
 
 	/** Run a script at segmented `addr`; returns when it returns / exits / jumps away. */
-	const run = (addr: number, segs: Map<number, Sm64Segment>, level: number, depth: number): void => {
+	const groupOf = new Map<Sm64ModelRef, number>();
+	const run = (addr: number, segs: Map<number, Sm64Segment>, level: number, depth: number, group?: number): void => {
 		if (depth > 48) return;
 		for (;;) {
-			const key = `${addr}|${sig(segs)}|${level}`;
+			const key = `${addr}|${sig(segs)}|${level}|${group}`;
 			if (seen.has(key)) return;
 			seen.add(key);
 			const seg = segs.get(addr >>> 24);
@@ -124,7 +182,7 @@ export function walkSm64Scripts(rom: Uint8Array, options: { entry?: number; maxS
 						const s = u16(buf, o + 2);
 						const child = new Map(segs);
 						child.set(s, { romStart: u32(buf, o + 4), romEnd: u32(buf, o + 8), mio0: false });
-						run(u32(buf, o + 12), child, level, depth + 1);
+						run(u32(buf, o + 12), child, level, depth + 1, group);
 						if (cmd === 0x01) return;
 						break;
 					}
@@ -134,14 +192,16 @@ export function walkSm64Scripts(rom: Uint8Array, options: { entry?: number; maxS
 					case 0x05:
 						addr = u32(buf, o + 4);
 						break;
-					case 0x06:
-						run(u32(buf, o + 4), new Map(segs), level, depth + 1);
+					case 0x06: {
+						const target = u32(buf, o + 4);
+						run(target, new Map(segs), level, depth + 1, target >>> 24 === 0x15 ? target : group);
 						break;
+					}
 					case 0x0c:
 					case 0x0d: {
 						// JUMP_IF(OP_EQ, n): the main scripts' per-level dispatch.
 						const lvl = u8(buf, o + 2) === 2 && u32(buf, o + 4) < 64 ? u32(buf, o + 4) : level;
-						run(u32(buf, o + 8), new Map(segs), lvl, depth + 1);
+						run(u32(buf, o + 8), new Map(segs), lvl, depth + 1, group);
 						break;
 					}
 					case 0x17:
@@ -166,7 +226,9 @@ export function walkSm64Scripts(rom: Uint8Array, options: { entry?: number; maxS
 						const k = `${geo}|${s?.romStart}`;
 						if (s && !modelSeen.has(k)) {
 							modelSeen.add(k);
-							models.push({ modelId: id, geo, segments: new Map(segs), level, displayList: cmd === 0x21 });
+							const m: Sm64ModelRef = { modelId: id, geo, segments: new Map(segs), level, displayList: cmd === 0x21 };
+							models.push(m);
+							if (group !== undefined) groupOf.set(m, group);
 						}
 						break;
 					}
@@ -178,6 +240,15 @@ export function walkSm64Scripts(rom: Uint8Array, options: { entry?: number; maxS
 		}
 	};
 	// The entry script sits in segment 0x10, loaded from its own ROM range.
-	run(0x10000000, new Map([[0x10, { romStart: entry, romEnd: Math.min(rom.length, entry + 0x10000), mio0: false }]]), 0, 0);
+	const initial = new Map<number, Sm64Segment>([[0x10, { romStart: entry, romEnd: Math.min(rom.length, entry + 0x10000), mio0: false }]]);
+	// Segment 2 (HUD font, number sprites) is loaded by code, not a script:
+	// it's the first MIO0 block after the entry script.
+	const seg2 = findMio0(rom, entry, entry + 0x1000);
+	if (seg2 !== null) initial.set(0x02, { romStart: seg2, romEnd: Math.min(rom.length, seg2 + 8 + u32(rom, seg2 + 4)), mio0: true });
+	run(0x10000000, initial, 0, 0);
+	// The 18 group functions close out the segment (`level_main_scripts_entry`
+	// and its helpers come first), so they are the last 18 targets.
+	const groups = [...new Set(groupOf.values())].sort((a, b) => a - b).slice(-18);
+	if (groups.length === 18) for (const [m, g] of groupOf) if (groups.includes(g)) m.group = groups.indexOf(g) + 1;
 	return { entry, models, areas };
 }

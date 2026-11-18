@@ -1,8 +1,12 @@
 /**
  * Names from the n64decomp/sm64 decompilation: level numbers
  * (`levels/level_defines.h` order, 1-based; English course names) and
- * model IDs that mean one thing in every level (`include/model_ids.h`;
- * level- and group-specific IDs are reused, so they stay unnamed).
+ * model IDs that mean one thing in every level (`include/model_ids.h`).
+ * Level- and group-specific IDs are reused, so they are named per level
+ * ({@link SM64_LEVEL_MODEL_NAMES}, from the per-level sections of
+ * `model_ids.h`) and per actor group ({@link SM64_GROUP_MODEL_NAMES}:
+ * `script_func_global_N` in `levels/scripts.c`, which loads group N's
+ * models). Mario's animation names are `include/mario_animation_ids.h`.
  */
 
 export const SM64_LEVEL_NAMES: readonly (string | null)[] = [null, null, null, null, "Big Boo's Haunt", "Cool, Cool Mountain", "Castle Inside", "Hazy Maze Cave", "Shifting Sand Land", "Bob-omb Battlefield", "Snowman's Land", "Wet-Dry World", "Jolly Roger Bay", "Tiny-Huge Island", "Tick Tock Clock", "Rainbow Ride", "Castle Grounds", "Bowser in the Dark World", "Vanish Cap Under the Moat", "Bowser in the Fire Sea", "Secret Aquarium", "Bowser in the Sky", "Lethal Lava Land", "Dire, Dire Docks", "Whomp's Fortress", "Ending", "Castle Courtyard", "Princess's Secret Slide", "Cavern of the Metal Cap", "Tower of the Wing Cap", "Bowser 1", "Wing Mario over the Rainbow", null, "Bowser 2", "Bowser 3", null, "Tall, Tall Mountain", null, null];
@@ -159,3 +163,71 @@ export const SM64_MODEL_NAMES: Readonly<Record<number, string>> = {
 
 /** Sequence names (`sound/sequences.json`), index = sequence id. */
 export const SM64_SEQUENCE_NAMES: readonly string[] = ["00_sound_player", "01_cutscene_collect_star", "02_menu_title_screen", "03_level_grass", "04_level_inside_castle", "05_level_water", "06_level_hot", "07_level_boss_koopa", "08_level_snow", "09_level_slide", "0A_level_spooky", "0B_event_piranha_plant", "0C_level_underground", "0D_menu_star_select", "0E_event_powerup", "0F_event_metal_cap", "10_event_koopa_message", "11_level_koopa_road", "12_event_high_score", "13_event_merry_go_round", "14_event_race", "15_cutscene_star_spawn", "16_event_boss", "17_cutscene_collect_key", "18_event_endless_stairs", "19_level_boss_koopa_final", "1A_cutscene_credits", "1B_event_solve_puzzle", "1C_event_toad_message", "1D_event_peach_message", "1E_cutscene_intro", "1F_cutscene_victory", "20_cutscene_ending", "21_menu_file_select", "22_cutscene_lakitu"];
+
+export const SM64_LEVEL_MODEL_NAMES: Readonly<Record<number, Readonly<Record<number, string>>>> = {
+	// File select (`MODEL_MAIN_MENU_*`, reusing the level geometry IDs).
+	0: { 0x03: 'main_menu_mario_save_button', 0x04: 'main_menu_red_erase_button', 0x05: 'main_menu_blue_copy_button', 0x06: 'main_menu_yellow_file_button', 0x07: 'main_menu_green_score_button', 0x08: 'main_menu_mario_save_button_fade', 0x09: 'main_menu_mario_new_button', 0x0a: 'main_menu_mario_new_button_fade', 0x0b: 'main_menu_purple_sound_button', 0x0c: 'main_menu_generic_button' },
+	4: { 0x1d: 'haunted_door', 0x35: 'staircase_step', 0x36: 'tilting_floor_platform', 0x37: 'tumbling_platform', 0x38: 'tumbling_platform_part', 0x39: 'moving_bookshelf', 0x3a: 'mesh_elevator', 0x3b: 'merry_go_round', 0x3c: 'wooden_tomb' },
+	5: { 0x19: 'snow_tree', 0x27: 'cabin_door', 0x36: 'ropeway_lift', 0x37: 'snowman_head' },
+	6: { 0x1c: 'castle_castle_door_unused', 0x1d: 'castle_wooden_door_unused', 0x22: 'castle_door_0_stars', 0x23: 'castle_door_1_star', 0x24: 'castle_door_3_stars', 0x25: 'castle_key_door', 0x26: 'castle_castle_door', 0x27: 'castle_wooden_door', 0x29: 'castle_metal_door', 0x35: 'castle_bowser_trap', 0x36: 'castle_water_level_pillar', 0x37: 'castle_clock_minute_hand', 0x38: 'castle_clock_hour_hand', 0x39: 'castle_clock_pendulum' },
+	7: { 0x1d: 'wooden_door', 0x1f: 'metal_door', 0x20: 'hazy_maze_door', 0x36: 'metal_platform', 0x37: 'metal_arrow_platform', 0x38: 'elevator_platform', 0x39: 'rolling_rock', 0x3a: 'rock_piece', 0x3b: 'rock_small_piece', 0x3c: 'red_grills' },
+	8: { 0x1b: 'palm_tree', 0x36: 'grindel', 0x37: 'spindel', 0x38: 'moving_pyramid_wall', 0x39: 'pyramid_elevator', 0x3a: 'pyramid_top' },
+	9: { 0x17: 'bubbly_tree', 0x36: 'chain_chomp_gate', 0x37: 'seesaw_platform', 0x38: 'bars_grills' },
+	10: { 0x19: 'snow_tree', 0x36: 'snow_triangle', 0x37: 'cracked_ice', 0x38: 'cracked_ice_chunk' },
+	11: { 0x17: 'bubbly_tree', 0x36: 'square_floating_platform', 0x37: 'arrow_lift', 0x38: 'water_level_diamond', 0x39: 'hidden_platform', 0x3a: 'express_elevator', 0x3b: 'rectangular_floating_platform', 0x3c: 'rotating_platform' },
+	12: { 0x35: 'ship_left_half_part', 0x36: 'ship_back_left_part', 0x37: 'ship_right_half_part', 0x38: 'ship_back_right_part', 0x39: 'sunken_ship', 0x3a: 'sunken_ship_back', 0x3b: 'rock', 0x3c: 'sliding_box', 0x3d: 'falling_pillar', 0x3e: 'falling_pillar_base', 0x3f: 'floating_platform' },
+	13: { 0x16: 'warp_pipe', 0x17: 'bubbly_tree', 0x36: 'huge_island_top', 0x37: 'tiny_island_top' },
+	14: { 0x36: 'rotating_cube', 0x37: 'rotating_prism', 0x38: 'pendulum', 0x39: 'large_treadmill', 0x3a: 'small_treadmill', 0x3b: 'push_block', 0x3c: 'rotating_hexagon', 0x3d: 'rotating_triangle', 0x3e: 'pit_block', 0x3f: 'pit_block_unused', 0x40: 'elevator_platform', 0x41: 'clock_hand', 0x42: 'spinner', 0x43: 'small_gear', 0x44: 'large_gear' },
+	15: { 0x36: 'sliding_platform', 0x37: 'flying_carpet', 0x38: 'octagonal_platform', 0x39: 'rotating_bridge_platform', 0x3a: 'triangle_platform', 0x3b: 'cruiser_wing', 0x3c: 'seesaw_platform', 0x3d: 'l_shaped_platform', 0x3e: 'swinging_platform', 0x3f: 'donut_platform', 0x40: 'elevator_platform', 0x41: 'tricky_triangles', 0x42: 'tricky_triangles_frame1', 0x43: 'tricky_triangles_frame2', 0x44: 'tricky_triangles_frame3', 0x45: 'tricky_triangles_frame4' },
+	16: { 0x16: 'warp_pipe', 0x17: 'bubbly_tree', 0x26: 'castle_door', 0x29: 'metal_door', 0x36: 'vcutm_grill', 0x37: 'flag', 0x38: 'cannon_grill' },
+	17: { 0x12: 'warp_pipe', 0x36: 'square_platform', 0x37: 'seesaw_platform', 0x38: 'sliding_platform', 0x39: 'ferris_wheel_axle', 0x3a: 'blue_platform', 0x3b: 'staircase_frame4', 0x3c: 'staircase_frame3', 0x3d: 'staircase_frame2', 0x3e: 'staircase_frame1', 0x3f: 'staircase' },
+	18: { 0x16: 'warp_pipe', 0x36: 'seesaw_platform', 0x37: 'checkerboard_platform_spawner' },
+	19: { 0x36: 'platform_on_track', 0x37: 'tilting_square_platform', 0x38: 'sinking_platforms', 0x39: 'blue_pole', 0x3a: 'sinking_cage_platform', 0x3b: 'elevator', 0x3c: 'stretching_platforms', 0x3d: 'seesaw_platform', 0x3e: 'moving_square_platform', 0x3f: 'sliding_platform', 0x40: 'tumbling_platform_part', 0x41: 'tumbling_platform' },
+	21: { 0x36: 'sliding_platform', 0x37: 'twin_sliding_platforms', 0x39: 'octagonal_platform', 0x3c: 'blue_platform', 0x3d: 'ferris_wheel_axle', 0x3e: 'arrow_platform', 0x3f: 'seesaw_platform', 0x40: 'tilting_w_platform', 0x41: 'staircase', 0x42: 'staircase_frame1', 0x43: 'staircase_frame2', 0x44: 'staircase_frame3', 0x45: 'staircase_frame4', 0x49: 'warp_pipe' },
+	22: { 0x09: 'rotating_hexagonal_platform', 0x35: 'wood_bridge', 0x36: 'moving_octagonal_mesh_platform', 0x37: 'sinking_rock_block', 0x38: 'drawbridge_part', 0x39: 'rolling_log', 0x3a: 'rotating_block_fire_bars', 0x3b: 'large_wood_bridge', 0x3c: 'falling_platform', 0x3d: 'large_falling_platform', 0x3e: 'rotating_hexagonal_ring', 0x3f: 'sinking_rectangular_platform', 0x40: 'sinking_square_platforms', 0x41: 'tilting_square_platform', 0x43: 'bowser_piece_1', 0x44: 'bowser_piece_2', 0x45: 'bowser_piece_3', 0x46: 'bowser_piece_4', 0x47: 'bowser_piece_5', 0x48: 'bowser_piece_6', 0x49: 'bowser_piece_7', 0x4a: 'bowser_piece_8', 0x4b: 'bowser_piece_9', 0x4c: 'bowser_piece_10', 0x4d: 'bowser_piece_11', 0x4e: 'bowser_piece_12', 0x4f: 'bowser_piece_13', 0x50: 'bowser_piece_14', 0x53: 'volcano_falling_trap' },
+	23: { 0x36: 'bowser_sub_door', 0x37: 'bowser_sub', 0x38: 'pole' },
+	24: { 0x0d: 'giant_pole', 0x10: 'rotating_platform', 0x17: 'bubbly_tree', 0x2c: 'tower_trapezoid_platorm', 0x2d: 'tower_square_platorm', 0x2e: 'tower_square_platorm_unused', 0x2f: 'tower_square_platorm_elevator', 0x36: 'breakable_wall_right', 0x37: 'breakable_wall_left', 0x38: 'kickable_board', 0x39: 'tower_door', 0x3a: 'kickable_board_felled' },
+	26: { 0x18: 'spiky_tree', 0x27: 'wooden_door' },
+	33: { 0x36: 'tilting_arena' },
+	34: { 0x36: 'falling_platform_1', 0x37: 'falling_platform_2', 0x38: 'falling_platform_3', 0x39: 'falling_platform_4', 0x3a: 'falling_platform_5', 0x3b: 'falling_platform_6', 0x3c: 'falling_platform_7', 0x3d: 'falling_platform_8', 0x3e: 'falling_platform_9', 0x3f: 'falling_platform_10' },
+	36: { 0x35: 'rolling_log', 0x36: 'star_cage', 0x37: 'blue_smiley', 0x38: 'yellow_smiley', 0x39: 'star_smiley', 0x3a: 'moon_smiley' },
+};
+
+export const SM64_GROUP_MODEL_NAMES: Readonly<Record<number, Readonly<Record<number, string>>>> = {
+	1: { 0x78: 'heart', 0x7f: 'cannon_barrel', 0x80: 'cannon_base', 0x81: 'breakable_box', 0x82: 'breakable_box_small', 0x83: 'exclamation_box_outline', 0x84: 'exclamation_point', 0x89: 'exclamation_box', 0x8c: 'blue_coin_switch', 0xb4: 'bowling_ball', 0xbc: 'black_bobomb', 0xbe: 'koopa_shell', 0xc0: 'goomba', 0xc2: 'amp', 0xc3: 'bobomb_buddy', 0xc9: 'cannon_lid', 0xca: 'checkerboard_platform', 0xcf: 'purple_switch', 0xd9: 'metal_box', 0xda: 'metal_box_dl', 0xdc: 'flyguy', 0xdf: 'chuckya', 0xe1: 'trajectory_marker_ball' },
+	2: { 0x54: 'bullet_bill', 0x55: 'yellow_sphere', 0x56: 'hoot', 0x57: 'yoshi_egg', 0x58: 'thwomp', 0x59: 'heave_ho' },
+	3: { 0x54: 'blargg', 0x56: 'bully', 0x57: 'bully_boss' },
+	4: { 0x54: 'water_bomb', 0x55: 'water_bomb_shadow', 0x56: 'king_bobomb' },
+	5: { 0x54: 'manta_ray', 0x55: 'unagi', 0x56: 'sushi', 0x57: 'whirlpool', 0x58: 'clam_shell' },
+	6: { 0x54: 'pokey_head', 0x55: 'pokey_body_part', 0x56: 'tweester', 0x57: 'klepto', 0x58: 'eyerok_left_hand', 0x59: 'eyerok_right_hand' },
+	7: { 0x54: 'monty_mole_hole', 0x55: 'monty_mole', 0x56: 'ukiki', 0x57: 'fwoosh' },
+	8: { 0x54: 'spindrift', 0x55: 'mr_blizzard_hidden', 0x56: 'mr_blizzard', 0x57: 'penguin' },
+	9: { 0x54: 'cap_switch_exclamation', 0x55: 'cap_switch', 0x56: 'cap_switch_base' },
+	10: { 0x54: 'boo', 0x55: 'beta_boo_key', 0x56: 'haunted_chair', 0x57: 'mad_piano', 0x58: 'bookend_part', 0x59: 'bookend', 0x5a: 'haunted_cage' },
+	11: { 0x54: 'birds', 0x55: 'yoshi', 0xde: 'peach' },
+	12: { 0x54: 'enemy_lakitu', 0x55: 'spiny_ball', 0x56: 'spiny', 0x57: 'wiggler_head', 0x58: 'wiggler_body', 0x59: 'bubba' },
+	13: { 0x64: 'bowser', 0x65: 'bowser_bomb_child_obj', 0x66: 'bowser_smoke', 0x67: 'bowser_flames', 0x68: 'bowser_wave', 0x69: 'bowser_no_shadow', 0xb3: 'bowser_bomb' },
+	14: { 0x64: 'bub', 0x65: 'treasure_chest_base', 0x66: 'treasure_chest_lid', 0x67: 'cyan_fish', 0x68: 'water_ring', 0x69: 'skeeter', 0xb3: 'water_mine', 0xc1: 'seaweed' },
+	15: { 0x64: 'piranha_plant', 0x65: 'metallic_ball', 0x66: 'chain_chomp', 0x67: 'whomp', 0x68: 'koopa_with_shell', 0x6a: 'koopa_flag', 0x6b: 'wooden_post', 0xbf: 'koopa_without_shell' },
+	16: { 0x64: 'mips', 0x65: 'boo_castle', 0x66: 'lakitu', 0xdd: 'toad' },
+	17: { 0x64: 'chill_bully', 0x65: 'big_chill_bully', 0x66: 'moneybag' },
+	18: { 0x64: 'swoop', 0x65: 'scuttlebug', 0x66: 'mr_i_iris', 0x67: 'mr_i', 0x68: 'dorrie', 0xce: 'snufit' },
+};
+
+/** Mario's animations, index = DMA table entry (`mario_animation_ids.h`). */
+export const SM64_MARIO_ANIMATION_NAMES: readonly string[] = ["slow_ledge_grab", "fall_over_backwards", "backward_air_kb", "dying_on_back", "backflip", "climb_up_pole", "grab_pole_short", "grab_pole_swing_part1", "grab_pole_swing_part2", "handstand_idle", "handstand_jump", "start_handstand", "return_from_handstand", "idle_on_pole", "a_pose", "skid_on_ground", "stop_skid", "crouch_from_fast_longjump", "crouch_from_slow_longjump", "fast_longjump", "slow_longjump", "airborne_on_stomach", "walk_with_light_obj", "run_with_light_obj", "slow_walk_with_light_obj", "shivering_warming_hand", "shivering_return_to_idle", "shivering", "climb_down_ledge", "credits_waving", "credits_look_up", "credits_return_from_look_up", "credits_raise_hand", "credits_lower_hand", "credits_take_off_cap", "credits_start_walk_look_up", "credits_look_back_then_run", "final_bowser_raise_hand_spin", "final_bowser_wing_cap_take_off", "credits_peace_sign", "stand_up_from_lava_boost", "fire_lava_burn", "wing_cap_fly", "hang_on_owl", "land_on_stomach", "air_forward_kb", "dying_on_stomach", "suffocating", "coughing", "throw_catch_key", "dying_fall_over", "idle_on_ledge", "fast_ledge_grab", "hang_on_ceiling", "put_cap_on", "take_cap_off_then_on", "quickly_put_cap_on", "head_stuck_in_ground", "ground_pound_landing", "triple_jump_ground_pound", "start_ground_pound", "ground_pound", "bottom_stuck_in_ground", "idle_with_light_obj", "jump_land_with_light_obj", "jump_with_light_obj", "fall_land_with_light_obj", "fall_with_light_obj", "fall_from_sliding_with_light_obj", "sliding_on_bottom_with_light_obj", "stand_up_from_sliding_with_light_obj", "riding_shell", "walking", "forward_flip", "jump_riding_shell", "land_from_double_jump", "double_jump_fall", "single_jump", "land_from_single_jump", "air_kick", "double_jump_rise", "start_forward_spinning", "throw_light_object", "fall_from_slide_kick", "bend_kness_riding_shell", "legs_stuck_in_ground", "general_fall", "general_land", "being_grabbed", "grab_heavy_object", "slow_land_from_dive", "fly_from_cannon", "move_on_wire_net_right", "move_on_wire_net_left", "missing_cap", "pull_door_walk_in", "push_door_walk_in", "unlock_door", "start_reach_pocket", "reach_pocket", "stop_reach_pocket", "ground_throw", "ground_kick", "first_punch", "second_punch", "first_punch_fast", "second_punch_fast", "pick_up_light_obj", "pushing", "start_riding_shell", "place_light_obj", "forward_spinning", "backward_spinning", "breakdance", "running", "running_unused", "soft_back_kb", "soft_front_kb", "dying_in_quicksand", "idle_in_quicksand", "move_in_quicksand", "electrocution", "shocked", "backward_kb", "forward_kb", "idle_heavy_obj", "stand_against_wall", "sidestep_left", "sidestep_right", "start_sleep_idle", "start_sleep_scratch", "start_sleep_yawn", "start_sleep_sitting", "sleep_idle", "sleep_start_lying", "sleep_lying", "dive", "slide_dive", "ground_bonk", "stop_slide_light_obj", "slide_kick", "crouch_from_slide_kick", "slide_motionless", "stop_slide", "fall_from_slide", "slide", "tiptoe", "twirl_land", "twirl", "start_twirl", "stop_crouching", "start_crouching", "crouching", "crawling", "stop_crawling", "start_crawling", "summon_star", "return_star_approach_door", "backwards_water_kb", "swim_with_obj_part1", "swim_with_obj_part2", "flutterkick_with_obj", "water_action_end_with_obj", "stop_grab_obj_water", "water_idle_with_obj", "drowning_part1", "drowning_part2", "water_dying", "water_forward_kb", "fall_from_water", "swim_part1", "swim_part2", "flutterkick", "water_action_end", "water_pick_up_obj", "water_grab_obj_part2", "water_grab_obj_part1", "water_throw_obj", "water_idle", "water_star_dance", "return_from_water_star_dance", "grab_bowser", "swinging_bowser", "release_bowser", "holding_bowser", "heavy_throw", "walk_panting", "walk_with_heavy_obj", "turning_part1", "turning_part2", "slideflip_land", "slideflip", "triple_jump_land", "triple_jump", "first_person", "idle_head_left", "idle_head_right", "idle_head_center", "handstand_left", "handstand_right", "wake_from_sleep", "wake_from_lying", "start_tiptoe", "slidejump", "start_wallkick", "star_dance", "return_from_star_dance", "forward_spinning_flip", "triple_jump_fly"];
+
+/**
+ * A model's name: its actor group's, else its level's, else the one its
+ * ID has everywhere. Null when the decompilation doesn't name it.
+ */
+export function sm64ModelName(m: { modelId: number; level: number; group?: number }): string | null {
+	const global = SM64_MODEL_NAMES[m.modelId];
+	return (
+		(m.group !== undefined ? SM64_GROUP_MODEL_NAMES[m.group]?.[m.modelId] : undefined) ??
+		SM64_LEVEL_MODEL_NAMES[m.level]?.[m.modelId] ??
+		(global && !global.startsWith('level_geometry') ? global : undefined) ??
+		global ??
+		null
+	);
+}
