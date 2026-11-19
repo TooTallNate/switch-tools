@@ -367,6 +367,18 @@ export class ZstdDecoder {
 		return new ZstdDecoder(exports, dctxPtr, inPtr, inCap, outPtr, outCap, bufPtr);
 	}
 
+	/**
+	 * Start over with a fresh decompression context (same WebAssembly
+	 * instance), discarding any partly decoded frame. Lets one decoder
+	 * serve many independent one-shot decodes.
+	 */
+	reset(): void {
+		const e = this.exports;
+		if (this.dctxPtr) e.dctx_free(this.dctxPtr);
+		this.dctxPtr = e.dctx_new();
+		if (!this.dctxPtr) throw new Error('zstd: failed to allocate decompression context');
+	}
+
 	dispose(): void {
 		if (!this.dctxPtr) return;
 		const e = this.exports;
