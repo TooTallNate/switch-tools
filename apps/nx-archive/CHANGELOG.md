@@ -1,5 +1,90 @@
 # nx-archive
 
+## 0.1.2
+
+### Patch Changes
+
+- b52422ec: Open FBX models: textures from the same folder, every animation stack playable, and variants from part names. Pokémon GO rips from PokeMiners' `pogo_assets` get their right body textures, their eyes, and a Female variant where the model has one.
+- dc6d6c9d: Sonic Frontiers terrain is coloured by its own ground textures (the splat map), not just height and slope.
+- 557abcda: Sonic Frontiers open-zone terrain: `.heightfield` files open as a 3D island, resampled for the viewer and coloured by height and slope.
+- 9117fe0d: Sonic Frontiers `.scfnt` fonts open in the font preview and the Library's Fonts.
+- 43b39418: Super Mario 64 models show their real colours in the viewer, thumbnails and exports: lit textures get their light colour baked in (Yoshi's green nose, Toad's face) and plain-coloured parts are shaded instead of flat. The power star is gold all over.
+- e4c24f44: Super Mario 64 models come out whole and animated: King Bob-omb's body, Bowser, doors, Chain Chomp's eyes, and hands and faces that were missing textures. Mario is a full model in five looks (cap, no cap, wing cap, Metal Mario, metal wing cap) with all 209 of his animations, and actors play their own animations in the viewer. Models are named after what they are (yoshi, king_bobomb, chain_chomp…) instead of `model_0x55`. Library search matches names before formats.
+- a549f113: Super Mario Party Jamboree players:
+
+  - **Animations:** their skeletal clips, kept in the `chara~pcMot_*.nx.bea` archives next to the character, load into the viewer (common and board clips first), and models open (and get thumbnails) on the common idle, which also opens the eyes and tucks the hair under Mario's cap.
+  - **Pupils:** both eyes get one. Jamboree draws both pupils from one UV set, the second eye shifted by +2 in U.
+  - **No floor:** the fluid-simulation quads under a player (no render info at all in Jamboree) stay hidden.
+
+- 735f1467: Super Mario Party Jamboree eyes get their pupils: the pupil layer bound to a graph-shader utility sampler is composited like the older Bezel games' `_a1` layer.
+- 02935d12: Super Mario Party Jamboree:
+
+  - **Fonts and images:** its 88 `.ffnt` fonts open in the font preview and the Library (they are BFFNT), and its `.ctga` images as TGA.
+  - **Config files:** `.msgpack` settings and Bezel `rtts_file_format` files (`.nbgllt`, `.nbfcpxset`, `.nbrspfb`) show as JSON, and `.nbinit`, `.archiveconfig` and `.bgsh` as text.
+
+- 3d5b8596: Super Mario Party Jamboree materials that aren't cut out (`static_opt_punchthrough` off) draw opaque: their albedo alpha is a mask, not opacity, and was punching holes in boards' wood and showing hair through Mario's cap.
+- 2b45eb2a: Super Mario Party Jamboree characters are textured right: their packed UV sets are read, and the node-graph shaders' non-square atlases (V −1…1 over a 1:2 texture) map into the texture.
+- 0cf95dec: Super Mario Party Jamboree's `.bea` archives open, so its models, textures and the rest show up in the Library.
+- fa34ff1e: Sonic Frontiers alternate looks with no clips of their own (`chr_amy_orig`, `chr_knuckles_orig`, `chr_soniccyber`) play the base character's clips, remapped bone by bone, and open on its idle pose.
+- 866b7ec0: Sonic Frontiers models animate: every clip named after the model plays in the viewer, skinned on the CPU, and characters open (and get their thumbnails) on their idle clip, eyes open.
+- 7db9ca00: Sonic Frontiers materials, PXD skeletons and PXD clips get info pages (shader and texture slots, the bone tree, frame count and compression) instead of hex.
+- c3e235df: Sonic Frontiers materials with only an emission texture (the Ancients' glowing pieces) show it instead of rendering grey.
+- 714ec4c9: Sonic Frontiers eyes: textures use their material's sampler addressing, so the iris is clamped instead of tiled into several pupils across the eyeball, and the `ChrEye` pupil (the iris texture's alpha) is drawn black instead of see-through.
+- 7aa550f0: Sonic Frontiers: textures missing from a model's pac chain are looked up in the rest of its stage folder, occlusion meshes don't count as missing textures and stay out of stage layouts, and the game's luminance and float DDS files decode.
+- 65782248: Sonic Frontiers islands: the heightfield preview can place every terrain piece from the stage's layouts on the ground (at their lowest detail), showing the whole island at once.
+- 81c66778: Sonic Frontiers 3D models. `.pac` files open as archives, and their `.model` / `.terrain-model` files show textured in the viewer and the Library, with a Cyber Space variant where the materials have one. Materials and textures come from the same pac or its parent pacs, and streamed textures are rebuilt from `texture_streaming/*.ntsp`, so the pac's `.dds` files preview as whole images too.
+- 1b102b22: Sonic Frontiers models find their rig in more places: a parent pac (Super Sonic uses Sonic's), or a pac next to theirs (Koco variants share one), with every clip named after the model or the rig. Super Sonic now opens flying, and the Kocos get their idles.
+- 28b1a56c: Sonic Frontiers stage layouts that place several far-apart sites open on the biggest one, with a Show menu for each site and the whole layout. Thumbnails show a site instead of specks.
+- bf5e54d7: Sonic Frontiers stage layouts (`.pcmodel`) open as one model with every placed terrain piece. BC6H emission textures decode, models with only outline meshes show them, and a skinned-prop terrain model that failed to parse now opens.
+- d8319886: Open Android Unity players fully: split SerializedFiles (`sharedassets1.assets.split0` …) are joined into one file, GUID-named SerializedFiles in `Data/` are recognised, and compressed Unity meshes load. Pokémon GO's APK goes from 125 to 331 models and from 1,061 to 3,160 images.
+- fa062c92: Play Sofdec2 USMs with MPEG-1 video (Sonic Frontiers' movies), with their effects, music and English dialog mixed together, and fix HCA music and sound effects that failed with "Unsupported r01/r02 combination".
+- c8610746: One-shot zstd decompression reuses a single decoder instead of a new WebAssembly instance per frame, which ran out of memory on Super Mario Party Jamboree (196 `.bea` archives failed to open).
+- Updated dependencies [b050fdd0]
+- Updated dependencies [095f9e0f]
+- Updated dependencies [8a00672b]
+- Updated dependencies [10a11120]
+- Updated dependencies [0d50e20e]
+- Updated dependencies [a5176ab6]
+- Updated dependencies [cadf420d]
+- Updated dependencies [0838bf0a]
+- Updated dependencies [b1afa166]
+- Updated dependencies [b93cd908]
+- Updated dependencies [9e487550]
+- Updated dependencies [7302cdd2]
+- Updated dependencies [610d4f5f]
+- Updated dependencies [54b9c8c7]
+- Updated dependencies [9c756b17]
+- Updated dependencies [559e90bd]
+- Updated dependencies [3e9541fc]
+- Updated dependencies [46a25358]
+- Updated dependencies [852e5b58]
+- Updated dependencies [ca921135]
+- Updated dependencies [ae506b04]
+- Updated dependencies [12e570ff]
+- Updated dependencies [c7d9e7ad]
+- Updated dependencies [e732066d]
+- Updated dependencies [c77126c1]
+  - @tootallnate/acl-wasm@0.1.0
+  - @tootallnate/bcn@0.1.0
+  - @tootallnate/dds@0.1.0
+  - @tootallnate/bea@0.1.0
+  - @tootallnate/bfres@0.3.0
+  - @tootallnate/f3dex@0.2.0
+  - @tootallnate/fbx@0.1.0
+  - @tootallnate/hca@0.0.2
+  - @tootallnate/hedgehog@0.1.0
+  - @tootallnate/mpeg1@0.1.0
+  - @tootallnate/pacx@0.1.0
+  - @tootallnate/sm64@0.2.0
+  - @tootallnate/unity-asset@0.2.0
+  - @tootallnate/usm@0.1.1
+  - @tootallnate/zstd-wasm@0.2.0
+  - @tootallnate/aurora@0.1.1
+  - @tootallnate/dxtk-font@0.0.2
+  - @tootallnate/halo-map@0.1.1
+  - @tootallnate/nu3@0.1.1
+  - @tootallnate/z64-object@0.1.1
+
 ## 0.1.1
 
 ### Patch Changes

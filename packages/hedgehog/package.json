@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/hedgehog",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Hedgehog Engine (Sonic) formats: mirage sample chunks, Needle model archives, skeletal and terrain models, materials, and Needle texture streaming.",
   "main": "dist/index.js",

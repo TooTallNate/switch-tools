@@ -1,5 +1,11 @@
 # @tootallnate/unity-asset
 
+## 0.2.0
+
+### Minor Changes
+
+- c7d9e7ad: Decode meshes built with Unity Mesh Compression (`m_CompressedMesh`): quantised positions, UVs, normals, colours, skin weights and indices (`decodeCompressedMesh`).
+
 ## 0.1.1
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @tootallnate/zstd-wasm
 
+## 0.2.0
+
+### Minor Changes
+
+- c77126c1: `ZstdDecoder.reset()` starts a fresh decompression context in the same WebAssembly instance, so one decoder can serve many one-shot decodes.
+
 ## 0.1.0
 
 ### Minor Changes

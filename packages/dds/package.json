@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/dds",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "description": "Parser for Microsoft DirectDraw Surface (.dds) texture files.",
   "main": "dist/index.js",

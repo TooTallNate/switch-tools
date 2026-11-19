@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/fbx",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Binary FBX reader: meshes, materials, skeletons, skins and animation stacks, posed on the CPU.",
   "main": "dist/index.js",
