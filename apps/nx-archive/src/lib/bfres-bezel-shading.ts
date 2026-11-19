@@ -184,7 +184,11 @@ export function planBezelAlbedo(
 	const baseTexture = shaderSamplerTexture(mat, '_a0');
 	if (!baseTexture) return null;
 	const layers: BezelAlbedoLayer[] = [];
-	const layerTexture = shaderSamplerTexture(mat, '_a1');
+	// Jamboree's graph shaders bind the pupil layer to a utility sampler
+	// (`sg_utility_texture2darray2` ← `_a1`), not the shader's own `_a1`.
+	const layerTexture =
+		shaderSamplerTexture(mat, '_a1') ??
+		('fragment_shader_graph_color' in mat.shaderAssign!.options ? (mat.bindings.find((b) => b.samplerName === '_a1')?.textureName ?? null) : null);
 	if (layerTexture && layerTexture !== baseTexture) {
 		const seen = new Set<string>();
 		// Older shaders (Super Mario Party) have no shader `_u2` input:
