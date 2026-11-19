@@ -230,7 +230,7 @@ export function planBezelAlbedo(
 			if (seen.has(key)) continue;
 			seen.add(key);
 			const uvs = shaderUvs(geom, mat, index);
-			if (uvs) layers.push({ textureName: layerTexture, uvs: graph ? wrapPupilU(uvs) : uvs });
+			if (uvs) layers.push({ textureName: layerTexture, uvs: graph ? wrapPupilU(uvs, geom.indices) : uvs });
 		}
 	}
 	return {
@@ -241,10 +241,36 @@ export function planBezelAlbedo(
 	};
 }
 
-/** Fold U into 0…2, bringing Jamboree's second pupil island (U 2…3) onto the texture. */
-function wrapPupilU(uvs: Float32Array): Float32Array {
+/**
+ * Bring Jamboree's second pupil island (U 2…3) onto the texture. Each
+ * UV island moves as a whole, by a multiple of 2 picked from its
+ * centre: folding vertex by vertex would split islands straddling
+ * U = 2 and draw slivers of pupil at the corners of the eyes.
+ */
+export function wrapPupilU(uvs: Float32Array, indices: ArrayLike<number>): Float32Array {
+	const n = uvs.length / 2;
+	const parent = new Int32Array(n);
+	for (let i = 0; i < n; i++) parent[i] = i;
+	const find = (i: number): number => {
+		while (parent[i] !== i) i = parent[i] = parent[parent[i]!]!;
+		return i;
+	};
+	for (let t = 0; t + 2 < indices.length; t += 3) {
+		const a = find(indices[t]!), b = find(indices[t + 1]!), c = find(indices[t + 2]!);
+		parent[b] = a;
+		parent[find(c)] = a;
+	}
+	const sum = new Float64Array(n), count = new Uint32Array(n);
+	for (let i = 0; i < n; i++) {
+		const r = find(i);
+		sum[r]! += uvs[i * 2]!;
+		count[r]!++;
+	}
 	const out = new Float32Array(uvs);
-	for (let i = 0; i < out.length; i += 2) out[i] = out[i]! - 2 * Math.floor(out[i]! / 2);
+	for (let i = 0; i < n; i++) {
+		const r = find(i);
+		out[i * 2] = uvs[i * 2]! - 2 * Math.floor(sum[r]! / count[r]! / 2);
+	}
 	return out;
 }
 
