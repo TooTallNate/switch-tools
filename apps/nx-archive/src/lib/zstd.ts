@@ -26,10 +26,31 @@ async function getZstd() {
 	return zstdMod;
 }
 
-/** One-shot decompress: used by NCZ block-mode for each compressed block. */
+/**
+ * One shared decoder for one-shot decompression. A fresh instance per
+ * call (each with its own WebAssembly memory) ran out of memory on
+ * games with thousands of small frames, such as Super Mario Party
+ * Jamboree's `.bea` assets. Decoding is synchronous, so calls never
+ * overlap; a decoder that failed mid-frame is replaced.
+ */
+let shared: Promise<import('@tootallnate/zstd-wasm').ZstdDecoder> | null = null;
+
+/** One-shot decompress: NCZ blocks, BEA assets and the like. */
 export const zstdDecompressBytes: ZstdDecompressBytes = async (compressed) => {
-	const [z, wasm] = await Promise.all([getZstd(), getWasm()]);
-	return z.decompressBytes(wasm, compressed);
+	if (!shared) {
+		shared = Promise.all([getZstd(), getWasm()]).then(([z, wasm]) => z.ZstdDecoder.create(wasm));
+		shared.catch(() => (shared = null));
+	}
+	const dec = await shared;
+	try {
+		// A fresh context per frame: a truncated input can't poison the next one.
+		dec.reset();
+		return dec.decode(compressed);
+	} catch (err) {
+		dec.dispose();
+		if (shared && (await shared) === dec) shared = null;
+		throw err;
+	}
 };
 
 /**
