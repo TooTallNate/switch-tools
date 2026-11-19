@@ -135,3 +135,33 @@ describe('BEA', () => {
 		await expect(parseBea(blobOf(bytes))).rejects.toThrow(/past end/);
 	});
 });
+
+describe('BEA version 6', () => {
+	it('reads the pointer array at 0x30 and 0x48-byte ASST blocks', async () => {
+		const b = new Uint8Array(0x200);
+		const dv = new DataView(b.buffer);
+		b.set([0x53, 0x43, 0x4e, 0x45], 0);
+		dv.setUint32(0x08, 0x00060000, true);
+		dv.setUint16(0x0c, 0xfeff, true);
+		dv.setUint32(0x1c, 0x180, true);
+		dv.setUint16(0x20, 1, true);
+		dv.setBigUint64(0x28, 0x80n, true); // first ASST block
+		dv.setBigUint64(0x30, 0x60n, true); // pointer array
+		dv.setBigUint64(0x60, 0x80n, true);
+		const a = 0x80;
+		b.set([0x41, 0x53, 0x53, 0x54], a);
+		dv.setUint16(a + 0x10, 0, true);
+		dv.setUint32(a + 0x14, 4, true);
+		dv.setUint32(a + 0x18, 4, true);
+		b.set(new TextEncoder().encode('_G3DMDL'), a + 0x1c);
+		dv.setBigUint64(a + 0x38, 0x180n, true);
+		dv.setBigUint64(a + 0x40, 0x100n, true);
+		const name = 'model/a.fmdb';
+		dv.setUint16(0x100, name.length, true);
+		b.set(new TextEncoder().encode(name), 0x102);
+		b.set([1, 2, 3, 4], 0x180);
+		const p = await parseBea(new Blob([b.subarray(0, 0x184)]));
+		expect(p.version.major).toBe(6);
+		expect(p.entries.map((e) => [e.name, e.offset, e.storedSize])).toEqual([['model/a.fmdb', 0x180, 4]]);
+	});
+});

@@ -45,6 +45,19 @@
  * 0x28  u64      file-name offset (u16-length-prefixed string)
  * ```
  *
+ * Version 6 (`0x00060000`, Super Mario Party Jamboree) moves things:
+ * the header's 0x28 points at the first ASST block, 0x30 at the asset
+ * pointer array, and ASST blocks grow to 0x48 bytes:
+ *
+ * ```
+ * 0x10  u16      compression type, u16 alignment exponent
+ * 0x14  u32      stored size, u32 uncompressed size
+ * 0x1C  char[12] asset type ("_G3DMDL", "_SHARC", …)
+ * 0x28  u8[16]   content hash
+ * 0x38  u64      data offset
+ * 0x40  u64      file-name offset
+ * ```
+ *
  * This package only parses the container. Decompression is left to
  * the caller (every asset seen in the wild is a single Zstandard
  * frame) so the parser stays dependency-free; pair it with
@@ -190,14 +203,15 @@ export async function parseBea(blob: Blob): Promise<ParsedBea> {
 		raw,
 	};
 	const count = dv.getUint16(0x20, true);
-	const arrayOffset = u64(0x28);
+	const v6 = version.major >= 6;
+	const arrayOffset = u64(v6 ? 0x30 : 0x28);
 	const name = readString(u64(0x40));
 	check(arrayOffset, count * 8, 'asset array');
 
 	const entries: BeaEntry[] = [];
 	for (let i = 0; i < count; i++) {
 		const a = u64(arrayOffset + i * 8);
-		check(a, ASST_SIZE, `ASST block #${i}`);
+		check(a, v6 ? 0x48 : ASST_SIZE, `ASST block #${i}`);
 		const magic = String.fromCharCode(meta[a], meta[a + 1], meta[a + 2], meta[a + 3]);
 		if (magic !== ASST_MAGIC) {
 			throw new Error(
@@ -208,8 +222,8 @@ export async function parseBea(blob: Blob): Promise<ParsedBea> {
 		const alignmentExponent = dv.getUint16(a + 0x12, true);
 		const storedSize = dv.getUint32(a + 0x14, true);
 		const uncompressedSize = dv.getUint32(a + 0x18, true);
-		const offset = u64(a + 0x20);
-		const entryName = readString(u64(a + 0x28)) || `asset_${i}`;
+		const offset = u64(a + (v6 ? 0x38 : 0x20));
+		const entryName = readString(u64(a + (v6 ? 0x40 : 0x28))) || `asset_${i}`;
 		if (offset + storedSize > blob.size) {
 			throw new Error(
 				`BEA: asset "${entryName}" (0x${offset.toString(16)} + ${storedSize}) extends past end of file`,
