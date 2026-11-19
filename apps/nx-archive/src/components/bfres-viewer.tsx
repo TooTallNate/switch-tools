@@ -1584,6 +1584,24 @@ function decodeTextureByName(
   return decoded
 }
 
+/** A copy of a data texture with every pixel's alpha set to opaque. */
+function opaqueCopy(tex: THREE.Texture): THREE.Texture {
+  const img = tex.image as { data?: Uint8Array | Uint8ClampedArray; width: number; height: number } | undefined
+  if (!(tex instanceof THREE.DataTexture) || !img?.data) return tex
+  const data = new Uint8ClampedArray(img.data)
+  for (let i = 3; i < data.length; i += 4) data[i] = 255
+  const out = new THREE.DataTexture(data, img.width, img.height, THREE.RGBAFormat, THREE.UnsignedByteType)
+  out.colorSpace = tex.colorSpace
+  out.flipY = tex.flipY
+  out.wrapS = tex.wrapS
+  out.wrapT = tex.wrapT
+  out.minFilter = tex.minFilter
+  out.magFilter = tex.magFilter
+  out.generateMipmaps = tex.generateMipmaps
+  out.needsUpdate = true
+  return out
+}
+
 /** Wrap decoded RGBA pixels in a viewer-configured `DataTexture`. */
 function makeDataTexture(
   decoded: DecodedRgba,
@@ -2240,9 +2258,16 @@ export async function loadBfresShapes(
           : (ukingBaseColor(shapeMaterial, ALBEDO_SAMPLERS) ??
             (noAlbedoBinding ? ([0.72, 0.72, 0.72] as [number, number, number]) : null))
       const baseColor = bezelBaseColor(shapeMaterial) ?? ukingColor
+      // Jamboree's graph shaders say outright when a material is cut out;
+      // otherwise its albedo alpha holds something else (a mask), not opacity.
+      const opaqueAlbedo =
+        !!albedo &&
+        !!shapeMaterial?.shaderAssign &&
+        "fragment_shader_graph_color" in shapeMaterial.shaderAssign.options &&
+        shapeMaterial.shaderAssign.options.static_opt_punchthrough === "0"
       const material: THREE.Material = albedo
         ? new THREE.MeshBasicMaterial({
-            map: albedo,
+            map: opaqueAlbedo ? opaqueCopy(albedo) : albedo,
             side: THREE.DoubleSide,
             color: baseColor
               ? new THREE.Color().setRGB(...baseColor, THREE.LinearSRGBColorSpace)
