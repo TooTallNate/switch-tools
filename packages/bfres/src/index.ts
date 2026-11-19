@@ -140,6 +140,11 @@ export interface BfresGeometry {
 	 * {@link BfresShaderAssign.attribAssign}.
 	 */
 	uvSets: Record<string, Float32Array>;
+	/**
+	 * Extra position sets (`_p1`, `_p2`, …): blend-shape targets, whole
+	 * positions rather than offsets. Bezel faces keep blinks here.
+	 */
+	positionSets?: Record<string, Float32Array>;
 	/** Optional vertex colors: `Float32Array` of length `vertexCount * 4` (RGBA, 0..1). */
 	colors: Float32Array | null;
 	/** Triangle indices. The width matches the on-disk format (u16 vs u32). */
@@ -3119,6 +3124,12 @@ function readShapeGeometry(
 
 	const positions = decodePositions(fvtx);
 	if (!positions) return null;
+	const positionSets: Record<string, Float32Array> = {};
+	for (const a of fvtx.attributes) {
+		if (!/^_p[1-9]\d*$/.test(a.name)) continue;
+		const p = decodePositions(fvtx, a.name);
+		if (p) positionSets[a.name] = p;
+	}
 	const normals = decodeNormals(fvtx);
 	const uvSets: Record<string, Float32Array> = {};
 	// UV sets: `_uN` attributes, and those packed into `_g3d_NN_uA_uB`.
@@ -3200,6 +3211,7 @@ function readShapeGeometry(
 		normals,
 		uvs,
 		uvSets,
+		positionSets: Object.keys(positionSets).length ? positionSets : undefined,
 		colors,
 		indices: mesh.indices,
 		vertexCount: fvtx.vertexCount,
@@ -3312,8 +3324,8 @@ function findAttribute(fvtx: FvtxData, names: string[]): VertexAttribute | null 
 	return null;
 }
 
-function decodePositions(fvtx: FvtxData): Float32Array | null {
-	const a = findAttribute(fvtx, ['_p0']);
+function decodePositions(fvtx: FvtxData, name = '_p0'): Float32Array | null {
+	const a = findAttribute(fvtx, [name]);
 	if (!a) return null;
 	const out = new Float32Array(fvtx.vertexCount * 3);
 	const start = fvtx.bufferStarts[a.bufferIndex];
