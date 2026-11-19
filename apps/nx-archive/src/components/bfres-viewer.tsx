@@ -806,6 +806,8 @@ const MAX_BEZEL_MOTIONS = 400
  */
 async function findBezelMotionBlobs(root: Node, bea: Node, selected: Node): Promise<Blob[]> {
   if (!/^chara~pc\d+\.nx\.bea$/i.test(bea.name)) return []
+  // The character itself (and its `_light` LOD), not its props (`pc07it00_egg`).
+  if (!/^pc\d+_[a-z]+(_light)?\.fmdb$/i.test(selected.name)) return []
   const dir = /\/chara\/pc\/([^/]+)\//.exec(selected.id)?.[1]
   if (!dir) return []
   const folder = await findNodeById(root, bea.id.slice(0, bea.id.lastIndexOf("/")))
