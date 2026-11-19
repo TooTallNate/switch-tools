@@ -40,7 +40,8 @@ import {
   type BntxTexture,
 } from "@tootallnate/bntx"
 
-import type { Node } from "~/lib/archive"
+import { beaEntryBlob, type Node } from "~/lib/archive"
+import { parseBea } from "@tootallnate/bea"
 import { getAstcBlockDecoder } from "~/lib/astc"
 import {
   UKING_SHARED_TEXTURE_ARCHIVES,
@@ -789,7 +790,41 @@ async function findBeaCompanions(
   const animations = (
     await Promise.all(animNodes.map((n) => n.blob!().catch(() => null)))
   ).filter((b): b is Blob => b !== null)
+  if (animations.length === 0) animations.push(...(await findBezelMotionBlobs(root, bea, selected).catch(() => [] as Blob[])))
   return { textureBanks, animations }
+}
+
+/** Most clips pulled in for one character, so the dropdown (and the parse) stay manageable. */
+const MAX_BEZEL_MOTIONS = 400
+
+/**
+ * Super Mario Party Jamboree keeps a player's skeletal clips out of its
+ * own archive: `chara~pcMot_<scene>.nx.bea` files next to it each hold
+ * every character's clips for one scene (`chara/pc/pc07_yoshi/motion/
+ * pc07_bd_idle00.fskb`). Read their metadata only and decompress just
+ * this character's `.fskb` files, board (`_bd_`) clips first.
+ */
+async function findBezelMotionBlobs(root: Node, bea: Node, selected: Node): Promise<Blob[]> {
+  if (!/^chara~pc\d+\.nx\.bea$/i.test(bea.name)) return []
+  const dir = /\/chara\/pc\/([^/]+)\//.exec(selected.id)?.[1]
+  if (!dir) return []
+  const folder = await findNodeById(root, bea.id.slice(0, bea.id.lastIndexOf("/")))
+  if (!folder) return []
+  const prefix = `chara/pc/${dir}/motion/`
+  const found: { name: string; entry: Parameters<typeof beaEntryBlob>[0] }[] = []
+  for (const sib of await childrenOf(folder)) {
+    if (!/^chara~pcMot_.*\.nx\.bea$/i.test(sib.name) || !sib.blob) continue
+    try {
+      const parsed = await parseBea(await sib.blob())
+      for (const e of parsed.entries) if (e.name.startsWith(prefix) && e.name.endsWith(".fskb")) found.push({ name: e.name, entry: e })
+    } catch {
+      // An archive that won't parse just contributes nothing.
+    }
+  }
+  // The common idle first, then the rest of the common (`_co_`) and board (`_bd_`) clips.
+  const rank = (n: string) => (/_co_idle00\.fskb$/.test(n) ? 0 : /_co_/.test(n) ? 1 : /_bd_/.test(n) ? 2 : 3)
+  found.sort((a, b) => rank(a.name) - rank(b.name) || (a.name < b.name ? -1 : 1))
+  return found.slice(0, MAX_BEZEL_MOTIONS).map((f) => beaEntryBlob(f.entry))
 }
 
 /**
@@ -2425,7 +2460,14 @@ export async function loadBfresShapes(
  * {@link ExportMesh}es without a renderer, then free its GPU-side
  * resources (pixel data stays referenced by the export meshes).
  */
-export function bakeBfresBindPose(loaded: LoadedBfres): ExportMesh[] {
+/** The clip a model opens on: Jamboree players' common idle, else none (-1). */
+export function defaultBfresClip(loaded: Pick<LoadedBfres, "animations">): number {
+  return loaded.animations.skeletal.findIndex((c) => /_co_idle00$/.test(c.name))
+}
+
+export function bakeBfresBindPose(loaded: LoadedBfres, clip = -1, frame = 0): ExportMesh[] {
+  const anim = clip >= 0 ? loaded.animations.skeletal[clip] : undefined
+  if (anim) for (const ss of loaded.sceneSkeletons) applySkeletalAnim(ss, anim, frame)
   const scene = new THREE.Scene()
   for (const r of loaded.records) if (!r.mesh.parent) scene.add(r.mesh)
   for (const ss of loaded.sceneSkeletons) for (const b of ss.roots) if (!b.parent) scene.add(b)
@@ -2535,6 +2577,13 @@ function BfresViewerInner({ node, root }: { node: Node; root: Node | null }) {
         sceneSkeletonsRef.current = loaded.sceneSkeletons
         const records = loaded.records
         setShapes(records)
+        // Open on the character's idle clip when it has one (Jamboree players).
+        const idle = defaultBfresClip(loaded)
+        if (idle >= 0) {
+          setCurrentAnim(idle)
+          setFrame(0)
+          setPlaying(true)
+        }
       } catch (err) {
         if (cancelled) return
         setError(err instanceof Error ? err : new Error(String(err)))

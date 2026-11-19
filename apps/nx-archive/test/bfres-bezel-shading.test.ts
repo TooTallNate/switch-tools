@@ -166,6 +166,13 @@ describe('rendersInColorPass', () => {
     expect(rendersInColorPass(other, [other])).toBe(true)
     expect(rendersInColorPass(mat(undefined), [body])).toBe(true)
   })
+
+  it('reads Jamboree\'s render_info_draw_color_buffer and hides its info-less fluid quads', () => {
+    const body = mat({ render_info_draw_color_buffer: [1] })
+    expect(rendersInColorPass(body, [body])).toBe(true)
+    const fluid = { ...mat(undefined), shaderAssign: { ...eyeMaterial().shaderAssign!, shaderArchive: 'fluid' } } as BfresMaterial
+    expect(rendersInColorPass(fluid, [body, fluid])).toBe(false)
+  })
 })
 
 describe('older Bezel shaders (Super Mario Party)', () => {

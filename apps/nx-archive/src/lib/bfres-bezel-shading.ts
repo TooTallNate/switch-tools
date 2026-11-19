@@ -83,7 +83,8 @@ function texSrtEnabled(mat: BfresMaterial, index: number): boolean {
  * `forward_plus_fluid` materials are an example: flat height/velocity
  * quads under the feet and body (`fluid_type=1`), drawn into the
  * board's ground-fluid simulation (water/sand ripples), never on
- * screen. Other engines don't use `render_color`, so a material lacking
+ * screen (Jamboree's `fluid` materials, and its `container` shapes). Other
+ * engines don't use `render_color`, so a material lacking
  * it only counts as off-screen when a sibling material in the same
  * model has it.
  */
@@ -91,10 +92,17 @@ export function rendersInColorPass(
 	mat: BfresMaterial | undefined,
 	modelMaterials: readonly BfresMaterial[],
 ): boolean {
-	if (!mat?.renderInfo) return true;
-	const flag = mat.renderInfo.render_color;
-	if (flag) return Number(flag[0]) !== 0;
-	return !modelMaterials.some((m) => m.renderInfo && 'render_color' in m.renderInfo);
+	if (!mat) return true;
+	// Super Mario Party Jamboree renames it `render_info_draw_color_buffer`.
+	const keys = ['render_color', 'render_info_draw_color_buffer'];
+	const convention = modelMaterials.some((m) => m.renderInfo && keys.some((k) => k in m.renderInfo!));
+	// Jamboree's fluid quads and containers carry no render info at all.
+	if (!mat.renderInfo) return !(convention && /^(fluid|container)$/.test(mat.shaderAssign?.shaderArchive ?? ''));
+	for (const k of keys) {
+		const flag = mat.renderInfo[k];
+		if (flag) return Number(flag[0]) !== 0;
+	}
+	return !convention;
 }
 
 /**
@@ -197,8 +205,10 @@ export function planBezelAlbedo(
 		// Older shaders (Super Mario Party) have no shader `_u2` input:
 		// the second eye's pupil is sampled at UV1 *without* `texsrt1`.
 		// Newer ones route it through `_u2`, which dedupes against this.
-		const indices: (1 | 2 | 'u1-raw')[] =
-			'_u2' in mat.shaderAssign!.attribAssign ? [1, 2] : [1, 'u1-raw'];
+		const graph = 'fragment_shader_graph_color' in mat.shaderAssign!.options;
+		// Jamboree: one UV set (shader UV1) carries both pupils, the second
+		// eye's island shifted by +2 in U; `_u2` is something else there.
+		const indices: (1 | 2 | 'u1-raw')[] = graph ? [1] : '_u2' in mat.shaderAssign!.attribAssign ? [1, 2] : [1, 'u1-raw'];
 		for (const index of indices) {
 			if (index === 'u1-raw') {
 				const meshAttr = mat.shaderAssign!.attribAssign._u1 ?? '_u1';
@@ -220,7 +230,7 @@ export function planBezelAlbedo(
 			if (seen.has(key)) continue;
 			seen.add(key);
 			const uvs = shaderUvs(geom, mat, index);
-			if (uvs) layers.push({ textureName: layerTexture, uvs });
+			if (uvs) layers.push({ textureName: layerTexture, uvs: graph ? wrapPupilU(uvs) : uvs });
 		}
 	}
 	return {
@@ -229,6 +239,13 @@ export function planBezelAlbedo(
 		layers,
 		windowColor: windowColorOf(mat),
 	};
+}
+
+/** Fold U into 0…2, bringing Jamboree's second pupil island (U 2…3) onto the texture. */
+function wrapPupilU(uvs: Float32Array): Float32Array {
+	const out = new Float32Array(uvs);
+	for (let i = 0; i < out.length; i += 2) out[i] = out[i]! - 2 * Math.floor(out[i]! / 2);
+	return out;
 }
 
 /**

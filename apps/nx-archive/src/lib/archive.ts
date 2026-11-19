@@ -6697,7 +6697,7 @@ const BEA_FTXB_BNTX_MIN_SIZE = 0x200;
  * uncompressed size synchronously; decompression runs (once) on
  * first byte-level access.
  */
-function beaEntryBlob(entry: BeaEntry): Blob {
+export function beaEntryBlob(entry: BeaEntry): Blob {
 	if (entry.compression === 'none') return entry.data;
 	let cached: Promise<Blob> | null = null;
 	return makeLazyBlob(entry.uncompressedSize, () => {

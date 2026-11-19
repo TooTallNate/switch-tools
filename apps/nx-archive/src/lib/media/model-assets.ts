@@ -26,7 +26,7 @@ import { parseDat } from '@tootallnate/ff8-battle';
 import { inferAssetClassName, isUasset, parseStaticMesh, parseUasset, readExportProperties } from '@tootallnate/uasset';
 
 import type { RenderableMesh, RenderableMeshLOD } from '~/components/mesh-viewer';
-import { bakeBfresBindPose, loadBfresShapes } from '~/components/bfres-viewer';
+import { bakeBfresBindPose, defaultBfresClip, loadBfresShapes } from '~/components/bfres-viewer';
 import { decodeUnityObjectNode, loadUnityMeshData } from '~/components/preview-pane';
 import { defaultClip as defaultUnityClip } from '~/components/unity-mesh-viewer';
 import * as ff8Mch from '~/components/ff8-mch-preview';
@@ -325,7 +325,8 @@ async function loadPhyre(node: Node, root: Node | null): Promise<ModelAsset> {
 async function loadBfres(node: Node, root: Node | null): Promise<ModelAsset> {
 	const loaded = await loadBfresShapes(node, root);
 	const visible = loaded.records.filter((r) => r.visible);
-	const meshes = bakeBfresBindPose(loaded);
+	const clip = defaultBfresClip(loaded);
+	const meshes = bakeBfresBindPose(loaded, clip);
 	let triangles = 0;
 	let vertices = 0;
 	for (const m of meshes) {
@@ -335,7 +336,7 @@ async function loadBfres(node: Node, root: Node | null): Promise<ModelAsset> {
 	return {
 		meshes,
 		textures: [],
-		pose: 'bind',
+		pose: clip >= 0 ? loaded.animations.skeletal[clip]!.name : 'bind',
 		triangles,
 		vertices,
 		// Flat-coloured materials sample no texture, so they count as complete.
