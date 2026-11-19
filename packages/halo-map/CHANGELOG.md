@@ -1,5 +1,13 @@
 # @tootallnate/halo-map
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [095f9e0f]
+- Updated dependencies [8a00672b]
+  - @tootallnate/bcn@0.1.0
+
 ## 0.1.0
 
 ### Minor Changes

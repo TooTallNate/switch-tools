@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/nu3",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Parsers for Bandai Namco NU3 formats: NUT textures, NUD models and VBN skeletons (Pokkén Tournament, Smash 4).",
   "main": "dist/index.js",

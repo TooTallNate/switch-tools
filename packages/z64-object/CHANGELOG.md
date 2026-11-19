@@ -1,5 +1,13 @@
 # @tootallnate/z64-object
 
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [0838bf0a]
+- Updated dependencies [b1afa166]
+  - @tootallnate/f3dex@0.2.0
+
 ## 0.1.0
 
 ### Minor Changes

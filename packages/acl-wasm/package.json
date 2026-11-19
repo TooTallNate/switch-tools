@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/acl-wasm",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Animation Compression Library (ACL 2.0) transform-track decompression compiled to WebAssembly.",
   "type": "module",
   "exports": {

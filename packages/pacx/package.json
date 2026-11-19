@@ -1,6 +1,6 @@
 {
   "name": "@tootallnate/pacx",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Reader for Hedgehog Engine PACx packfiles (.pac): Sonic Forces v3 and Sonic Frontiers v4, LZ4 chunks and splits.",
   "main": "dist/index.js",

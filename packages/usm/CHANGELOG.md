@@ -1,5 +1,11 @@
 # @tootallnate/usm
 
+## 0.1.1
+
+### Patch Changes
+
+- e732066d: Detect HCA and ADX audio by their payload magic (the codec enum differs between SDK versions), and expose each stream's source file name and MPEG DC precision.
+
 ## 0.1.0
 
 ### Minor Changes

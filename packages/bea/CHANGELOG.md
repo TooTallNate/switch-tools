@@ -1,5 +1,11 @@
 # @tootallnate/bea
 
+## 0.1.0
+
+### Minor Changes
+
+- 10a11120: BEA version 6 (Super Mario Party Jamboree): the asset pointer array moved to header 0x30 and ASST blocks grew to 0x48 bytes (asset type, content hash), with the data and name offsets at 0x38 / 0x40.
+
 ## 0.0.2
 
 ### Patch Changes
