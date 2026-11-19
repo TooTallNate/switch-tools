@@ -242,6 +242,27 @@ function windowColorOf(mat: BfresMaterial): [number, number, number] {
 }
 
 /**
+ * Super Mario Party Jamboree's node-graph shaders (materials with a
+ * `fragment_shader_graph_color` option) sample a non-square albedo in
+ * square UV units anchored at its bottom edge: a 1024 × 2048 body
+ * atlas spans V −1…1. Map such V into the texture's 0…1 range,
+ * `v' = 1 − (1 − v) · width / height` (identity for square textures).
+ * Worked out from the character atlases; every Jamboree character
+ * lines up with it.
+ */
+export function graphShaderUvs(mat: BfresMaterial | undefined, uvs: Float32Array, width: number, height: number): Float32Array {
+	if (!mat?.shaderAssign || !('fragment_shader_graph_color' in mat.shaderAssign.options)) return uvs;
+	if (!width || !height || width === height) return uvs;
+	const k = width / height;
+	const out = new Float32Array(uvs.length);
+	for (let i = 0; i < uvs.length; i += 2) {
+		out[i] = uvs[i]!;
+		out[i + 1] = 1 - (1 - uvs[i + 1]!) * k;
+	}
+	return out;
+}
+
+/**
  * Give every UV island of a mesh its own copy of the base texture
  * when islands overlap in base-UV space.
  *

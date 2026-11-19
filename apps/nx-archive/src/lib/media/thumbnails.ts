@@ -39,7 +39,7 @@ import { makeObjectUrl } from '../object-url';
 import { loadNu3FontView, onDark } from '../pokken';
 
 /** Bump to regenerate cached thumbnails. */
-export const THUMB_VERSION = 35;
+export const THUMB_VERSION = 36;
 const SIZE = 256;
 
 export interface ThumbResult {

@@ -56,6 +56,7 @@ import {
   hasAlpha,
   separateOverlappingIslands,
   tileHorizontally,
+  graphShaderUvs,
   isBezelMaterial,
   planBezelAlbedo,
   rendersInColorPass,
@@ -1646,6 +1647,10 @@ function pickBezelAlbedo(
   if (!cache) return null
   const plan = planBezelAlbedo(geom, material)
   if (!plan || !plan.baseUvs) return null
+  {
+    const base = decodeTextureByName(cache, plan.baseTexture)
+    if (base) plan.baseUvs = graphShaderUvs(material, plan.baseUvs, base.width, base.height)
+  }
   const remapped: BfresGeometry = { ...geom, uvs: plan.baseUvs }
   if (plan.layers.length === 0) {
     const texture = pickAlbedo(remapped, [], cache, plan.baseTexture)
