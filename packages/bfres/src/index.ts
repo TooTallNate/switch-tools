@@ -3121,10 +3121,23 @@ function readShapeGeometry(
 	if (!positions) return null;
 	const normals = decodeNormals(fvtx);
 	const uvSets: Record<string, Float32Array> = {};
+	// UV sets: `_uN` attributes, and those packed into `_g3d_NN_uA_uB`.
+	const setNames = new Set<string>();
 	for (const a of fvtx.attributes) {
-		if (!/^_u\d+$/.test(a.name)) continue;
-		const set = decodeUvs(fvtx, a.name);
-		if (set) uvSets[a.name] = set;
+		if (/^_u\d+$/.test(a.name)) setNames.add(a.name);
+		const m = /^_g3d_\d+_(.+)$/.exec(a.name);
+		if (m) for (const p of m[1]!.split('_')) if (/^u\d+$/.test(p)) setNames.add(`_${p}`);
+	}
+	for (const name of setNames) {
+		const set = decodeUvs(fvtx, name);
+		if (set) uvSets[name] = set;
+	}
+	// Materials' attribute assigns name the packed attribute itself
+	// (`_u0` ← `_g3d_02_u0_u1`): that means its first pair.
+	for (const a of fvtx.attributes) {
+		if (!/^_g3d_\d+_u\d+/.test(a.name) || uvSets[a.name]) continue;
+		const first = decodeUvs(fvtx, a.name);
+		if (first) uvSets[a.name] = first;
 	}
 	const uvs = uvSets._u0 ?? null;
 	const colors = decodeColors(fvtx);
@@ -3339,9 +3352,30 @@ function decodeNormals(fvtx: FvtxData): Float32Array | null {
 	return out;
 }
 
-function decodeUvs(fvtx: FvtxData, name = '_u0'): Float32Array | null {
+/**
+ * A UV set stored on its own (`_u0`) or packed with others: Bezel titles
+ * (Super Mario Party Jamboree) store `_g3d_02_u0_u1`, a four-component
+ * attribute holding u0.xy then u1.xy. Returns the attribute and the
+ * component the set starts at.
+ */
+function findUvAttribute(fvtx: FvtxData, name: string): { a: VertexAttribute; component: number } | null {
 	const a = findAttribute(fvtx, [name]);
-	if (!a) return null;
+	if (a) return { a, component: 0 };
+	const want = name.replace(/^_/, '');
+	for (const attr of fvtx.attributes) {
+		const m = /^_g3d_\d+_(.+)$/.exec(attr.name);
+		if (!m) continue;
+		const parts = m[1]!.split('_');
+		const i = parts.indexOf(want);
+		if (i >= 0) return { a: attr, component: i * 2 };
+	}
+	return null;
+}
+
+function decodeUvs(fvtx: FvtxData, name = '_u0'): Float32Array | null {
+	const found = findUvAttribute(fvtx, name);
+	if (!found) return null;
+	const { a, component } = found;
 	const out = new Float32Array(fvtx.vertexCount * 2);
 	const start = fvtx.bufferStarts[a.bufferIndex];
 	const stride = fvtx.bufferStrides[a.bufferIndex];
@@ -3352,8 +3386,8 @@ function decodeUvs(fvtx: FvtxData, name = '_u0'): Float32Array | null {
 			a.format,
 		);
 		if (!v) return null;
-		out[i * 2] = v[0] ?? 0;
-		out[i * 2 + 1] = v[1] ?? 0;
+		out[i * 2] = v[component] ?? 0;
+		out[i * 2 + 1] = v[component + 1] ?? 0;
 	}
 	return out;
 }
