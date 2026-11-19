@@ -42,6 +42,7 @@ import { isPxdAnimation, isPxdSkeleton, parseHhMaterial, parsePxdAnimation, pars
 import type { Node } from "~/lib/archive"
 import { highlightCode } from "~/lib/highlight"
 import { exefsStringsFor } from "~/lib/title-exefs"
+import { decodeMsgpack } from "~/lib/msgpack"
 import { ScrollArea } from "~/components/ui/scroll-area"
 
 import {
@@ -447,6 +448,16 @@ export async function loadDataTextView(node: Node): Promise<DataTextView> {
     return s.length ? [`${title}:`, ...s.map((x) => `  - ${JSON.stringify(x)}`)] : []
   }
   switch (fmt) {
+    case "msgpack": {
+      const value = decodeMsgpack(bytes)
+      const rtts = value && typeof value === "object" && Object.keys(value).some((k) => k.startsWith("rtts_file_format"))
+      return {
+        title: rtts ? "Bezel engine data (MessagePack)" : "MessagePack",
+        rows: [["Size", `${bytes.length.toLocaleString()} bytes`]],
+        text: JSON.stringify(value, null, 2),
+        lang: "json",
+      }
+    }
     case "prod": {
       const p = parseProd(bytes)
       const total = p.meshes.reduce((n, m) => n + m.instances.length, 0)

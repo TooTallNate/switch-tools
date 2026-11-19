@@ -23,6 +23,7 @@ import { parseLgp, type LgpEntry } from '@tootallnate/lgp';
 import { readPacx } from '@tootallnate/pacx';
 import { extractScalableFont, isHeightfield, isNtsi, isPointCloud } from '@tootallnate/hedgehog';
 import { resolveHedgehogDds } from './hedgehog-textures';
+import { isRttsMsgpack } from './msgpack';
 import {
 	parseWd,
 	decodeWaveToWav,
@@ -9624,7 +9625,8 @@ export type LeafFormat =
 	| 'hash-list'
 	| 'uking-misc'
 	| 'xml'
-	| 'switch-ticket';
+	| 'switch-ticket'
+	| 'msgpack';
 
 const LEAF_FORMAT_LABEL: Record<LeafFormat, string> = {
 	aamp: 'AAMP',
@@ -9646,6 +9648,7 @@ const LEAF_FORMAT_LABEL: Record<LeafFormat, string> = {
 	'uking-misc': 'BotW engine data',
 	xml: 'XML',
 	'switch-ticket': 'Ticket',
+	msgpack: 'MessagePack',
 };
 
 /**
@@ -9679,8 +9682,10 @@ export async function leafFormatOf(blob: Blob, name = ''): Promise<LeafFormat | 
 	if (lowerName.endsWith('.tik') && blob.size >= 0x2c0) return 'switch-ticket';
 	if (lowerName.endsWith('.cert') && blob.size >= 0x300) return 'switch-ticket';
 	if (lowerName.endsWith('.sfmc')) return 'hash-list';
+	if (lowerName.endsWith('.msgpack') && blob.size > 0) return 'msgpack';
 	if (blob.size < 16) return null;
-	const h = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+	const h = new Uint8Array(await blob.slice(0, 18).arrayBuffer());
+	if (isRttsMsgpack(h)) return 'msgpack';
 	const m4 = String.fromCharCode(h[0]!, h[1]!, h[2]!, h[3]!);
 	if (m4 === 'AAMP') return 'aamp';
 	if (m4 === 'TSCB') return 'tscb';

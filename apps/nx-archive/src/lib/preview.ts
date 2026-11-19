@@ -399,6 +399,10 @@ export type PreviewKind =
 
 export const TEXT_EXTS = new Set([
 	'txt',
+	// Bezel engine (Super Mario Party Jamboree): boot JSON, archive config, placeholder shaders.
+	'nbinit',
+	'archiveconfig',
+	'bgsh',
 	'md',
 	'log',
 	'cfg',
@@ -646,7 +650,7 @@ export function previewKindForNode(node: Pick<import('./archive').Node, 'name' |
 	if (node.meta?.leafFormat === 'nvn-texture') return 'nvn-image';
 	if (node.meta?.leafFormat === 'xml') return 'text';
 	if (typeof node.meta?.leafFormat === 'string') {
-		const textual = ['prod', 'rstb', 'xlnk', 'nw-binary', 'uking-sound', 'hash-list', 'uking-misc', 'switch-ticket'];
+		const textual = ['prod', 'rstb', 'xlnk', 'nw-binary', 'uking-sound', 'hash-list', 'uking-misc', 'switch-ticket', 'msgpack'];
 		if (textual.includes(node.meta.leafFormat)) return 'data-text';
 	}
 	if (node.meta?.haloModel) return 'halo-model';
@@ -717,7 +721,8 @@ export function detectPreviewKind(name: string): PreviewKind {
 		lower.endsWith('.ufont')
 	)
 		return 'font-info';
-	if (lower.endsWith('.bffnt')) return 'bffnt-info';
+	// `.ffnt`: Super Mario Party Jamboree's name for the same format.
+	if (lower.endsWith('.bffnt') || lower.endsWith('.ffnt')) return 'bffnt-info';
 	if (lower.endsWith('.fnt')) return 'bmfont-info';
 	if (lower.endsWith('.spritefont')) return 'spritefont-info';
 	if (lower.endsWith('.uasset') || lower.endsWith('.umap'))
@@ -799,7 +804,8 @@ export function detectPreviewKind(name: string): PreviewKind {
 		return 'byaml-tree';
 	}
 	if (lower.endsWith('.bntx')) return 'bntx-image';
-	if (lower.endsWith('.tga')) return 'tga-image';
+	// `.ctga`: plain TGA in Super Mario Party Jamboree.
+	if (lower.endsWith('.tga') || lower.endsWith('.ctga')) return 'tga-image';
 	if (lower.endsWith('.tpc')) return 'tpc-image';
 	// id Tech 3 family (Jedi Knight II / Jedi Academy): MD3, Ghoul2, BSP levels.
 	if (lower.endsWith('.md3') || lower.endsWith('.glm') || lower.endsWith('.bsp')) return 'idtech3-model';
